@@ -6,7 +6,7 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental toolkit, 0.1.0a1. Ready for supervised trials.** 113 local tests pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. Live Bandcamp, SoundCloud, and YouTube fixtures downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
+> **Experimental toolkit, 0.1.0a2. Ready for supervised trials.** The runtime suite and installed-wheel checks pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. Live Bandcamp, SoundCloud, and YouTube fixtures downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
 
 ## What is here
 
@@ -22,7 +22,27 @@
 
 Soulseek through slskd, complete artist catalog workflows, acoustic track identification, musical analysis, native Serato/rekordbox automation, player-ready USB export, and the early-web public home remain in the [full implementation plan](PLAN.md). There is no frontend yet.
 
-## Install from source
+## Install from GitHub
+
+Install the complete [v0.1.0a2 release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a2), including the engine, MCP server, and portable skill. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+
+```bash
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a2/dj_library_tool-0.1.0a2-py3-none-any.whl'
+djlib version
+```
+
+Then create a new music workspace and a separate assistant session. On macOS/Linux:
+
+```bash
+djlib --workspace "$HOME/djlib-library" init --allow-root "$HOME/Music"
+djlib --workspace "$HOME/djlib-library" setup-agent --output "$HOME/djlib-session"
+python3 "$HOME/djlib-session/launch.py" codex
+# Or replace codex with claude.
+```
+
+Use your actual music folder and new workspace/session paths. The installed package copies both skills and supplies explicit MCP configuration. Your chosen AI CLI must be installed and signed in. FFmpeg/ffprobe remain separate requirements; YouTube needs supported Deno or Node 22+. See [public installation](docs/INSTALL.md) for Windows, PATH, skill-only installation, and updates. Music and the engine run locally; GitHub distributes the software.
+
+## Develop from source
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/getting-started/installation/). There is no published PyPI release yet.
 
@@ -58,14 +78,14 @@ uv run djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-l
 uv run djlib --workspace /path/to/dj-workspace jobs list
 ```
 
-Every command emits JSON. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
+Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
 ## Use with an AI CLI
 
 For a separate trial session, initialize a workspace (or run the demo), then:
 
 ```bash
-uv run djlib --workspace /absolute/path/dj-workspace setup-agent \
+djlib --workspace /absolute/path/dj-workspace setup-agent \
   --output /absolute/path/dj-session
 cd /absolute/path/dj-session
 python launch.py codex
@@ -78,15 +98,15 @@ To register the tools permanently instead, use absolute paths:
 
 ```bash
 # Codex
-codex mcp add djlib -- /absolute/path/dj-library-tool/.venv/bin/djlib \
+codex mcp add djlib -- /absolute/path/to/installed/djlib \
   --workspace /absolute/path/dj-workspace mcp serve
 
 # Claude Code
-claude mcp add --transport stdio djlib -- /absolute/path/dj-library-tool/.venv/bin/djlib \
+claude mcp add --transport stdio djlib -- /absolute/path/to/installed/djlib \
   --workspace /absolute/path/dj-workspace mcp serve
 ```
 
-On Windows, use `.venv\Scripts\djlib.exe`. Add the [skill](skills/dj-library) to your host's skill directory for the workflow guidance. See [agent setup](docs/AGENTS.md) for installation, MCP configuration, and example requests.
+Find the executable with `command -v djlib` or PowerShell `(Get-Command djlib).Source`. Add the [skill](skills/dj-library) to your host's skill directory for the workflow guidance. See [agent setup](docs/AGENTS.md) for installation, MCP configuration, and example requests.
 
 Example request:
 

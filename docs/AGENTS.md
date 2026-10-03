@@ -4,21 +4,21 @@ The engine is model-independent. Conversation, online search, and interpretation
 
 ## Prerequisites
 
-Clone the repository, run `uv sync --locked` (add `--extra download` for web sources), and initialize a separate library workspace:
+Install the complete engine from the [GitHub release using the public installation guide](INSTALL.md). The package includes the skill and MCP server; it needs no checkout. Initialize a separate library workspace:
 
 ```bash
-uv run djlib --workspace /absolute/path/dj-workspace init \
+djlib --workspace /absolute/path/dj-workspace init \
   --allow-root /absolute/path/music
 ```
 
-Use absolute paths in host configuration. Do not point a host at `uv run` with an unspecified working directory; use the installed executable in this checkout's virtual environment.
+The session generator records the installed interpreter's absolute path. Use a persistent installation: a transient `uvx` cache or removable developer checkout is unsuitable for persistent MCP configuration. Contributors can still use `uv sync --locked` and their checkout's executable.
 
 ## Connect MCP
 
 ### Separate trial session
 
 ```bash
-uv run djlib --workspace /absolute/path/dj-workspace setup-agent \
+djlib --workspace /absolute/path/dj-workspace setup-agent \
   --output /absolute/path/dj-session
 cd /absolute/path/dj-session
 python launch.py codex
@@ -34,16 +34,16 @@ These commands do not change personal host configuration. The generated README c
 ### Persistent registration
 
 ```bash
-codex mcp add djlib -- /absolute/path/dj-library-tool/.venv/bin/djlib \
+codex mcp add djlib -- /absolute/path/to/installed/djlib \
   --workspace /absolute/path/dj-workspace mcp serve
 ```
 
 ```bash
-claude mcp add --transport stdio djlib -- /absolute/path/dj-library-tool/.venv/bin/djlib \
+claude mcp add --transport stdio djlib -- /absolute/path/to/installed/djlib \
   --workspace /absolute/path/dj-workspace mcp serve
 ```
 
-These commands write your host's MCP configuration. Run them when you want to register the server. Use `.venv\Scripts\djlib.exe` on Windows. Restart or reconnect the host, then inspect its MCP connections and call `djlib_capabilities` first.
+These commands write your host's MCP configuration. Run them when you want to register the server. Find the installed executable with `command -v djlib` on macOS/Linux or `(Get-Command djlib).Source` in PowerShell, and substitute that absolute path. Restart or reconnect the host, then inspect its MCP connections and call `djlib_capabilities` first.
 
 The local MCP process speaks stdio only. It discovers or starts the authenticated loopback coordinator for the workspace. Multiple hosts share the same coordinator and catalog. Accepted jobs are designed to survive disconnection; an MCP reconnection does not submit another acquisition.
 
@@ -51,7 +51,7 @@ Host configuration references: [Codex MCP](https://learn.chatgpt.com/docs/extend
 
 ## Add workflow guidance
 
-The portable entrypoint is [`skills/dj-library/SKILL.md`](../skills/dj-library/SKILL.md), with one CLI reference. Copy the entire directory to your host's supported skill location, preserving its name and relative reference path.
+The portable entrypoint is [`skills/dj-library/SKILL.md`](../skills/dj-library/SKILL.md), with CLI and installation references. Copy the entire directory to your host's supported skill location, preserving its name and relative reference path.
 
 For Claude Code, from this checkout:
 
@@ -64,7 +64,7 @@ Use `~/.claude/skills/dj-library` instead for personal installation across proje
 
 For current Codex, use `.agents/skills/dj-library` in your project or `~/.agents/skills/dj-library` for personal discovery. The generated trial session handles project placement automatically. Older hosts may have a different discovery directory; follow their installed version's documentation. See [Codex skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills). You can also explicitly ask the host to read the repo's `skills/dj-library/SKILL.md`.
 
-CLI-only use is also supported: make the checkout's `djlib` executable available to the host and supply the workspace path. The skill's [CLI recipes](../skills/dj-library/references/cli.md) cover strict request JSON.
+CLI-only use is also supported: make the installed `djlib` executable available to the host and supply the workspace path. The skill's [CLI recipes](../skills/dj-library/references/cli.md) cover strict request JSON.
 
 ## Example requests
 

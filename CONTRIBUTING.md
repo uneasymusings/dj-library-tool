@@ -37,3 +37,16 @@ Describe the user scenario, intended behavior, implementation choice, actual val
 For bug reports, include OS/Python/app versions, command name, error code, and a redacted item/job outcome. Share a synthetic reproducer where possible. Public logs can contain source paths and URLs; redact those first. Use the private reporting process in [SECURITY.md](SECURITY.md) for vulnerabilities.
 
 Runtime tests use original generated audio, isolated workspaces, controlled source responses, actual CLI processes, and real MCP stdio. FFmpeg-dependent cases skip when the decoder is unavailable. Live providers and signed-in AI hosts belong in separate explicit evaluations, not network-dependent CI. Record versions, observed outcomes, and remaining limits in [validation](docs/VALIDATION.md) and [status](docs/STATUS.md). Do not publish personal host transcripts or music libraries.
+
+## GitHub releases
+
+Update the project, engine, and lockfile version together. Update the pinned public install URLs in the README and installation references. Run the full checks above, then:
+
+```bash
+uv run --locked python scripts/check_distribution.py
+uv run --locked python scripts/release_artifacts.py
+```
+
+The second script prints the four files to attach: the current wheel, source archive, portable skill ZIP, and `SHA256SUMS`. It excludes older builds and allows only documented skill resources into the standalone ZIP. The wheel bundles the same skill resources.
+
+Commit and push the reviewed changes; confirm all six matrix jobs pass. Tag that exact commit and create a GitHub prerelease with those four assets and release notes describing observed checks and unfinished scope. Do not upload workspace data or test transcripts. Finally install the published wheel URL into a fresh persistent tool environment outside the checkout, create a new demo/session, and verify its CLI/MCP paths point to the installed package. Test the standalone ZIP download and checksum manifest too. Publication alone does not prove the public install works.

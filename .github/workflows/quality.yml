@@ -38,4 +38,6 @@ jobs:
       - name: Build distributable artifacts
         run: uv build
       - name: Exercise installed wheel in a fresh environment
-        run: uv run --isolated --no-project --with dist/dj_library_tool-0.1.0a1-py3-none-any.whl python scripts/check_installed.py
+        run: uv run --locked python scripts/check_distribution.py
+      - name: Package portable skill and checksums
+        run: uv run --locked python scripts/release_artifacts.py

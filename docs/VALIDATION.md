@@ -12,7 +12,7 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-Local result: **113 passed in 22.19 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. Tests generate their own short tones and never access a personal music catalog or physical USB. Live network access is not a test-suite prerequisite.
+Local result: **115 passed in 22.35 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. Tests generate their own short tones and never access a personal music catalog or physical USB. Live network access is not a test-suite prerequisite.
 
 | Suite | Scenarios |
 | --- | --- |
@@ -22,6 +22,7 @@ Local result: **113 passed in 22.19 seconds**, macOS, Python 3.13.3, FFmpeg/ffpr
 | `test_sources` | URL bounds, malformed metadata/chapters/receipts, untrusted text limits, subprocess exits/timeouts/output/staging limits, error classification, bounded stderr, cancellation including POSIX descendants. |
 | `test_http` | Token, browser origin, host checks, strict body/query validation, reads, plans/submissions/controls, source errors. |
 | `test_integration` | Fresh CLI processes, singleton coordinator startup, actual stdio MCP reconnect, all 16 MCP tools with real HTTP/worker/catalog and controlled providers. |
+| `test_release_artifacts` | Engine/project/lock version consistency, complete standalone skill allowlist, reproducible ZIP bytes, and checksums for current release artifacts only. |
 | `test_agent_setup` | Both portable skills, absolute executable config, existing-output preservation, workspace boundaries, launcher option placement, clean MCP stdout on startup failure. |
 
 CI runs the suite on three OSes and Python 3.12/3.13. Five FFmpeg-dependent cases skip if the runner has no decoder. The POSIX descendant test skips on Windows; Windows retrieval uses `taskkill /T` for process-tree cancellation. Symlink tests can skip where link creation is unavailable. Check the run's summaries instead of assuming every optional case ran on every platform.
@@ -65,8 +66,8 @@ The prior YouTube fixture `BaW_jenozKc` is unavailable. It failed rather than be
 After building, run:
 
 ```bash
-uv run --isolated --no-project --with dist/dj_library_tool-0.1.0a1-py3-none-any.whl \
-  python scripts/check_installed.py
+uv run --locked python scripts/check_distribution.py
+uv run --locked python scripts/release_artifacts.py
 ```
 
 Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows also waits for the exiting process to close its inherited log handle before removing the disposable workspace. CI runs this fresh-environment smoke check after building the wheel.

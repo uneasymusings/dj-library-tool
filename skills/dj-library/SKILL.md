@@ -7,6 +7,8 @@ description: Acquire and organize DJ music collections with djlib through MCP or
 
 Use the installed `djlib` utility and the user's selected workspace. Prefer `djlib_*` MCP tools when connected; otherwise use `djlib --workspace PATH COMMAND`. Read [CLI recipes](references/cli.md) for JSON inputs and command sequences.
 
+If the engine or MCP connection is missing, read [GitHub installation](references/install.md). The skill needs the local engine for file operations; a skill file alone is not an executable downloader. Use the published installation rather than assuming a developer checkout exists.
+
 Read capabilities before choosing a workflow. This version supports owned audio, explicitly selected public recording downloads, publisher set metadata, collection membership, metadata conflict reviews, and export artifacts. Soulseek, acoustic set identification, complete artist catalog enumeration, BPM/key analysis, native app writes, and player-ready USB export remain planned. Use the host assistant's search tools for online discovery when available.
 
 ## Collect music
