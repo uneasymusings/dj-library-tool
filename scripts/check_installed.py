@@ -76,7 +76,9 @@ async def check() -> None:
                             break
                         except PermissionError:
                             if time.monotonic() >= deadline:
-                                raise RuntimeError("Coordinator log handle did not close.") from None
+                                raise RuntimeError(
+                                    "Coordinator log handle did not close."
+                                ) from None
                             await asyncio.sleep(0.05)
 
 
