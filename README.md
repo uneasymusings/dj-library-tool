@@ -1,5 +1,7 @@
 # DJ Library Tool
 
+[![Static quality and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
+
 **Turn music requests into traceable DJ collections, using your existing AI assistant.**
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.

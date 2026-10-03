@@ -23,6 +23,7 @@ The first usable milestone is now prioritized around Codex/Claude Code plus a po
 | Dependencies | Local Python 3.13 environment installed from `uv.lock`, including optional yt-dlp. |
 | Static quality | Ruff lint and formatting checked locally. |
 | Packaging | Wheel and source archive built locally; checked-in input schemas generated successfully. |
+| Cross-platform CI | [Initial workflow](https://github.com/uneasymusings/dj-library-tool/actions/runs/37109097657) passed installation, lint, formatting, and packaging on Linux/macOS/Windows with Python 3.12 and 3.13. This is not runtime test evidence. |
 | Skill | Bundled skill-creator structural validator passed. Behavioral host evaluation remains outstanding. |
 | Database | Initial migration generated from SQLAlchemy metadata. Runtime startup/recovery not yet exercised. |
 | CLI/MCP | Implementation and setup guides exist. End-to-end host connections not yet exercised. |
