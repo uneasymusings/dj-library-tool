@@ -1,0 +1,247 @@
+"""Authenticated loopback coordinator; one process owns each workspace catalog."""
+
+import argparse
+import asyncio
+import contextlib
+import secrets
+import socket
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import uvicorn
+from fastapi import Depends, FastAPI, Header, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from filelock import FileLock
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from djlib.application.service import Application, new_id
+from djlib.domain.contracts import (
+    CollectionRequest,
+    ControlRequest,
+    DeviceRequest,
+    DownloadRequest,
+    ExportRequest,
+    ResolveRequest,
+    ScanRequest,
+    SourceRequest,
+    StartRequest,
+)
+from djlib.domain.errors import AppError
+from djlib.exporting.handoff import device_preflight
+from djlib.jobs.worker import Worker
+from djlib.persistence.database import Database
+from djlib.sources.web import inspect_source
+from djlib.workspace import Workspace, atomic_json
+
+
+def envelope(result: dict | None = None, error: dict | None = None) -> dict:
+    return {
+        "schema_version": "1",
+        "ok": error is None,
+        "request_id": new_id("req"),
+        "result": result,
+        "warnings": [],
+        "error": error,
+    }
+
+
+def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = True) -> FastAPI:
+    database = Database(workspace.database)
+    database.migrate()
+    application = Application(workspace, database)
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        task = asyncio.create_task(Worker(application).run()) if run_worker else None
+        yield
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        database.engine.dispose()
+
+    async def authorized(request: Request, authorization: str | None = Header(default=None)):
+        expected = f"Bearer {workspace.token()}"
+        if not authorization or not secrets.compare_digest(authorization, expected):
+            raise AppError("AUTH_REQUIRED", "A valid local service token is required.", 401)
+        origin = request.headers.get("origin")
+        if origin and origin != f"http://{request.headers.get('host')}":
+            raise AppError("ORIGIN_DENIED", "This request has an unauthorized browser origin.", 403)
+
+    app = FastAPI(
+        lifespan=lifespan,
+        dependencies=[Depends(authorized)],
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
+    app.state.application = application
+
+    @app.exception_handler(AppError)
+    async def application_error(_request, exc: AppError):
+        return JSONResponse(envelope(error=exc.as_dict()), status_code=exc.status)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_request, _exc):
+        return JSONResponse(
+            envelope(
+                error={
+                    "code": "INPUT_INVALID",
+                    "message": "The request does not match the published schema.",
+                    "retryable": False,
+                }
+            ),
+            status_code=422,
+        )
+
+    @app.get("/health")
+    async def health():
+        return envelope(
+            {
+                "instance_id": instance_id,
+                "workspace_id": workspace.config().workspace_id,
+                "protocol_version": "1",
+            }
+        )
+
+    @app.get("/capabilities")
+    async def capabilities():
+        return envelope(application.capabilities())
+
+    @app.get("/profiles/{name}")
+    async def profile(name: str):
+        return envelope(application.profile(name).model_dump(mode="json"))
+
+    @app.post("/plans")
+    async def plan(body: CollectionRequest):
+        return envelope(application.plan(body))
+
+    @app.get("/plans/{plan_id}")
+    async def get_plan(plan_id: str):
+        return envelope(application.get_plan(plan_id))
+
+    @app.post("/jobs")
+    async def start(body: StartRequest):
+        return envelope(application.start(body))
+
+    @app.post("/scans")
+    async def scan(body: ScanRequest):
+        return envelope(application.scan(body.path, body.idempotency_key))
+
+    @app.post("/downloads")
+    async def acquire(body: DownloadRequest):
+        return envelope(application.download(body))
+
+    @app.post("/sources/inspect")
+    async def source(body: SourceRequest):
+        return envelope(await inspect_source(body.url))
+
+    @app.post("/devices/preflight")
+    async def preflight(body: DeviceRequest):
+        return envelope(await asyncio.to_thread(device_preflight, body.path, body.required_bytes))
+
+    @app.get("/jobs")
+    async def jobs(limit: int = Query(default=20, ge=1, le=100)):
+        return envelope(application.jobs(limit))
+
+    @app.get("/jobs/{job_id}")
+    async def job(job_id: str):
+        return envelope(application.job(job_id))
+
+    @app.get("/jobs/{job_id}/items")
+    async def items(
+        job_id: str,
+        limit: int = Query(default=20, ge=1, le=100),
+        after: int = -1,
+        state: str | None = None,
+    ):
+        return envelope(application.items(job_id, limit, after, state))
+
+    @app.get("/jobs/{job_id}/events")
+    async def events(
+        job_id: str,
+        after: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=100),
+    ):
+        return envelope(application.events(job_id, after, limit))
+
+    @app.post("/jobs/{job_id}/control")
+    async def control(job_id: str, body: ControlRequest):
+        return envelope(application.control(job_id, body.action))
+
+    @app.get("/reviews")
+    async def reviews(job_id: str | None = None, limit: int = Query(default=20, ge=1, le=100)):
+        return envelope(application.reviews(job_id, limit))
+
+    @app.post("/reviews/{review_id}")
+    async def resolve(review_id: str, body: ResolveRequest):
+        return envelope(application.resolve(review_id, body.revision, body.choice))
+
+    @app.get("/library")
+    async def library(query: str = "", limit: int = Query(default=20, ge=1, le=100)):
+        return envelope(application.library(query, limit))
+
+    @app.get("/collections/{collection_id}")
+    async def collection(
+        collection_id: str,
+        limit: int = Query(default=50, ge=1, le=100),
+        after: int = Query(default=0, ge=0),
+    ):
+        result = application.collection(collection_id)
+        tracks = result["tracks"]
+        result["track_count"] = len(tracks)
+        result["tracks"] = tracks[after : after + limit]
+        result["next_cursor"] = after + limit if after + limit < len(tracks) else None
+        return envelope(result)
+
+    @app.post("/exports")
+    async def export(body: ExportRequest):
+        return envelope(application.export(body.collection_id, body.idempotency_key))
+
+    @app.post("/shutdown")
+    async def shutdown():
+        server = getattr(app.state, "server", None)
+        if server:
+            asyncio.get_running_loop().call_later(0.2, setattr, server, "should_exit", True)
+        return envelope({"state": "stopping"})
+
+    return app
+
+
+async def serve(workspace: Workspace) -> None:
+    workspace.config()
+    with FileLock(workspace.runtime / "coordinator.lock", timeout=0):
+        instance_id = new_id("instance")
+        app = create_app(workspace, instance_id)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
+        app.state.server = server
+        atomic_json(
+            workspace.runtime / "service.json",
+            {
+                "url": f"http://127.0.0.1:{port}",
+                "instance_id": instance_id,
+                "workspace_id": workspace.config().workspace_id,
+                "protocol_version": "1",
+            },
+        )
+        try:
+            await server.serve(sockets=[sock])
+        finally:
+            (workspace.runtime / "service.json").unlink(missing_ok=True)
+            sock.close()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", type=Path, required=True)
+    args = parser.parse_args()
+    asyncio.run(serve(Workspace(args.workspace)))
+
+
+if __name__ == "__main__":
+    main()

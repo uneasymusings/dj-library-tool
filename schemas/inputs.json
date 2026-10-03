@@ -1,0 +1,332 @@
+{
+  "contracts": {
+    "CollectionRequest": {
+      "$defs": {
+        "TrackInput": {
+          "additionalProperties": false,
+          "properties": {
+            "artist": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Artist",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "maxLength": 300,
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "artist",
+            "title"
+          ],
+          "title": "TrackInput",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "profile": {
+          "default": "club",
+          "title": "Profile",
+          "type": "string"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/TrackInput"
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "tracks"
+      ],
+      "title": "CollectionRequest",
+      "type": "object"
+    },
+    "ControlRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "pause",
+            "resume",
+            "cancel",
+            "retry"
+          ],
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "ControlRequest",
+      "type": "object"
+    },
+    "DeviceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "required_bytes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Required Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "DeviceRequest",
+      "type": "object"
+    },
+    "DownloadRequest": {
+      "$defs": {
+        "SourceTrack": {
+          "additionalProperties": false,
+          "properties": {
+            "artist": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Artist",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "title": "Url",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "maxLength": 300,
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "artist",
+            "title"
+          ],
+          "title": "SourceTrack",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/SourceTrack"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Tracks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "tracks",
+        "idempotency_key"
+      ],
+      "title": "DownloadRequest",
+      "type": "object"
+    },
+    "ExportRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "title": "Collection Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "collection_id",
+        "idempotency_key"
+      ],
+      "title": "ExportRequest",
+      "type": "object"
+    },
+    "Profile": {
+      "additionalProperties": false,
+      "properties": {
+        "copy_into_library": {
+          "default": false,
+          "title": "Copy Into Library",
+          "type": "boolean"
+        },
+        "disk_reserve_bytes": {
+          "default": 67108864,
+          "minimum": 0,
+          "title": "Disk Reserve Bytes",
+          "type": "integer"
+        },
+        "exact_version": {
+          "default": true,
+          "title": "Exact Version",
+          "type": "boolean"
+        },
+        "max_items": {
+          "default": 10000,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "name": {
+          "default": "club",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "Profile",
+      "type": "object"
+    },
+    "ResolveRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "choice": {
+          "enum": [
+            "accept_requested",
+            "use_file_metadata",
+            "skip"
+          ],
+          "title": "Choice",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "choice"
+      ],
+      "title": "ResolveRequest",
+      "type": "object"
+    },
+    "ScanRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "idempotency_key"
+      ],
+      "title": "ScanRequest",
+      "type": "object"
+    },
+    "SourceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "SourceRequest",
+      "type": "object"
+    },
+    "StartRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "plan_id": {
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "plan_id",
+        "revision",
+        "idempotency_key"
+      ],
+      "title": "StartRequest",
+      "type": "object"
+    }
+  },
+  "schema_version": "1"
+}
