@@ -12,7 +12,7 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-Local result: **115 passed in 22.35 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. Tests generate their own short tones and never access a personal music catalog or physical USB. Live network access is not a test-suite prerequisite.
+Local result: **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. Tests generate their own short tones and never access a personal music catalog or physical USB. Live network access is not a test-suite prerequisite.
 
 | Suite | Scenarios |
 | --- | --- |
@@ -71,6 +71,22 @@ uv run --locked python scripts/release_artifacts.py
 ```
 
 Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows also waits for the exiting process to close its inherited log handle before removing the disposable workspace. CI runs this fresh-environment smoke check after building the wheel.
+
+## Public GitHub distribution check
+
+The [v0.1.0a2 prerelease](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a2) was installed directly from its public wheel URL into a fresh uv tool environment outside the developer checkout. The trial used no editable install or local wheel. Runtime dependencies resolved through their normal registry, including MCP 2.3.0 and yt-dlp 2026.8.19.
+
+Observed checks:
+
+- Installed engine reported `0.1.0a2`; its package and interpreter paths were inside the fresh tool environment, with no developer checkout dependency.
+- Publicly fetched smoke-check script completed: three original tones ingested/exported, 16 real stdio MCP schemas, and the packaged skill installed successfully.
+- A fresh signed-in Codex session read the installed project skill and used the publicly installed MCP engine to create/export a two-tone collection: two accepted, zero failures, zero reviews, two exported. Manifest readback confirmed `prepared_for_import` and `not_exported`. No personal music or device writes were used.
+- Installed CLI created a new demo and assistant session; both hosts' skills included CLI and installation references. MCP configuration pointed to the persistent installed interpreter.
+- `doctor` detected FFmpeg, ffprobe, the download extra, and Node in the local trial environment. Those native programs are separate prerequisites, not bundled artifacts.
+- Wheel, source archive, skill ZIP, and checksum manifest downloaded without GitHub authentication; all three artifact hashes matched. The skill ZIP contained only its entrypoint, two references, and license.
+- [Release commit CI](https://github.com/uneasymusings/dj-library-tool/actions/runs/37155504190) passed all six matrix jobs. An earlier trial exposed a shutdown race in integration-test cleanup; cleanup now waits for the coordinator lock after CLI shutdown instead of sending another request during process exit.
+
+Follow [the public installation guide](INSTALL.md) for the same installation. Tool/cache directories were overridden only to isolate this trial from an existing personal installation. The installation still runs the engine locally for music access.
 
 ## Actual rekordbox check
 
