@@ -69,7 +69,7 @@ uv run --isolated --no-project --with dist/dj_library_tool-0.1.0a1-py3-none-any.
   python scripts/check_installed.py
 ```
 
-Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. CI runs this fresh-environment smoke check after building the wheel.
+Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows also waits for the exiting process to close its inherited log handle before removing the disposable workspace. CI runs this fresh-environment smoke check after building the wheel.
 
 ## Actual rekordbox check
 

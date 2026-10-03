@@ -6,6 +6,7 @@ original audio are temporary; the coordinator is stopped before cleanup.
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import time
@@ -65,6 +66,18 @@ async def check() -> None:
                                 "The smoke-check coordinator did not stop."
                             ) from None
                         await asyncio.sleep(0.05)
+                if os.name == "nt":
+                    # The coordinator releases its catalog lock before Python closes
+                    # inherited log handles. Windows disallows unlinking that brief
+                    # open handle; wait for actual closure in this disposable workspace.
+                    while True:
+                        try:
+                            (workspace.runtime / "service.log").unlink(missing_ok=True)
+                            break
+                        except PermissionError:
+                            if time.monotonic() >= deadline:
+                                raise RuntimeError("Coordinator log handle did not close.") from None
+                            await asyncio.sleep(0.05)
 
 
 if __name__ == "__main__":
