@@ -4,12 +4,12 @@ import asyncio
 import json
 import subprocess
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from filelock import FileLock
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
@@ -46,10 +46,14 @@ def live_workspace(tmp_path):
     yield workspace
     if workspace.config_path.exists() and LocalClient(workspace).discover():
         LocalClient(workspace).request("POST", "/shutdown")
-        for _ in range(100):
-            if not LocalClient(workspace).discover():
-                break
-            time.sleep(0.02)
+        wait_for_coordinator_exit(workspace)
+
+
+def wait_for_coordinator_exit(workspace):
+    # A shutdown acknowledgement precedes process exit. Wait for ownership to
+    # end so fixture cleanup cannot submit a second request to an exiting server.
+    with FileLock(workspace.runtime / "coordinator.lock", timeout=10):
+        pass
 
 
 def test_cli_demo_and_all_local_commands(live_workspace, tmp_path):
@@ -77,6 +81,7 @@ def test_cli_demo_and_all_local_commands(live_workspace, tmp_path):
     reply = cli(workspace, "source-inspect", "https://evil.test", expected=2)
     assert reply["error"]["code"] == "SOURCE_UNSUPPORTED"
     assert cli(workspace, "service", "stop")["ok"]
+    wait_for_coordinator_exit(workspace)
 
 
 def test_cli_input_error_is_json(live_workspace, tmp_path):
