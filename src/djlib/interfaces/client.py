@@ -21,7 +21,9 @@ class LocalClient:
 
     def discover(self) -> str | None:
         try:
-            record = json.loads((self.workspace.runtime / "service.json").read_text())
+            record = json.loads(
+                (self.workspace.runtime / "service.json").read_text(encoding="utf-8")
+            )
             url = record["url"]
             # Runtime records never grant permission to connect to arbitrary hosts.
             parts = urlsplit(url)

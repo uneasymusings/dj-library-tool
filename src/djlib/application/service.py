@@ -69,6 +69,7 @@ class Application:
                 "set_metadata_inspection",
                 "json_cli",
                 "mcp_stdio",
+                "agent_session_setup",
             ],
             "planned": [
                 "soulseek",
@@ -81,7 +82,7 @@ class Application:
                 "standalone_chat",
             ],
             "identity_method": "supplied labels and embedded tags; no acoustic identification yet",
-            "stage": "experimental; native app and live provider compatibility not yet exercised",
+            "stage": "experimental alpha; consult docs/STATUS.md for app/provider test evidence",
         }
 
     def profile(self, name: str) -> Profile:

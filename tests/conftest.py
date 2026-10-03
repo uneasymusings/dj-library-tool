@@ -1,0 +1,65 @@
+"""Generated, original audio and isolated catalogs for every test."""
+
+import math
+import struct
+import wave
+
+import pytest
+from mutagen.id3 import TIT2, TPE1
+from mutagen.wave import WAVE
+
+from djlib.application.service import Application
+from djlib.domain.contracts import CollectionRequest, StartRequest, TrackInput
+from djlib.jobs.worker import Worker
+from djlib.persistence.database import Database
+from djlib.persistence.models import Job
+from djlib.workspace import Workspace
+
+
+@pytest.fixture
+def audio_factory(tmp_path):
+    def create(name="tone.wav", frequency=220, artist="", title="", frames=4410):
+        path = tmp_path / "music" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(path), "wb") as audio:
+            audio.setparams((1, 2, 44100, 0, "NONE", "not compressed"))
+            samples = [
+                int(4000 * math.sin(2 * math.pi * frequency * n / 44100)) for n in range(frames)
+            ]
+            audio.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+        if artist or title:
+            audio = WAVE(path)
+            audio.add_tags()
+            audio.tags.add(TPE1(encoding=3, text=artist))
+            audio.tags.add(TIT2(encoding=3, text=title))
+            audio.save()
+        return path
+
+    return create
+
+
+@pytest.fixture
+def application(tmp_path, audio_factory):
+    audio_factory()
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.initialize([tmp_path / "music"])
+    database = Database(workspace.database)
+    database.migrate()
+    yield Application(workspace, database)
+    database.engine.dispose()
+
+
+def submit_collection(application, paths, *, profile="club", name="Validation", key="collection"):
+    tracks = [TrackInput(path=str(path), artist="Test Artist", title=path.stem) for path in paths]
+    plan = application.plan(CollectionRequest(name=name, profile=profile, tracks=tracks))
+    return application.start(StartRequest(plan_id=plan["plan_id"], revision=1, idempotency_key=key))
+
+
+async def execute(application, job_id):
+    with application.db.transaction() as session:
+        job = session.get(Job, job_id)
+        job.state = "running"
+        job.generation += 1
+        generation = job.generation
+    await Worker(application).execute(job_id, generation)
+    return application.job(job_id)

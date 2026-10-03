@@ -1,51 +1,47 @@
 # Implementation status
 
-Updated 2026-10-03. Version 0.1.0a1. This is the first implementation checkpoint, not completion of the full product.
+Updated 2026-10-03. Version 0.1.0a1. **Ready for supervised toolkit trials.** The complete product and unattended personal-library workflow remain unfinished.
 
-## First milestone: existing-assistant toolkit
+## Implemented first milestone
 
-The first usable milestone is now prioritized around Codex/Claude Code plus a portable skill, with shared CLI/MCP tools. The initial source includes:
+- JSON CLI, 16 structured MCP tools, portable skill, and a separate project session generator for Codex/Claude Code. The skill ships in the wheel.
+- Explicit workspace/source roots, authenticated localhost coordinator, SQLite/Alembic catalog, detached jobs, idempotency, generation fences, review revisions, and restart recovery.
+- Local indexing, explicit collections, managed byte reuse, bounded publisher metadata inspection, selected public-source downloads.
+- Full audio decoding/hashes, original acquisition provenance, chosen display tags on managed FLAC download copies, retained incoming originals.
+- Hash-checked manifest/M3U/experimental rekordbox XML and read-only mount/capacity preflight.
+- Runtime/lint/format/build CI for Linux/macOS/Windows with Python 3.12/3.13.
 
-- Explicit workspace initialization and allowed source roots.
-- SQLite catalog, packaged Alembic migration, single local coordinator, detached client lifecycle.
-- Persistent plans, submission idempotency, jobs/items/events, generation fencing, review revisions.
-- Existing-audio scan and explicit local collections; optional managed copies.
-- Optional selected public-source download adapter and publisher set metadata inspection.
-- Manifest/M3U/experimental rekordbox XML exports with local hash readback.
-- Read-only USB mount/capacity preflight.
-- Strict JSON contracts, portable skill, setup documentation, synthetic local demo.
-- Static quality and wheel/source packaging CI on three operating systems.
+## Evidence and precise limits
 
-## Evidence and remaining validation
+| Area | Observed evidence | Remaining limit |
+| --- | --- | --- |
+| Local runtime | **113 tests passed** on macOS/Python 3.13, including a 200-item batch, review races, idempotency, partial retries, restart/fencing, auth, corruption, export readback, subprocess bounds/cancellation, CLI and MCP. | No multi-hour or 10,000-track performance claim. |
+| Audio | Real WAV, FLAC, MP3, M4A, and AIFF decoding locally. Managed FLAC labels and original/final hashes checked. | Lossless output does not prove lossless source fidelity; no acoustic identity. |
+| MCP | All 16 tools exercised through real MCP/ASGI/coordinator contracts; actual stdio subprocess reconnects and continues accepted work. | CI uses source fixtures, not live accounts. |
+| Codex | Fresh **0.160.0** ephemeral session discovered the project skill, used MCP, completed a two-tone collection/export, and accurately reported `not_exported`. | One controlled end-to-end behavior trial; no broad model reliability claim. |
+| Claude Code | Fresh **2.1.288** session completed a two-tone collection/export; second trial loaded `/dj-library`, checked items/reviews/collection, and correctly rejected an ordinary folder as USB evidence. | Project settings must remain enabled for skill discovery; disabling all setting sources suppressed it in the first trial. |
+| Live source | Bandcamp's official yt-dlp test recording inspected, downloaded, decoded, tagged into a managed FLAC copy, and cataloged with acquisition/final hashes. | Successful live YouTube/SoundCloud acquisition pending. Removed YouTube fixture failed; it is not success evidence. |
+| Dependencies | Locked source environment plus optional yt-dlp. FFmpeg/ffprobe and Node 22.15.0 present. Deno absent; Node fallback enabled. | Runtime availability does not guarantee a provider will accept extraction. |
+| Packaging | Wheel and source archive built with the portable skill. | There is no PyPI release. Clean-install evidence is tracked in validation. |
+| Cross-platform | Initial static/build matrix passed on all three OSes/Python 3.12/3.13. Runtime tests are now included in that workflow. | FFmpeg cases skip when unavailable; native app evidence is macOS only. See the latest Actions run for matrix outcomes. |
+| rekordbox | **7.2.8**: generated M3U8 imported three original WAV tones; native waveforms/key analysis appeared in Collection. | Native XML import, playlists with real music, USB export, and player playback pending. |
+| Serato | **DJ Pro 3.1.5** launched and its Files/library interface was visible. | Import/analysis not verified: the computer-use service timed out, then screen capture failed. No direct crate/database write performed. |
+| USB | Read-only preflight tested for missing paths, folders, mount reporting, and capacity. No external physical disk was connected during the app check. | Target volume/player model required; no filesystem, export database, or hardware playback verification. |
 
-| Area | Evidence / current limit |
-| --- | --- |
-| Dependencies | Local Python 3.13 environment installed from `uv.lock`, including optional yt-dlp. |
-| Static quality | Ruff lint and formatting checked locally. |
-| Packaging | Wheel and source archive built locally; checked-in input schemas generated successfully. |
-| Cross-platform CI | [Initial workflow](https://github.com/uneasymusings/dj-library-tool/actions/runs/37109097657) passed installation, lint, formatting, and packaging on Linux/macOS/Windows with Python 3.12 and 3.13. This is not runtime test evidence. |
-| Skill | Bundled skill-creator structural validator passed. Behavioral host evaluation remains outstanding. |
-| Database | Initial migration generated from SQLAlchemy metadata. Runtime startup/recovery not yet exercised. |
-| CLI/MCP | Implementation and setup guides exist. End-to-end host connections not yet exercised. |
-| Downloads | Adapter exists. No live recording downloaded or provider success claimed. Deno is not installed in the development environment. |
-| App handoff | XML follows the published interchange structure. No real import/analysis verified yet. |
-| USB | No personal device inspected, written, or exported. Target player model is still needed. |
-| Runtime tests | Not added or run at this checkpoint. Test/evaluation strategy is specified in the full plan. |
+The native rekordbox validation added only the three generated test tones through its own import UI. This is app import evidence, not an automatic native integration feature. Existing music was not batch imported or retagged. No device was formatted or written.
 
-Native app versions observed in the development environment: Serato DJ Pro 3.1.5 and rekordbox 7.2.8. Those version numbers establish intended targets only, not compatibility. No personal music library or native DJ database has been modified.
+## Next acceptance gate
 
-## Immediate next acceptance gate
+1. Follow [fresh session setup](AGENTS.md) and start with original demo audio or a small owned selection.
+2. Complete the [Serato import and native XML checks](VALIDATION.md) in the installed app versions.
+3. Connect the selected USB and provide player/controller models. Inspect storage, perform native rekordbox export, and verify on that hardware.
+4. Exercise chosen YouTube/SoundCloud recordings; preserve any provider failures and quality uncertainty.
+5. Reconcile native tag changes before export; the current engine rejects changed catalog hashes rather than silently adopting them.
 
-1. Exercise the synthetic collection/export demo in an isolated workspace and both CLI and MCP host paths.
-2. Add runtime coverage for idempotency, metadata conflict resolution, byte reuse, recovery, auth, cancellation, and export readback when implementation verification is requested.
-3. Exercise selected public download sources with appropriate credentials/rights and record failure behavior.
-4. Import a small generated collection into the actual rekordbox/Serato builds and document the precise app steps.
-5. Inspect the chosen USB and player details; export from rekordbox and verify on the actual hardware.
-
-This gate must pass before calling the milestone ready for unattended personal-library use.
+Do not call the milestone ready for unattended personal-library use until the dependent app/device gate passes.
 
 ## Still planned
 
-Soulseek search/transfers via slskd; provider ranking and quality gates; artist catalog enumeration; set tracklist reconciliation and acoustic recognition; missing/upgrade ledger; BPM/key/energy analysis; native app reconciliation; verified device export; standalone conversational CLI; public early-web home and optional local browser UX.
+Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; set tracklist reconciliation/acoustic recognition; missing/upgrade ledger; genre/BPM/key/energy analysis; native app reconciliation and automation; verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
 
-See [PLAN.md](../PLAN.md) for full scope, requirements, work packages, and release criteria. No frontend implementation has started.
+See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria. No frontend has started.

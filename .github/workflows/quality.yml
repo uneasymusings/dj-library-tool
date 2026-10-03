@@ -1,4 +1,4 @@
-name: Static quality and packaging
+name: Tests, quality, and packaging
 
 on:
   push:
@@ -30,8 +30,10 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --extra download
       - name: Lint
-        run: uv run --locked ruff check src scripts
+        run: uv run --locked ruff check src scripts tests
       - name: Formatting
-        run: uv run --locked ruff format --check src scripts
+        run: uv run --locked ruff format --check src scripts tests
+      - name: Runtime, CLI, and MCP tests
+        run: uv run --locked pytest -q
       - name: Build distributable artifacts
         run: uv build

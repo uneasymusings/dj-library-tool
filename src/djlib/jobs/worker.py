@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from djlib.application.service import Application, add_event, new_id, require
 from djlib.audio.inspection import SUPPORTED_EXTENSIONS, Inspection, checksum, inspect_audio, labels
+from djlib.audio.preparation import tag_download_copy
 from djlib.domain.contracts import Profile, TrackInput, normalize, recording_key, version_markers
 from djlib.domain.errors import AppError
 from djlib.exporting.handoff import atomic_text, rekordbox_xml
@@ -135,6 +136,12 @@ class Worker:
                 counts = Counter(
                     session.scalars(select(JobItem.state).where(JobItem.job_id == job_id))
                 )
+                # A review can be resolved while another item is being decoded. That
+                # pending item wasn't in this attempt's original snapshot; schedule it.
+                if counts["pending"]:
+                    job.state, job.outcome = "queued", None
+                    add_event(session, job, "requeued", {"counts": dict(counts)})
+                    return
                 job.state = "needs_attention" if counts["needs_input"] else "completed"
                 job.outcome = (
                     None
@@ -219,6 +226,25 @@ class Worker:
             inspection = await asyncio.to_thread(inspect_audio, source)
             if not self.active(job_id, generation):
                 return
+            if job.kind == "scan":
+                # Filename fallbacks cannot assign different identities to identical
+                # bytes. A scan reuses the catalog's existing byte identity.
+                with self.app.db.transaction() as session:
+                    existing = session.scalar(
+                        select(Recording)
+                        .join(Asset)
+                        .join(AssetRevision)
+                        .where(AssetRevision.sha256 == inspection.sha256)
+                    )
+                    if existing:
+                        track = track.model_copy(
+                            update={
+                                "artist": existing.artist,
+                                "title": existing.title,
+                                "version": existing.version,
+                            }
+                        )
+                        decision = "reuse_existing_bytes"
             if (
                 self.identity_conflict(track, inspection, profile.exact_version)
                 and decision is None
@@ -236,6 +262,23 @@ class Worker:
                 copied_hash = await asyncio.to_thread(checksum, staging)
                 if copied_hash != inspection.sha256:
                     raise AppError("FILE_CHANGED", "The source changed before copying completed.")
+                if job.kind == "download" and source.suffix.lower() == ".flac":
+                    # Original acquisition bytes remain in incoming/. Only the managed
+                    # derivative gets chosen labels; its *final* bytes are cataloged.
+                    original_hash = inspection.sha256
+                    await asyncio.to_thread(tag_download_copy, staging, track)
+                    tagged = staging.with_suffix(".flac")
+                    os.replace(staging, tagged)
+                    staging = tagged
+                    inspection = await asyncio.to_thread(inspect_audio, staging)
+                    provenance = {
+                        **item_request.get("provenance", {}),
+                        "acquired_sha256": original_hash,
+                        "managed_labels": "supplied artist/title/version; not acoustic evidence",
+                    }
+                    item_request["provenance"] = provenance
+                    with self.app.db.transaction() as session:
+                        require(session, JobItem, item_id).request = item_request
                 if not self.active(job_id, generation):
                     return
                 location = (
@@ -348,7 +391,11 @@ class Worker:
                     evidence={
                         "method": "user_override"
                         if decision
-                        else ("embedded_tags" if inspection.title else "supplied_labels"),
+                        else (
+                            "supplied_labels"
+                            if require(session, JobItem, item_id).request.get("source")
+                            else ("embedded_tags" if inspection.title else "supplied_labels")
+                        ),
                         "acoustic_identity_verified": False,
                     },
                 )

@@ -11,7 +11,9 @@ uv run djlib --workspace /path/to/dj-workspace doctor
 
 The workspace stores its catalog, runtime token, media, and exports. Its directory must be empty on first initialization. Repeat initialization returns the existing configuration; it does **not** silently add new allowed roots. To allow another music folder, stop the coordinator and edit `allowed_roots` in `workspace.json` to include its resolved absolute path. Symlinks outside those roots are rejected.
 
-Always specify `--workspace` before the subcommand, or set `DJLIB_WORKSPACE`. The default is `~/.local/share/djlib/default`; initialization is explicit. `doctor` reports FFmpeg, ffprobe, optional yt-dlp, and Deno availability, without starting the coordinator.
+Always specify `--workspace` before the subcommand, or set `DJLIB_WORKSPACE`. The default is `~/.local/share/djlib/default`; initialization is explicit. `doctor` reports FFmpeg, ffprobe, optional yt-dlp, Deno, and Node availability, without starting the coordinator. Availability is not a runtime version/compatibility check.
+
+To try this through a fresh AI CLI, run `setup-agent --output /absolute/path/new-session`, then use that folder's `launch.py`. See [agent setup](AGENTS.md).
 
 ## 2. Index owned audio
 
@@ -94,7 +96,9 @@ Create `downloads.json` with actual selected recording URLs:
 uv run djlib --workspace /path/to/dj-workspace download --file downloads.json
 ```
 
-The optional download extra, FFmpeg, and ffprobe are required. The adapter allows public HTTPS YouTube, SoundCloud, and Bandcamp URLs, excludes playlist acquisition, limits recordings to 30 minutes, and bounds staging growth to 500 MiB per active download. It requires 1.1 GiB free before each retrieval. Downloads become FLAC for app interchange; their original fidelity remains unverified. Source URL and transformation evidence are retained in catalog properties and export manifests. This release does not purchase tracks, use browser cookies, or download DRM content.
+The optional download extra, FFmpeg, and ffprobe are required. The adapter allows public HTTPS YouTube, SoundCloud, and Bandcamp URLs, excludes playlist acquisition, limits recordings to 30 minutes, and bounds staging growth to 500 MiB per active download. It requires 1.1 GiB free before each retrieval. Downloads become FLAC for app interchange; their original fidelity remains unverified. Managed FLAC copies receive your selected artist/title/version tags for readable app display. Original acquisition bytes remain in `incoming/`; the catalog records their hash, the managed copy's final hash, and the source/transformation evidence. Generated tags are supplied labels, not independent identity proof. This release does not purchase tracks, use browser cookies, or download DRM content.
+
+For YouTube the adapter selects installed Deno, then Node (22+ required by yt-dlp). Provider failures distinguish unavailable sources, authentication requirements, rate limits, and timeouts. Cookie-based access is unsupported. Live Bandcamp retrieval passed; live SoundCloud and successful YouTube acquisition are still pending validation.
 
 ## 5. Prepare handoff
 
@@ -111,9 +115,11 @@ The export job checks every referenced file's current hash, then writes:
 - `collection.m3u8`: paths and human labels.
 - `rekordbox.xml`: experimental interchange document with a named playlist. No fabricated BPM, key, grids, or cues.
 
-**rekordbox:** select the generated XML as the XML library in preferences, open the rekordbox XML section, import the playlist/tracks to Collection, analyze, and export from rekordbox to the selected device. Labels and preference locations depend on the app version; the exact local procedure is awaiting app validation.
+**rekordbox 7.2.8 — tested basic path:** File → Import → Import Playlist → select `collection.m3u8`. Three generated WAV tones imported, and native waveform/key analysis appeared in Collection. Keep the referenced audio paths available. USB export still requires selecting and exporting from rekordbox to the actual device, then checking the target player.
 
-**Serato:** use the Files panel to access the referenced music and add the tracks to a crate. The M3U is a portable reference artifact, not a verified Serato crate import. Native crate automation is planned. Managed filenames currently use byte hashes and untagged web audio can display those filenames in Serato; a safe metadata/filename preparation pass is still needed for a polished Serato handoff. rekordbox XML carries the supplied labels directly.
+**Experimental XML path:** select the generated XML as the XML library in preferences, open the rekordbox XML section, and import its playlist/tracks to Collection. This conveys requested labels and versions directly, without invented analysis. Schema/URI structure is tested; native XML import has not been verified.
+
+**Serato:** use the Files panel to access the referenced music and add the tracks to a crate. The M3U is a portable reference artifact, not a verified Serato crate import. Native crate automation is planned. Managed filenames use byte hashes; selected FLAC downloads now have readable embedded display tags. The actual Serato 3.1.5 import remains unverified because the app-control session failed to capture its window. See the manual [validation procedure](VALIDATION.md).
 
 For external references, keep original files mounted and available. For managed downloads, retain the workspace media directory. Deleting source paths after app import breaks references.
 

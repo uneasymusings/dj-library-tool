@@ -83,6 +83,15 @@ def version() -> None:
 
 @app.command()
 @handled
+def setup_agent(ctx: typer.Context, output: Path = typer.Option(..., "--output")) -> None:
+    """Create a fresh project with the skill and explicit Codex/Claude MCP launchers."""
+    from djlib.application.agent_setup import create_agent_session
+
+    emit(envelope(create_agent_session(ctx.obj, output)))
+
+
+@app.command()
+@handled
 def demo(ctx: typer.Context) -> None:
     """Create original tones and run the local collection-to-export workflow."""
     from djlib.application.demo import run_demo
@@ -146,6 +155,7 @@ def doctor(ctx: typer.Context) -> None:
                 "ffprobe": shutil.which("ffprobe"),
                 "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,
                 "deno": shutil.which("deno"),
+                "node": shutil.which("node"),
                 "coordinator_url": client(ctx).discover(),
                 "native_app_compatibility": "not_verified",
             }
@@ -345,13 +355,18 @@ def service_stop(ctx: typer.Context) -> None:
 
 
 @mcp.command("serve")
-@handled
 def mcp_serve(ctx: typer.Context) -> None:
     """Run MCP stdio; stdout is reserved for protocol messages."""
     from djlib.interfaces.mcp_server import build_server
 
-    ctx.obj.config()
-    build_server(ctx.obj).run(transport="stdio")
+    try:
+        ctx.obj.config()
+        build_server(ctx.obj).run(transport="stdio")
+    except (AppError, OSError, ValueError) as exc:
+        # A CLI JSON error on stdout would corrupt the MCP transport before initialization.
+        message = exc.message if isinstance(exc, AppError) else "Check workspace and MCP setup."
+        typer.echo(message, err=True)
+        raise typer.Exit(code=2) from exc
 
 
 if __name__ == "__main__":

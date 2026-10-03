@@ -16,7 +16,7 @@ Read capabilities before choosing a workflow. This version supports owned audio,
 - For an artist, establish the desired catalog scope and use available search/catalog sources. Report which catalog was searched and missing items; never claim completeness from search results alone.
 - Find source URLs for the requested recordings. Selected downloads must be public YouTube, SoundCloud, or Bandcamp recording URLs the user is entitled to download. Do not buy tracks, load browser cookies, or enable extra sources without the necessary user authorization.
 - Keep web audio's original quality uncertain. FLAC output is a compatibility conversion and provides no quality upgrade. Preserve missing IDs and unavailable versions in a separate report instead of substituting an unrelated recording.
-- Group tracks into collections for the user's stated purpose. This release supports named collections, not inferred genre/BPM/key tags or embedded tag rewriting.
+- Group tracks into collections for the user's stated purpose. This release supports named collections; genre/BPM/key categorization is planned. Managed FLAC download copies receive the chosen artist/title/version tags, while original acquisition bytes remain unchanged. Those generated tags are display labels, not independent identity evidence.
 
 Submit an intent with a stable idempotency key. Save the returned job ID and reuse the same key for the same request after a transport failure. Poll job status; page through failed items and reviews. `completed_with_gaps` is a partial result. Resolve identity conflicts using the user's choice and the current review revision; don't automatically override mismatches.
 
@@ -24,8 +24,10 @@ Submit an intent with a stable idempotency key. Save the returned job ID and reu
 
 Export the accepted collection and report the manifest, M3U, and rekordbox XML paths. Existing local sources are reused in place by default; downloaded sources live in managed workspace storage. Keep those files available after import.
 
-For rekordbox, guide the user through selecting the XML library, importing its playlist, analyzing tracks, and exporting to the mounted device in rekordbox. For Serato, use its Files panel to add the referenced music and create a crate. Do not edit native databases or claim that an M3U is a native Serato crate.
+For rekordbox, the tested basic path is File → Import → Import Playlist with the generated M3U8, followed by native analysis. XML library import remains experimental. For Serato, use its Files panel to add the referenced music and create a crate. Do not edit native databases or claim that an M3U is a native Serato crate.
 
 Run USB preflight on the exact mounted path the user selected. This reports capacity and mount status, with no writes. Player compatibility and filesystem suitability require the actual hardware details. File copies, XML generation, and free disk space do not establish a player-ready device.
+
+Ask for the player/controller model before recommending a filesystem or device export format. Use existing correctly prepared storage when possible; do not suggest formatting as a routine export step.
 
 Summarize accepted tracks, gaps/conflicts, source quality evidence, prepared artifacts, and remaining app/device actions. Report readiness from the tool's state rather than inferring success from generated filenames.

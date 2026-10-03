@@ -6,7 +6,7 @@ Media paths remain subject to workspace authorization after schema validation.
 
 import re
 import unicodedata
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -17,6 +17,17 @@ class Contract(BaseModel):
     """Base for public inputs; unknown options are always rejected."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ResponseEnvelope(Contract):
+    """Typed MCP output; transports preserve the same envelope fields."""
+
+    schema_version: Literal["1"]
+    ok: bool
+    request_id: str
+    result: dict[str, Any] | None
+    warnings: list[str]
+    error: dict[str, Any] | None
 
 
 class Profile(Contract):

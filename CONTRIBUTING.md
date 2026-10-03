@@ -8,8 +8,9 @@ Python 3.12+; uv; FFmpeg/ffprobe for compressed audio; optional yt-dlp download 
 
 ```bash
 uv sync --locked --extra download
-uv run ruff check src scripts
-uv run ruff format --check src scripts
+uv run pytest -q
+uv run ruff check src scripts tests
+uv run ruff format --check src scripts tests
 uv build
 ```
 
@@ -35,4 +36,4 @@ Describe the user scenario, intended behavior, implementation choice, actual val
 
 For bug reports, include OS/Python/app versions, command name, error code, and a redacted item/job outcome. Share a synthetic reproducer where possible. Public logs can contain source paths and URLs; redact those first. Use the private reporting process in [SECURITY.md](SECURITY.md) for vulnerabilities.
 
-Runtime tests and agent evaluations are not present in this initial checkpoint. The plan defines required scenarios; do not describe the current static/packaging workflow as runtime coverage.
+Runtime tests use original generated audio, isolated workspaces, controlled source responses, actual CLI processes, and real MCP stdio. FFmpeg-dependent cases skip when the decoder is unavailable. Live providers and signed-in AI hosts belong in separate explicit evaluations, not network-dependent CI. Record versions, observed outcomes, and remaining limits in [validation](docs/VALIDATION.md) and [status](docs/STATUS.md). Do not publish personal host transcripts or music libraries.

@@ -1,12 +1,12 @@
 # DJ Library Tool
 
-[![Static quality and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
+[![Tests, quality, and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
 
 **Turn music requests into traceable DJ collections, using your existing AI assistant.**
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental first implementation, 0.1.0a1.** Dependency installation, static lint, formatting, and skill structure have been checked. End-to-end execution, live downloads, native DJ app import, and hardware compatibility have not yet been verified. See [status](docs/STATUS.md) before using a real library.
+> **Experimental toolkit, 0.1.0a1. Ready for supervised trials.** 113 local tests pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. A live Bandcamp fixture downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
 
 ## What is here
 
@@ -38,7 +38,7 @@ For web source inspection and downloads:
 uv sync --locked --extra download
 ```
 
-Install FFmpeg/ffprobe separately for compressed formats and downloads. YouTube extraction may also require a supported JavaScript runtime; this project does not install one automatically. See [yt-dlp's dependency guidance](https://github.com/yt-dlp/yt-dlp#dependencies).
+Install FFmpeg/ffprobe separately for compressed formats and downloads. YouTube needs a supported JavaScript runtime: the adapter selects installed Deno first, then Node (yt-dlp requires Node 22+). It does not install a runtime. See [yt-dlp's EJS guidance](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 
 ## Try the local workflow
 
@@ -62,7 +62,19 @@ Every command emits JSON. Accepted jobs belong to a detached local coordinator a
 
 ## Use with an AI CLI
 
-Initialize your workspace, then register the executable from this checkout using absolute paths:
+For a separate trial session, initialize a workspace (or run the demo), then:
+
+```bash
+uv run djlib --workspace /absolute/path/dj-workspace setup-agent \
+  --output /absolute/path/dj-session
+cd /absolute/path/dj-session
+python launch.py codex
+# or: python launch.py claude
+```
+
+The generated project includes both skills, MCP configuration, and launchers using the installed Python's absolute path. Existing output directories are preserved. Your host must already be installed and signed in. Use a Python executable available on your platform (`python3` where needed). These launchers do not edit your personal host configuration. Codex interactive retains personal settings; `launch.py codex exec ...` ignores personal config. Claude uses only the explicit MCP config. Don't disable project settings if you want Claude's skill discovery.
+
+To register the tools permanently instead, use absolute paths:
 
 ```bash
 # Codex
@@ -103,11 +115,12 @@ Read the [architecture and decisions](docs/ARCHITECTURE.md), [CLI/API contract](
 
 ```bash
 uv sync --locked --extra download
-uv run ruff check src scripts
-uv run ruff format --check src scripts
+uv run pytest -q
+uv run ruff check src scripts tests
+uv run ruff format --check src scripts tests
 uv build
 ```
 
-CI currently checks static quality and packaging on Linux, macOS, and Windows. Runtime tests, failure injection, agent evaluations, and actual app/device validation are scheduled in the plan; they are not represented by this CI badge or the available command list. See [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
+CI runs runtime tests, lint, formatting, and packaging on Linux, macOS, and Windows with Python 3.12/3.13. FFmpeg tests skip when the runner lacks it; all five formats were decoded locally. Provider tests in CI use controlled fixtures; actual host, provider, and app checks are recorded separately in the [validation guide](docs/VALIDATION.md). See [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
 
 MIT licensed. Music remains local; users supply their own sources and download rights. Independent project; no affiliation with Serato, AlphaTheta/rekordbox, Soulseek, or the supported assistant hosts.

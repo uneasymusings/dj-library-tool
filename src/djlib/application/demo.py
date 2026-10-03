@@ -4,6 +4,9 @@ import math
 import struct
 import wave
 
+from mutagen.id3 import TIT2, TPE1
+from mutagen.wave import WAVE
+
 from djlib.domain.contracts import CollectionRequest, TrackInput
 from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient
@@ -26,6 +29,11 @@ def run_demo(workspace: Workspace) -> dict:
                 audio.setsampwidth(2)
                 audio.setframerate(44100)
                 audio.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+            tagged = WAVE(path)
+            tagged.add_tags()
+            tagged.tags.add(TPE1(encoding=3, text="DJLIB synthetic demo"))
+            tagged.tags.add(TIT2(encoding=3, text=f"Tone {index}"))
+            tagged.save()
         tracks.append(
             TrackInput(path=str(path), artist="DJLIB synthetic demo", title=f"Tone {index}")
         )

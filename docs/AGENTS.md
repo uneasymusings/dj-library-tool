@@ -15,6 +15,24 @@ Use absolute paths in host configuration. Do not point a host at `uv run` with a
 
 ## Connect MCP
 
+### Separate trial session
+
+```bash
+uv run djlib --workspace /absolute/path/dj-workspace setup-agent \
+  --output /absolute/path/dj-session
+cd /absolute/path/dj-session
+python launch.py codex
+python launch.py claude
+```
+
+The output folder must not exist. It contains `.agents/skills/dj-library`, `.claude/skills/dj-library`, `mcp.json`, and a cross-platform Python launcher. It uses the installing Python executable rather than depending on the current working directory or `uv`. The skill also ships in the wheel. No credentials or workspace token are copied into the session.
+
+Codex interactive uses your personal settings plus explicit djlib MCP overrides. For an isolated noninteractive run, `python launch.py codex exec --ephemeral --skip-git-repo-check ...` ignores personal config; authentication still uses your existing sign-in. Claude uses `--strict-mcp-config`, so other MCP servers are not loaded; other host settings remain in effect. In Claude, disabling all setting sources also disables project skill discovery. For an isolated test, use `--setting-sources project`, or explicitly ask the host to read the installed `SKILL.md`.
+
+These commands do not change personal host configuration. The generated README contains trial instructions. Existing host approval rules remain active. [Validation](VALIDATION.md) records actual Codex 0.160.0 / Claude Code 2.1.288 trials.
+
+### Persistent registration
+
 ```bash
 codex mcp add djlib -- /absolute/path/dj-library-tool/.venv/bin/djlib \
   --workspace /absolute/path/dj-workspace mcp serve
@@ -44,7 +62,7 @@ cp -R skills/dj-library .claude/skills/dj-library
 
 Use `~/.claude/skills/dj-library` instead for personal installation across projects. Do not overwrite an existing skill of the same name; compare and update it deliberately. Invoke `/dj-library` or let the host discover it for relevant requests. See [Claude Code skills](https://code.claude.com/docs/en/skills).
 
-For Codex, the skill creator workflow uses `~/.codex/skills` (or `$CODEX_HOME/skills`) for personal skills. Copy `skills/dj-library` into that directory if your installed Codex host uses it; hosts with an Agent Skills discovery directory should use their documented location. You can always explicitly ask Codex to read the repo's `skills/dj-library/SKILL.md` to use it without changing personal configuration.
+For current Codex, use `.agents/skills/dj-library` in your project or `~/.agents/skills/dj-library` for personal discovery. The generated trial session handles project placement automatically. Older hosts may have a different discovery directory; follow their installed version's documentation. See [Codex skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills). You can also explicitly ask the host to read the repo's `skills/dj-library/SKILL.md`.
 
 CLI-only use is also supported: make the checkout's `djlib` executable available to the host and supply the workspace path. The skill's [CLI recipes](../skills/dj-library/references/cli.md) cover strict request JSON.
 

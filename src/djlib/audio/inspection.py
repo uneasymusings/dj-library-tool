@@ -136,6 +136,7 @@ def inspect_audio(path: Path) -> Inspection:
     except AppError:
         raise
     except (
+        EOFError,
         OSError,
         ValueError,
         KeyError,
