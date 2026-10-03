@@ -10,9 +10,9 @@ The user's 2026-10-03 direction prioritizes a portable skill plus tools for Code
 
 This checkpoint draws the reusable foundation from M0/M1, selected acquisition and handoff capabilities from M2/M3/M7/M8, and skill/MCP packaging from M6. It does not mark those complete milestones as achieved. Soulseek, acoustic set recognition, automatic artist catalogs, native DJ integration, and verified USB export retain their full scope and acceptance gates below.
 
-Initial code now includes the CLI/MCP adapters, coordinator/catalog/jobs, local ingestion, optional yt-dlp metadata/download adapter, and manifest/M3U/experimental rekordbox XML export. Runtime validation remains outstanding. Before calling this first milestone ready for personal use, exercise the synthetic workflow, real provider behavior, both app import paths, and the actual target device. Source code availability is distinct from integration evidence.
+Initial code now includes the CLI/MCP adapters, coordinator/catalog/jobs, local ingestion, optional yt-dlp metadata/download adapter, manifest/M3U/experimental rekordbox XML, and a packaged skill/fresh-session generator. The 2026-10-03 validation pass produced 113 passing local tests, actual fresh Codex/Claude MCP collection/export trials, three successful live source-provider acquisitions, and a rekordbox M3U import/analysis of original tones. The installed wheel also passed migration/demo/skill/MCP smoke checks. See [validation](docs/VALIDATION.md). This supports supervised toolkit trials. Serato import, native XML import, and physical device/player verification remain acceptance requirements before unattended personal-library use.
 
-Observed app targets: Serato DJ Pro 3.1.5 and rekordbox 7.2.8. Player models and filesystem preferences remain unanswered. No personal library or device has been modified during this initial implementation.
+Observed app targets: Serato DJ Pro 3.1.5 and rekordbox 7.2.8. Player models and target volume remain unanswered; no external physical USB was connected. Three original generated tones were added to rekordbox through its import UI. Existing personal audio was not batch imported or retagged; no native database files were directly edited and no device was formatted or written.
 
 ### Navigation
 

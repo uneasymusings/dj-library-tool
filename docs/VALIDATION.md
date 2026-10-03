@@ -56,7 +56,20 @@ Each trial used actual signed-in host inference and real MCP tools, without appr
 
 The official yt-dlp Bandcamp extractor fixture, `https://youtube-dl.bandcamp.com/track/youtube-dl-test-song`, was inspected and acquired through the actual CLI/coordinator. Result: one succeeded; managed FLAC, about 9.848 seconds, mono 44.1 kHz; original acquisition hash and final tagged hash retained; `source_quality=unverified`, `acoustic_identity_verified=false`.
 
-The prior YouTube fixture `BaW_jenozKc` is unavailable. It failed rather than being reported as acquired. Current YouTube extraction requires a supported JavaScript runtime/EJS; [official setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS) recommends Deno and supports Node 22+ when explicitly enabled. The adapter selects Deno or Node already installed. Successful live YouTube and SoundCloud acquisition remain pending; CI provider doubles do not establish live compatibility.
+SoundCloud's [Testing Grounds (Creative Commons ZERO)](https://soundcloud.com/303bassline/testing-grounds), by Nicolás Díaz, passed inspection and download: one succeeded, with publisher-declared public-domain permission. YouTube's [Sintel open movie](https://youtu.be/eRsGyueVLvQ), published by Blender, also passed inspection and complete audio acquisition: one succeeded. The film is an extractor fixture, not a claim of a DJ-track identification. Both used the actual durable CLI/coordinator workflow.
+
+The prior YouTube fixture `BaW_jenozKc` is unavailable. It failed rather than being reported as acquired. Current YouTube extraction requires a supported JavaScript runtime/EJS; [official setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS) recommends Deno and supports Node 22+ when explicitly enabled. Node 22.15.0 was used for the successful trial. Three individual provider successes do not guarantee extraction for arbitrary links; CI provider doubles do not establish live compatibility.
+
+## Installed-package check
+
+After building, run:
+
+```bash
+uv run --isolated --no-project --with dist/dj_library_tool-0.1.0a1-py3-none-any.whl \
+  python scripts/check_installed.py
+```
+
+Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. CI runs this fresh-environment smoke check after building the wheel.
 
 ## Actual rekordbox check
 

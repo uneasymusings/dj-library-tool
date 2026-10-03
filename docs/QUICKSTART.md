@@ -98,7 +98,7 @@ uv run djlib --workspace /path/to/dj-workspace download --file downloads.json
 
 The optional download extra, FFmpeg, and ffprobe are required. The adapter allows public HTTPS YouTube, SoundCloud, and Bandcamp URLs, excludes playlist acquisition, limits recordings to 30 minutes, and bounds staging growth to 500 MiB per active download. It requires 1.1 GiB free before each retrieval. Downloads become FLAC for app interchange; their original fidelity remains unverified. Managed FLAC copies receive your selected artist/title/version tags for readable app display. Original acquisition bytes remain in `incoming/`; the catalog records their hash, the managed copy's final hash, and the source/transformation evidence. Generated tags are supplied labels, not independent identity proof. This release does not purchase tracks, use browser cookies, or download DRM content.
 
-For YouTube the adapter selects installed Deno, then Node (22+ required by yt-dlp). Provider failures distinguish unavailable sources, authentication requirements, rate limits, and timeouts. Cookie-based access is unsupported. Live Bandcamp retrieval passed; live SoundCloud and successful YouTube acquisition are still pending validation.
+For YouTube the adapter selects installed Deno, then Node (22+ required by yt-dlp). Provider failures distinguish unavailable sources, authentication requirements, rate limits, and timeouts. Cookie-based access is unsupported. One live source from each supported provider passed acquisition; those individual results do not establish universal extraction or source fidelity.
 
 ## 5. Prepare handoff
 

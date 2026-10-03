@@ -20,9 +20,9 @@ Updated 2026-10-03. Version 0.1.0a1. **Ready for supervised toolkit trials.** Th
 | MCP | All 16 tools exercised through real MCP/ASGI/coordinator contracts; actual stdio subprocess reconnects and continues accepted work. | CI uses source fixtures, not live accounts. |
 | Codex | Fresh **0.160.0** ephemeral session discovered the project skill, used MCP, completed a two-tone collection/export, and accurately reported `not_exported`. | One controlled end-to-end behavior trial; no broad model reliability claim. |
 | Claude Code | Fresh **2.1.288** session completed a two-tone collection/export; second trial loaded `/dj-library`, checked items/reviews/collection, and correctly rejected an ordinary folder as USB evidence. | Project settings must remain enabled for skill discovery; disabling all setting sources suppressed it in the first trial. |
-| Live source | Bandcamp's official yt-dlp test recording inspected, downloaded, decoded, tagged into a managed FLAC copy, and cataloged with acquisition/final hashes. | Successful live YouTube/SoundCloud acquisition pending. Removed YouTube fixture failed; it is not success evidence. |
+| Live sources | Bandcamp extractor fixture, SoundCloud publisher-declared CC0 track, and Blender's YouTube open movie each inspected, downloaded, decoded, tagged into managed FLAC, and cataloged successfully. | Three individual successes do not establish universal provider compatibility or DJ source quality. Removed YouTube fixture failed. |
 | Dependencies | Locked source environment plus optional yt-dlp. FFmpeg/ffprobe and Node 22.15.0 present. Deno absent; Node fallback enabled. | Runtime availability does not guarantee a provider will accept extraction. |
-| Packaging | Wheel and source archive built with the portable skill. | There is no PyPI release. Clean-install evidence is tracked in validation. |
+| Packaging | Wheel/source archive built; isolated installed-wheel smoke check passed demo/migration/export, bundled skill setup, and actual stdio with all 16 tool schemas. | There is no PyPI release. |
 | Cross-platform | Initial static/build matrix passed on all three OSes/Python 3.12/3.13. Runtime tests are now included in that workflow. | FFmpeg cases skip when unavailable; native app evidence is macOS only. See the latest Actions run for matrix outcomes. |
 | rekordbox | **7.2.8**: generated M3U8 imported three original WAV tones; native waveforms/key analysis appeared in Collection. | Native XML import, playlists with real music, USB export, and player playback pending. |
 | Serato | **DJ Pro 3.1.5** launched and its Files/library interface was visible. | Import/analysis not verified: the computer-use service timed out, then screen capture failed. No direct crate/database write performed. |
@@ -35,7 +35,7 @@ The native rekordbox validation added only the three generated test tones throug
 1. Follow [fresh session setup](AGENTS.md) and start with original demo audio or a small owned selection.
 2. Complete the [Serato import and native XML checks](VALIDATION.md) in the installed app versions.
 3. Connect the selected USB and provide player/controller models. Inspect storage, perform native rekordbox export, and verify on that hardware.
-4. Exercise chosen YouTube/SoundCloud recordings; preserve any provider failures and quality uncertainty.
+4. Exercise the user's chosen recordings; preserve provider failures and quality uncertainty.
 5. Reconcile native tag changes before export; the current engine rejects changed catalog hashes rather than silently adopting them.
 
 Do not call the milestone ready for unattended personal-library use until the dependent app/device gate passes.

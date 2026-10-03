@@ -6,7 +6,7 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental toolkit, 0.1.0a1. Ready for supervised trials.** 113 local tests pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. A live Bandcamp fixture downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
+> **Experimental toolkit, 0.1.0a1. Ready for supervised trials.** 113 local tests pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. Live Bandcamp, SoundCloud, and YouTube fixtures downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
 
 ## What is here
 

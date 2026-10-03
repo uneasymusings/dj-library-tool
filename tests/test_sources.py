@@ -48,10 +48,8 @@ def test_unsupported_urls(url):
 
 
 async def test_subprocess_output_and_exit():
-    assert (
-        await web.run([sys.executable, "-c", "print('hello')"], timeout=5, output_limit=100)
-        == b"hello\n"
-    )
+    output = await web.run([sys.executable, "-c", "print('hello')"], timeout=5, output_limit=100)
+    assert output.splitlines() == [b"hello"]
     with pytest.raises(AppError) as error:
         await web.run([sys.executable, "-c", "raise SystemExit(9)"], timeout=5, output_limit=100)
     assert error.value.code == "SOURCE_FAILED"
@@ -188,7 +186,7 @@ async def test_stderr_is_drained_and_bounded():
         timeout=5,
         output_limit=100,
     )
-    assert result == b"ok\n"
+    assert result.splitlines() == [b"ok"]
 
 
 @pytest.mark.parametrize("raw", ["broken", "null", "[]"])

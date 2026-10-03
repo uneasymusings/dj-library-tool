@@ -54,7 +54,7 @@ Labels reject control characters and blank artist/title. Recording normalization
 | `export ID --key KEY` | `djlib_export` | `POST /exports` |
 | `usb-preflight PATH` | `djlib_usb_preflight` | `POST /devices/preflight` |
 
-`init`, `doctor`, `version`, and `schemas` are local CLI operations. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
+`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the portable skill and explicit MCP configuration, without copying credentials or editing personal host configuration. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
 
 ## Bounds and paging
 

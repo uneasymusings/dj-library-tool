@@ -41,7 +41,7 @@ A recording identity is a conservative normalized artist/title/version tuple. It
 
 Collection membership chooses one revision per recording. It currently keeps the first accepted revision rather than automatically choosing a better edition. If multiple locations exist for those bytes, exports prefer managed storage. Missing-path fallback and quality-based upgrade reconciliation remain future work.
 
-Web assets retain source URL, conversion evidence, unverified source quality, and unverified acoustic identity. External user files retain their source path. Original tags are read but never rewritten.
+Web assets retain source URL, conversion evidence, unverified source quality, and unverified acoustic identity. Selected FLAC downloads receive chosen artist/title/version tags on a staged managed copy; full decoding and hashing run again before that copy is promoted. The acquisition bytes remain unchanged in `incoming/`, with their hash retained in provenance. Generated tags are supplied display labels, not independent identity evidence. External user files retain their source path and original tags.
 
 ## Durable jobs
 
