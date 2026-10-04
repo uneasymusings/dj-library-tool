@@ -102,10 +102,15 @@ class LocalClient:
         self, method: str, path: str, *, data: dict | None = None, params: dict | None = None
     ) -> dict:
         url = self.ensure()
+        timeout = 15
+        if path == "/sources/inspect":
+            timeout = 100
+        elif path.startswith("/deliveries/"):
+            # Readback has a 120-second scan budget plus volume probes. Tag-only
+            # reconciliation can decode changed working copies; do not cut it off at 15s.
+            timeout = 600 if path.endswith("/observations") else 180
         try:
-            with httpx.Client(
-                trust_env=False, timeout=100 if path == "/sources/inspect" else 15
-            ) as client:
+            with httpx.Client(trust_env=False, timeout=timeout) as client:
                 response = client.request(
                     method, url + path, json=data, params=params, headers=self.headers()
                 )

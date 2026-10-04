@@ -19,6 +19,11 @@ from djlib.application.service import Application, new_id
 from djlib.domain.contracts import (
     CollectionRequest,
     ControlRequest,
+    DeliveryDeviceRequest,
+    DeliveryObservation,
+    DeliveryPrepareRequest,
+    DeliveryRequest,
+    DeliveryVerifyRequest,
     DeviceRequest,
     DownloadRequest,
     ExportRequest,
@@ -199,6 +204,54 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
     @app.post("/exports")
     async def export(body: ExportRequest):
         return envelope(application.export(body.collection_id, body.idempotency_key))
+
+    @app.get("/delivery-targets")
+    async def delivery_targets():
+        from djlib.exporting.targets import target_profiles
+
+        return envelope({"targets": target_profiles(), "native_automation_available": False})
+
+    @app.post("/deliveries")
+    async def delivery_plan(body: DeliveryRequest):
+        from djlib.application.delivery import create_delivery
+
+        return envelope(await asyncio.to_thread(create_delivery, application, body))
+
+    @app.get("/deliveries/{delivery_id}")
+    async def delivery_get(delivery_id: str):
+        from djlib.application.delivery import delivery_status
+
+        return envelope(await asyncio.to_thread(delivery_status, application, delivery_id))
+
+    @app.post("/deliveries/{delivery_id}/prepare")
+    async def delivery_prepare(delivery_id: str, body: DeliveryPrepareRequest):
+        from djlib.application.delivery import prepare_delivery
+
+        return envelope(
+            prepare_delivery(application, delivery_id, body.revision, body.idempotency_key)
+        )
+
+    @app.post("/deliveries/{delivery_id}/device")
+    async def delivery_device(delivery_id: str, body: DeliveryDeviceRequest):
+        from djlib.application.delivery import bind_device
+
+        return envelope(
+            await asyncio.to_thread(bind_device, application, delivery_id, body.revision, body.path)
+        )
+
+    @app.post("/deliveries/{delivery_id}/observations")
+    async def delivery_observe(delivery_id: str, body: DeliveryObservation):
+        from djlib.application.delivery import observe_delivery
+
+        return envelope(await asyncio.to_thread(observe_delivery, application, delivery_id, body))
+
+    @app.post("/deliveries/{delivery_id}/verify")
+    async def delivery_verify(delivery_id: str, body: DeliveryVerifyRequest):
+        from djlib.application.delivery import verify_device
+
+        return envelope(
+            await asyncio.to_thread(verify_device, application, delivery_id, body.revision)
+        )
 
     @app.post("/shutdown")
     async def shutdown():

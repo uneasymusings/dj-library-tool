@@ -6,7 +6,9 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental toolkit, 0.1.0a2. Ready for supervised trials.** The runtime suite and installed-wheel checks pass; fresh Codex and Claude Code sessions completed collections and exports through MCP. Live Bandcamp, SoundCloud, and YouTube fixtures downloaded successfully, and three original tones imported and analyzed in rekordbox 7.2.8. Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
+> **Experimental local preview, 0.1.0a3.dev0 — unpublished.** The public release remains **0.1.0a2**, whose runtime/installed-wheel checks, fresh assistant sessions, selected live downloads, and three-tone rekordbox import/analysis trial passed. The preview adds the supervised delivery workflow below; Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
+
+**In the unpublished 0.1.0a3.dev0 preview:** [DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies for a specified target, records native-stage observations, and performs read-only device hash checks. Native import/analysis/export still happen in rekordbox or Serato; playback must be checked on the intended setup. These additions are not included in the published `v0.1.0a2` wheel.
 
 ## What is here
 
@@ -19,8 +21,9 @@
 | Agent operation | JSON CLI, MCP stdio, and [portable skill](skills/dj-library/SKILL.md). No model API key required by the engine. |
 | DJ handoff | Hash-checked manifest, M3U playlist, and experimental rekordbox XML. |
 | USB preflight | Read capacity and mount status; no device writes or compatibility claim. |
+| Target delivery (development) | Persisted pilot/full plans, isolated working copies, four documented player profiles, operator-reported native stages and bounded read-only device verification. |
 
-Soulseek through slskd, complete artist catalog workflows, acoustic track identification, musical analysis, native Serato/rekordbox automation, player-ready USB export, and the early-web public home remain in the [full implementation plan](PLAN.md). There is no frontend yet.
+Soulseek through slskd, complete artist catalog workflows, acoustic track identification, musical analysis, native Serato/rekordbox automation, automatically verified player-ready USB export, and the early-web public home remain in the [full implementation plan](PLAN.md). There is no frontend yet.
 
 ## Install from GitHub
 
@@ -79,6 +82,8 @@ uv run djlib --workspace /path/to/dj-workspace jobs list
 ```
 
 Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
+
+For an actual DJ destination, use the development [rekordbox USB or portable Serato workflow](docs/DJ_DELIVERY.md). Start with a small pilot and the actual app/hardware target. An M3U or copied audio folder is prepared material; the native app must create its device library or portable crates.
 
 ## Use with an AI CLI
 

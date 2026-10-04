@@ -89,6 +89,283 @@
       "title": "ControlRequest",
       "type": "object"
     },
+    "DeliveryDeviceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "path"
+      ],
+      "title": "DeliveryDeviceRequest",
+      "type": "object"
+    },
+    "DeliveryObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "app_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "App Version",
+          "type": "string"
+        },
+        "checked_recording_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checked Recording Ids",
+          "type": "array"
+        },
+        "firmware_version": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Firmware Version"
+        },
+        "hardware_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Profile"
+        },
+        "method": {
+          "enum": [
+            "native_app_ui",
+            "physical_hardware"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "notes": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Notes",
+          "type": "string"
+        },
+        "observer": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Observer",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "playlist_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Playlist Counts",
+          "type": "object"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "stage": {
+          "enum": [
+            "imported",
+            "analyzed",
+            "native_exported",
+            "device_library_checked",
+            "hardware_playback"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "storage_recognized": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Recognized"
+        },
+        "track_count": {
+          "minimum": 0,
+          "title": "Track Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "stage",
+        "app_version",
+        "track_count",
+        "playlist_counts",
+        "checked_recording_ids",
+        "observer",
+        "notes",
+        "method",
+        "outcome"
+      ],
+      "title": "DeliveryObservation",
+      "type": "object"
+    },
+    "DeliveryPrepareRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "idempotency_key"
+      ],
+      "title": "DeliveryPrepareRequest",
+      "type": "object"
+    },
+    "DeliveryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "app_version": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "App Version",
+          "type": "string"
+        },
+        "audio_mode": {
+          "default": "preserve",
+          "enum": [
+            "preserve",
+            "mp3_320",
+            "wav16_44100"
+          ],
+          "title": "Audio Mode",
+          "type": "string"
+        },
+        "collection_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Collection Ids",
+          "type": "array"
+        },
+        "hardware_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hardware Profile"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "phase": {
+          "default": "pilot",
+          "enum": [
+            "pilot",
+            "full"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "pilot_delivery_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pilot Delivery Id"
+        },
+        "pilot_size": {
+          "default": 3,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Pilot Size",
+          "type": "integer"
+        },
+        "workflow": {
+          "enum": [
+            "rekordbox_usb",
+            "serato_portable"
+          ],
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "collection_ids",
+        "workflow",
+        "app_version"
+      ],
+      "title": "DeliveryRequest",
+      "type": "object"
+    },
+    "DeliveryVerifyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "DeliveryVerifyRequest",
+      "type": "object"
+    },
     "DeviceRequest": {
       "additionalProperties": false,
       "properties": {

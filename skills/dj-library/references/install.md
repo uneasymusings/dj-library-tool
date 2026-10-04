@@ -2,6 +2,8 @@
 
 The complete package, including this skill and the MCP server, is published in the [v0.1.0a2 GitHub release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a2). No project checkout or PyPI release is required. Python runs locally to access the user's music and mounted storage.
 
+The public `0.1.0a2` engine does not include the `delivery` commands described in this development skill. Those require the unpublished `0.1.0a3.dev0` preview or a later release that advertises `targeted_delivery_workflow`. Check `version` and `capabilities`; do not claim an installation of the public a2 wheel provides native delivery tracking. Preserve an existing installation when testing a preview in a separate persistent tool environment.
+
 With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed:
 
 ```bash

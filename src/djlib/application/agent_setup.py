@@ -38,7 +38,7 @@ if host == "codex":
         "-c", "mcp_servers.djlib.command=" + json.dumps(server["command"]),
         "-c", "mcp_servers.djlib.args=" + json.dumps(server["args"]),
         "-c", "mcp_servers.djlib.startup_timeout_sec=30",
-        "-c", "mcp_servers.djlib.tool_timeout_sec=120"]
+        "-c", "mcp_servers.djlib.tool_timeout_sec=660"]
 else:
     extra = sys.argv[2:]
     command = [executable, "--strict-mcp-config", "--mcp-config", str(root / "mcp.json")]
@@ -82,7 +82,10 @@ def create_agent_session(workspace: Workspace, output: Path) -> dict:
         for host_dir in (".agents", ".claude"):
             shutil.copytree(source, staged / host_dir / "skills" / "dj-library")
         atomic_json(staged / "session.json", {"workspace": str(workspace.root), "server": server})
-        atomic_json(staged / "mcp.json", {"mcpServers": {"djlib": {"type": "stdio", **server}}})
+        atomic_json(
+            staged / "mcp.json",
+            {"mcpServers": {"djlib": {"type": "stdio", "timeout": 660_000, **server}}},
+        )
         (staged / "launch.py").write_text(LAUNCHER, encoding="utf-8")
         (staged / "AGENTS.md").write_text(
             "# DJ library session\n\n"

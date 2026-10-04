@@ -10,7 +10,12 @@ import typer
 from pydantic import ValidationError
 
 from djlib import __version__
-from djlib.domain.contracts import CollectionRequest, DownloadRequest
+from djlib.domain.contracts import (
+    CollectionRequest,
+    DeliveryObservation,
+    DeliveryRequest,
+    DownloadRequest,
+)
 from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient, default_workspace
 from djlib.interfaces.service import envelope
@@ -21,10 +26,12 @@ jobs = typer.Typer(help="Inspect and control durable jobs.")
 reviews = typer.Typer(help="Resolve explicit metadata conflicts.")
 service = typer.Typer(help="Manage the local coordinator.")
 mcp = typer.Typer(help="Expose the same use cases over MCP stdio.")
+delivery = typer.Typer(help="Prepare and verify an app-mediated DJ USB workflow.")
 app.add_typer(jobs, name="jobs")
 app.add_typer(reviews, name="reviews")
 app.add_typer(service, name="service")
 app.add_typer(mcp, name="mcp")
+app.add_typer(delivery, name="delivery")
 
 
 def handled(function):
@@ -104,6 +111,9 @@ def schemas() -> None:
     """Print the strict JSON input schemas without starting a coordinator."""
     from djlib.domain.contracts import (
         ControlRequest,
+        DeliveryDeviceRequest,
+        DeliveryPrepareRequest,
+        DeliveryVerifyRequest,
         DeviceRequest,
         ExportRequest,
         Profile,
@@ -128,6 +138,11 @@ def schemas() -> None:
                     ExportRequest,
                     ResolveRequest,
                     StartRequest,
+                    DeliveryRequest,
+                    DeliveryPrepareRequest,
+                    DeliveryDeviceRequest,
+                    DeliveryObservation,
+                    DeliveryVerifyRequest,
                 )
             }
         )
@@ -262,6 +277,86 @@ def usb_preflight(
 @handled
 def job_list(ctx: typer.Context, limit: int = typer.Option(20, min=1, max=100)) -> None:
     emit(client(ctx).request("GET", "/jobs", params={"limit": limit}))
+
+
+@delivery.command("targets")
+@handled
+def delivery_targets(ctx: typer.Context) -> None:
+    """List sourced player profiles; these do not establish hardware playback."""
+    emit(client(ctx).request("GET", "/delivery-targets"))
+
+
+@delivery.command("plan")
+@handled
+def delivery_plan(ctx: typer.Context, file: Path = typer.Option(..., "--file")) -> None:
+    """Freeze catalog collection IDs for a target-specific pilot (the default) or full delivery."""
+    body = DeliveryRequest.model_validate_json(file.read_text(encoding="utf-8"))
+    emit(client(ctx).request("POST", "/deliveries", data=body.model_dump(mode="json")))
+
+
+@delivery.command("get")
+@handled
+def delivery_get(ctx: typer.Context, delivery_id: str) -> None:
+    """Read exact counts, blocked stages, and operator versus machine evidence."""
+    emit(client(ctx).request("GET", f"/deliveries/{delivery_id}"))
+
+
+@delivery.command("prepare")
+@handled
+def delivery_prepare(
+    ctx: typer.Context,
+    delivery_id: str,
+    revision: int = typer.Option(...),
+    key: str = typer.Option(...),
+) -> None:
+    """Queue separate tagged app working copies and native import playlists; never write USB."""
+    emit(
+        client(ctx).request(
+            "POST",
+            f"/deliveries/{delivery_id}/prepare",
+            data={"revision": revision, "idempotency_key": key},
+        )
+    )
+
+
+@delivery.command("bind-device")
+@handled
+def delivery_bind(
+    ctx: typer.Context, delivery_id: str, path: Path, revision: int = typer.Option(...)
+) -> None:
+    """Read and bind the exact mounted volume identity without writing to it."""
+    emit(
+        client(ctx).request(
+            "POST",
+            f"/deliveries/{delivery_id}/device",
+            data={"revision": revision, "path": str(path)},
+        )
+    )
+
+
+@delivery.command("observe")
+@handled
+def delivery_observe(ctx: typer.Context, delivery_id: str, file: Path = typer.Option(...)) -> None:
+    """Record an actual native-app or physical-player observation; never invent success."""
+    body = DeliveryObservation.model_validate_json(file.read_text(encoding="utf-8"))
+    emit(
+        client(ctx).request(
+            "POST", f"/deliveries/{delivery_id}/observations", data=body.model_dump(mode="json")
+        )
+    )
+
+
+@delivery.command("verify-device")
+@handled
+def delivery_verify(
+    ctx: typer.Context, delivery_id: str, revision: int = typer.Option(...)
+) -> None:
+    """Read back target audio hashes; old native-library filenames cannot prove readiness."""
+    emit(
+        client(ctx).request(
+            "POST", f"/deliveries/{delivery_id}/verify", data={"revision": revision}
+        )
+    )
 
 
 @jobs.command("get")

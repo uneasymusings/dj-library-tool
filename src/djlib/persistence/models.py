@@ -130,3 +130,15 @@ class Review(Base):
     state: Mapped[str] = mapped_column(default="open")
     reason: Mapped[str]
     evidence: Mapped[dict] = mapped_column(JSON)
+
+
+class Delivery(Base):
+    __tablename__ = "deliveries"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    revision: Mapped[int] = mapped_column(default=1)
+    request: Mapped[dict] = mapped_column(JSON)
+    snapshot: Mapped[dict] = mapped_column(JSON)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"))
+    created_at: Mapped[str] = mapped_column(default=timestamp)
+    updated_at: Mapped[str] = mapped_column(default=timestamp)

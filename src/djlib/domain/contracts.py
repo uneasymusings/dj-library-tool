@@ -8,7 +8,7 @@ import re
 import unicodedata
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 SCHEMA_VERSION = "1"
 
@@ -111,6 +111,61 @@ class SourceRequest(Contract):
 class DeviceRequest(Contract):
     path: str = Field(min_length=1, max_length=4096)
     required_bytes: int = Field(default=0, ge=0)
+
+
+class DeliveryRequest(Contract):
+    name: str = Field(min_length=1, max_length=200)
+    collection_ids: list[str] = Field(min_length=1, max_length=100)
+    workflow: Literal["rekordbox_usb", "serato_portable"]
+    app_version: str = Field(min_length=1, max_length=100)
+    hardware_profile: str | None = None
+    audio_mode: Literal["preserve", "mp3_320", "wav16_44100"] = "preserve"
+    phase: Literal["pilot", "full"] = "pilot"
+    pilot_size: int = Field(default=3, ge=1, le=5)
+    pilot_delivery_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.workflow == "rekordbox_usb" and not self.hardware_profile:
+            raise ValueError("A player hardware profile is required for standalone USB export.")
+        if len(set(self.collection_ids)) != len(self.collection_ids):
+            raise ValueError("Collection IDs must be unique.")
+        if any(ord(c) < 32 for c in self.name):
+            raise ValueError("Names cannot contain control characters.")
+        return self
+
+
+class DeliveryPrepareRequest(Contract):
+    revision: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+class DeliveryDeviceRequest(Contract):
+    revision: int = Field(ge=1)
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class DeliveryObservation(Contract):
+    revision: int = Field(ge=1)
+    stage: Literal[
+        "imported", "analyzed", "native_exported", "device_library_checked", "hardware_playback"
+    ]
+    app_version: str = Field(min_length=1, max_length=100)
+    track_count: int = Field(ge=0)
+    playlist_counts: dict[str, int]
+    checked_recording_ids: list[str]
+    observer: str = Field(min_length=1, max_length=200)
+    notes: str = Field(min_length=1, max_length=4000)
+    # Explicit operator observations, never inferred from artifact or database filenames.
+    method: Literal["native_app_ui", "physical_hardware"]
+    outcome: Literal["passed", "failed"]
+    hardware_profile: str | None = None
+    firmware_version: str | None = Field(default=None, min_length=1, max_length=100)
+    storage_recognized: bool | None = None
+
+
+class DeliveryVerifyRequest(Contract):
+    revision: int = Field(ge=1)
 
 
 def normalize(value: str) -> str:

@@ -18,6 +18,8 @@ def test_setup_contains_both_skills_and_absolute_mcp_command(tmp_path):
     result = create_agent_session(workspace, output)
     config = json.loads((output / "mcp.json").read_text())
     server = config["mcpServers"]["djlib"]
+    # Delivery observations can reconcile native tags for up to 600 seconds.
+    assert server["timeout"] > 600_000
     assert server["command"] == sys.executable
     assert server["args"] == [
         "-m",
@@ -82,6 +84,7 @@ def test_launchers_supply_scoped_config_and_forward_arguments(tmp_path, monkeypa
         if extra:
             assert command[1:3] == ["exec", "--ignore-user-config"]
         assert any("mcp_servers.djlib.command=" in argument for argument in command)
+        assert "mcp_servers.djlib.tool_timeout_sec=660" in command
     else:
         assert "--strict-mcp-config" in command and str(output / "mcp.json") in command
 

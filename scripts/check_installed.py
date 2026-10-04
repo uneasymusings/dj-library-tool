@@ -7,6 +7,7 @@ original audio are temporary; the coordinator is stopped before cleanup.
 import asyncio
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -48,10 +49,43 @@ async def check() -> None:
             )
             async with Client(transport) as client:
                 tools = (await client.list_tools()).tools
-                assert len(tools) == 16 and all(tool.output_schema for tool in tools)
+                assert len(tools) == 23 and all(tool.output_schema for tool in tools)
                 reply = await client.call_tool("djlib_capabilities", {})
                 assert reply.structured_content["ok"]
-            print(json.dumps({"ok": True, "tracks": 3, "mcp_tools": 16, "skill_packaged": True}))
+                reply = await client.call_tool("djlib_delivery_targets", {})
+                assert "cdj-2000nxs" in reply.structured_content["result"]["targets"]
+                if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+                    planned = await client.call_tool(
+                        "djlib_plan_delivery",
+                        {
+                            "request_body": {
+                                "name": "Installed delivery pilot",
+                                "workflow": "serato_portable",
+                                "app_version": "synthetic-smoke-test",
+                                "collection_ids": [result["ingestion"]["result"]["collection_id"]],
+                            }
+                        },
+                    )
+                    assert planned.structured_content["ok"]
+                    delivery = planned.structured_content["result"]
+                    prepared = await client.call_tool(
+                        "djlib_prepare_delivery",
+                        {
+                            "delivery_id": delivery["delivery_id"],
+                            "revision": delivery["revision"],
+                            "idempotency_key": "installed-delivery-pilot",
+                        },
+                    )
+                    job = await asyncio.to_thread(
+                        local.wait, prepared.structured_content["result"]["job_id"], 20
+                    )
+                    assert job["result"]["outcome"] == "complete", job
+                    status = await client.call_tool(
+                        "djlib_delivery", {"delivery_id": delivery["delivery_id"]}
+                    )
+                    assert status.structured_content["result"]["prepared_for_import"]
+                    assert not status.structured_content["result"]["ready_for_departure"]
+            print(json.dumps({"ok": True, "tracks": 3, "mcp_tools": 23, "skill_packaged": True}))
         finally:
             if workspace.config_path.exists() and local.discover():
                 local.request("POST", "/shutdown")

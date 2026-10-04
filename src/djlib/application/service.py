@@ -15,6 +15,7 @@ from djlib.persistence.models import (
     Asset,
     AssetRevision,
     Collection,
+    Delivery,
     Event,
     FileLocation,
     Job,
@@ -70,6 +71,10 @@ class Application:
                 "json_cli",
                 "mcp_stdio",
                 "agent_session_setup",
+                "targeted_delivery_workflow",
+                "native_app_working_copies",
+                "device_audio_readback",
+                "operator_native_stage_evidence",
             ],
             "planned": [
                 "soulseek",
@@ -82,6 +87,11 @@ class Application:
                 "standalone_chat",
             ],
             "identity_method": "supplied labels and embedded tags; no acoustic identification yet",
+            "native_automation_available": False,
+            "delivery_default": (
+                "small_pilot_before_bulk; native app operations require "
+                "an operator or host UI tools"
+            ),
             "stage": "experimental alpha; consult docs/STATUS.md for app/provider test evidence",
         }
 
@@ -141,6 +151,10 @@ class Application:
             json.dumps({"kind": kind, "payload": payload}, sort_keys=True).encode()
         ).hexdigest()
         with self.db.transaction() as session:
+            if kind == "delivery":
+                # Acquire the SQLite writer reservation before reading the binding.
+                # Concurrent clients cannot both observe an unprepared delivery.
+                session.connection().exec_driver_sql("BEGIN IMMEDIATE")
             previous = session.get(Submission, key)
             if previous:
                 if previous.request_hash != semantic_hash:
@@ -148,6 +162,15 @@ class Application:
                         "IDEMPOTENCY_CONFLICT", "This key already names a different request.", 409
                     )
                 job_id = previous.job_id
+            elif kind == "delivery" and require(session, Delivery, payload["delivery_id"]).job_id:
+                job_id = require(session, Delivery, payload["delivery_id"]).job_id
+                if require(session, Job, job_id).request != payload:
+                    raise AppError(
+                        "DELIVERY_CONFLICT",
+                        "This delivery already has a different preparation.",
+                        409,
+                    )
+                session.add(Submission(key=key, request_hash=semantic_hash, job_id=job_id))
             else:
                 value = Job(id=new_id("job"), kind=kind, request=payload)
                 session.add(value)
@@ -166,6 +189,18 @@ class Application:
                                     "track" if kind == "collection" else "source": track,
                                     "identity_decision": None,
                                 },
+                            )
+                        )
+                elif kind == "delivery":
+                    require(session, Delivery, payload["delivery_id"]).job_id = value.id
+                    value.result = {"delivery_id": payload["delivery_id"]}
+                    for position, track in enumerate(payload["tracks"]):
+                        session.add(
+                            JobItem(
+                                id=new_id("item"),
+                                job_id=value.id,
+                                position=position,
+                                request={"track": track},
                             )
                         )
                 session.add(Submission(key=key, request_hash=semantic_hash, job_id=value.id))

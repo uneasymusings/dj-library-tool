@@ -25,6 +25,9 @@ class Inspection:
     sample_rate: int
     artist: str
     title: str
+    bit_depth: int | None = None
+    bitrate_bps: int | None = None
+    codec_profile: str | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -58,6 +61,8 @@ def inspect_audio(path: Path) -> Inspection:
     bounded by a timeout for external tools and streams WAV frames in fixed chunks.
     """
     before = path.stat()
+    bit_depth = bitrate_bps = None
+    codec_profile = None
     if before.st_size > 2 * 1024 * 1024 * 1024:
         raise AppError("AUDIO_SIZE_LIMIT", "Audio inspection is limited to 2 GiB per file.")
     if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -79,6 +84,8 @@ def inspect_audio(path: Path) -> Inspection:
                 if decoded != expected or not frames or not rate or not channels:
                     raise AppError("AUDIO_INCOMPLETE", "The WAV payload is empty or truncated.")
                 duration, codec = frames / rate, f"pcm_{reader.getsampwidth() * 8}"
+                bit_depth = reader.getsampwidth() * 8
+                bitrate_bps = rate * channels * bit_depth
         else:
             if not shutil.which("ffprobe") or not shutil.which("ffmpeg"):
                 raise AppError("DEPENDENCY_REQUIRED", "This format requires ffprobe and FFmpeg.")
@@ -90,7 +97,7 @@ def inspect_audio(path: Path) -> Inspection:
                     "-protocol_whitelist",
                     "file,pipe",
                     "-show_entries",
-                    "stream=codec_type,codec_name,channels,sample_rate:format=duration",
+                    "stream=codec_type,codec_name,profile,channels,sample_rate,bits_per_raw_sample,bits_per_sample,bit_rate:format=duration",
                     "-of",
                     "json",
                     str(path),
@@ -104,6 +111,11 @@ def inspect_audio(path: Path) -> Inspection:
             duration = float(data["format"]["duration"])
             channels, rate = int(audio["channels"]), int(audio["sample_rate"])
             codec = audio["codec_name"]
+            bit_depth = (
+                int(audio.get("bits_per_raw_sample") or audio.get("bits_per_sample") or 0) or None
+            )
+            bitrate_bps = int(audio.get("bit_rate") or 0) or None
+            codec_profile = audio.get("profile")
             subprocess.run(
                 [
                     "ffmpeg",
@@ -132,7 +144,19 @@ def inspect_audio(path: Path) -> Inspection:
             raise AppError(
                 "FILE_CHANGED", "The source changed during inspection; retry after it settles."
             )
-        return Inspection(digest, after.st_size, duration, codec, channels, rate, artist, title)
+        return Inspection(
+            digest,
+            after.st_size,
+            duration,
+            codec,
+            channels,
+            rate,
+            artist,
+            title,
+            bit_depth,
+            bitrate_bps,
+            codec_profile,
+        )
     except AppError:
         raise
     except (

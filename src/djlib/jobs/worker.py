@@ -36,8 +36,13 @@ logger = logging.getLogger(__name__)
 class Worker:
     """One scheduling authority; slow audio/filesystem work runs outside transactions."""
 
+    HANDOFF_KINDS = frozenset({"collection", "delivery", "export"})
+    HANDOFF_BURST = 3
+    LOCAL_ITEM_QUANTUM = 8
+
     def __init__(self, application: Application):
         self.app = application
+        self._handoff_turns = 0
 
     def recover(self) -> None:
         """Interrupted attempts become pending; promoted files are reconciled by their hash."""
@@ -52,19 +57,11 @@ class Worker:
     async def run(self) -> None:
         self.recover()
         while True:
-            with self.app.db.transaction() as session:
-                job = session.scalar(
-                    select(Job).where(Job.state == "queued").order_by(Job.created_at)
-                )
-                if job:
-                    job.state, job.generation = "running", job.generation + 1
-                    job_id, generation = job.id, job.generation
-                    add_event(session, job, "started")
-                else:
-                    job_id = None
-            if job_id is None:
+            attempt = self._claim_next()
+            if attempt is None:
                 await asyncio.sleep(0.1)
                 continue
+            job_id, generation = attempt
             try:
                 await self.execute(job_id, generation)
             except asyncio.CancelledError:
@@ -88,6 +85,35 @@ class Worker:
                         )
                         job.result = {**job.result, "error": error}
                         add_event(session, job, "failed")
+            # Empty exports and already-finished jobs may not otherwise suspend.
+            await asyncio.sleep(0)
+
+    def _claim_next(self) -> tuple[str, int] | None:
+        with self.app.db.transaction() as session:
+            # Requeue events move a serviced job behind waiting peers. This order
+            # survives coordinator restarts without a second, in-memory work queue.
+            queued = (
+                select(Job)
+                .where(Job.state == "queued")
+                .order_by(Job.updated_at, Job.created_at, Job.id)
+                .limit(1)
+            )
+            preferred = (
+                Job.kind.in_(self.HANDOFF_KINDS)
+                if self._handoff_turns < self.HANDOFF_BURST
+                else Job.kind.not_in(self.HANDOFF_KINDS)
+            )
+            job = session.scalar(queued.where(preferred))
+            if job is None:
+                job = session.scalar(queued)
+            if job is None:
+                return None
+            # A bounded handoff preference keeps exports responsive without
+            # starving acquisitions under a stream of new collection requests.
+            self._handoff_turns = self._handoff_turns + 1 if job.kind in self.HANDOFF_KINDS else 0
+            job.state, job.generation = "running", job.generation + 1
+            add_event(session, job, "started")
+            return job.id, job.generation
 
     def active(self, job_id: str, generation: int) -> bool:
         with self.app.db.transaction() as session:
@@ -126,33 +152,51 @@ class Worker:
                     .order_by(JobItem.position)
                 )
             )
-        for item_id in item_ids:
+        quantum = 1 if kind == "download" else self.LOCAL_ITEM_QUANTUM
+        for processed, item_id in enumerate(item_ids, start=1):
             if not self.active(job_id, generation):
                 return
-            await self.ingest(job_id, generation, item_id)
+            if kind == "delivery":
+                from djlib.application.delivery import prepare_item
+
+                await prepare_item(self.app, job_id, generation, item_id)
+            else:
+                await self.ingest(job_id, generation, item_id)
+            if processed % quantum == 0:
+                with self.app.db.transaction() as session:
+                    waiting = session.scalar(select(Job.id).where(Job.state == "queued").limit(1))
+                if waiting is not None:
+                    break
         if self.active(job_id, generation):
             with self.app.db.transaction() as session:
                 job = require(session, Job, job_id)
+                if job.state != "running" or job.generation != generation:
+                    return
                 counts = Counter(
                     session.scalars(select(JobItem.state).where(JobItem.job_id == job_id))
                 )
-                # A review can be resolved while another item is being decoded. That
-                # pending item wasn't in this attempt's original snapshot; schedule it.
+                # Yield only at an item checkpoint. This also picks up review
+                # resolutions absent from this attempt's original pending snapshot.
                 if counts["pending"]:
                     job.state, job.outcome = "queued", None
                     add_event(session, job, "requeued", {"counts": dict(counts)})
                     return
-                job.state = "needs_attention" if counts["needs_input"] else "completed"
-                job.outcome = (
-                    None
-                    if counts["needs_input"]
-                    else (
-                        "completed_with_gaps"
-                        if counts["failed"] or counts["skipped"]
-                        else "complete"
+                if kind != "delivery":
+                    job.state = "needs_attention" if counts["needs_input"] else "completed"
+                    job.outcome = (
+                        None
+                        if counts["needs_input"]
+                        else (
+                            "completed_with_gaps"
+                            if counts["failed"] or counts["skipped"]
+                            else "complete"
+                        )
                     )
-                )
-                add_event(session, job, job.state, {"counts": dict(counts)})
+                    add_event(session, job, job.state, {"counts": dict(counts)})
+            if kind == "delivery":
+                from djlib.application.delivery import finish_preparation
+
+                await finish_preparation(self.app, job_id, generation)
 
     def discover(self, value: str) -> list[dict]:
         root = self.app.workspace.authorize(value, directory=True)

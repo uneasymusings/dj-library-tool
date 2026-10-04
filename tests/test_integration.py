@@ -117,7 +117,7 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
     )
     async with Client(transport) as client:
         tools = (await client.list_tools()).tools
-        assert len(tools) == 16 and all(t.output_schema is not None for t in tools)
+        assert len(tools) == 23 and all(t.output_schema is not None for t in tools)
         reply = await client.call_tool(
             "djlib_plan_collection",
             {
@@ -260,4 +260,18 @@ async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatc
                 "djlib_scan", {"path": str(source.parent), "idempotency_key": "mcp-scan"}
             )
             await call("djlib_control", {"job_id": scan["job_id"], "action": "cancel"})
-            assert called == {t.name for t in (await client.list_tools()).tools}
+            assert called == {
+                t.name
+                for t in (await client.list_tools()).tools
+                if t.name
+                not in {
+                    "djlib_delivery_targets",
+                    "djlib_plan_delivery",
+                    "djlib_delivery",
+                    "djlib_prepare_delivery",
+                    "djlib_bind_delivery_device",
+                    "djlib_observe_delivery",
+                    "djlib_verify_delivery_device",
+                }
+            }
+            # New delivery tools have their own HTTP/MCP integration coverage.

@@ -1,12 +1,14 @@
 # Architecture and decisions
 
+This document describes **0.1.0a3.dev0, an unpublished local preview**. The public `0.1.0a2` release contains the earlier catalog, jobs and generic handoff engine; it does not contain the target-delivery workflow described below.
+
 ## Execution boundary
 
 The application is a Python modular monolith. CLI and MCP are adapters around an authenticated loopback HTTP coordinator. One coordinator holds a per-workspace file lock and owns scheduling and catalog mutations. A startup lock serializes discovery and process creation. An ephemeral port avoids hardcoded port collisions; discovery verifies a private runtime record against a token-authenticated health response and workspace/instance IDs.
 
-The coordinator runs a FastAPI/Uvicorn event loop. Database transactions are short and synchronous. Blocking audio decoding, hashing, and file copies run in threads without a database session. yt-dlp runs as an isolated subprocess with bounded metadata output, timeouts, and a staging-growth monitor. Client exit does not own job cancellation.
+The coordinator runs a FastAPI/Uvicorn event loop. Database transactions are short and synchronous. Within durable jobs, blocking audio decoding, hashing, and file copies run in threads without a database session. Native observation reconciliation is synchronous as described below. yt-dlp runs as an isolated subprocess with bounded metadata output, timeouts, and a staging-growth monitor. Client exit does not own job cancellation.
 
-This first version has one active worker per workspace. It prioritizes predictable state over maximum bulk throughput. Provider concurrency limits, fair scheduling, and background recognition workers come later.
+There is one active worker per workspace. Item-boundary requeueing provides fair scheduling across waiting jobs; persisted queue timestamps preserve peer ordering across restarts. A bounded preference keeps handoff work responsive without indefinitely starving acquisitions. Parallel provider workers, provider-specific concurrency limits and background recognition workers remain future work.
 
 ## Code map
 
@@ -18,7 +20,7 @@ This first version has one active worker per workspace. It prioritizes predictab
 | `jobs` | Worker, state checkpoints, generation fencing, ingestion journal, export preparation. |
 | `audio` | Complete decoding, measured properties, byte hashes, embedded labels. |
 | `sources` | Optional web metadata and selected-download adapter. |
-| `exporting` | Atomic handoff documents and read-only storage preflight. |
+| `exporting` | Atomic handoff documents, isolated app working copies, documented hardware profiles, and bounded read-only device inspection. |
 | `interfaces` | JSON CLI, MCP client adapter, loopback server/client lifecycle. |
 
 ## Catalog model
@@ -76,6 +78,22 @@ Workspaces have explicit allowed source roots. Source symlinks resolve before au
 
 Audio inspection streams complete WAV payloads, or uses ffprobe plus bounded full FFmpeg decoding for other supported formats. Source size/mtime is checked around inspection. Copies are hashed before atomic promotion. Export hashes are checked again before artifact generation. These measures detect changed bytes, but do not prove authenticity, lossless origin, or acoustic identity.
 
+## Target delivery and the native app boundary
+
+`Delivery` persists a request, collection/recording snapshot, preparation job, revision and evidence. A target is `rekordbox_usb` plus a documented player profile, or `serato_portable` for a Serato computer. The installed app version and explicit audio mode are part of the request. Pilot selection samples collections in round-robin order; full preparation requires a successful pilot matching the target settings. See [DJ delivery](DJ_DELIVERY.md) for commands and evidence semantics.
+
+Preparation runs through durable jobs and writes separate working audio, M3U8 membership lists, a hash-checked delivery manifest and native instructions inside the workspace export directory. Original catalog files remain unchanged. Preservation is the default; MP3 or WAV compatibility conversions require an explicit mode. Full decoding, measured format checks and hashes establish preparation, not native app import or player compatibility.
+
+Native app actions belong to rekordbox or Serato. The engine does not implement a native export CLI, synthesize native crates/device databases, or write to the bound USB. Typed operator observations record `imported`, `analyzed`, `native_exported`, `device_library_checked`, and `hardware_playback` in order. Passing observations must cover frozen recording IDs and playlist counts; full hardware playback may use an explicitly reported sample. Revision checks prevent stale updates, but do not independently authenticate the operator's claims. Replacing earlier evidence or rebinding a device invalidates dependent evidence.
+
+Passing rekordbox hardware observations also require a matching `hardware_profile`, an actual `firmware_version`, and `storage_recognized: true`. The CDJ-3000 profile rejects withdrawn firmware 3.30 after whitespace/case/optional `v` normalization. These are validations of operator-supplied evidence, not direct hardware queries.
+
+Analysis reconciliation is deliberately limited to isolated working copies. Matching whole-file hashes take a fast path; changed copies undergo fresh stream-property and decoded-PCM hash checks before post-analysis file hashes are accepted for readback. It does not parse native analysis or reconcile arbitrary edits to original catalog files. Reconciliation is synchronous within observation handling, with a 600-second client timeout; it is not a durable background job and large changed batches may exceed that timeout.
+
+Device inspection reads mount/identity metadata and bounded audio hashes without following symlinks or crossing nested volumes. Native database names are existence markers, never parsed integrity or playlist evidence. A stronger macOS volume identity uses `diskutil`; weak fallback identities remain insufficient for the same readiness gate. Limits, scan failures and missing hashes are reported. The status endpoint does not rehash: fresh departure evidence comes from explicit `verify-device` and remains conditional on operator reports and hardware sampling.
+
+Hardware profiles carry primary-document references, exact known format limits, explicit unknowns, and false firmware/hardware-verification flags. The engine conservatively assesses only known mono/stereo channel counts and checks a supplied output extension against the codec's supported suffixes. Those checks do not validate every container header or establish an exhaustive manufacturer channel-layout limit. Their assessment is not a player certification. OneLibrary/Device Library selection follows [AlphaTheta's export guidance](https://cdn.rekordbox.com/files/20260318114024/OneLibrary-Compatible-USB-Device-Export_en.pdf); portable Serato copying follows the [native Files/crate workflow](https://support.serato.com/hc/en-us/articles/202304844-Using-a-USB-external-hard-drive-for-your-portable-library). Neither is replaced by generic audio copies or interchange XML.
+
 ## Decisions
 
 | Decision | Reason and consequence |
@@ -87,11 +105,11 @@ Audio inspection streams complete WAV payloads, or uses ffprobe plus bounded ful
 | SQLite DELETE journal | A single scheduler does not need WAL; avoids platform-specific WAL handling. Multiple remote users are outside this release's model. |
 | Byte hashes and versioned identity | Distinguishes duplicate files from requested recording versions; acoustic fingerprints are a separate later capability. |
 | yt-dlp as optional subprocess | Keeps provider churn and dependencies away from core installation. Public-source extraction can still break or be unavailable. |
-| Artifacts before native automation | Creates an inspectable first handoff. Compatibility cannot be claimed until app import is exercised. |
+| App-owned native delivery | Isolated artifacts and explicit evidence support supervised native app work. Device hashes cannot prove playlist references or physical playback; native actions remain outside the engine. |
 | No frontend initially | Product effort goes to reusable tooling and actual DJ workflow reliability. The requested public home is scheduled later. |
 
 The XML writer follows [AlphaTheta's published interchange format](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf), including its explicit `file://localhost/` location convention. Remote/UNC locations must first be copied into local managed storage. Format conformance is not app compatibility evidence.
 
 ## Known engineering gaps
 
-Runtime validation is outstanding. There are no implemented migrations backup/restore, staging garbage collection, automatic expired-service log rotation, provider rate-limit scheduler, filesystem power-loss durability proof, deterministic cancellation of in-flight threads, audio fingerprints, or live DJ database adapters. SQLite catalog hashes become stale when a user retags an external file; export rejects that file and asks for reconciliation, but revision reconciliation is not implemented yet. The [plan](../PLAN.md) specifies the full release gates.
+Native target-delivery trials are outstanding; runtime evidence is tracked in [status](STATUS.md). There are no implemented migration backup/restore, staging garbage collection, automatic expired-service log rotation, provider rate-limit scheduler, filesystem power-loss durability proof, deterministic cancellation of in-flight threads, audio fingerprints, or live DJ database adapters. SQLite catalog hashes become stale when a user retags an external file; export rejects that file and asks for reconciliation. General catalog revision reconciliation remains unimplemented; the working-copy analysis check above is narrower. The [plan](../PLAN.md) specifies the full release gates.

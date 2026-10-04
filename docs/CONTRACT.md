@@ -1,5 +1,7 @@
 # Version-one command contract
 
+This document describes the current `0.1.0a3.dev0` development interfaces. The public `0.1.0a2` release does not include the delivery commands below. The response envelope remains schema version `1`.
+
 ## Envelope
 
 All application results use:
@@ -32,8 +34,27 @@ Requests are Pydantic contracts with unknown fields rejected. `djlib schemas` em
 | `ResolveRequest` | Current review revision and chosen resolution. |
 | `ExportRequest` | Collection ID and submission key. |
 | `DeviceRequest` | Mounted path and estimated bytes needed; read-only effect. |
+| `DeliveryRequest` | Name, existing collection IDs, workflow, app version, target profile, audio mode, and pilot/full selection. |
+| `DeliveryPrepareRequest` | Current delivery revision and preparation submission key. |
+| `DeliveryDeviceRequest` | Current delivery revision and exact mounted volume path to bind read-only. |
+| `DeliveryObservation` | Current revision, observed stage, app version, track/playlist coverage, checked recording IDs, observer, notes, method, outcome, and optional actual hardware details. |
+| `DeliveryVerifyRequest` | Current delivery revision for machine audio-hash readback on the bound volume. |
 
 Labels reject control characters and blank artist/title. Recording normalization uses Unicode NFKC, casefolding, and punctuation/whitespace normalization; it retains version words. This is text matching, not an acoustic identity resolver.
+
+### Delivery inputs
+
+`DeliveryRequest` accepts 1–100 distinct `collection_ids` and freezes their accepted recording IDs, byte revisions, labels, and membership. Repeated recordings are prepared once while retaining each collection's membership. Different byte revisions for the same recording return `DELIVERY_REVISION_CONFLICT`; delivery does not silently select one. The combined selection is limited to 10,000 unique recordings.
+
+- `workflow`: `rekordbox_usb` or `serato_portable`.
+- `app_version`: required. `hardware_profile` is also required for `rekordbox_usb` and must be returned by `delivery targets`.
+- `audio_mode`: `preserve` (default), `mp3_320`, or `wav16_44100`. Preparation always creates separate working copies; conversion does not improve source fidelity.
+- `phase`: `pilot` (default) or `full`. `pilot_size` is 1–5, default 3; sampling visits the selected collections in round-robin order.
+- A full delivery requires `pilot_delivery_id` pointing to a completed native-app/device trial with matching workflow, hardware profile, audio mode, and app version. Otherwise preparation returns `PILOT_REQUIRED`.
+
+`DeliveryObservation.stage` is one of `imported`, `analyzed`, `native_exported`, `device_library_checked`, or `hardware_playback`. Passed observations require preceding stages, the planned app version, exact unique-track and per-collection counts, and every checked recording ID. Only hardware playback for a full delivery permits a nonempty sample; a pilot requires playback of every selected recording. `playlist_counts` uses collection IDs as keys. Failed observations may report incomplete or zero coverage and invalidate later observations.
+
+`method` is `native_app_ui` for the first four stages and `physical_hardware` for playback. `outcome` is `passed` or `failed`; `observer` and `notes` are required. These observations remain operator-reported evidence. Passed rekordbox hardware playback additionally requires matching `hardware_profile`, nonblank `firmware_version`, and `storage_recognized: true`; missing details return `HARDWARE_DETAILS_REQUIRED`. CDJ-3000 firmware 3.30, including normalized whitespace/`v` prefixes, returns `FIRMWARE_UNSUPPORTED`.
 
 ## Use cases and routes
 
@@ -53,8 +74,15 @@ Labels reject control characters and blank artist/title. Recording normalization
 | `collection ID` | `djlib_collection` | `GET /collections/{id}` |
 | `export ID --key KEY` | `djlib_export` | `POST /exports` |
 | `usb-preflight PATH` | `djlib_usb_preflight` | `POST /devices/preflight` |
+| `delivery targets` | `djlib_delivery_targets` | `GET /delivery-targets` |
+| `delivery plan --file FILE` | `djlib_plan_delivery` | `POST /deliveries` |
+| `delivery get ID` | `djlib_delivery` | `GET /deliveries/{delivery_id}` |
+| `delivery prepare ID --revision N --key KEY` | `djlib_prepare_delivery` | `POST /deliveries/{delivery_id}/prepare` |
+| `delivery bind-device ID PATH --revision N` | `djlib_bind_delivery_device` | `POST /deliveries/{delivery_id}/device` |
+| `delivery observe ID --file FILE` | `djlib_observe_delivery` | `POST /deliveries/{delivery_id}/observations` |
+| `delivery verify-device ID --revision N` | `djlib_verify_delivery_device` | `POST /deliveries/{delivery_id}/verify` |
 
-`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the portable skill and explicit MCP configuration, without copying credentials or editing personal host configuration. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
+`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the portable skill and explicit MCP configuration, without copying credentials or editing personal host configuration. New development sessions set the Codex MCP tool timeout to 660 seconds and the Claude server timeout to 660,000 milliseconds, allowing the client's 600-second delivery-observation check to finish. Existing generated sessions are unchanged. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
 
 ## Bounds and paging
 
@@ -81,6 +109,14 @@ Labels reject control characters and blank artist/title. Recording normalization
 
 ## Recovery and readiness
 
-`TRANSPORT_UNCERTAIN` means a mutation may have been accepted. Resubmit the identical request with its original idempotency key. `IDEMPOTENCY_CONFLICT` means the key belongs to another intent. `PLAN_STALE` and `REVIEW_STALE` require reading the latest state before choosing another action.
+`TRANSPORT_UNCERTAIN` means a mutation may have been accepted. For keyed submissions, resubmit the identical request with its original idempotency key. `IDEMPOTENCY_CONFLICT` means the key belongs to another intent. `PLAN_STALE`, `REVIEW_STALE`, and `DELIVERY_STALE` require reading the latest state before choosing another action.
 
-Exports report `app_state: prepared_for_import` and `device_state: not_exported`. A collection reports `not_imported` until a future integration provides actual evidence. The first release has no operation that establishes `device_ready`.
+Delivery planning creates a new frozen delivery record on each call; it has no idempotency-key field. Preparation is keyed: intent, the delivery-to-job binding, and items are committed before media work. Concurrent preparation requests for the same frozen delivery share one job, including requests with different fresh keys; each key is bound to that job. A key already naming another request returns `IDEMPOTENCY_CONFLICT`; a different preparation payload for an already-bound delivery returns `DELIVERY_CONFLICT`.
+
+Device binding, observations, and verification use delivery revisions rather than submission keys. Evidence updates use an atomic compare-and-swap on the stored revision: exactly one concurrent writer can advance it, and a stale writer receives `DELIVERY_STALE` without overwriting the winner. After an uncertain call, read `delivery get` and inspect the evidence before submitting another observation. Machine-check failures can persist failed evidence and advance the revision before returning an error, so read the delivery again after those failures too.
+
+Exports report `app_state: prepared_for_import` and `device_state: not_exported`. Generic collection replies remain `not_imported`; delivery evidence is tracked separately. A delivery with partial preparation publishes no native import handoff. Neither successful preparation nor native-library filenames establish app import, native export, or hardware playback.
+
+`delivery get` combines historical observations/readback with a current lightweight volume-identity and marker check. Its `requirements_met_at_last_check` may be true, but `hashes_rechecked_by_status` is false and `ready_for_departure` remains false. `last_audio_readback_at` identifies the stored readback time. Only `delivery verify-device` can return `ready_for_departure: true`, after fresh matching audio hashes and all native, device, and hardware requirements pass. This is attributed operator evidence plus machine byte readback, not automatic player verification: `hardware_verified_automatically` and `native_automation_available` remain false.
+
+Rebinding a device invalidates device-dependent evidence. Re-observing an earlier stage invalidates later stages; detected changes to or loss of analyzed working files invalidate analysis and subsequent readiness. Readback checks do not write the USB or interpret native database contents. See [the delivery workflow](DJ_DELIVERY.md) for the supported app steps and remaining hardware boundary.

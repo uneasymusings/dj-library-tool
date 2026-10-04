@@ -7,7 +7,13 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from djlib import __version__
-from djlib.domain.contracts import CollectionRequest, DownloadRequest, ResponseEnvelope
+from djlib.domain.contracts import (
+    CollectionRequest,
+    DeliveryObservation,
+    DeliveryRequest,
+    DownloadRequest,
+    ResponseEnvelope,
+)
 from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient
 from djlib.interfaces.service import envelope
@@ -152,5 +158,54 @@ def build_server(workspace: Workspace) -> MCPServer:
         return await request(
             "POST", "/devices/preflight", {"path": path, "required_bytes": required_bytes}
         )
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_delivery_targets() -> ResponseEnvelope:
+        """List documented player profiles and native automation limits."""
+        return await request("GET", "/delivery-targets")
+
+    @server.tool(structured_output=True, annotations=intent)
+    async def djlib_plan_delivery(request_body: DeliveryRequest) -> ResponseEnvelope:
+        """Freeze a target-specific pilot from existing catalog collection IDs."""
+        return await request("POST", "/deliveries", request_body.model_dump(mode="json"))
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_delivery(delivery_id: str) -> ResponseEnvelope:
+        """Read native workflow blockers and explicitly attributed evidence."""
+        return await request("GET", f"/deliveries/{delivery_id}")
+
+    @server.tool(structured_output=True, annotations=write)
+    async def djlib_prepare_delivery(
+        delivery_id: str, revision: int, idempotency_key: str
+    ) -> ResponseEnvelope:
+        """Queue isolated working copies and native-app instructions; not native export."""
+        return await request(
+            "POST",
+            f"/deliveries/{delivery_id}/prepare",
+            {"revision": revision, "idempotency_key": idempotency_key},
+        )
+
+    @server.tool(structured_output=True, annotations=intent)
+    async def djlib_bind_delivery_device(
+        delivery_id: str, revision: int, path: str
+    ) -> ResponseEnvelope:
+        """Bind observed USB identity read-only; rebinding invalidates old device evidence."""
+        return await request(
+            "POST", f"/deliveries/{delivery_id}/device", {"revision": revision, "path": path}
+        )
+
+    @server.tool(structured_output=True, annotations=intent)
+    async def djlib_observe_delivery(
+        delivery_id: str, observation: DeliveryObservation
+    ) -> ResponseEnvelope:
+        """Record observed native stages; preparation and file copies are not native evidence."""
+        return await request(
+            "POST", f"/deliveries/{delivery_id}/observations", observation.model_dump(mode="json")
+        )
+
+    @server.tool(structured_output=True, annotations=intent)
+    async def djlib_verify_delivery_device(delivery_id: str, revision: int) -> ResponseEnvelope:
+        """Verify prepared audio hashes on the bound USB without writing the device."""
+        return await request("POST", f"/deliveries/{delivery_id}/verify", {"revision": revision})
 
     return server

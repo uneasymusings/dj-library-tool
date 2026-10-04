@@ -1,6 +1,6 @@
 # Validation and first-use checklist
 
-This document separates repeatable engine checks from actual host, provider, app, and hardware observations. Updated 2026-10-03; see [status](STATUS.md) for remaining scope.
+This document separates repeatable engine checks from actual host, provider, app, and hardware observations. Updated 2026-10-04; see [status](STATUS.md) for remaining scope. Today's local, unpublished `0.1.0a3.dev0` evidence is separate from the historical public `0.1.0a2` evidence below. Old host, provider, release, and native-app checks were not rerun merely by building the development version.
 
 ## Automated suite
 
@@ -12,7 +12,27 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-Local result: **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. Tests generate their own short tones and never access a personal music catalog or physical USB. Live network access is not a test-suite prerequisite.
+### Current development checks — 2026-10-04
+
+Version: **0.1.0a3.dev0, local and unpublished**. Current development suite result: **206 passed in 34.78 seconds**, macOS, Python 3.13.3, real FFmpeg/ffprobe installed; no skips reported. Tests use generated tones, isolated catalogs, controlled transports, and simulated device/operator evidence. They do not establish a real native-app import, device export, or hardware playback result.
+
+| Added suite | Scenarios |
+| --- | --- |
+| `test_worker_scheduling` | Late-arriving collection/export requests, serial download rotation, bounded handoff preference, checkpoint pause/resume, restart recovery, stale generations, and delivery-item/finalization dispatch. |
+| `test_delivery_workflow` | Frozen stable IDs and collection membership, conflicting byte revisions, immutable originals, pilot gating, partial preparation, stage/coverage/revision evidence, manifest tampering, native tag changes versus replaced audio, invalidated stale readiness, and actual-player/firmware detail requirements. |
+| `test_delivery_media` | Isolated compatibility copies, source integrity, output properties, and interruption/failure boundaries. |
+| `test_delivery_targets` | Documented target-profile limits and rejection of unsupported or insufficiently specified audio properties. |
+| `test_device_readback` | Read-only mount identity, native-marker limitations, bounded hash presence checks, traversal boundaries, and incomplete/changed-volume outcomes. |
+| `test_delivery_transports` | Seven delivery commands/tools through real CLI/MCP/ASGI/worker contracts with original tones; device/native observations remain controlled test inputs. |
+| `test_delivery_concurrency` | One preparation job under concurrent submissions and one winner for competing evidence updates at the same revision. |
+
+Newly generated development sessions use a 660-second Codex MCP tool timeout and a 660,000-millisecond Claude server timeout, covering the client's 600-second delivery-observation timeout. Existing generated sessions are unchanged.
+
+The installed development wheel also passed the separate check described below. No signed-in AI-host trial, live provider acquisition, physical USB trial, or native rekordbox/Serato operation was performed as part of today's development validation. Target manuals and simulated observations are not hardware test evidence.
+
+### Historical public-alpha baseline — 2026-10-03
+
+For `0.1.0a2`, the recorded local result was **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. The following table records that baseline; its 16-tool count is not the current development count. Tests generated their own short tones without accessing a personal music catalog or physical USB. Live network access was not a test-suite prerequisite.
 
 | Suite | Scenarios |
 | --- | --- |
@@ -25,9 +45,9 @@ Local result: **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffpr
 | `test_release_artifacts` | Engine/project/lock version consistency, complete standalone skill allowlist, reproducible ZIP bytes, and checksums for current release artifacts only. |
 | `test_agent_setup` | Both portable skills, absolute executable config, existing-output preservation, workspace boundaries, launcher option placement, clean MCP stdout on startup failure. |
 
-CI runs the suite on three OSes and Python 3.12/3.13. Five FFmpeg-dependent cases skip if the runner has no decoder. The POSIX descendant test skips on Windows; Windows retrieval uses `taskkill /T` for process-tree cancellation. Symlink tests can skip where link creation is unavailable. Check the run's summaries instead of assuming every optional case ran on every platform.
+The public `0.1.0a2` release passed its three-OS/Python 3.12–3.13 CI matrix. At that revision, five FFmpeg-dependent cases skipped if the runner had no decoder. The POSIX descendant test skipped on Windows; Windows retrieval used `taskkill /T` for process-tree cancellation. Symlink tests could skip where link creation was unavailable. These historical matrix results do not establish cross-platform results for the new development suites; check each actual run's summaries.
 
-## Fresh AI CLI trial
+## Historical AI CLI trials — 2026-10-03
 
 Create a new isolated workspace, then a separate session:
 
@@ -46,20 +66,20 @@ Trial prompt:
 
 For scripted Codex checks, `python launch.py codex exec --ephemeral --skip-git-repo-check ...` uses the installed host's `--ignore-user-config` option in the correct subcommand position. Interactive Codex retains user settings. Both use explicit djlib MCP overrides. For Claude, the launcher supplies `--strict-mcp-config`; `--setting-sources project` preserves the installed project skill while omitting personal settings. Do not turn off all setting sources and then assume skill discovery still works.
 
-Observed trials:
+Observed `0.1.0a2` trials:
 
 - Codex 0.160.0 automatically read `.agents/skills/dj-library/SKILL.md`, read capabilities/catalog, planned/started a two-tone collection, read items/reviews/collection, and completed its export. Counts: two succeeded, both reused, zero reviews; export two tracks; USB `not_exported`.
 - Claude Code 2.1.288 completed a two-tone collection/export. The initial restricted test omitted project setting sources and suppressed skill discovery; a corrected trial loaded `/dj-library` successfully, checked all item states and reviews, and performed read-only preflight on an ordinary folder with `is_mount_point=false`. No permission denials in the corrected trial.
 
 Each trial used actual signed-in host inference and real MCP tools, without approval bypasses or delegation. These are controlled evaluations rather than a guarantee that every assistant prompt will be interpreted correctly. Transcripts/authentication details are not published.
 
-## Live provider check
+## Historical live provider checks — 2026-10-03
 
 The official yt-dlp Bandcamp extractor fixture, `https://youtube-dl.bandcamp.com/track/youtube-dl-test-song`, was inspected and acquired through the actual CLI/coordinator. Result: one succeeded; managed FLAC, about 9.848 seconds, mono 44.1 kHz; original acquisition hash and final tagged hash retained; `source_quality=unverified`, `acoustic_identity_verified=false`.
 
 SoundCloud's [Testing Grounds (Creative Commons ZERO)](https://soundcloud.com/303bassline/testing-grounds), by Nicolás Díaz, passed inspection and download: one succeeded, with publisher-declared public-domain permission. YouTube's [Sintel open movie](https://youtu.be/eRsGyueVLvQ), published by Blender, also passed inspection and complete audio acquisition: one succeeded. The film is an extractor fixture, not a claim of a DJ-track identification. Both used the actual durable CLI/coordinator workflow.
 
-The prior YouTube fixture `BaW_jenozKc` is unavailable. It failed rather than being reported as acquired. Current YouTube extraction requires a supported JavaScript runtime/EJS; [official setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS) recommends Deno and supports Node 22+ when explicitly enabled. Node 22.15.0 was used for the successful trial. Three individual provider successes do not guarantee extraction for arbitrary links; CI provider doubles do not establish live compatibility.
+The prior YouTube fixture `BaW_jenozKc` was unavailable. It failed rather than being reported as acquired. That trial used supported JavaScript runtime/EJS extraction with Node 22.15.0; consult [official setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS) when preparing another environment. Three individual provider successes do not guarantee extraction for arbitrary links; CI provider doubles do not establish live compatibility.
 
 ## Installed-package check
 
@@ -70,9 +90,19 @@ uv run --locked python scripts/check_distribution.py
 uv run --locked python scripts/release_artifacts.py
 ```
 
-Observed result: `ok=true`, three generated tracks ingested/exported, 16 MCP tool schemas exposed through a real stdio child, and the packaged skill installed into a separate agent session. The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows also waits for the exiting process to close its inherited log handle before removing the disposable workspace. CI runs this fresh-environment smoke check after building the wheel.
+On **2026-10-04**, the locally built, unpublished `0.1.0a3.dev0` wheel passed in a separate installed environment:
 
-## Public GitHub distribution check
+```json
+{"ok": true, "tracks": 3, "mcp_tools": 23, "skill_packaged": true}
+```
+
+Three original generated tones were ingested/exported, all 23 MCP tool schemas were exposed through a real stdio child, and the packaged skill was installed into a separate assistant session. The check also called the real MCP delivery-target, delivery-plan, and delivery-prepare tools, waited for the three-tone preparation, and checked delivery status: `prepared_for_import=true`, `ready_for_departure=false`. This verifies installed delivery packaging and transport, not native app automation or device readiness.
+
+The earlier `0.1.0a2` installed-package check reported three tracks, 16 tools, and the packaged skill. Today's local wheel result does not mean a new GitHub release was published or that the historical public-wheel checks were rerun.
+
+The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows cleanup additionally waits for the exiting process to close its inherited log handle. The CI workflow includes this installed-wheel smoke check; today's observed result above is local, not a claim that the new version has passed its full CI matrix.
+
+## Historical public GitHub distribution check — 2026-10-03
 
 The [v0.1.0a2 prerelease](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a2) was installed directly from its public wheel URL into a fresh uv tool environment outside the developer checkout. The trial used no editable install or local wheel. Runtime dependencies resolved through their normal registry, including MCP 2.3.0 and yt-dlp 2026.8.19.
 
@@ -88,7 +118,7 @@ Observed checks:
 
 Follow [the public installation guide](INSTALL.md) for the same installation. Tool/cache directories were overridden only to isolate this trial from an existing personal installation. The installation still runs the engine locally for music access.
 
-## Actual rekordbox check
+## Historical native rekordbox check — 2026-10-03
 
 Verified in **rekordbox 7.2.8 on macOS**:
 
@@ -99,15 +129,15 @@ Verified in **rekordbox 7.2.8 on macOS**:
 
 The installed app had an existing personal catalog; the check added only the generated tones. No native database files were edited directly. Actual XML-library import and device export have not yet passed. The manifest correctly remains `prepared_for_import`/`not_exported`: engine state does not automatically observe native app actions.
 
-Native apps may legitimately change file tags. If later export says `RECONCILIATION_REQUIRED`, preserve the original and inspect the change; current byte revisions are immutable and automatic native-tag reconciliation is still planned. Do not disable hash checks to make a demo appear successful.
+Native apps may legitimately change file tags. Generic catalog exports still reject changed catalog bytes with `RECONCILIATION_REQUIRED`; do not disable that check. The new development delivery workflow prepares separate working copies and checks decoded PCM identity when native analysis changes their tags. That behavior has generated-audio test evidence today, not a new native rekordbox observation.
 
 ## Serato check to complete
 
-Serato DJ Pro **3.1.5** opened and exposed its library/Files interface. The automation service subsequently failed with screen-capture errors, so import and analysis are unverified.
+In the **2026-10-03** trial, Serato DJ Pro **3.1.5** opened and exposed its library/Files interface. The automation service subsequently failed with screen-capture errors, so import and analysis were unverified. No new native Serato trial was performed on 2026-10-04.
 
 Manual procedure for the next supervised trial:
 
-1. Open Files and locate the demo's `demo-source/` folder (or accepted managed `media/` files).
+1. For the development delivery workflow, prepare an original-tone pilot and locate its isolated working copies and manifest. Open those working copies in Serato Files.
 2. Create a distinctly named test crate and add only those generated tracks using Serato's supported UI.
 3. Confirm three entries and their paths, then run Analyze Files. Verify no missing-file warning and load one tone into a deck with audio output under your control.
 4. Record the observed app version, count, analysis/load outcome, and any errors. An M3U file by itself is not a native Serato crate.
@@ -116,14 +146,14 @@ Selected managed FLAC downloads now contain readable artist/title/version displa
 
 ## Physical USB and player gate
 
-No external physical USB disk was connected during validation. A mounted app installer image is not a target USB. The engine does not format, write to, or create a native player database on storage.
+The published `0.1.0a2` original-tone validation recorded no external physical USB disk. Today's `0.1.0a3.dev0` development validation also did not test a physical USB or player. A mounted app installer image is not a target USB. The engine does not format, write to, or create a native player database on a device.
 
 Once the user supplies the exact mounted volume and player/controller model:
 
-1. Run `usb-preflight` on that path with the actual collection byte requirement. Check that it is the intended mount and has sufficient capacity. The tool does not identify filesystem suitability or a player model.
-2. Check the player's official supported filesystem/audio/export database formats before choosing native export settings. Preserve existing correctly prepared media; formatting is not a routine step.
-3. Import/analyze the small test collection in rekordbox and export using rekordbox's native device workflow.
-4. Read back the exported playlist/tracks in the app, eject normally, and load/play the test files on the target hardware.
-5. Record per-stage outcomes. A folder capacity check, M3U/XML generation, or file copy cannot stand in for hardware playback evidence.
+1. Use `delivery targets` and the actual workflow, app version, and player model to plan an original-tone pilot. Bind the exact mounted volume through `delivery bind-device`; ordinary folder capacity is not device identity.
+2. Check the player's official supported filesystem/audio/export database formats and actual firmware. Preserve existing correctly prepared media; formatting is not a routine step.
+3. Import/analyze the prepared working copies and perform the supported native rekordbox export or Serato portable-crate copy described in [the delivery workflow](DJ_DELIVERY.md).
+4. Inspect actual native playlist/crate membership, run `delivery verify-device`, eject normally, and load/play every pilot track on the specified player or destination Serato setup. Record the actual hardware details required by the target workflow.
+5. Record each native/device/hardware observation and perform fresh device verification before departure. `delivery get` reports historical evidence and lightweight current-device checks; it does not rehash the audio. A capacity check, M3U/XML generation, native-library filename, or file copy cannot substitute for native and hardware evidence.
 
 After the small gate passes, try a small owned-music collection before a large artist/set acquisition. Soulseek, complete discographies, automatic set recognition, musical categorization, and unattended app/USB automation are subsequent milestones in [the plan](../PLAN.md).

@@ -102,6 +102,10 @@ For YouTube the adapter selects installed Deno, then Node (22+ required by yt-dl
 
 ## 5. Prepare handoff
 
+For a real DJ destination in the **unpublished local 0.1.0a3.dev0 preview**, follow [DJ delivery](DJ_DELIVERY.md): choose `rekordbox_usb` with the exact player profile, or `serato_portable` for a Serato computer; prepare a small pilot; then record native import, analysis, export, device inspection and physical playback. `delivery targets` lists supported profiles. The persisted workflow keeps app working copies separate from catalog originals and performs read-only device verification. It is not included in the public `v0.1.0a2` release wheel.
+
+The older `export` command below remains a generic interchange handoff. It does not create or complete a target delivery.
+
 Get the ingestion job's `result.collection_id`, then:
 
 ```bash
