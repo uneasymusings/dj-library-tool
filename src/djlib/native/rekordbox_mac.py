@@ -5,6 +5,7 @@ reads or writes rekordbox's database. macOS requires the controlling app (e.g. T
 be allowed under System Settings > Privacy & Security > Accessibility.
 """
 
+import contextlib
 import subprocess
 import sys
 import time
@@ -53,48 +54,82 @@ on run argv
 end run
 """
 
-CHOOSE_PATH = """
-on run argv
-  set targetPath to item 1 of argv
+# File dialogs are driven through accessibility values and named buttons. The only two
+# keystrokes (Go to Folder, Return) are sent after checking that rekordbox is frontmost and
+# the expected dialog has focus, so nothing is ever typed into another app.
+PANEL = """
+on focusedOn(w)
   tell application "System Events"
     tell process "rekordbox"
-      set frontmost to true
-      delay 1.0
-      keystroke "g" using {command down, shift down}
-      delay 0.8
-      keystroke targetPath
-      delay 0.5
-      key code 36
-      delay 0.8
-      key code 36
+      if frontmost is false then return false
+      set fw to value of attribute "AXFocusedWindow"
+      try
+        if (role of fw as text) is "AXSheet" then return true
+      end try
+      return (name of fw as text) is (name of w as text)
     end tell
   end tell
-  return "chosen"
+end focusedOn
+
+on run argv
+  set windowName to item 1 of argv
+  set folderPath to item 2 of argv
+  set fileName to item 3 of argv
+  set confirmName to item 4 of argv
+  tell application "rekordbox" to activate
+  delay 0.5
+  tell application "System Events"
+    tell process "rekordbox"
+      set w to window windowName
+      perform action "AXRaise" of w
+      delay 0.3
+      set panel to splitter group 1 of w
+      if fileName is not "" then
+        set value of text field "Save As:" of panel to fileName
+        delay 0.2
+      end if
+      -- A dialog that has just opened can drop keystrokes; retry the guarded shortcut.
+      delay 0.8
+      repeat with attempt from 1 to 3
+        tell application "rekordbox" to activate
+        perform action "AXRaise" of w
+        delay 0.3
+        if not my focusedOn(w) then return "not-focused"
+        keystroke "g" using {command down, shift down}
+        repeat 15 times
+          if (count of sheets of w) > 0 then exit repeat
+          delay 0.2
+        end repeat
+        if (count of sheets of w) > 0 then exit repeat
+      end repeat
+      if (count of sheets of w) = 0 then return "no-go-to-sheet"
+      set value of text field 1 of sheet 1 of w to folderPath
+      delay 0.4
+      tell application "rekordbox" to activate
+      if not my focusedOn(w) then return "not-focused"
+      key code 36
+      repeat 25 times
+        if (count of sheets of w) = 0 then exit repeat
+        delay 0.2
+      end repeat
+      delay 0.5
+      if enabled of button confirmName of panel is false then return "confirm-disabled"
+      click button confirmName of panel
+      return "done"
+    end tell
+  end tell
 end run
 """
 
-SAVE_AS = """
-on run argv
-  set folderPath to item 1 of argv
-  set fileName to item 2 of argv
-  tell application "System Events"
-    tell process "rekordbox"
-      set frontmost to true
-      delay 1.0
-      keystroke "a" using {command down}
-      keystroke fileName
-      delay 0.3
-      keystroke "g" using {command down, shift down}
-      delay 0.8
-      keystroke folderPath
-      delay 0.5
-      key code 36
-      delay 0.8
-      key code 36
-    end tell
+DIALOG = """
+tell application "System Events"
+  tell process "rekordbox"
+    repeat with w in windows
+      if (subrole of w as text) is "AXDialog" then return name of w as text
+    end repeat
   end tell
-  return "saved"
-end run
+end tell
+return ""
 """
 
 
@@ -175,19 +210,15 @@ def click_menu(name: str) -> None:
 
 def import_playlist(playlist: Path) -> None:
     ensure_running()
-    windows = _window_count()
     click_menu(IMPORT_PLAYLIST)
-    _wait_for_dialog(windows)
-    _osascript(CHOOSE_PATH, str(playlist))
+    _drive_panel(_dialog(), str(playlist), "", "Open")
 
 
-def export_collection(destination: Path, timeout: float = 120) -> Path:
+def export_collection(destination: Path, timeout: float = 180) -> Path:
     ensure_running()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    windows = _window_count()
     click_menu(EXPORT_XML)
-    _wait_for_dialog(windows)
-    _osascript(SAVE_AS, str(destination.parent), destination.name)
+    _drive_panel(_dialog(), str(destination.parent), destination.name, "Save")
     deadline = time.monotonic() + timeout
     previous = -1
     while time.monotonic() < deadline:
@@ -200,22 +231,31 @@ def export_collection(destination: Path, timeout: float = 120) -> Path:
     raise AppError("APP_EXPORT_TIMEOUT", "rekordbox did not write the collection XML in time.")
 
 
-def _wait_for_dialog(before: int, timeout: float = 10) -> None:
+def _dialog(timeout: float = 15) -> str:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _window_count() > before or _sheet_open():
-            return
+        name = _osascript(DIALOG)
+        if name:
+            return name
         time.sleep(0.3)
-    # Some rekordbox builds reuse the main window for panels; continue and let the
-    # subsequent keystrokes fail loudly if no file dialog is present.
+    raise AppError("APP_DIALOG_MISSING", "rekordbox did not open its file dialog.")
 
 
-def _sheet_open() -> bool:
+def _drive_panel(window: str, path: str, file_name: str, confirm: str) -> None:
+    outcome = _osascript(PANEL, window, path, file_name, confirm, timeout=60)
+    if outcome != "done":
+        _cancel(window)
+        raise AppError(
+            "APP_DIALOG_FAILED",
+            f"Could not complete rekordbox's “{window}” dialog ({outcome}); nothing was typed "
+            "into other apps. Keep rekordbox on screen and retry.",
+        )
+
+
+def _cancel(window: str) -> None:
     script = (
-        f'tell application "System Events" to tell process "{PROCESS}" to '
-        "exists sheet 1 of window 1"
+        'tell application "System Events" to tell process "rekordbox" to '
+        f'click button "Cancel" of splitter group 1 of window "{window}"'
     )
-    try:
-        return _osascript(script) == "true"
-    except AppError:
-        return False
+    with contextlib.suppress(AppError):
+        _osascript(script)

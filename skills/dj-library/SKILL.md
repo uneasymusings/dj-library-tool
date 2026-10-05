@@ -42,6 +42,8 @@ Committed annotation/organization mutations and delivery-check evidence are term
 
 For a set or request list, prefer the composed path: `djlib_create_request` with structured items (or CLI `requests create --text FILE` for a pasted tracklist), then `djlib_collect_request` with the current revision to queue an ordered collection of the satisfied songs. Wait for its job and use the `collection_id`. Report missing songs, `different_version` candidates ("you own the Radio Edit, not the Dub") and unknown IDs separately; never substitute a different mix.
 
+On macOS with rekordbox installed, prefer `djlib --workspace PATH --json rekordbox push COLLECTION_ID` to put a crate into rekordbox: it drives rekordbox's own menus, waits for its analysis and verifies the playlist from rekordbox's XML export. If it returns `APP_AUTOMATION_NOT_ALLOWED`, ask the user to enable their terminal app under System Settings > Privacy & Security > Accessibility once. Report `matched/expected` and `analyzed`; do not claim cues, grids or USB export. `rekordbox pull` refreshes BPM/key later.
+
 When the user has analyzed tracks in rekordbox, ask them to export the collection (File > Export Collection in xml format) into an allowed folder, then call `djlib_import_rekordbox_analysis`. It matches exact file paths, stores BPM/key with `source: rekordbox_analysis` and `verified: false`, and keeps values someone set explicitly. After that, `djlib_organize` BPM/key filters and ordering work from rekordbox's values. Describe them as rekordbox's analysis, not as verified facts.
 
 ## Organize catalog evidence

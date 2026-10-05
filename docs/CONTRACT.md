@@ -76,6 +76,8 @@ App-only workflows accept only `imported` and `analyzed` observations, followed 
 
 `AnalysisImport` (`path`) reads a rekordbox Collection XML export from an allowed folder or the workspace (the CLI copies the chosen file into the workspace first). Tracks match only by exact file location: catalog originals or prepared delivery working copies. Known `AverageBpm`/`Tonality` values are stored as BPM/key annotations with `source: "rekordbox_analysis"` and `verified: false`; values with any other source are kept. Library rows and collection pages include `dj: {bpm, key, bpm_source, key_source, energy, set_role}` from saved annotations.
 
+`rekordbox push` runs in the CLI process, which macOS lets drive another app once the terminal is allowed under Accessibility; the coordinator never automates UI. It exports the collection (hash-checked), copies the M3U8 to `exports/rekordbox/<collection name>.m3u8` (rekordbox names the playlist after the file), chooses it in rekordbox's File > Import > Import Playlist dialog, then repeatedly uses File > Export Collection in xml format until the playlist's members are present and analyzed or `--wait` expires. The result reports `playlist_found`, `entries`, `expected`, `matched`, `analyzed`, `playlists_with_this_name`, `missing_paths` and the analysis import counts, with `verified_by: rekordbox_xml_export` and `database_modified_directly: false`. Dialogs are driven through accessibility values and named buttons; the two shortcut keystrokes are sent only after confirming rekordbox is frontmost and the expected dialog has focus, otherwise the dialog is cancelled with `APP_DIALOG_FAILED`. Missing permission returns `APP_AUTOMATION_NOT_ALLOWED`; non-macOS returns `APP_AUTOMATION_UNSUPPORTED`.
+
 `delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
 
 Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/cli.md#exact-requests-and-unknown-ids).
@@ -123,6 +125,8 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `requests report ID --revision N` | `djlib_request_report` | `POST /requests/{id}/report` |
 | `requests collect ID [--name NAME] [--revision N]` | `djlib_collect_request` | `POST /requests/{id}/collection` |
 | `import-rekordbox XML` | `djlib_import_rekordbox_analysis` | `POST /analysis/rekordbox` |
+| `rekordbox push ID [--wait SECONDS]` | CLI only (macOS desktop session) | `POST /exports`, then `POST /analysis/rekordbox` |
+| `rekordbox pull` | CLI only (macOS desktop session) | `POST /analysis/rekordbox` |
 | `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |
 | `organize get ID --asset-revision-id REV_ID` | `djlib_annotations` | `GET /recordings/{id}/annotations` |
 | `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |
