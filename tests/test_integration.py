@@ -139,8 +139,15 @@ def live_identity(workspace, expected=None, *, operation="coordinator identity")
     """Health-check without a startup path; an exited coordinator must fail this test."""
     client = LocalClient(workspace, allow_start=False)
     url = client.discover()
-    assert url, coordinator_diagnostics(
-        workspace, operation, {"discover": None, "expected_identity": expected}, expected=expected
+    # Lead with the failure reason: pytest truncates the long diagnostics below.
+    assert url, (
+        f"discovery failed ({client.last_discovery_error}) {operation}",
+        coordinator_diagnostics(
+            workspace,
+            operation,
+            {"discover": None, "error": client.last_discovery_error, "expected_identity": expected},
+            expected=expected,
+        ),
     )
     try:
         record = json.loads((workspace.runtime / "service.json").read_text())
