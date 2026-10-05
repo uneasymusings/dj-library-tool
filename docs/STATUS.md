@@ -20,7 +20,8 @@ Updated 2026-10-05 UTC for **0.1.0a4**. Local tests and an installed-wheel smoke
 | Installed wheel | Smoke check passed actual stdio MCP calls with **40 tools** and **three original tones**. |
 | Six-job release matrix | Pending; local macOS results do not establish Windows/Linux results. |
 | Publication and public-artifact audit | Pending; no anonymous a4 download/install result is claimed yet. |
-| Native app/device trial | No new native Serato, real-music, physical USB export or player validation is claimed. |
+| Installed a3-to-a4 upgrade | A separate original-tone catalog copy retained all IDs, hashes, collection order and roots; the original workspace was unchanged. No schema change was needed. |
+| Native app/device trial | Both three-tone app preparations passed; the UI attempt was blocked by disabled import controls/`noWindowsAvailable`. No new successful native import, analysis, loading, USB export or player validation. [Details](VALIDATION.md). |
 
 The a3/a2 evidence below is retained independently. Original-tone tests and installed-engine checks do not prove native musical analysis, real USB export or player playback.
 
