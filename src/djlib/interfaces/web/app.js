@@ -200,7 +200,7 @@ const SOURCES = {
 
 function readout(value, kind, source, verified) {
   if (value === null || value === undefined || value === "") return h("span", { class: "blank" }, "—");
-  const text = kind === "bpm" ? Number(value).toFixed(Number.isInteger(Number(value)) ? 0 : 2) : value;
+  const text = kind === "bpm" ? String(Number(Number(value).toFixed(2))) : value;
   const where = SOURCES[source] || source || "unknown source";
   const title = `${kind === "bpm" ? "BPM" : "Key"} from ${where}${verified ? ", verified" : ", not verified"}`;
   return h("span", { class: `readout ${kind}`, title }, text);
@@ -399,8 +399,8 @@ const requestsList = listView({
   key: "requests",
   href: (row) => `#/requests/${encodeURIComponent(row.request_id)}`,
   emptyText: () => empty(
-    "No request lists yet.",
-    "Ask your assistant to save the songs you want, or create a list from a terminal with djlib requests create.",
+    "No request lists yet. Paste a tracklist into a text file, one “Artist - Title” per line, then run:",
+    copyable(commandText("requests", "create", "--text", "tracklist.txt")),
   ),
   columns: [
     { label: "Name", class: "title", cell: (row) => h("a", { href: `#/requests/${encodeURIComponent(row.request_id)}` }, row.name) },
@@ -626,7 +626,10 @@ const deliveriesList = listView({
   path: "/deliveries",
   key: "deliveries",
   href: (row) => `#/deliveries/${encodeURIComponent(row.delivery_id)}`,
-  emptyText: () => empty("No deliveries yet. Plan one from a collection:", copyable(commandText("delivery", "targets"))),
+  emptyText: () => empty(
+    "No deliveries yet. Plan one from a collection:",
+    copyable(commandText("delivery", "plan", "--collection", "ID", "--workflow", "rekordbox_import", "--app-version", "VERSION")),
+  ),
   columns: [
     { label: "Name", class: "title", cell: (row) => h("a", { href: `#/deliveries/${encodeURIComponent(row.delivery_id)}` }, row.name) },
     { label: "Workflow", cell: (row) => `${WORKFLOWS[row.workflow] || row.workflow} ${row.phase || ""}`.trim() },
