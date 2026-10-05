@@ -476,7 +476,9 @@ def playlist_report(xml_path: Path, name: str, expected_paths: list[str]) -> dic
     playlists = [
         node for node in root.iter("NODE") if node.get("Type") == "1" and node.get("Name") == name
     ]
-    wanted = {key(_path_key(path)) for path in expected_paths}
+    # Report missing files in their original form (e.g. Windows backslashes).
+    originals = {key(_path_key(path)): path for path in expected_paths}
+    wanted = set(originals)
     members: list[dict] = []
     if playlists:
         node = playlists[-1]
@@ -502,7 +504,7 @@ def playlist_report(xml_path: Path, name: str, expected_paths: list[str]) -> dic
         "entries": len(members),
         "expected": len(wanted),
         "matched": len(matched),
-        "missing_paths": sorted(path for _, path in wanted - present)[:20],
+        "missing_paths": sorted(originals[path] for path in wanted - present)[:20],
         "analyzed": sum(
             1 for member in members if member["path"] in matched and member["analyzed"]
         ),
