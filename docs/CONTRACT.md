@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a4`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a5`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -115,7 +115,7 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |
 | `organize collection --file FILE` | `djlib_organize` | `POST /organization` |
 
-`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the skill and explicit MCP configuration without credentials or personal configuration changes. Session timeouts are transport ceilings, not job deadlines: accepted background work survives client exit. Existing generated sessions are unchanged. `demo` combines original tone generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints work and exits the coordinator.
+`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the skill and explicit MCP configuration without credentials or personal configuration changes. Session timeouts are transport ceilings, not job deadlines. Existing sessions are unchanged. `demo` combines original tones and normal use cases. `service status` does not start a coordinator; `service start` explicitly starts/discovers it, and `service stop` checkpoints work and exits. Windows MCP cold start returns `COORDINATOR_START_REQUIRED`; generated `launch.py` pre-starts the service before the host, or manual configurations require external-terminal startup. Other supported client/platform paths retain coordinator startup. The Windows process-job boundary is preserved, not escaped.
 
 ## Bounds and paging
 

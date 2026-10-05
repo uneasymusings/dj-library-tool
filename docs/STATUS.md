@@ -1,8 +1,11 @@
 # Implementation status
 
-Updated 2026-10-05 UTC for **0.1.0a4**. Local tests and an installed-wheel smoke check passed. The six-job release CI matrix and anonymous public-artifact audit are still pending; publication is not claimed here. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) and its audit remain a separate baseline. The complete product and unattended personal-library workflow remain unfinished. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining gaps.
+Updated 2026-10-05 UTC for **0.1.0a5**. Local validation and installed-wheel checks passed; the six-job matrix and public-artifact audit remain pending. The a4 release was cancelled after confirming a Windows coordinator-lifetime defect; tag `039f1ca` is preserved and unpublished. Its historical checks below do not validate a5. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) remains a separate audited baseline. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining goals.
 
-## a4 engineering changes
+## a5 engineering changes
+
+- Windows session launchers start the coordinator before launching the AI host. Manual MCP configuration requires `djlib --workspace PATH service start` from an external terminal. Windows MCP cold start returns `COORDINATOR_START_REQUIRED`; no Windows Job Object escape is attempted.
+- The 40-tool catalog/delivery API retains the following a4-candidate features. They are alpha capabilities, not completion of unattended personal-library management.
 
 - Forty MCP tools, including catalog/saved-work paging, additive allowed-root management and explicit changed-file reconciliation; CLI validation identifies invalid fields without echoing private values.
 - New scans use provisional byte identity for incomplete labels and preserve symbol-only distinctions. Historical incorrect merges are not repaired automatically.
@@ -11,19 +14,23 @@ Updated 2026-10-05 UTC for **0.1.0a4**. Local tests and an installed-wheel smoke
 - Full local preparation can proceed without a physical pilot, explicitly unvalidated. A supplied pilot must still match and pass. Native/device/playback gates remain; pilot/full working copies do not share native cues automatically.
 - Read-only, bounded Windows partition-style detection preserves known GUID/filesystem evidence on failure. Automatic schema upgrades first create integrity-checked catalog backups; music/native databases are outside that backup scope.
 
-## a4 validation and release gates
+## a5 release gates — pending
+
+The macOS/Python 3.13 suite passed **513 tests in 64.67 seconds**, with five Windows-only checks skipped. Ruff lint/format passed for **96 files**. The final integration assertions passed six tests with the Windows-native case skipped; they verify the same authenticated coordinator PID/instance after MCP exit and a durable review checkpoint after forced termination. An isolated installed a5 wheel exposed **40 MCP tools** and passed actual stdio calls with **three original tones**, request matching, organization and packaged session setup. All six OS/Python CI jobs and anonymous public installation remain gates. No a5 publication or new native app/device success is claimed.
+
+## Historical a4 candidate checks — unpublished
 
 | Check | Observed result |
 | --- | --- |
 | Local suite | **498 passed in 60.88 seconds**, macOS/Python 3.13; four Windows-only tests skipped. |
 | Lint and formatting | Ruff checks passed for **95 files**. |
 | Installed wheel | Smoke check passed actual stdio MCP calls with **40 tools** and **three original tones**. |
-| Production-change matrix | [All six OS/Python jobs passed](https://github.com/uneasymusings/dj-library-tool/actions/runs/37269882474) for commit `810b95f`; subsequent changes are documentation/skill only. The final tag matrix remains a separate release gate. |
-| Publication and public-artifact audit | Pending; no anonymous a4 download/install result is claimed yet. |
+| Production-change matrix | [All six OS/Python jobs passed](https://github.com/uneasymusings/dj-library-tool/actions/runs/37269882474) for commit `810b95f`. A later Windows cold-start check confirmed the MCP SDK Job Object could terminate its child coordinator; the release candidate was cancelled. |
+| Publication and public-artifact audit | Tag `039f1ca` remains unchanged and unpublished. No public a4 artifact audit passed. |
 | Installed a3-to-a4 upgrade | A separate original-tone catalog copy retained all IDs, hashes, collection order and roots; the original workspace was unchanged. No schema change was needed. |
 | Native app/device trial | Both three-tone app preparations passed; the UI attempt was blocked by disabled import controls/`noWindowsAvailable`. No new successful native import, analysis, loading, USB export or player validation. [Details](VALIDATION.md). |
 
-The a3/a2 evidence below is retained independently. Original-tone tests and installed-engine checks do not prove native musical analysis, real USB export or player playback.
+These original-tone, upgrade and UI attempts belong to the a4 candidate, not a5. The a3/a2 evidence below is retained independently. Neither engine checks nor an attempted UI import prove native musical analysis, real USB export or playback.
 
 ## Implemented first milestone
 
@@ -59,7 +66,7 @@ Hash-checked metadata reads expose embedded BPM/key/genre/comments without infer
 
 ## Evidence and precise limits
 
-The following table retains published **a3 and a2 baseline evidence**. Historical host/provider/device observations were not rerun merely by implementing new code; a4 checks are listed separately above.
+The following table retains published **a3 and a2 baseline evidence**. Historical host/provider/device observations were not rerun merely by implementing new code; unpublished a4-candidate checks are listed separately above.
 
 | Area | Observed evidence | Remaining limit |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 # Deliver a collection through a native DJ app
 
-This workflow describes **0.1.0a4**. It prepares isolated working copies and records the path to a native app, with a separate route for device delivery. Earlier a3 requires a matching pilot before full preparation and performs analysis/app checks synchronously. See [status](STATUS.md) for actual validation and publication evidence. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
+This workflow describes **0.1.0a5**. It prepares isolated working copies and records the path to a native app, with a separate route for device delivery. Earlier a3 requires a matching pilot before full preparation and performs analysis/app checks synchronously. See [status](STATUS.md) for actual validation and publication evidence. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
 
 Use `delivery list --query NAME` to rediscover saved work, then `delivery get DELIVERY_ID` for its next blocker. App-only work progresses through **cataloged → prepared for import → imported → analyzed → working files checked**. A separate USB delivery continues through **native exported → device library checked → hardware playback checked**, with device byte readback. A download, M3U, XML, database filename, or successful hash readback alone cannot establish native app or hardware behavior.
 
@@ -25,7 +25,9 @@ Keep existing native libraries and USB contents intact. If the current filesyste
 
 ## Start with the app when the player is not known
 
-Choose `rekordbox_import` or `serato_import` when the immediate task is organizing music in that application. An unknown player/controller is not a blocker for these workflows. Create `app-trial.json` with actual collection IDs and the installed version:
+Choose `rekordbox_import` or `serato_import` when the immediate task is organizing music in that application. An unknown player/controller is not a blocker for these workflows. Use actual collection IDs and confirm the version before creating `app-trial.json`.
+
+Establish the version from the app's **About** screen or a supported native XML export before planning. OS bundle/build metadata may differ; `CFBundleVersion` alone is not a reliable substitute. If the app and snapshot disagree, preserve that uncertainty and check the active app rather than rewriting later evidence.
 
 ```json
 {

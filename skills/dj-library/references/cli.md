@@ -2,7 +2,9 @@
 
 All application commands emit an envelope with `schema_version`, `ok`, `result`, `warnings`, and `error`. No `--json` option is needed. Supply an initialized workspace explicitly. Do not pass private user paths into public repository examples or commits.
 
-These recipes describe a4. Earlier a3 has requests, organization and delivery but lacks a4 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
+These recipes describe a5. Earlier a3 has requests, organization and delivery but lacks a5 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
+
+Windows MCP requires a coordinator started outside the assistant host. Generated `launch.py` starts it before the host; manual configurations require `djlib --workspace PATH service start` from an external terminal. `COORDINATOR_START_REQUIRED` is the recovery signal, not an accepted background job. The engine does not escape Windows Job Object cleanup. `service status` inspects the service and `service stop` explicitly checkpoints/stops it.
 
 ```bash
 djlib --workspace /path/to/workspace capabilities
@@ -12,7 +14,7 @@ djlib --workspace /path/to/workspace source-inspect 'https://soundcloud.com/USER
 
 ## Discover saved work and reconcile changed files
 
-Version a4 adds six MCP tools:
+Version a5 adds six MCP tools:
 
 | MCP tool | CLI | Purpose |
 | --- | --- | --- |
@@ -201,6 +203,8 @@ For local app preparation, no exact hardware model or USB is needed. Read `djlib
 ```
 
 Choose `serato_import` for Serato. Omit `hardware_profile` for both app-only workflows. App profiles assess a conservative documented input subset, not musical accuracy or standalone player compatibility.
+
+Supply the version observed in the app's About screen or a supported native XML snapshot. Bundle build metadata such as `CFBundleVersion` can differ; it must not be used as an unqualified runtime-version guess. Resolve mismatches before planning or recording matching-version observations.
 
 Plans freeze explicit catalog annotations and their revision in `dj_metadata`. Preparation writes supplied BPM/key/genre tags and notes/tags/role/energy comments into separate WAV/AIFF/MP3, FLAC or MP4 working copies; originals remain untouched. Where no override is supplied, existing supported embedded tags remain. The manifest preserves exact annotations/provenance. MP4's integer `tmpo` cannot hold fractional BPM: the exact value is retained in a freeform tag/manifest with a warning, never rounded into a false tempo. Check actual native display and analysis after import; tag writing is not acoustic analysis or an accuracy guarantee. Later annotation changes do not alter an already frozen delivery.
 

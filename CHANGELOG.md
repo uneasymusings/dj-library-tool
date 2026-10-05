@@ -1,8 +1,18 @@
 # Changelog
 
-## 0.1.0a4
+## 0.1.0a5
 
-Local validation passed 498 tests with four Windows-only skips; Ruff checks passed for 95 files. The installed-wheel smoke check passed actual 40-tool MCP calls and three original tones. Release CI and public-artifact verification remain pending; historical a3 evidence is a separate baseline.
+Local validation passed 513 tests with five Windows-only skips; Ruff passed 96 files and the installed a5 wheel passed actual 40-tool MCP calls and three original tones. The six-job matrix and public-artifact audit remain pending. The 40-tool API and catalog/delivery features below carry forward from the unpublished a4 candidate; its checks do not validate the Windows startup fix.
+
+- Generated Windows `launch.py` starts the workspace coordinator before launching the assistant host. Manual MCP registration requires an external `djlib --workspace PATH service start` first.
+- Windows MCP cold start returns `COORDINATOR_START_REQUIRED` rather than spawning a coordinator inside the host's Windows Job Object. The engine does not try to escape that job or its lifecycle controls.
+- Delivery guidance requires the app's About version or native XML version rather than treating bundle build metadata as the actual app version.
+
+The a4 tag is preserved but unpublished: its release was cancelled after confirming that MCP SDK cleanup could terminate a coordinator spawned inside the Windows job. See [validation](docs/VALIDATION.md) for historical candidate evidence and remaining gates.
+
+## 0.1.0a4 — unpublished candidate
+
+Local validation passed 498 tests with four Windows-only skips; Ruff checks passed for 95 files. The installed-wheel smoke check passed actual 40-tool MCP calls and three original tones. The production-change matrix passed all six jobs, but the later release candidate was cancelled after the Windows coordinator-lifetime blocker. Tag `039f1ca` remains unchanged and unpublished; no public a4 artifact audit passed. Historical a3 evidence is a separate baseline.
 
 - Added paginated catalog and saved collection/request/delivery discovery, explicit additive music-root configuration, and field-level CLI input errors. Collection native state is `not_tracked_here`, not an inferred import/export result.
 - Corrected new recording identity handling for symbol-only labels and untagged files. Existing incorrect merges are not automatically repaired.

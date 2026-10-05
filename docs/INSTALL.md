@@ -1,8 +1,8 @@
 # Install and use the GitHub release
 
-The [v0.1.0a4 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a4) comprise a Python wheel, source archive, standalone skill ZIP and `SHA256SUMS`. The wheel contains the CLI, 40-tool MCP server, database migrations and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
+The [v0.1.0a5 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a5) comprise a Python wheel, source archive, standalone skill ZIP and `SHA256SUMS`. The wheel contains the CLI, 40-tool MCP server, database migrations and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
 
-These commands are pinned to **v0.1.0a4**. Check [status](STATUS.md) for publication, CI and public-installation evidence before using the asset URLs. The [coverage audit](COVERAGE.md) preserves earlier a3/a2 results separately.
+These commands are pinned to **v0.1.0a5**. Check [status](STATUS.md) for publication, CI and public-installation evidence before using the asset URLs. The [coverage audit](COVERAGE.md) preserves earlier a3/a2 results separately.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ These commands are pinned to **v0.1.0a4**. Check [status](STATUS.md) for publica
 ## Install the complete toolkit
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a4/dj_library_tool-0.1.0a4-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a5/dj_library_tool-0.1.0a5-py3-none-any.whl'
 djlib version
 ```
 
@@ -48,6 +48,14 @@ Replace the example music folder with your actual path. Supply additional `--all
 
 The generated session contains `.agents/skills/dj-library`, `.claude/skills/dj-library`, `mcp.json`, `session.json`, and `launch.py`. It does not edit personal host configuration or copy credentials. Codex interactive retains your host settings; Claude uses only the explicit MCP configuration. Keep project setting sources enabled for Claude skill discovery. See [agent setup](AGENTS.md).
 
+On Windows, the generated `launch.py` starts the coordinator before launching Codex or Claude. Run it from an ordinary terminal, outside an already running assistant host. For manual MCP configuration, first run this in that external terminal:
+
+```powershell
+djlib --workspace "C:\absolute\path\dj-library" service start
+```
+
+Then open or reconnect the assistant host. Windows MCP intentionally returns `COORDINATOR_START_REQUIRED` if no coordinator is running. Starting one from inside MCP can tie it to the host SDK's Windows Job Object and terminate it on disconnect; the engine does not bypass that lifecycle boundary. `service status` inspects it, and `service stop` explicitly stops it.
+
 First prompt for a small real-music success:
 
 > Use the dj-library skill and connected tools. Check capabilities, scan my allowed folder, and prepare a three-track Warm Groove collection for Serato [or rekordbox] from music I already own. Check exact recordings and versions first. Help me import and analyze the working copies, inspect membership and loading, then report what passed and what remains unchecked. I do not know my player model yet.
@@ -58,7 +66,9 @@ The workflow still requires native Serato import and rekordbox device-export ste
 
 ## Prepare an app before choosing a player
 
-Use `rekordbox_import` or `serato_import` when the immediate destination is the app's library. These workflows need accepted collection IDs and the installed app version, not a USB or exact player/controller. For example, save an actual-version request as `app-trial.json`:
+Use `rekordbox_import` or `serato_import` when the immediate destination is the app's library. These workflows need accepted collection IDs and the installed app version, not a USB or exact player/controller. Use actual collection IDs and confirm the version before creating `app-trial.json`.
+
+Read the version from the app's **About** screen or a supported native XML snapshot before planning. Bundle metadata such as macOS `CFBundleVersion` can be a build number and need not match the app/export version. Keep a mismatch visible; do not manufacture matching observations later.
 
 ```json
 {
@@ -78,7 +88,7 @@ djlib --workspace /absolute/path/dj-workspace delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key app-trial-v1
 ```
 
-Substitute the installed version; 7.2.8 is an example. For Serato, use `serato_import` and its actual version. Preparation creates separate app working copies and membership artifacts. Wait for the preparation job, perform native import/analysis and record both observations, then use `delivery verify-app DELIVERY_ID --revision CURRENT_REVISION`. In a4, passed analysis observations and app verification also return jobs: use `jobs wait JOB_ID --timeout 30`, then inspect outcomes and the evidence-commit receipt. Read `delivery get` for saved app requirements and `evidence.app_readback.checked_at`; the job itself returns no readiness flag. Public a3 runs those checks synchronously. Follow [DJ delivery](DJ_DELIVERY.md) for the sequence and evidence limits. Standalone rekordbox USB export is a separate `rekordbox_usb` delivery and still requires a player profile.
+Substitute the installed version; 7.2.8 is an example. For Serato, use `serato_import` and its actual version. Preparation creates separate app working copies and membership artifacts. Wait for the preparation job, perform native import/analysis and record both observations, then use `delivery verify-app DELIVERY_ID --revision CURRENT_REVISION`. In a5, passed analysis observations and app verification also return jobs: use `jobs wait JOB_ID --timeout 30`, then inspect outcomes and the evidence-commit receipt. Read `delivery get` for saved app requirements and `evidence.app_readback.checked_at`; the job itself returns no readiness flag. Public a3 runs those checks synchronously. Follow [DJ delivery](DJ_DELIVERY.md) for the sequence and evidence limits. Standalone rekordbox USB export is a separate `rekordbox_usb` delivery and still requires a player profile.
 
 ## Try without personal music
 
@@ -93,7 +103,7 @@ The demo creates three original tones and export artifacts. It needs no music ac
 
 ## Install only the skill
 
-Download [dj-library-skill-0.1.0a4.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a4/dj-library-skill-0.1.0a4.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
+Download [dj-library-skill-0.1.0a5.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a5/dj-library-skill-0.1.0a5.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
 
 The standalone skill includes [engine installation instructions](../skills/dj-library/references/install.md). It can guide the assistant's workflow, but file acquisition/catalog operations require the installed engine. The complete toolkit install plus `setup-agent` performs this skill installation automatically.
 
@@ -101,7 +111,7 @@ The standalone skill includes [engine installation instructions](../skills/dj-li
 
 Before replacing the engine, stop each workspace coordinator with `djlib --workspace PATH service stop`. Install the newer release's explicit URL, then rerun `setup-agent` into a new session if the installation/interpreter path changed. Keep your existing library workspace; do not reinitialize it as a new library.
 
-Version a4 adds `roots list` and `roots add /actual/music/folder` for explicit additive access. Repeating `init --allow-root` with a new root returns `ROOTS_NOT_UPDATED`; it does not silently ignore the change. No music moves and existing permissions remain. Before a schema upgrade, a4 automatically makes an integrity-checked catalog backup under the workspace's `backups/` directory. This covers the engine database only; retain separate backups of music and native app data. Automatic restore is not implemented.
+Version a5 adds `roots list` and `roots add /actual/music/folder` for explicit additive access. Repeating `init --allow-root` with a new root returns `ROOTS_NOT_UPDATED`; it does not silently ignore the change. No music moves and existing permissions remain. Before a schema upgrade, a5 automatically makes an integrity-checked catalog backup under the workspace's `backups/` directory. This covers the engine database only; retain separate backups of music and native app data. Automatic restore is not implemented.
 
 If a new CLI finds an older running coordinator, ordinary requests return `COORDINATOR_VERSION_MISMATCH` before any requested operation is sent. Read `capabilities` to inspect its version, use `service stop` for that workspace, then retry with the new engine. The tool does not replace an old service or resubmit work automatically.
 

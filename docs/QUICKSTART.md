@@ -1,6 +1,6 @@
 # Quickstart
 
-These recipes describe **0.1.0a4**; install using [INSTALL](INSTALL.md) and consult [status](STATUS.md) for validation/publication evidence. Earlier a3 lacks discovery/reconciliation commands and runs organization/native checks synchronously. Check `djlib version` and `capabilities`. Use installed `djlib` below; contributors can prefix it with `uv run` in their checkout.
+These recipes describe **0.1.0a5**; install using [INSTALL](INSTALL.md) and consult [status](STATUS.md) for validation/publication evidence. Earlier a3 lacks discovery/reconciliation commands and runs organization/native checks synchronously. Check `djlib version` and `capabilities`. Use installed `djlib` below; contributors can prefix it with `uv run` in their checkout.
 
 ## 1. Choose a workspace
 
@@ -14,6 +14,8 @@ The workspace stores its catalog, runtime token, media, and exports. Its directo
 Always specify `--workspace` before the subcommand, or set `DJLIB_WORKSPACE`. The default is `~/.local/share/djlib/default`; initialization is explicit. `doctor` reports FFmpeg, ffprobe, optional yt-dlp, Deno, and Node without starting the coordinator. Version a3 additionally checks JavaScript runtime versions and reports which supported runtime was selected; the public a2 availability check does not establish runtime compatibility. Neither check guarantees provider extraction success.
 
 To try this through a fresh AI CLI, run `setup-agent --output /absolute/path/new-session`, then use that folder's `launch.py`. See [agent setup](AGENTS.md).
+
+On Windows, launch that script from an external terminal so it starts the coordinator before the assistant host. For manual MCP configuration, run `djlib --workspace PATH service start` externally first. `COORDINATOR_START_REQUIRED` means the Windows MCP process will not cold-start a coordinator within the host's lifetime-controlled process job.
 
 ## 2. Index owned audio
 
