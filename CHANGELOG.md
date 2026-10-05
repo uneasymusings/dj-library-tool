@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a9
+
+- **No more `--workspace`.** The first `init` becomes your default workspace; `djlib use PATH` switches it and `djlib use` shows it (`DJLIB_WORKSPACE` still wins). Stored in `~/.config/djlib/workspace` (Windows: `%APPDATA%\djlib\workspace`).
+- **`djlib status`.** One screen with tracks, BPM/key coverage, recent request lists (owned/missing, lists needing a re-check), recent crates and whether each is already a rekordbox playlist (read from rekordbox's menu without focusing it), plus the next commands to run. Backed by `GET /summary`.
+- **`rekordbox pull --when-idle SECONDS`** waits until you are away before the brief XML export that brings in musical key.
+
 ## 0.1.0a8
 
 Background by default: less of the user's screen and time.

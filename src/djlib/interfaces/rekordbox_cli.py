@@ -28,6 +28,21 @@ def playlist_file_name(name: str) -> str:
     return " ".join(cleaned.split())[:120] or "djlib playlist"
 
 
+def rekordbox_playlists() -> set[str] | None:
+    """Playlist names if rekordbox can be read quietly right now, else None (never launches it)."""
+    import sys
+
+    if sys.platform != "darwin":
+        return None
+    from djlib.native import rekordbox_mac as ui
+
+    try:
+        ui.ensure_supported()
+        return ui.playlists() if ui._running() else None
+    except AppError:
+        return None
+
+
 def register_rekordbox(app, client, emit, handled, panel=None):
     rekordbox = typer.Typer(
         help="Put crates into rekordbox and read its BPM/cue analysis in the background.",
@@ -202,10 +217,21 @@ def register_rekordbox(app, client, emit, handled, panel=None):
 
     @rekordbox.command("pull")
     @handled
-    def pull(ctx: typer.Context) -> None:
+    def pull(
+        ctx: typer.Context,
+        when_idle: int = typer.Option(
+            0,
+            "--when-idle",
+            min=0,
+            help="Wait until the keyboard and mouse have been idle this many seconds.",
+        ),
+    ) -> None:
         """Export rekordbox's collection XML once to also bring in musical key (uses its window)."""
         from djlib.native import rekordbox_mac as ui
 
         ui.ensure_supported()
+        if when_idle:
+            with status(f"Waiting until you've been away for {when_idle} s…"):
+                ui.wait_until_idle(when_idle)
         xml = export_xml(ctx.obj, ui)
         emit(client(ctx).request("POST", "/analysis/rekordbox", data={"path": str(xml)}))
