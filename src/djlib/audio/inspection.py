@@ -87,7 +87,7 @@ def riff_info(path: Path) -> tuple[str, str]:
     return values.get(b"IART", ""), values.get(b"INAM", "")
 
 
-def inspect_audio(path: Path) -> Inspection:
+def inspect_audio(path: Path, pcm: dict | None = None) -> Inspection:
     """Decode WAV locally; other formats require both FFmpeg and ffprobe.
 
     Claimed extension/bitrate alone is never a validation result. Full decoding is
@@ -149,25 +149,31 @@ def inspect_audio(path: Path) -> Inspection:
             )
             bitrate_bps = int(audio.get("bit_rate") or 0) or None
             codec_profile = audio.get("profile")
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-v",
-                    "error",
-                    "-xerror",
-                    "-protocol_whitelist",
-                    "file,pipe",
-                    "-i",
-                    str(path),
-                    "-f",
-                    "null",
-                    "-",
-                ],
-                capture_output=True,
-                timeout=120,
-                check=True,
-            )
+            if pcm is not None:
+                # One full decode both validates the audio and yields its exact PCM hash.
+                from djlib.audio.fingerprint import pcm_hash
+
+                pcm["sha256"] = pcm_hash(path)
+            else:
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-nostdin",
+                        "-v",
+                        "error",
+                        "-xerror",
+                        "-protocol_whitelist",
+                        "file,pipe",
+                        "-i",
+                        str(path),
+                        "-f",
+                        "null",
+                        "-",
+                    ],
+                    capture_output=True,
+                    timeout=120,
+                    check=True,
+                )
         if duration <= 0 or duration > 12 * 60 * 60:
             raise AppError("DURATION_INVALID", "Media duration is outside the supported bound.")
         artist, title = labels(path)

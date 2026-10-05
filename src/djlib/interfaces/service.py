@@ -3,9 +3,11 @@
 import argparse
 import asyncio
 import contextlib
+import logging
 import os
 import secrets
 import socket
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -80,16 +82,53 @@ def ui_file(name: str) -> bytes:
     return files("djlib.interfaces").joinpath("web", name).read_bytes()
 
 
-def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = True) -> FastAPI:
+logger = logging.getLogger(__name__)
+ANALYSIS_SYNC_SECONDS = 120
+HOUSEKEEPING_SECONDS = 30
+
+
+def create_app(
+    workspace: Workspace,
+    instance_id: str,
+    *,
+    run_worker: bool = True,
+    idle_exit: float | None = None,
+) -> FastAPI:
     database = Database(workspace.database)
     database.migrate()
     application = Application(workspace, database)
 
+    activity = {"last": time.monotonic()}
+
+    async def housekeeping():
+        """Background upkeep: pick up rekordbox analysis; exit when idle if asked to."""
+        last_sync = 0.0
+        marker = workspace.runtime / "rekordbox-anlz.json"
+        while True:
+            await asyncio.sleep(HOUSEKEEPING_SECONDS)
+            now = time.monotonic()
+            if marker.exists() and now - last_sync >= ANALYSIS_SYNC_SECONDS:
+                last_sync = now
+                from djlib.application.native_analysis import sync_rekordbox_analysis
+
+                try:
+                    await asyncio.to_thread(sync_rekordbox_analysis, application)
+                except Exception:  # noqa: BLE001 - upkeep must never stop the coordinator
+                    logger.exception("Background rekordbox analysis sync failed")
+            if idle_exit and now - activity["last"] >= idle_exit and not application.busy():
+                server = getattr(app.state, "server", None)
+                if server:
+                    server.should_exit = True
+
     @asynccontextmanager
     async def lifespan(_app):
-        task = asyncio.create_task(Worker(application).run()) if run_worker else None
+        tasks = (
+            [asyncio.create_task(Worker(application).run()), asyncio.create_task(housekeeping())]
+            if run_worker
+            else []
+        )
         yield
-        if task:
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -113,6 +152,12 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         openapi_url=None,
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1"])
+
+    @app.middleware("http")
+    async def note_activity(request: Request, call_next):
+        activity["last"] = time.monotonic()
+        return await call_next(request)
+
     app.state.application = application
 
     @app.exception_handler(AppError)
@@ -386,11 +431,11 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
     return app
 
 
-async def serve(workspace: Workspace) -> None:
+async def serve(workspace: Workspace, idle_exit: float | None = None) -> None:
     workspace.config()
     with FileLock(workspace.runtime / "coordinator.lock", timeout=0):
         instance_id = new_id("instance")
-        app = create_app(workspace, instance_id)
+        app = create_app(workspace, instance_id, idle_exit=idle_exit)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -416,8 +461,14 @@ async def serve(workspace: Workspace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument(
+        "--idle-exit",
+        type=float,
+        default=None,
+        help="Exit after this many seconds without requests or active jobs.",
+    )
     args = parser.parse_args()
-    asyncio.run(serve(Workspace(args.workspace)))
+    asyncio.run(serve(Workspace(args.workspace), args.idle_exit))
 
 
 if __name__ == "__main__":

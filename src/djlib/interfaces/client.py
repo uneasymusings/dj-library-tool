@@ -18,6 +18,9 @@ from djlib.domain.errors import AppError
 from djlib.workspace import Workspace
 
 HEALTH_TIMEOUT = 5
+# A coordinator started implicitly by a command exits after this long without use.
+# `service start` (used before assistant sessions) keeps its coordinator running.
+IDLE_EXIT_SECONDS = 1800
 
 
 class LocalClient:
@@ -138,11 +141,11 @@ class LocalClient:
 
     def start(self) -> str:
         """Start or reuse a compatible coordinator before launching an assistant host."""
-        url = self.ensure()
+        url = self.ensure(idle_exit=None)
         self._require_matching_version(url)
         return url
 
-    def ensure(self) -> str:
+    def ensure(self, idle_exit: float | None = IDLE_EXIT_SECONDS) -> str:
         self.workspace.config()
         if not self.allow_start:
             if url := self.discover():
@@ -160,7 +163,7 @@ class LocalClient:
             )
         try:
             with FileLock(self.workspace.runtime / "startup.lock", timeout=45):
-                return self._start_coordinator()
+                return self._start_coordinator(idle_exit)
         except FileLockTimeout:
             raise AppError(
                 "SERVICE_START_BUSY",
@@ -170,7 +173,7 @@ class LocalClient:
                 True,
             ) from None
 
-    def _start_coordinator(self) -> str:
+    def _start_coordinator(self, idle_exit: float | None = None) -> str:
         """Spawn once under the startup lock and wait for authenticated readiness."""
         if url := self.discover():
             return url
@@ -190,6 +193,7 @@ class LocalClient:
                     "djlib.interfaces.service",
                     "--workspace",
                     str(self.workspace.root),
+                    *(["--idle-exit", str(idle_exit)] if idle_exit else []),
                 ],
                 stdin=subprocess.DEVNULL,
                 stdout=log,

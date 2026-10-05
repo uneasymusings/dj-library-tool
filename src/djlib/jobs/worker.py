@@ -5,11 +5,13 @@ import logging
 import os
 import shutil
 from collections import Counter
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from sqlalchemy import select
 
 from djlib.application.service import Application, add_event, new_id, require
+from djlib.application.tracklists import file_name_labels
 from djlib.audio.catalog_inspection import inspect_catalog_audio
 from djlib.audio.inspection import SUPPORTED_EXTENSIONS, Inspection, checksum, inspect_audio, labels
 from djlib.audio.preparation import tag_download_copy
@@ -48,9 +50,33 @@ class Worker:
     HANDOFF_BURST = 3
     LOCAL_ITEM_QUANTUM = 8
 
+    # Decoding dominates catalog work; overlap a few files on separate cores.
+    PREFETCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))
+
     def __init__(self, application: Application):
         self.app = application
         self._handoff_turns = 0
+        self._pool = ThreadPoolExecutor(
+            max_workers=self.PREFETCH_WORKERS, thread_name_prefix="djlib-inspect"
+        )
+        self._prefetched: dict[str, tuple[str, Future]] = {}
+
+    def _known(self, sha256: str) -> dict | None:
+        """Stored properties for bytes already in the catalog (their decode cannot differ)."""
+        with self.app.db.transaction() as session:
+            revision = session.scalar(
+                select(AssetRevision).where(AssetRevision.sha256 == sha256).limit(1)
+            )
+            return dict(revision.properties) if revision is not None else None
+
+    def _inspect_later(self, path: str):
+        source = self.app.workspace.authorize(path)
+        return str(source), inspect_catalog_audio(source, inspect_audio, self._known)
+
+    def _prefetch(self, items: list[tuple[str, str]]) -> None:
+        for item_id, path in items:
+            if item_id not in self._prefetched:
+                self._prefetched[item_id] = (path, self._pool.submit(self._inspect_later, path))
 
     def recover(self) -> None:
         """Interrupted attempts become pending; promoted files are reconciled by their hash."""
@@ -165,9 +191,14 @@ class Worker:
                 )
             )
         quantum = 1 if kind == "download" else self.LOCAL_ITEM_QUANTUM
+        local_paths = self._local_paths(kind, item_ids)
         for processed, item_id in enumerate(item_ids, start=1):
             if not self.active(job_id, generation):
+                self._drop_prefetch(item_ids)
                 return
+            if local_paths:
+                upcoming = item_ids[processed - 1 : processed - 1 + 2 * self.PREFETCH_WORKERS]
+                self._prefetch([(i, local_paths[i]) for i in upcoming if i in local_paths])
             if kind == "delivery":
                 from djlib.application.delivery import prepare_item
 
@@ -190,6 +221,8 @@ class Worker:
                 with self.app.db.transaction() as session:
                     waiting = session.scalar(select(Job.id).where(Job.state == "queued").limit(1))
                 if waiting is not None:
+                    # Results decoded ahead could go stale before this job's next turn.
+                    self._drop_prefetch(item_ids)
                     break
         if self.active(job_id, generation):
             with self.app.db.transaction() as session:
@@ -230,6 +263,24 @@ class Worker:
 
                 finish_delivery_check(self.app, job_id, generation)
 
+    def _local_paths(self, kind: str, item_ids: list[str]) -> dict[str, str]:
+        """Item → local file for jobs whose first step is inspecting an existing file."""
+        if kind not in {"scan", "collection"} or not item_ids:
+            return {}
+        with self.app.db.transaction() as session:
+            rows = session.scalars(select(JobItem).where(JobItem.id.in_(item_ids)))
+            return {
+                row.id: row.request["track"]["path"]
+                for row in rows
+                if isinstance(row.request.get("track"), dict) and row.request["track"].get("path")
+            }
+
+    def _drop_prefetch(self, item_ids: list[str]) -> None:
+        for item_id in item_ids:
+            ahead = self._prefetched.pop(item_id, None)
+            if ahead is not None:
+                ahead[1].cancel()
+
     def discover(self, value: str) -> tuple[list[dict], dict]:
         root = self.app.workspace.authorize(value, directory=True)
         workspace = self.app.workspace
@@ -262,6 +313,10 @@ class Worker:
                 skipped["outside_allowed_folders"] += 1
                 continue
             artist, title = labels(authorized)
+            if not (artist or title):
+                # Untagged files are often named "Artist - Title"; use that for display.
+                # Identity stays byte-based (provisional) because a file name is not a tag.
+                artist, title = file_name_labels(path.stem)
             track = TrackInput(
                 path=str(authorized), artist=artist or "Unknown artist", title=title or path.stem
             )
@@ -323,9 +378,17 @@ class Worker:
                     require(session, JobItem, item_id).request = item_request
             track = TrackInput.model_validate(item_request["track"])
             source = self.app.workspace.authorize(track.path)
-            inspection, payload_identity, _ = await asyncio.to_thread(
-                inspect_catalog_audio, source, inspect_audio
-            )
+            ahead = self._prefetched.pop(item_id, None)
+            if ahead is not None and ahead[0] == track.path:
+                inspected_path, (inspection, payload_identity, _) = await asyncio.wrap_future(
+                    ahead[1]
+                )
+                if inspected_path != str(source):
+                    raise AppError("FILE_CHANGED", "The source path changed during inspection.")
+            else:
+                inspection, payload_identity, _ = await asyncio.to_thread(
+                    inspect_catalog_audio, source, inspect_audio, self._known
+                )
             if not self.active(job_id, generation):
                 return
             if job.kind == "scan":
@@ -338,7 +401,13 @@ class Worker:
                         .join(AssetRevision)
                         .where(AssetRevision.sha256 == inspection.sha256)
                     )
-                    if existing:
+                    unnamed = (
+                        existing is not None
+                        and existing.artist == "Unknown artist"
+                        and existing.identity_key.startswith("provisional:")
+                        and track.artist != "Unknown artist"
+                    )
+                    if existing and not unnamed:
                         track = track.model_copy(
                             update={
                                 "artist": existing.artist,
@@ -346,6 +415,7 @@ class Worker:
                                 "version": existing.version,
                             }
                         )
+                    if existing:
                         decision = "reuse_existing_bytes"
             if (
                 self.identity_conflict(track, inspection, profile.exact_version)
@@ -501,6 +571,17 @@ class Worker:
                 if revision is not None and job.kind == "scan"
                 else session.scalar(select(Recording).where(Recording.identity_key == key))
             )
+            if (
+                recording is not None
+                and job.kind == "scan"
+                and provisional
+                and recording.artist == "Unknown artist"
+                and track.artist != "Unknown artist"
+            ):
+                # Display labels of an unnamed provisional recording may improve on rescan;
+                # its byte identity and every membership stay unchanged.
+                recording.artist, recording.title = track.artist, track.title
+                recording.evidence = {**recording.evidence, "labels_source": "file_name"}
             if not recording and revision is not None:
                 # Identical bytes already cataloged with equivalent labels, e.g. title
                 # "Rain (Extended Mix)" for a request of "Rain" + "Extended Mix".
@@ -519,6 +600,11 @@ class Worker:
                     title=track.title,
                     version=track.version,
                     evidence={
+                        **(
+                            {"labels_source": "file_name"}
+                            if provisional and track.artist != "Unknown artist"
+                            else {}
+                        ),
                         "method": "provisional_bytes"
                         if provisional
                         else "user_override"
