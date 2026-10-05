@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a5`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a6`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -143,6 +143,8 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 ## Recovery and readiness
 
 `TRANSPORT_UNCERTAIN` means a mutation may have been accepted. For keyed submissions, resubmit the identical request with its original idempotency key. `IDEMPOTENCY_CONFLICT` means the key belongs to another intent. `PLAN_STALE`, `REVIEW_STALE`, and `DELIVERY_STALE` require reading the latest state before choosing another action.
+
+Startup is a separate boundary: `SERVICE_START_BUSY` means the startup lock timed out; `SERVICE_START_FAILED` means the child exited without a discovered healthy service; `SERVICE_START_TIMEOUT` means the child was still running after the readiness window. These errors submit no music operation. Read `service status` and the indicated log before retrying, especially on timeout. Windows MCP `COORDINATOR_START_REQUIRED` requires external-terminal `service start` or the generated launcher, not another cold-start MCP call.
 
 Delivery planning creates a new frozen delivery record on each call; it has no idempotency-key field. Preparation is keyed: intent, the delivery-to-job binding, and items are committed before media work. Concurrent preparation requests for the same frozen delivery share one job, including requests with different fresh keys; each key is bound to that job. A key already naming another request returns `IDEMPOTENCY_CONFLICT`; a different preparation payload for an already-bound delivery returns `DELIVERY_CONFLICT`.
 

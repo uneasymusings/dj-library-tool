@@ -2,7 +2,7 @@
 
 The engine is model-independent. Conversation, online search, and interpretation belong to your chosen assistant; durable side effects belong to `djlib`. A skill supplies workflow guidance, and MCP exposes typed tools. Either can be used independently.
 
-This guide describes a5. Use the matching packaged skill and check the installed version and connected capabilities before using discovery/reconciliation or queued native checks. See [status](STATUS.md) for validation and publication evidence.
+This guide describes a6. Use the matching packaged skill and check the installed version and connected capabilities before using discovery/reconciliation or queued native checks. See [status](STATUS.md) for validation and publication evidence.
 
 ## Prerequisites
 
@@ -84,7 +84,7 @@ Public tools return the same JSON envelope as the CLI. Check `ok` and `error`, e
 
 Read-only hints describe the music/catalog effect. Reads can start the coordinator on supported startup paths and catalog startup can migrate its database; Windows MCP requires the external startup above. Mutating tools expose idempotency keys; plan/review revisions guard stale choices. Download tools contact external providers. None mutates a native DJ database or USB device.
 
-In a5, organization, passed analysis/native-export observations and app verification return durable jobs. Follow job/item progress before using the completed collection or verification receipt. Native-check keys derive from the complete request and delivery revision, so identical retries recover the same job. Verification completion returns only delivery ID, revision and `evidence_committed`. Read `delivery get` for `app_requirements_met_at_last_check` and `evidence.app_readback.checked_at`; these are historical, operator-conditional evidence. Use the latest revision for another check. Saved lists and catalog reads do not freshly verify file availability. Collection native state is `not_tracked_here`; delivery observations track it separately.
+In a6, organization, passed analysis/native-export observations and app verification return durable jobs. Follow job/item progress before using the completed collection or verification receipt. Native-check keys derive from the complete request and delivery revision, so identical retries recover the same job. Verification completion returns only delivery ID, revision and `evidence_committed`. Read `delivery get` for `app_requirements_met_at_last_check` and `evidence.app_readback.checked_at`; these are historical, operator-conditional evidence. Use the latest revision for another check. Saved lists and catalog reads do not freshly verify file availability. Collection native state is `not_tracked_here`; delivery observations track it separately.
 
 Full local preparation need not wait for physical hardware. Omitting a pilot ID records unvalidated preparation; a supplied pilot must match and pass. Native export/device/playback gates remain required for USB readiness. Pilot and full copies use separate paths with no automatic cue/analysis reuse.
 

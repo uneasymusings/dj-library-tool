@@ -2,9 +2,13 @@
 
 All application commands emit an envelope with `schema_version`, `ok`, `result`, `warnings`, and `error`. No `--json` option is needed. Supply an initialized workspace explicitly. Do not pass private user paths into public repository examples or commits.
 
-These recipes describe a5. Earlier a3 has requests, organization and delivery but lacks a5 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
+These recipes describe a6. Earlier a3 has requests, organization and delivery but lacks a6 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
 
 Windows MCP requires a coordinator started outside the assistant host. Generated `launch.py` starts it before the host; manual configurations require `djlib --workspace PATH service start` from an external terminal. `COORDINATOR_START_REQUIRED` is the recovery signal, not an accepted background job. The engine does not escape Windows Job Object cleanup. `service status` inspects the service and `service stop` explicitly checkpoints/stops it.
+
+## Startup recovery
+
+`SERVICE_START_BUSY` means another starter held the lock beyond 45 seconds: inspect status before retrying. `SERVICE_START_FAILED` means the child exited and no healthy service appeared: inspect `runtime/service.log` and resolve the actual error. `SERVICE_START_TIMEOUT` means the 30-second readiness window expired while the child remained running: inspect status/logs before retrying rather than launching repeatedly. Each startup attempt spawns at most one child. These errors do not submit a music intent. Redact logs before sharing; a later uncertain mutation still uses its original idempotency key.
 
 ```bash
 djlib --workspace /path/to/workspace capabilities
@@ -14,7 +18,7 @@ djlib --workspace /path/to/workspace source-inspect 'https://soundcloud.com/USER
 
 ## Discover saved work and reconcile changed files
 
-Version a5 adds six MCP tools:
+Version a6 adds six MCP tools:
 
 | MCP tool | CLI | Purpose |
 | --- | --- | --- |

@@ -1,8 +1,10 @@
 # Implementation status
 
-Updated 2026-10-05 UTC for **0.1.0a5**. Local validation and installed-wheel checks passed; the six-job matrix and public-artifact audit remain pending. The a4 release was cancelled after confirming a Windows coordinator-lifetime defect; tag `039f1ca` is preserved and unpublished. Its historical checks below do not validate a5. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) remains a separate audited baseline. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining goals.
+Updated 2026-10-05 UTC for **0.1.0a6**. Local source, a6 installed-wheel and six-job startup-fix branch checks passed; final a6 tag and public-artifact checks remain pending. a4/a5 tags are preserved, unpublished candidates with failed release checks. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) remains a separate audited baseline. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining goals.
 
-## a5 engineering changes
+## a6 engineering changes
+
+- Coordinator startup uses a 30-second authenticated-readiness window and 45-second startup lock, with distinct busy/failed/timeout recovery. This replaces the former 12-second window and improves failure diagnostics; the earlier Windows startup failures' underlying cause remains unproven.
 
 - Windows session launchers start the coordinator before launching the AI host. Manual MCP configuration requires `djlib --workspace PATH service start` from an external terminal. Windows MCP cold start returns `COORDINATOR_START_REQUIRED`; no Windows Job Object escape is attempted.
 - The 40-tool catalog/delivery API retains the following a4-candidate features. They are alpha capabilities, not completion of unattended personal-library management.
@@ -14,9 +16,13 @@ Updated 2026-10-05 UTC for **0.1.0a5**. Local validation and installed-wheel che
 - Full local preparation can proceed without a physical pilot, explicitly unvalidated. A supplied pilot must still match and pass. Native/device/playback gates remain; pilot/full working copies do not share native cues automatically.
 - Read-only, bounded Windows partition-style detection preserves known GUID/filesystem evidence on failure. Automatic schema upgrades first create integrity-checked catalog backups; music/native databases are outside that backup scope.
 
-## a5 release gates — pending
+## a6 release gates — pending
 
-The macOS/Python 3.13 suite passed **513 tests in 64.67 seconds**, with five Windows-only checks skipped. Ruff lint/format passed for **96 files**. The final integration assertions passed six tests with the Windows-native case skipped; they verify the same authenticated coordinator PID/instance after MCP exit and a durable review checkpoint after forced termination. An isolated installed a5 wheel exposed **40 MCP tools** and passed actual stdio calls with **three original tones**, request matching, organization and packaged session setup. All six OS/Python CI jobs and anonymous public installation remain gates. No a5 publication or new native app/device success is claimed.
+Current local source validation passed **518 tests in 60.81 seconds**, with five Windows-only skips; Ruff lint/format passed **96 files**. After correcting the source-fidelity wording, **71 delivery tests passed**. The [startup-fix branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273853767) passed all six OS/Python jobs for commit `0e7e586`, including the Windows SDK guard, coordinator lifetime and recovery checks. Both Windows jobs passed 521 tests with two skips; installed-wheel checks exercised 40 tools and three original tones. A local a6 wheel also passed actual 40-tool stdio MCP, three original tones, request/organization and bundled-skill checks; `uv lock --check` passed with 64 packages. The later fidelity-wording commit also passed its [six-job branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273980856) at `73159f8`. The final documentation/resource build repeated the installed-wheel check successfully. Final a6 tag CI and anonymous public installation remain pending. No a6 publication or new native app/device success is claimed.
+
+## Historical a5 candidate — unpublished
+
+The local macOS/Python 3.13 suite passed **513 tests in 64.67 seconds**, with five Windows-only skips; Ruff passed **96 files**. Local integration checks passed six tests with the Windows-native case skipped. An installed a5 wheel passed **40-tool MCP / three-tone** smoke checks, requests, organization and session setup. Windows release checks subsequently failed on an incorrect SDK `is_error` assertion and the coordinator not becoming ready within the 12-second readiness window. The startup delays' underlying cause was not established. The a5 tag remains unchanged and unpublished; these checks are historical, not a6 proof.
 
 ## Historical a4 candidate checks — unpublished
 
@@ -30,7 +36,7 @@ The macOS/Python 3.13 suite passed **513 tests in 64.67 seconds**, with five Win
 | Installed a3-to-a4 upgrade | A separate original-tone catalog copy retained all IDs, hashes, collection order and roots; the original workspace was unchanged. No schema change was needed. |
 | Native app/device trial | Both three-tone app preparations passed; the UI attempt was blocked by disabled import controls/`noWindowsAvailable`. No new successful native import, analysis, loading, USB export or player validation. [Details](VALIDATION.md). |
 
-These original-tone, upgrade and UI attempts belong to the a4 candidate, not a5. The a3/a2 evidence below is retained independently. Neither engine checks nor an attempted UI import prove native musical analysis, real USB export or playback.
+These original-tone, upgrade and UI attempts belong to the a4 candidate, not the current release. The a3/a2 evidence below is retained independently. Neither engine checks nor an attempted UI import prove native musical analysis, real USB export or playback.
 
 ## Implemented first milestone
 

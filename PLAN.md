@@ -1,8 +1,8 @@
 # DJ Library Tool — Product and Implementation Plan
 
-Version: 0.2 • Prepared: 2026-10-02 • Updated: 2026-10-03 • Status: full-scope blueprint with an experimental first implementation; personal product preferences awaiting confirmation.
+Version: 0.2 • Prepared: 2026-10-02 • Updated: 2026-10-05 • Status: full-scope blueprint with an experimental local toolkit; broader milestones and unresolved product preferences remain open.
 
-Repository: https://github.com/uneasymusings/dj-library-tool. Command: **djlib**. The repository has been created and the first headless implementation is underway. Public package publishing and final branding remain future decisions. See [implementation status](docs/STATUS.md) for code delivered and actual validation evidence.
+Repository: https://github.com/uneasymusings/dj-library-tool. Command: **djlib**. Public GitHub distribution is implemented: a3 has a checksummed wheel, source archive, complete skill ZIP and an independently verified public installation. a4/a5 remain immutable unpublished candidates after failed release checks. Current work targets a6, with final release gates still pending. See [implementation status](docs/STATUS.md) for exact code, publication and validation evidence.
 
 ### First usable milestone — existing LLM host toolkit
 
@@ -10,9 +10,11 @@ The user's 2026-10-03 direction prioritizes a portable skill plus tools for Code
 
 This checkpoint draws the reusable foundation from M0/M1, selected acquisition and handoff capabilities from M2/M3/M7/M8, and skill/MCP packaging from M6. It does not mark those complete milestones as achieved. Soulseek, acoustic set recognition, automatic artist catalogs, native DJ integration, and verified USB export retain their full scope and acceptance gates below.
 
-Initial code now includes the CLI/MCP adapters, coordinator/catalog/jobs, local ingestion, optional yt-dlp metadata/download adapter, manifest/M3U/experimental rekordbox XML, and a packaged skill/fresh-session generator. The 2026-10-03 validation pass produced 113 passing local tests, actual fresh Codex/Claude MCP collection/export trials, three successful live source-provider acquisitions, and a rekordbox M3U import/analysis of original tones. The installed wheel also passed migration/demo/skill/MCP smoke checks. See [validation](docs/VALIDATION.md). This supports supervised toolkit trials. Serato import, native XML import, and physical device/player verification remain acceptance requirements before unattended personal-library use.
+The implementation now includes a local coordinator/catalog, durable acquisitions and checks, exact-request ledgers, conservative recording/revision identity, explicit annotations and ordered collections, changed-file reconciliation, paginated saved work, app-first preparation and separate device workflows. The CLI/MCP and packaged skill/session generator share this engine. Native import, analysis, cues and export remain app-owned; the engine prepares isolated working copies and records attributed evidence. A player model is unnecessary for Serato/rekordbox app preparation. Full local preparation can proceed without a physical pilot while native/device readiness remains gated.
 
-Observed app targets: Serato DJ Pro 3.1.5 and rekordbox 7.2.8. Player models and target volume remain unanswered; no external physical USB was connected. Three original generated tones were added to rekordbox through its import UI. Existing personal audio was not batch imported or retagged; no native database files were directly edited and no device was formatted or written.
+Current source checks passed 518 tests with five Windows-only skips, and the startup-fix branch passed all six OS/Python jobs. A local a6 installed wheel passed actual 40-tool stdio MCP and three-tone checks; the final resource rebuild repeated that check successfully. The a6 tag and public-artifact checks remain pending. Historical a3 public-wheel validation exercised 34 MCP tools and three original tones; later candidate checks exercised the 40-tool API. Those results are not proof of every broader milestone. Existing Codex/Claude and live-provider trials retain their original versions/dates in [validation](docs/VALIDATION.md). Sections below remain the full target design, including interfaces and integrations not yet implemented; [CONTRACT](docs/CONTRACT.md) documents the actual current API.
+
+Native evidence is limited and historical. The a3-era rekordbox trial imported three generated tones; its later native XML declared 7.2.19 and confirmed exact working paths/membership, differing from the trial's older declared 7.2.8 bundle metadata. That version mismatch prevented passing the trial's version check. Loading and musical BPM/key/grid accuracy remained unverified; this is not current-release native validation. The a4-candidate trial prepared three tones for each app but did not complete import because of disabled controls/computer-use errors; its rekordbox bundle build 7.2.19.0342 was not confirmed as the runtime version. Serato DJ Pro 3.1.5 import/analysis, real-music app preservation and physical USB/player delivery remain unverified. No physical USB was present in those release trials. Read About or native XML before declaring an app version; bundle build metadata is insufficient. These tests neither batch-organized the user's whole library nor established player readiness.
 
 ### Navigation
 
@@ -72,7 +74,7 @@ No response or preselected option counts as agreement. These defaults make the p
 | D03 — Lower-quality fallback | Keep it in a separate review collection and retain an upgrade target. Do not silently publish it into a performance crate. | Quality-policy implementation. |
 | D04 — Native app and USB depth | Full target is minimal-intervention app import and compatible USB preparation; assisted paths are intermediate capabilities. | Native integration release claims. |
 | D05 — Actual equipment | macOS first for development, Windows first-class for distribution; retain both DJ apps. Exact app versions and players are unknown. | Real app/device compatibility validation. |
-| D06 — Project name | DJ Library Tool / djlib are working labels only. | Public packaging and repository creation. |
+| D06 — Project name | Published as DJ Library Tool / djlib; any future rebrand is a separate choice. | A deliberate branding change, not existing public distribution. |
 | D07 — Existing organization | Index existing collections without moving them; use a separate managed root for new acquisitions. Preserve personal crates and tags. | Existing-library writes. |
 | D08 — Recognition and model costs | Optional bring-your-own credentials; explicit per-job budgets; all local-library workflows and demo work without paid services. | Enabling billable integrations. |
 | D09 — Website role | Public install/docs/demo home plus a small local control page; a broad browser interface is optional. | M9 scope and implementation. |
@@ -722,13 +724,13 @@ Ship a portable Agent Skills folder with a concise SKILL.md and deeper reference
 
 First supported host matrix: Codex CLI and Claude Code, with a generic standards-based MCP setup for others. Verify actual installation and a complete workflow in both; do not equate standards compatibility with tested host support. Codex supports local stdio servers and documents CLI/configuration setup. Claude Code separately documents its MCP setup. [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp), [Claude Code MCP](https://code.claude.com/docs/en/mcp).
 
-Proposed Codex registration after installation:
+Manual Codex registration after a persistent installation (use the generated launcher for the normal session path):
 
 ~~~sh
-codex mcp add djlib -- djlib mcp serve
+codex mcp add djlib -- /absolute/path/to/djlib --workspace /absolute/path/library mcp serve
 ~~~
 
-The executable is hypothetical until packaged. At release, verify the current host command and skill installation paths. Current Codex customization documentation describes SKILL.md bundles and repo/user skill placement; ship instructions aligned with the actual supported host version. [Codex skills](https://learn.chatgpt.com/docs/customization/overview#skills).
+The executable and complete skill are packaged. On Windows, first start the coordinator from an external terminal with `djlib --workspace PATH service start`; generated `launch.py` starts it before the AI host. Windows MCP cold start rejects with `COORDINATOR_START_REQUIRED` rather than escaping the host's Job Object. At each release verify current host commands and skill locations; use [agent setup](docs/AGENTS.md) for maintained instructions. [Codex skills](https://learn.chatgpt.com/docs/customization/overview#skills).
 
 Skill workflow:
 

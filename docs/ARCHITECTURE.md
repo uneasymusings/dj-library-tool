@@ -1,12 +1,14 @@
 # Architecture and decisions
 
-This document describes **0.1.0a5**, adding catalog reconciliation/discovery and durable native checks. Earlier a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
+This document describes **0.1.0a6**, adding catalog reconciliation/discovery and durable native checks. Earlier a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
 
 ## Execution boundary
 
 The application is a Python modular monolith. CLI and MCP are adapters around an authenticated loopback HTTP coordinator. One coordinator holds a per-workspace file lock and owns scheduling and catalog mutations. A startup lock serializes discovery and process creation. An ephemeral port avoids hardcoded port collisions; discovery verifies a private runtime record against a token-authenticated health response and workspace/instance IDs.
 
-Windows MCP is discovery-only when no coordinator exists: it returns `COORDINATOR_START_REQUIRED`. The generated launcher starts the service before the AI host, or the user starts it from an external terminal with `service start`. This keeps coordinator lifetime outside the host SDK's Windows Job Object. No job escape or lifecycle-policy bypass is attempted. This boundary addresses the unpublished a4 candidate's confirmed cold-start lifetime defect; a5 validation is recorded separately.
+Windows MCP is discovery-only when no coordinator exists: it returns `COORDINATOR_START_REQUIRED`. The generated launcher starts the service before the AI host, or the user starts it from an external terminal with `service start`. This keeps coordinator lifetime outside the host SDK's Windows Job Object. No job escape or lifecycle-policy bypass is attempted. This boundary addresses the unpublished a4 candidate's confirmed cold-start lifetime defect; a6 validation is recorded separately.
+
+Coordinator startup serializes on a 45-second lock and waits up to 30 seconds for authenticated health. One attempt spawns at most one child. Lock contention, an exited child without a healthy service, and an alive child without readiness return distinct busy/failed/timeout errors. A timeout does not kill the startup process or submit the caller's requested music operation; inspect status/logs before retrying.
 
 The coordinator runs a FastAPI/Uvicorn event loop. Database transactions are short and synchronous. Within durable jobs, blocking audio decoding, hashing, and file copies run in threads without a database session. Organization, passed analysis/native-export observations and app verification use per-item jobs; individual metadata/annotation operations and bounded request-ledger checks remain synchronous. yt-dlp runs as an isolated subprocess with bounded metadata output, timeouts, and a staging-growth monitor. Client exit does not own job cancellation.
 
@@ -71,6 +73,8 @@ stateDiagram-v2
 ```
 
 `completed` carries either `complete` or `completed_with_gaps`. A job can be complete with failed/skipped items; the assistant must examine outcome and counts. Empty scans complete with no tracks. Review decisions are revision-checked. Cancellation is terminal and preserves accepted assets; a new intent is needed to restart cancelled work.
+
+The diagram's retry transition is not universal. Committed annotation/organization transactions and completed organization jobs are terminal. A delivery-check job that committed evidence is terminal even when that evidence records failure. Read the current delivery/annotation revision and submit a new explicit intent instead of reopening committed history.
 
 Idempotency is scoped to the workspace. A key stores a semantic request hash and the accepted job ID in the same transaction. Repeating the exact request returns that job; reusing its key with another request returns a conflict. Collection starts include the plan ID and frozen profile. Export requests freeze the current collection, so a changed collection requires a new export key.
 

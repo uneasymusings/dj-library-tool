@@ -6,7 +6,7 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental alpha, 0.1.0a5.** This version adds safer catalog reconciliation, saved-work discovery and background verification. The local suite and installed-wheel checks passed; release CI and public-artifact verification remain pending. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a6.** This version adds safer catalog reconciliation, saved-work discovery and background verification. Local source, installed-wheel and six-job startup-fix branch checks passed; final a6 tag and public-artifact checks remain pending. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
 [DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The API exposes 40 MCP tools; older a3 exposes 34. See the [requirement and public-release audit](docs/COVERAGE.md).
 
@@ -39,10 +39,10 @@ Soulseek through slskd, complete artist catalog workflows, acoustic track identi
 
 ## Install from GitHub
 
-The commands below target the [v0.1.0a5 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a5), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a6 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a5/dj_library_tool-0.1.0a5-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a6/dj_library_tool-0.1.0a6-py3-none-any.whl'
 djlib version
 ```
 
@@ -97,9 +97,9 @@ Application commands emit JSON; help and argument parsing follow Typer conventio
 
 For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
 
-If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies accepted collection IDs, the actual app version, and default preservation of source format. No hardware profile is required. Follow the [app-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player). In a5, organization, successful analysis/native-export observations and app verification return jobs. Wait for completion and inspect the receipt, then read the delivery evidence and its check time. Rereading a saved receipt or delivery does not perform another check.
+If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies accepted collection IDs, the actual app version, and default preservation of source format. No hardware profile is required. Follow the [app-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player). In a6, organization, successful analysis/native-export observations and app verification return jobs. Wait for completion and inspect the receipt, then read the delivery evidence and its check time. Rereading a saved receipt or delivery does not perform another check.
 
-Version a5 also permits full local preparation before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
+Version a6 also permits full local preparation before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
 
 ## Use with an AI CLI
 

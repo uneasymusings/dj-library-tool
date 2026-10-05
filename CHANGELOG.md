@@ -1,8 +1,18 @@
 # Changelog
 
-## 0.1.0a5
+## 0.1.0a6
 
-Local validation passed 513 tests with five Windows-only skips; Ruff passed 96 files and the installed a5 wheel passed actual 40-tool MCP calls and three original tones. The six-job matrix and public-artifact audit remain pending. The 40-tool API and catalog/delivery features below carry forward from the unpublished a4 candidate; its checks do not validate the Windows startup fix.
+Local source validation passed **518 tests in 60.81 seconds**, with five Windows-only skips, and Ruff passed 96 files. After a source-quality wording correction, 71 focused delivery tests passed. The [startup-fix branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273853767) passed all six OS/Python jobs at `0e7e586`. A local a6 installed-wheel smoke passed actual 40-tool stdio MCP, three original tones, requests, organization and bundled skill checks; `uv lock --check` passed with 64 packages. The final resource build repeated the installed-wheel check successfully, and the fidelity-wording commit passed its [six-job matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273980856). The a6 tag matrix and public-artifact checks remain pending.
+
+- Startup waits for authenticated coordinator readiness for up to 30 seconds under a 45-second startup lock, instead of the earlier 12-second readiness window.
+- Startup reports `SERVICE_START_BUSY`, `SERVICE_START_FAILED` or `SERVICE_START_TIMEOUT` with distinct recovery guidance. It does not resubmit a music operation or repeatedly spawn children within one attempt.
+- Corrected the Windows MCP SDK error assertion and clarified that lossy compatibility encoding can reduce fidelity.
+
+The 40-tool API and external Windows coordinator-start workflow are retained. a4 and a5 tags remain immutable, unpublished candidates; their historical tests are not final a6 release proof.
+
+## 0.1.0a5 — unpublished candidate
+
+Local validation passed 513 tests with five Windows-only skips; Ruff passed 96 files and the installed a5 wheel passed actual 40-tool MCP calls and three original tones. The release candidate failed Windows checks involving an incorrect SDK `is_error` assertion and the coordinator not becoming ready within the 12-second window. The underlying cause of the startup delays was not established. The tag is preserved and unpublished; no public artifact audit passed. The 40-tool API and catalog/delivery features below carry forward from the unpublished a4 candidate; its checks do not validate the Windows startup fix.
 
 - Generated Windows `launch.py` starts the workspace coordinator before launching the assistant host. Manual MCP registration requires an external `djlib --workspace PATH service start` first.
 - Windows MCP cold start returns `COORDINATOR_START_REQUIRED` rather than spawning a coordinator inside the host's Windows Job Object. The engine does not try to escape that job or its lifecycle controls.
