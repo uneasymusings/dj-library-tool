@@ -1,9 +1,11 @@
 """CLI commands for catalog requests, annotations, and ordered collections."""
 
+import hashlib
 from pathlib import Path
 
 import typer
 
+from djlib.domain.errors import AppError
 from djlib.domain.organization_contracts import AnnotationRequest, OrganizationRequest
 from djlib.domain.request_contracts import RequestCreate, RequestResolution
 
@@ -36,11 +38,67 @@ def register_commands(app, client, emit, handled, panel=None):
     @requests.command("create")
     @handled
     def request_create(
-        ctx: typer.Context, file: Path = typer.Option(..., help="JSON request list.")
+        ctx: typer.Context,
+        file: Path | None = typer.Option(None, help="JSON request list (see: djlib schemas)."),
+        text: Path | None = typer.Option(
+            None, help="Plain tracklist, one “Artist - Title (Mix)” per line."
+        ),
+        name: str | None = typer.Option(None, help="List name for --text; defaults to the file."),
+        source: str | None = typer.Option(
+            None, help="HTTPS link to the set, kept as evidence for unknown IDs in --text."
+        ),
     ):
-        """Save a list of wanted songs and check which ones you already own."""
-        body = RequestCreate.model_validate_json(file.read_text(encoding="utf-8"))
-        emit(client(ctx).request("POST", "/requests", data=body.model_dump(mode="json")))
+        """Save a list of wanted songs and check which ones you already own.
+
+        Paste a tracklist into a text file and pass --text; no JSON needed.
+        """
+        if (file is None) == (text is None):
+            raise AppError("INPUT_INVALID", "Pass either --file JSON or --text tracklist.")
+        warnings: list[str] = []
+        if file is not None:
+            body = RequestCreate.model_validate_json(file.read_text(encoding="utf-8"))
+        else:
+            from djlib.application.tracklists import parse_tracklist
+
+            content = text.read_text(encoding="utf-8")
+            items, skipped = parse_tracklist(content, source)
+            from djlib.application.tracklists import HEADING
+
+            headings = [line for _, line, reason in skipped if reason == HEADING]
+            warnings = [
+                f"line {number} skipped ({reason}): {line}"
+                for number, line, reason in skipped
+                if reason != HEADING
+            ]
+            if not items:
+                raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
+            # A heading such as "Set Zero — Friday" names the list.
+            title = name or (headings[0][:300] if headings else text.stem)
+            digest = hashlib.sha256(f"{title}\n{source}\n{content}".encode()).hexdigest()[:16]
+            body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
+        reply = client(ctx).request("POST", "/requests", data=body.model_dump(mode="json"))
+        reply["warnings"] = [*reply.get("warnings", []), *warnings]
+        emit(reply)
+
+    @requests.command("collect")
+    @handled
+    def request_collect(
+        ctx: typer.Context,
+        request_id: str,
+        name: str | None = typer.Option(None, help="Collection name; defaults to the list's."),
+        revision: int | None = typer.Option(
+            None, min=1, help="Request revision; defaults to the current one."
+        ),
+    ):
+        """Turn the songs you own from a request list into a collection, in list order."""
+        local = client(ctx)
+        if revision is None:
+            current = local.request("GET", f"/requests/{request_id}", params={"limit": 1})
+            revision = current["result"]["revision"]
+        body = {"revision": revision}
+        if name is not None:
+            body["name"] = name
+        emit(local.request("POST", f"/requests/{request_id}/collection", data=body))
 
     @requests.command("get")
     @handled

@@ -2,13 +2,42 @@
 
 [![Tests, quality, and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
 
-**Turn music requests into traceable DJ collections, using your existing AI assistant.**
+**From a tracklist to a ready crate in rekordbox, using the music you already own.**
 
-`djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
+`djlib` is a local-first prep engine for DJs. Paste a set's tracklist or a request list; it tells you which songs you own, which are missing, and where you only have a different mix. It builds the crate in list order, prepares working copies for rekordbox or Serato, and brings rekordbox's BPM and key analysis back so you can sort and filter. Drive it from the terminal, or let Claude Code or Codex drive it through MCP. Your music, catalog and jobs never leave your computer.
 
-> **Experimental alpha, 0.1.0a6.** This version adds safer catalog reconciliation, saved-work discovery and background verification. The public release passed all six OS/Python release jobs and an independent anonymous installation audit with actual MCP calls with all 40 tool schemas exposed and three original tones. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+```text
+$ djlib requests create --text "Set Zero.txt"
+⣠⣴⣿⣦⣄ Set Zero — Friday  6 songs
+  4 owned  ·  1 missing  ·  1 unknown ID
 
-[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The API exposes 40 MCP tools; older a3 exposes 34. See the [requirement and public-release audit](docs/COVERAGE.md).
+#   Status         Requested                                Match
+1   ✓ owned        Nia Okoro - Slow Burn                    House/Nia Okoro - Slow Burn.flac
+2   ✓ owned        Velvet Static - Night Bus (Extended Mix) House/Velvet Static - Night Bus (Ex…
+3   ✗ missing      Velvet Static - Night Bus (Dub)          you own: Extended Mix, Radio Edit
+4   ○ unknown ID   ID - ID  @ 31:40
+…
+
+$ djlib import-rekordbox ~/Desktop/rekordbox.xml    # BPM/key from rekordbox's own analysis
+$ djlib requests collect REQUEST_ID                  # owned songs → crate, in set order
+$ djlib delivery plan --collection ID --workflow rekordbox_import --app-version 7.2.3
+```
+
+The headline workflow, step by step:
+
+| Step | Command | What happens |
+| --- | --- | --- |
+| Index | `djlib init --allow-root ~/Music` then `djlib scan` | Reads tags in place; nothing is moved or retagged. |
+| Ask | `djlib requests create --text tracklist.txt` | Each line becomes a request: owned, missing, other version owned, or unknown ID. |
+| Analyze | `djlib import-rekordbox rekordbox.xml` | rekordbox's BPM and key land in the catalog, matched by exact file path. |
+| Crate | `djlib requests collect ID` | Owned songs become an ordered collection; missing ones stay listed. |
+| Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Tagged working copies and playlists for rekordbox/Serato, then guided checks of what you saw in the app. |
+
+In a terminal you get tables, live progress and copy-pasteable next steps; piped or with `--json` every command prints a stable JSON envelope for scripts and assistants. Native import, analysis and USB export still happen in rekordbox or Serato; djlib prepares files and records what you confirm.
+
+> **Experimental alpha.** The latest release is 0.1.0a6; the workflow above is on `main` and not yet released. a6 passed all six OS/Python release jobs and an independent installation audit with actual MCP calls. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+
+[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. `main` exposes 42 MCP tools (a6: 40). See the [requirement and public-release audit](docs/COVERAGE.md).
 
 ## Your first useful session
 

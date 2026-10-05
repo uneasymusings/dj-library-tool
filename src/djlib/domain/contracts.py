@@ -235,14 +235,31 @@ def label_form(artist: str, title: str, version: str = "") -> tuple[str, str]:
     return normalize(artist), normalize(f"{title} {version}" if version.strip() else title)
 
 
+def base_title(title: str) -> str:
+    """The title without a trailing bracketed mix name."""
+    match = TRAILING_VERSION.match(title)
+    return match["title"] if match else title
+
+
+def base_form(artist: str, title: str) -> tuple[str, str]:
+    """Same song, any version: artist plus the title without its trailing mix name."""
+    return normalize(artist), normalize(base_title(title))
+
+
 def version_prefixes(artist: str, title: str, version: str = "") -> list[str]:
     """Catalog key prefixes that can hold a recording with equivalent labels."""
     prefixes = [recording_key(artist, title)]
     if version.strip():
         prefixes.append(recording_key(artist, f"{title} {version}"))
-    elif match := TRAILING_VERSION.match(title):
-        prefixes.append(recording_key(artist, match["title"]))
+    elif (base := base_title(title)) != title:
+        prefixes.append(recording_key(artist, base))
     return list(dict.fromkeys(prefixes))
+
+
+def related_prefixes(artist: str, title: str) -> list[str]:
+    """Prefixes for other versions of the same song, e.g. "Night Bus (Radio Edit)"."""
+    base = recording_key(artist, base_title(title))
+    return [base, base.removesuffix("|") + " "]
 
 
 def version_markers(value: str) -> frozenset[str]:

@@ -21,6 +21,7 @@ from djlib.persistence.models import (
     Recording,
     timestamp,
 )
+from djlib.persistence.organization_models import RecordingAnnotation
 from djlib.persistence.request_models import RequestLedger
 
 
@@ -90,6 +91,38 @@ def _result(kind, rows, total, limit, context, key):
     }
 
 
+def dj_summary(annotations: dict) -> dict:
+    """Saved BPM/key with their provenance; embedded tags are read per track, not here."""
+    bpm, key = annotations.get("bpm") or {}, annotations.get("key") or {}
+    return {
+        "bpm": bpm.get("value"),
+        "key": key.get("value"),
+        "bpm_source": bpm.get("source"),
+        "key_source": key.get("source"),
+        "bpm_verified": bool(bpm.get("verified")),
+        "key_verified": bool(key.get("verified")),
+        "energy": annotations.get("energy"),
+        "set_role": annotations.get("set_role"),
+    }
+
+
+def attach_dj(app, tracks: list[dict]) -> list[dict]:
+    """Add saved BPM/key summaries to a page of tracks without changing frozen snapshots."""
+    revisions = [track["asset_revision_id"] for track in tracks]
+    with app.db.transaction() as session:
+        saved = {
+            row.asset_revision_id: row.annotations
+            for row in session.scalars(
+                select(RecordingAnnotation).where(
+                    RecordingAnnotation.asset_revision_id.in_(revisions)
+                )
+            )
+        }
+    return [
+        {**track, "dj": dj_summary(saved.get(track["asset_revision_id"]) or {})} for track in tracks
+    ]
+
+
 def library(app, query="", limit=20, after=None):
     context = _context("library", query, limit, after, key_size=5)
     statement = (
@@ -127,6 +160,18 @@ def library(app, query="", limit=20, after=None):
                 .order_by(FileLocation.managed.desc(), FileLocation.path, FileLocation.id)
             ):
                 locations[location.revision_id].append(location)
+        annotations = (
+            {
+                row.asset_revision_id: row.annotations
+                for row in session.scalars(
+                    select(RecordingAnnotation).where(
+                        RecordingAnnotation.asset_revision_id.in_([r.id for _, r in rows])
+                    )
+                )
+            }
+            if rows
+            else {}
+        )
         tracks = []
         for recording, revision in rows:
             candidates = locations[revision.id]
@@ -151,6 +196,7 @@ def library(app, query="", limit=20, after=None):
                     "availability": "not_checked" if candidates else "no_recorded_location",
                     "last_known_path": revision.properties.get("last_known_path")
                     or revision.properties.get("indexed_path"),
+                    "dj": dj_summary(annotations.get(revision.id) or {}),
                 }
             )
     return _result(

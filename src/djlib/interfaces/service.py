@@ -254,7 +254,9 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         result = application.collection(collection_id)
         tracks = result["tracks"]
         result["track_count"] = len(tracks)
-        result["tracks"] = tracks[after : after + limit]
+        from djlib.application.catalog_paging import attach_dj
+
+        result["tracks"] = attach_dj(application, tracks[after : after + limit])
         result["next_cursor"] = after + limit if after + limit < len(tracks) else None
         return envelope(result)
 

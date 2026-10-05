@@ -5,11 +5,15 @@ import struct
 import wave
 
 import pytest
+from fastapi.testclient import TestClient
 from mutagen.id3 import TIT2, TPE1
 from mutagen.wave import WAVE
 
 from djlib.application.service import Application
 from djlib.domain.contracts import CollectionRequest, StartRequest, TrackInput
+from djlib.domain.errors import AppError
+from djlib.interfaces.client import LocalClient
+from djlib.interfaces.service import create_app
 from djlib.jobs.worker import Worker
 from djlib.persistence.database import Database
 from djlib.persistence.models import Job
@@ -63,3 +67,27 @@ async def execute(application, job_id):
         generation = job.generation
     await Worker(application).execute(job_id, generation)
     return application.job(job_id)
+
+
+@pytest.fixture
+def library_http(application, monkeypatch):
+    app = create_app(application.workspace, "library-transports")
+    with TestClient(
+        app,
+        base_url="http://127.0.0.1",
+        headers={"Authorization": "Bearer " + application.workspace.token()},
+    ) as http:
+
+        def local_request(self, method, path, *, data=None, params=None):
+            response = http.request(method, path, json=data, params=params)
+            reply = response.json()
+            if not reply["ok"]:
+                error = reply["error"]
+                raise AppError(
+                    error["code"], error["message"], response.status_code, error["retryable"]
+                )
+            return reply
+
+        # Replace process discovery only; requests reach the real authenticated ASGI app.
+        monkeypatch.setattr(LocalClient, "request", local_request)
+        yield http

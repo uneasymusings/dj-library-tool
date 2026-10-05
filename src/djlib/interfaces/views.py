@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from djlib import __version__
+from djlib.domain.contracts import TRAILING_VERSION
 from djlib.interfaces.terminal import (
     ACTIVE_STATES,
     JOB_LABELS,
@@ -45,6 +46,7 @@ FOLLOW = frozenset(
         "delivery verify-app",
         "delivery observe",
         "organize collection",
+        "requests collect",
     }
 )
 # Machine artifacts stay JSON even in a terminal.
@@ -83,6 +85,10 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
         exit_for_job(followed.job, detached=followed.detached)
         return
     VIEWS.get(name, generic)(term, result)
+    for warning in envelope.get("warnings") or []:
+        term.err.print(
+            Text.assemble((f"{term.glyph('warn')} ", "warn"), str(warning)), soft_wrap=True
+        )
 
 
 def exit_for_job(job: dict, *, detached: bool = False, timed_out: bool = False) -> None:
@@ -453,8 +459,22 @@ def job_next_steps(term: Terminal, job: dict) -> list[tuple[str, tuple | None]]:
             steps.append(("Browse your library", ("library",)))
         elif result.get("collection_id"):
             steps.append(("Open the collection", ("collection", result["collection_id"])))
-            if kind == "collection":
-                steps.append(("Export for your DJ app", ("export", result["collection_id"])))
+            if kind in {"collection", "organize"}:
+                steps.append(
+                    (
+                        "Prepare it for rekordbox",
+                        (
+                            "delivery",
+                            "plan",
+                            "--collection",
+                            result["collection_id"],
+                            "--workflow",
+                            "rekordbox_import",
+                            "--app-version",
+                            "VERSION",
+                        ),
+                    )
+                )
         elif kind in {"delivery", "delivery_check"} and result.get("delivery_id"):
             steps.append(("Check delivery status", ("delivery", "get", result["delivery_id"])))
         elif kind == "export" and result.get("playlist_path"):
@@ -610,6 +630,9 @@ def track_table(
 ) -> Table:
     """One line per track; columns that are empty for every row are left out."""
     show_version = any(track.get("version") for track in tracks)
+    show_dj = any(
+        (track.get("dj") or {}).get("bpm") or (track.get("dj") or {}).get("key") for track in tracks
+    )
     show_file = not numbered
     columns: list[tuple[str, dict]] = []
     if numbered:
@@ -620,6 +643,8 @@ def track_table(
     ]
     if show_version:
         columns.append(("Version", {"overflow": "ellipsis"}))
+    if show_dj:
+        columns += [("BPM", {"justify": "right"}), ("Key", {})]
     columns += [
         ("Time", {"justify": "right"}),
         ("Format", {"style": "muted", "drop": 2}),
@@ -633,6 +658,10 @@ def track_table(
         cells += [track.get("artist") or "", track.get("title") or ""]
         if show_version:
             cells.append(Text(track.get("version") or "", style="muted"))
+        if show_dj:
+            dj = track.get("dj") or {}
+            bpm = dj.get("bpm")
+            cells += [f"{bpm:g}" if isinstance(bpm, int | float) else "", dj.get("key") or ""]
         cells += [duration(properties.get("duration_seconds")), audio_format(track)]
         if show_file:
             cells.append(file_tail(track.get("path") or track.get("last_known_path")))
@@ -1023,6 +1052,37 @@ def track_metadata(term: Terminal, result: dict) -> None:
     note(term, "Embedded tags are unverified; djlib does not analyze audio.")
 
 
+@view("import-rekordbox")
+def rekordbox_import(term: Terminal, result: dict) -> None:
+    updated, matched = int(result.get("updated") or 0), int(result.get("matched") or 0)
+    status_line(
+        term,
+        "ok" if matched else "warn",
+        f"rekordbox analysis imported for {plural(updated, 'track')}"
+        if updated
+        else "No new analysis to import",
+        f"rekordbox {result.get('app_version') or ''}".strip(),
+    )
+    rows: list[tuple[str, object]] = [
+        ("In the XML", plural(int(result.get("tracks_in_xml") or 0), "track")),
+        ("Matched", Text(plural(matched, "track"), style="ok" if matched else "")),
+    ]
+    if result.get("unchanged"):
+        rows.append(("Unchanged", str(result["unchanged"])))
+    if result.get("kept_your_values"):
+        rows.append(("Kept yours", Text(f"{result['kept_your_values']} values you set", "muted")))
+    if result.get("not_analyzed"):
+        rows.append(("Not analyzed", Text(f"{result['not_analyzed']} without BPM/key", "warn")))
+    if result.get("unmatched"):
+        rows.append(("Not in catalog", Text(str(result["unmatched"]), style="muted")))
+    fields(term, rows)
+    if result.get("unmatched_examples"):
+        note(term, "e.g. " + "; ".join(result["unmatched_examples"][:3]))
+    term.out.print()
+    note(term, "Matched by exact file path. BPM/key come from rekordbox and stay unverified.")
+    next_steps(term, [("See BPM and key in your library", ("library",))] if updated else [])
+
+
 @view("requests report")
 def request_report(term: Terminal, result: dict) -> None:
     status_line(
@@ -1262,6 +1322,16 @@ def delivery_list(term: Terminal, result: dict) -> None:
 
 # -- requests ----------------------------------------------------------------------------------
 
+
+def mix_name(track: dict) -> str:
+    """ "Extended Mix" from either the version field or a title like "Rain (Extended Mix)"."""
+    if track.get("version"):
+        return track["version"]
+    match = TRAILING_VERSION.match(track.get("title") or "")
+    return match["version"] if match else track.get("title") or ""
+
+
+MATCHING = frozenset({"exact_labels", "equivalent_labels", "operator_identified"})
 REQUEST_STATES = {
     "satisfied": ("ok", "ok", "owned"),
     "missing": ("bad", "bad", "missing"),
@@ -1334,10 +1404,15 @@ def request_view(term: Terminal, result: dict) -> None:
             requested = track_label(source)
         accepted = item.get("accepted") or {}
         candidates = item.get("candidates") or []
+        others = [c for c in candidates if c.get("identity_match") == "different_version"]
+        exact = [c for c in candidates if c.get("identity_match") in MATCHING]
         if accepted.get("path"):
             match = file_tail(accepted["path"])
-        elif len(candidates) > 1:
-            match = Text(f"{len(candidates)} candidates; pick one", style="warn")
+        elif len(exact) > 1:
+            match = Text(f"{len(exact)} copies; pick one", style="warn")
+        elif others and item.get("state") == "missing":
+            versions = ", ".join(dict.fromkeys(mix_name(c) for c in others))
+            match = Text(f"you own: {versions}", style="warn")
         elif (item.get("source_selection") or {}).get("source_url"):
             match = Text(item["source_selection"]["source_url"], style="path")
         else:
