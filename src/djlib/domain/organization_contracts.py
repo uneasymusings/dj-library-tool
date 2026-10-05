@@ -132,3 +132,9 @@ class OrganizationRequest(Contract):
         if not value or any(ord(c) < 32 for c in value):
             raise ValueError("Collection names must be nonblank and single-line.")
         return value
+
+
+class AnalysisImport(Contract):
+    """An allowed path to a native rekordbox Collection XML export."""
+
+    path: str = Field(min_length=1, max_length=4096)

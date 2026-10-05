@@ -11,6 +11,7 @@ from djlib.application.organization import (
     organize_collection,
 )
 from djlib.application.requests import (
+    collect_request,
     create_request,
     export_missing_report,
     get_request,
@@ -18,8 +19,17 @@ from djlib.application.requests import (
     resolve_request,
 )
 from djlib.domain.contracts import ResponseEnvelope
-from djlib.domain.organization_contracts import AnnotationRequest, OrganizationRequest
-from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
+from djlib.domain.organization_contracts import (
+    AnalysisImport,
+    AnnotationRequest,
+    OrganizationRequest,
+)
+from djlib.domain.request_contracts import (
+    RequestCollect,
+    RequestCreate,
+    RequestRefresh,
+    RequestResolution,
+)
 
 
 def register_http(app, application, envelope):
@@ -50,6 +60,20 @@ def register_http(app, application, envelope):
         return envelope(
             await asyncio.to_thread(export_missing_report, application, request_id, body.revision)
         )
+
+    @app.post("/requests/{request_id}/collection")
+    async def request_collect(request_id: str, body: RequestCollect):
+        return envelope(
+            await asyncio.to_thread(
+                collect_request, application, request_id, body.revision, body.name
+            )
+        )
+
+    @app.post("/analysis/rekordbox")
+    async def analysis_import(body: AnalysisImport):
+        from djlib.application.native_analysis import import_rekordbox_analysis
+
+        return envelope(await asyncio.to_thread(import_rekordbox_analysis, application, body.path))
 
     @app.get("/recordings/{recording_id}/metadata")
     async def track_metadata(
@@ -110,6 +134,30 @@ def register_mcp(server, request, read, write, intent):
     async def djlib_request_report(request_id: str, revision: int) -> ResponseEnvelope:
         """Save a revision-specific missing-track report inside the workspace; no downloads."""
         return await request("POST", f"/requests/{request_id}/report", {"revision": revision})
+
+    @server.tool(structured_output=True, annotations=write)
+    async def djlib_collect_request(
+        request_id: str, revision: int, name: str | None = None
+    ) -> ResponseEnvelope:
+        """Queue an ordered collection of the request list's owned tracks, in list order.
+
+        Missing, ambiguous and unknown songs stay in the request. Wait for the returned job,
+        then use its collection_id.
+        """
+        body = {"revision": revision}
+        if name is not None:
+            body["name"] = name
+        return await request("POST", f"/requests/{request_id}/collection", body)
+
+    @server.tool(structured_output=True, annotations=write)
+    async def djlib_import_rekordbox_analysis(path: str) -> ResponseEnvelope:
+        """Read BPM/key from a rekordbox Collection XML export into catalog annotations.
+
+        Tracks match by exact file location (originals or prepared working copies), values keep
+        source rekordbox_analysis and verified false, and operator-chosen values are kept.
+        The XML must be inside an allowed folder or the workspace.
+        """
+        return await request("POST", "/analysis/rekordbox", {"path": path})
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_track_metadata(recording_id: str, asset_revision_id: str) -> ResponseEnvelope:

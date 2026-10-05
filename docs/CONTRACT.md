@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a6`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`main` after `0.1.0a6`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -70,6 +70,14 @@ App-only workflows accept only `imported` and `analyzed` observations, followed 
 
 ### Request and organization inputs
 
+`requests create --text FILE` builds a `RequestCreate` from a plain tracklist in the CLI: one `Artist - Title (Mix)` per line, with numbering, bullets, timestamps and a trailing `[LABEL]` removed (a bracketed mix name is kept). `ID - ID` lines become unknown items when they carry a timestamp or `--source` URL. Leading unnumbered lines of a numbered list are headings; the first names the list. Lines that are skipped are reported in the envelope's `warnings`.
+
+`RequestCollect` (`revision`, optional `name`) queues an `organize` job over the request's `satisfied` items in list order, deduplicated by byte revision; nothing else is included and an empty selection is `COLLECTION_EMPTY`. Request candidates may include up to five `different_version` recordings of the same song (same artist and base title) for context; they never satisfy, disambiguate or truncate a match.
+
+`AnalysisImport` (`path`) reads a rekordbox Collection XML export from an allowed folder or the workspace (the CLI copies the chosen file into the workspace first). Tracks match only by exact file location: catalog originals or prepared delivery working copies. Known `AverageBpm`/`Tonality` values are stored as BPM/key annotations with `source: "rekordbox_analysis"` and `verified: false`; values with any other source are kept. Library rows and collection pages include `dj: {bpm, key, bpm_source, key_source, energy, set_role}` from saved annotations.
+
+`delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
+
 Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/cli.md#exact-requests-and-unknown-ids).
 
 Annotations bind exact recording/revision IDs. Revision `0` creates the first annotation; later patches require the current revision. Omitted fields are unchanged and explicit null clears the annotation. BPM/key values carry `source: operator|native_tag` and `verified: false` by default; `native_tag` must match freshly read catalog tags. Organization freezes ordered collections from up to 1,000 explicit references, reports exclusions and uses explicit unknown policies. It does not perform acoustic analysis or retag catalog originals. See [organization recipes](../skills/dj-library/references/cli.md#catalog-notes-and-ordered-collections).
@@ -113,6 +121,8 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `requests refresh ID --revision N` | `djlib_refresh_request` | `POST /requests/{id}/refresh` |
 | `requests resolve ID ITEM_ID --file FILE` | `djlib_resolve_request` | `POST /requests/{id}/items/{item_id}` |
 | `requests report ID --revision N` | `djlib_request_report` | `POST /requests/{id}/report` |
+| `requests collect ID [--name NAME] [--revision N]` | `djlib_collect_request` | `POST /requests/{id}/collection` |
+| `import-rekordbox XML` | `djlib_import_rekordbox_analysis` | `POST /analysis/rekordbox` |
 | `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |
 | `organize get ID --asset-revision-id REV_ID` | `djlib_annotations` | `GET /recordings/{id}/annotations` |
 | `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |

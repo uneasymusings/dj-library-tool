@@ -51,7 +51,7 @@ ORDER = [
     *("init", "demo", "doctor", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
-    *("delivery", "export", "usb-preflight"),
+    *("delivery", "import-rekordbox", "export", "usb-preflight"),
     *("jobs", "service"),
     *("mcp", "schemas", "capabilities", "version"),
 ]
@@ -513,6 +513,32 @@ def export(
     )
 
 
+@app.command("import-rekordbox", rich_help_panel=DELIVER)
+@handled
+def import_rekordbox(
+    ctx: typer.Context,
+    path: Annotated[Path, typer.Argument(help="rekordbox File > Export Collection in xml format.")],
+) -> None:
+    """Bring rekordbox's BPM and key analysis into your catalog.
+
+    Tracks match by exact file location. Values you set yourself are never overwritten.
+    """
+    import shutil
+
+    ctx.obj.config()
+    source = path.expanduser().absolute()
+    if not source.is_file():
+        raise AppError("FILE_REQUIRED", "Choose the exported rekordbox XML file.")
+    if source.stat().st_size > 32 * 1024 * 1024:
+        raise AppError("NATIVE_XML_LIMIT", "Native XML is limited to 32 MiB.")
+    # The coordinator only reads allowed folders; this explicit choice is copied into the
+    # workspace instead of widening that permission.
+    target = ctx.obj.incoming / "rekordbox" / f"collection-{datetime.now():%Y%m%d-%H%M%S}.xml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    emit(client(ctx).request("POST", "/analysis/rekordbox", data={"path": str(target)}))
+
+
 @app.command("usb-preflight", rich_help_panel=DELIVER)
 @handled
 def usb_preflight(
@@ -571,10 +597,42 @@ def delivery_targets(ctx: typer.Context) -> None:
 @handled
 def delivery_plan(
     ctx: typer.Context,
-    file: Path = typer.Option(..., "--file", help="JSON delivery request (see: djlib schemas)."),
+    file: Path | None = typer.Option(None, "--file", help="JSON delivery request."),
+    collection: list[str] = typer.Option(
+        None, "--collection", help="Collection ID to deliver; repeat for several."
+    ),
+    workflow: str | None = typer.Option(
+        None, help="rekordbox_import, serato_import, rekordbox_usb or serato_portable."
+    ),
+    app_version: str | None = typer.Option(None, help="Version shown in the app's About box."),
+    name: str | None = typer.Option(None, help="Delivery name; defaults to the collection's."),
+    player: str | None = typer.Option(None, help="Player profile for rekordbox_usb."),
+    full: bool = typer.Option(False, "--full", help="Deliver everything, not a small pilot."),
 ) -> None:
-    """Freeze collections for a pilot (default) or full delivery to one target."""
-    body = DeliveryRequest.model_validate_json(file.read_text(encoding="utf-8"))
+    """Freeze collections for a pilot (default) or full delivery to one target.
+
+    Use flags, e.g. --collection ID --workflow rekordbox_import --app-version 7.2.3,
+    or --file with a JSON request.
+    """
+    if file is not None:
+        body = DeliveryRequest.model_validate_json(file.read_text(encoding="utf-8"))
+    elif collection and workflow and app_version:
+        if name is None:
+            first = client(ctx).request("GET", f"/collections/{collection[0]}", params={"limit": 1})
+            name = f"{first['result']['name']} ({workflow.replace('_', ' ')})"
+        body = DeliveryRequest(
+            name=name,
+            collection_ids=collection,
+            workflow=workflow,
+            app_version=app_version,
+            hardware_profile=player,
+            phase="full" if full else "pilot",
+        )
+    else:
+        raise AppError(
+            "INPUT_INVALID",
+            "Pass --file, or --collection, --workflow and --app-version.",
+        )
     emit(client(ctx).request("POST", "/deliveries", data=body.model_dump(mode="json")))
 
 

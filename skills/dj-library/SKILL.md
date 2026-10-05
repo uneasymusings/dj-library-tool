@@ -38,6 +38,12 @@ Submit an intent with a stable idempotency key. Save the returned job ID and reu
 
 Committed annotation/organization mutations and delivery-check evidence are terminal history. Do not retry them to refresh a result; read the latest revision and submit a new explicit intent/check.
 
+## Headline workflow: tracklist to crate
+
+For a set or request list, prefer the composed path: `djlib_create_request` with structured items (or CLI `requests create --text FILE` for a pasted tracklist), then `djlib_collect_request` with the current revision to queue an ordered collection of the satisfied songs. Wait for its job and use the `collection_id`. Report missing songs, `different_version` candidates ("you own the Radio Edit, not the Dub") and unknown IDs separately; never substitute a different mix.
+
+When the user has analyzed tracks in rekordbox, ask them to export the collection (File > Export Collection in xml format) into an allowed folder, then call `djlib_import_rekordbox_analysis`. It matches exact file paths, stores BPM/key with `source: rekordbox_analysis` and `verified: false`, and keeps values someone set explicitly. After that, `djlib_organize` BPM/key filters and ordering work from rekordbox's values. Describe them as rekordbox's analysis, not as verified facts.
+
 ## Organize catalog evidence
 
 Use `djlib_track_metadata` on exact recording/revision IDs to read hash-matching embedded BPM/key/genre/comments. Tags are unverified evidence; absent, malformed or conflicting values stay unknown. `djlib_annotations` reads saved notes and their revision. `djlib_annotate` patches only supplied fields; null clears a field. Preserve separate subjective tags, role and energy. BPM/key annotations need provenance and default to unverified; mark verified only for an actual operator review. `native_tag` must match freshly read catalog tags and does not read a native analysis database.

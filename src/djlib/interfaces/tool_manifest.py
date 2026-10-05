@@ -46,6 +46,7 @@ LIBRARY_WORKFLOW_TOOLS = frozenset(
         "djlib_organize",
     }
 )
+PREP_TOOLS = frozenset({"djlib_collect_request", "djlib_import_rekordbox_analysis"})
 DISCOVERY_TOOLS = frozenset(
     {
         "djlib_collections",
@@ -56,4 +57,4 @@ DISCOVERY_TOOLS = frozenset(
         "djlib_reconcile",
     }
 )
-TOOL_NAMES = CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS | DISCOVERY_TOOLS
+TOOL_NAMES = CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS | DISCOVERY_TOOLS | PREP_TOOLS
