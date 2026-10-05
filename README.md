@@ -6,15 +6,24 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental alpha, 0.1.0a3.** This version adds supervised app delivery, exact-request coverage, catalog annotations and read-only native XML inspection. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a4.** This version adds safer catalog reconciliation, saved-work discovery and background verification. Local tests and the installed-wheel check passed; release CI and public-artifact verification are pending. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
-[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The current API exposes 34 MCP tools. See the [requirement and public-release audit](docs/COVERAGE.md).
+[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The API exposes 40 MCP tools; older a3 exposes 34. See the [requirement and public-release audit](docs/COVERAGE.md).
+
+## Your first useful session
+
+Install the public release below, create separate library/session directories, then tell the assistant:
+
+> Use my allowed music folder to make a three-track Warm Groove collection in Serato [or rekordbox]. Check existing recordings and versions first. Prepare separate working copies, help me import and analyze them, and show what remains unchecked. I do not know the player model yet.
+
+The assistant handles request files and job IDs. Start with a few owned tracks and a named collection, check their membership and loading in the app, then expand. A player model is needed for a standalone USB target, not for organizing your app library. Demo tones can validate installation before you supply real music roots. For a deadline, prepare the accepted selection and retain a separate missing-track report; unfinished acquisition does not have to delay that selection.
 
 ## What is here
 
 | Workflow | Current implementation |
 | --- | --- |
 | Existing music | Scan allowed folders; inspect audio; index original files in place. |
+| Catalog maintenance | Page through recordings and saved work; explicitly add music roots; reconcile changed file bytes without silently replacing pinned history. |
 | Collections | Plan explicit local tracklists; keep requested versions; reuse identical bytes; review metadata conflicts. |
 | Selected web recordings | Optional yt-dlp adapter for public YouTube, SoundCloud, and Bandcamp URLs; durable per-track jobs. |
 | Set links | Read publisher descriptions and chapters for the assistant to interpret. Audio recognition is planned. |
@@ -30,10 +39,10 @@ Soulseek through slskd, complete artist catalog workflows, acoustic track identi
 
 ## Install from GitHub
 
-The commands below target the [v0.1.0a3 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3), including the engine, MCP server, and portable skill; see [status](docs/STATUS.md) for publication and validation state. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a4 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a4), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a3/dj_library_tool-0.1.0a3-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a4/dj_library_tool-0.1.0a4-py3-none-any.whl'
 djlib version
 ```
 
@@ -68,27 +77,29 @@ Install FFmpeg/ffprobe separately for compressed formats and downloads. YouTube 
 
 ## Try the local workflow
 
-The demo generates three original one-second tones, builds a collection, and prepares export artifacts. It uses no accounts, music websites, DJ app databases, or USB device. Choose an empty directory:
+The demo generates three original one-second tones, builds a collection, and prepares export artifacts. It uses no accounts, music websites, DJ app databases, or USB device. Choose a new directory. With the installed release, run:
 
 ```bash
-uv run djlib --workspace ./demo-workspace demo
-uv run djlib --workspace ./demo-workspace library
-uv run djlib --workspace ./demo-workspace service stop
+djlib --workspace ./demo-workspace demo
+djlib --workspace ./demo-workspace library
+djlib --workspace ./demo-workspace service stop
 ```
 
 For your own music, initialize a separate workspace and explicitly allow the music directory:
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace init --allow-root /path/to/music
-uv run djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-scan
-uv run djlib --workspace /path/to/dj-workspace jobs list
+djlib --workspace /path/to/dj-workspace init --allow-root /path/to/music
+djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-scan
+djlib --workspace /path/to/dj-workspace jobs list
 ```
 
 Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
 For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
 
-If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies the accepted `collection_ids`, actual `app_version`, and default `audio_mode: "preserve"`; no hardware profile is required. `delivery plan --file app-trial.json` and `delivery prepare DELIVERY_ID --revision CURRENT_REVISION --key app-trial-v1` prepare the separate copies. After native import/analysis observations, `delivery verify-app` refreshes working-file evidence. This is app readiness, not USB readiness. [App-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player).
+If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies accepted collection IDs, the actual app version, and default preservation of source format. No hardware profile is required. Follow the [app-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player). In a4, organization, successful analysis/native-export observations and app verification return jobs. Wait for completion and inspect the receipt, then read the delivery evidence and its check time. Rereading a saved receipt or delivery does not perform another check.
+
+Version a4 also permits full local preparation before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
 
 ## Use with an AI CLI
 

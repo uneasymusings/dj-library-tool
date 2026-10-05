@@ -1,6 +1,14 @@
 # Validation and first-use checklist
 
-This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for the published **0.1.0a3** prerelease; see [status](STATUS.md) for remaining scope. Current results are separate from the historical public a2 evidence below. Old host/provider/native checks were not rerun merely by building a new version.
+This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for **0.1.0a4**. Published a3 and a2 results below are retained baselines. Old host/provider/native checks were not rerun merely by building a new version.
+
+## a4 checks and remaining release gates
+
+The local macOS/Python 3.13 suite passed **498 tests in 60.88 seconds**, with four Windows-only tests skipped. Ruff lint/format checks passed for **95 files**. A fresh installed-wheel smoke check passed actual stdio calls for **40 MCP tools** and **three original tones**. These are local/installed-artifact results, not an anonymous public-download audit.
+
+The **six OS/Python CI jobs and public-artifact verification remain pending**. No a4 publication is claimed in this record. New regressions cover provisional/symbol identity, changed-file reconciliation/history, saved-work paging, additive roots, durable organization/native checks, optional-pilot preparation and read-only Windows partition detection. The Windows-native partition test targets the runner's system volume; that is not a physical DJ USB/player trial.
+
+Exercise a small owned-music app trial only after the user supplies actual allowed roots. Confirm membership, analysis, loading and saved-state preservation in each app. Native Serato, real USB export and player playback remain unverified; neither queued verification nor a passing engine test substitutes for those observations.
 
 ## Automated suite
 
@@ -12,7 +20,7 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-### Current a3 checks — 2026-10-04/05
+### Published a3 baseline — 2026-10-04/05
 
 Version: **0.1.0a3**. After the Windows corrections, the local suite passed **403 tests in 45.51 seconds**, macOS, Python 3.13, real FFmpeg/ffprobe installed; only three Windows-native tests skipped on macOS. Ruff lint/format checks passed for 79 source/script/test files. The [release tag matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37261484677) passed all six OS/Python jobs and its draft-artifact job. Windows reported **404 passed, two POSIX-only skips**. The [first candidate matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37259264614) had exposed Windows failures before the portability corrections. Tests use original tones, isolated catalogs, controlled transports and simulated device/operator evidence; they do not establish native app, device export or playback success.
 

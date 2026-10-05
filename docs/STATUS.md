@@ -1,6 +1,28 @@
 # Implementation status
 
-Updated 2026-10-05 UTC for **0.1.0a3**. The [public prerelease](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) was published at 04:15:02 UTC after its six-job release matrix passed. Anonymous artifact verification and a fresh public-URL installation outside the checkout also passed, including actual 34-tool MCP checks. The complete product and unattended personal-library workflow remain unfinished. [Coverage](COVERAGE.md) maps requirements to a2, a3 and remaining gaps.
+Updated 2026-10-05 UTC for **0.1.0a4**. Local tests and an installed-wheel smoke check passed. The six-job release CI matrix and anonymous public-artifact audit are still pending; publication is not claimed here. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) and its audit remain a separate baseline. The complete product and unattended personal-library workflow remain unfinished. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining gaps.
+
+## a4 engineering changes
+
+- Forty MCP tools, including catalog/saved-work paging, additive allowed-root management and explicit changed-file reconciliation; CLI validation identifies invalid fields without echoing private values.
+- New scans use provisional byte identity for incomplete labels and preserve symbol-only distinctions. Historical incorrect merges are not repaired automatically.
+- Durable `tag_only` and `replace_audio` reconciliation pins the old revision and current new hash, retains old memberships/annotations, and invalidates affected downstream evidence. Legacy tag-only work needs a verified decoded baseline or another original-byte location.
+- Organization, passed analysis/native-export observations and app verification are queued jobs with item outcomes. Identical native-check intents return the same job. Completion returns an evidence-commit receipt; delivery status retains the check time and operator-conditional requirements, not fresh readiness.
+- Full local preparation can proceed without a physical pilot, explicitly unvalidated. A supplied pilot must still match and pass. Native/device/playback gates remain; pilot/full working copies do not share native cues automatically.
+- Read-only, bounded Windows partition-style detection preserves known GUID/filesystem evidence on failure. Automatic schema upgrades first create integrity-checked catalog backups; music/native databases are outside that backup scope.
+
+## a4 validation and release gates
+
+| Check | Observed result |
+| --- | --- |
+| Local suite | **498 passed in 60.88 seconds**, macOS/Python 3.13; four Windows-only tests skipped. |
+| Lint and formatting | Ruff checks passed for **95 files**. |
+| Installed wheel | Smoke check passed actual stdio MCP calls with **40 tools** and **three original tones**. |
+| Six-job release matrix | Pending; local macOS results do not establish Windows/Linux results. |
+| Publication and public-artifact audit | Pending; no anonymous a4 download/install result is claimed yet. |
+| Native app/device trial | No new native Serato, real-music, physical USB export or player validation is claimed. |
+
+The a3/a2 evidence below is retained independently. Original-tone tests and installed-engine checks do not prove native musical analysis, real USB export or player playback.
 
 ## Implemented first milestone
 
@@ -14,14 +36,14 @@ Updated 2026-10-05 UTC for **0.1.0a3**. The [public prerelease](https://github.c
 ## Target-aware DJ delivery
 
 - Persisted delivery requests freeze collection membership and selected recording identities; pilot/full phases separate small target trials from broad preparation.
-- `rekordbox_import` and `serato_import` prepare native app libraries without requiring a player/controller model or USB. Their sourced input profiles describe an explicitly conservative subset; Serato numeric bounds are engine policy, not claimed vendor maxima. App-only verification can establish `ready_for_app_use`, never USB departure readiness.
+- `rekordbox_import` and `serato_import` prepare native app libraries without requiring a player/controller model or USB. Their sourced input profiles describe an explicitly conservative subset; Serato numeric bounds are engine policy, not claimed vendor maxima. App verification commits saved requirements/readback evidence; queued completion returns only a receipt, never `ready_for_app_use` or USB departure readiness.
 - Durable preparation creates isolated, labeled app working copies and playlist/manifest artifacts. Preserve is the default; compatibility conversion is explicit. Catalog originals remain unchanged.
 - Four sourced hardware profiles distinguish CDJ-2000NXS, CDJ-3000, XDJ-RX3 and OPUS-QUAD audio/library requirements. Unknown metadata and unknown targets cannot silently pass audio checks. Firmware and physical hardware remain unverified.
 - Typed, revision-checked observations record native import, analysis, export, device-library inspection and playback as operator reports. They are not automatic native app integration.
 - Passing rekordbox hardware-playback reports require the matching player profile, actual firmware version and successful storage recognition. CDJ-3000 firmware 3.30 is rejected, including `v3.30`/`V3.30` spellings.
 - Read-only device verification checks volume identity and expected post-analysis audio hashes. Database filenames are existence markers only; their contents, membership and analysis are not parsed.
-- Full preparation requires a completed matching pilot. App-only workflows use fresh `verify-app` checks after reported native import/analysis. Fresh `verify-device` evidence is required for the departure flag; an ordinary status query does not rehash audio.
-- Analysis reconciliation is synchronous. Unchanged file hashes avoid redundant decoding; changed working copies require stream/audio checks. Observation and app-verification requests have a 600-second client timeout, so large changed batches remain a practical limit rather than a background-job guarantee.
+- Full local preparation may omit a pilot ID, with explicit unvalidated status. Supplied pilot claims remain checked. App-only workflows use completed `verify-app` jobs after reported native import/analysis. Fresh `verify-device` evidence remains required for the departure flag; status and saved job reads do not rehash audio.
+- Passed analysis/native-export observations and app verification use durable per-track jobs. Native-export checks require exact analyzed bytes and validate the bound volume at acceptance/finalization. Unchanged hashes avoid redundant decoding; changed working copies require stream/audio checks before a generation-fenced evidence commit. Native app behavior is still operator-reported.
 - Native rekordbox Collection XML inspection compares prepared paths, playlist membership/order and declared app version read-only. It reports raw BPM/key and unknowns without granting readiness or automatically changing annotations. No native database or referenced media is opened.
 
 See [DJ delivery](DJ_DELIVERY.md) for the four workflows, commands, exact evidence boundaries and organization suggestions. **No new physical-player or complete native USB export validation is claimed by these additions.**
@@ -36,7 +58,7 @@ Hash-checked metadata reads expose embedded BPM/key/genre/comments without infer
 
 ## Evidence and precise limits
 
-Rows labeled a3 describe current implementation evidence. Other historical observations describe the published 0.1.0a2 baseline and do not imply those host/provider/device trials were rerun for a3.
+The following table retains published **a3 and a2 baseline evidence**. Historical host/provider/device observations were not rerun merely by implementing new code; a4 checks are listed separately above.
 
 | Area | Observed evidence | Remaining limit |
 | --- | --- | --- |
@@ -55,7 +77,7 @@ Rows labeled a3 describe current implementation evidence. Other historical obser
 | USB release baseline | Read-only preflight tested for missing paths, folders, mount reporting, and capacity. No external physical disk was connected during the original app check. | This historical preflight evidence does not validate a native device library or hardware playback. The a3 readback workflow has controlled test evidence. |
 | a3 delivery/catalog/XML | App/player profiles, working-copy conversion and annotation tags, request coverage, organization, native XML parsing, simulated evidence/readback, concurrency, coordinator version checks and transports passed within the local suite and release matrix. Migration from a2 passed. | Hash presence and database markers do not establish playable native playlists. |
 | a3 public installation | Anonymous downloads confirmed exactly four release assets and all package checksums. A persistent public-wheel installation ran from isolated site-packages with bytes matching that wheel. The public source archive's smoke script passed three original tones, all 34 MCP schemas, request/organization calls and skill setup. A separate persistent demo/session passed; doctor found FFmpeg/ffprobe, yt-dlp and supported Node. Its coordinator stopped with `url: null`. | No developer checkout was used by the installed engine. This audit did not rerun signed-in AI-host trials, live music acquisition, native app import/analysis, or USB/player checks. |
-| Current native trial | The supported rekordbox UI imported the candidate's three-tone M3U8. A subsequent **native Collection XML export declares rekordbox 7.2.19** and contains all three exact prepared paths and matching playlist IDs/order. | The app bundle's older 7.2.8 metadata differs from the runtime snapshot; the trial declared that older version and cannot pass its version check. Track loading and musical BPM/key/grid accuracy remain unverified. Serato 3.1.5 capture failed, so import/analysis remains unverified. No USB readiness or passing analysis observation is claimed. |
+| a3 native trial | The supported rekordbox UI imported the candidate's three-tone M3U8. A subsequent **native Collection XML export declares rekordbox 7.2.19** and contains all three exact prepared paths and matching playlist IDs/order. | The app bundle's older 7.2.8 metadata differs from the runtime snapshot; the trial declared that older version and cannot pass its version check. Track loading and musical BPM/key/grid accuracy remain unverified. Serato 3.1.5 capture failed, so import/analysis remains unverified. No USB readiness or passing analysis observation is claimed. |
 
 The native rekordbox validation added only the three generated test tones through its own import UI. This is app import evidence, not an automatic native integration feature. Existing music was not batch imported or retagged. No device was formatted or written.
 

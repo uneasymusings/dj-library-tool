@@ -1,8 +1,8 @@
 # Install and use the GitHub release
 
-The [v0.1.0a3 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) comprise a Python wheel, source archive, standalone skill ZIP, and `SHA256SUMS`. The wheel contains the CLI, 34-tool MCP server, database migrations, and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
+The [v0.1.0a4 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a4) comprise a Python wheel, source archive, standalone skill ZIP and `SHA256SUMS`. The wheel contains the CLI, 40-tool MCP server, database migrations and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
 
-These commands are pinned to **v0.1.0a3**. Check [status](STATUS.md) for publication and validation state. The [coverage audit](COVERAGE.md) distinguishes this version's app-first delivery, request tracking and organization from the historical a2 baseline.
+These commands are pinned to **v0.1.0a4**. Check [status](STATUS.md) for publication, CI and public-installation evidence before using the asset URLs. The [coverage audit](COVERAGE.md) preserves earlier a3/a2 results separately.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ These commands are pinned to **v0.1.0a3**. Check [status](STATUS.md) for publica
 ## Install the complete toolkit
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a3/dj_library_tool-0.1.0a3-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a4/dj_library_tool-0.1.0a4-py3-none-any.whl'
 djlib version
 ```
 
@@ -48,9 +48,11 @@ Replace the example music folder with your actual path. Supply additional `--all
 
 The generated session contains `.agents/skills/dj-library`, `.claude/skills/dj-library`, `mcp.json`, `session.json`, and `launch.py`. It does not edit personal host configuration or copy credentials. Codex interactive retains your host settings; Claude uses only the explicit MCP configuration. Keep project setting sources enabled for Claude skill discovery. See [agent setup](AGENTS.md).
 
-First prompt:
+First prompt for a small real-music success:
 
-> Use the dj-library skill and connected tools. Read capabilities and check prerequisites. Scan my allowed music folder, then find these exact songs/versions in my existing catalog: [list]. Inspect these set links for published tracklists: [links]. Use available search tools to find missing individual recording sources. Organize accepted tracks into named collections, report unknown IDs and conflicts, and prepare app import artifacts. My USB is [mount path] and my player/controller is [model]. Report downloaded, imported, and device-exported states separately.
+> Use the dj-library skill and connected tools. Check capabilities, scan my allowed folder, and prepare a three-track Warm Groove collection for Serato [or rekordbox] from music I already own. Check exact recordings and versions first. Help me import and analyze the working copies, inspect membership and loading, then report what passed and what remains unchecked. I do not know my player model yet.
+
+Give set links, an artist scope or a longer song list after this small trial. The assistant creates the structured requests and keeps unknown IDs, exact versions, source uncertainty and failed items visible. Supply a USB volume and exact player model only when moving to device delivery; app preparation can proceed without them.
 
 The workflow still requires native Serato import and rekordbox device-export steps. Explicit tags, annotations and filtering are supported; automatic acoustic identification, Soulseek, inferred genre/BPM/key/energy, native app automation, and independently verified player-ready USB export remain planned. Installation does not make those features available. See [status](STATUS.md).
 
@@ -76,7 +78,7 @@ djlib --workspace /absolute/path/dj-workspace delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key app-trial-v1
 ```
 
-Substitute the installed version; 7.2.8 is an example. For Serato, use `serato_import` and its actual version. Preparation creates separate app working copies and membership artifacts. Perform native import/analysis, record both observations, then use `delivery verify-app DELIVERY_ID --revision CURRENT_REVISION`. Follow [DJ delivery](DJ_DELIVERY.md) for the exact sequence and evidence limits. Standalone rekordbox USB export is a separate `rekordbox_usb` delivery and still requires a player profile.
+Substitute the installed version; 7.2.8 is an example. For Serato, use `serato_import` and its actual version. Preparation creates separate app working copies and membership artifacts. Wait for the preparation job, perform native import/analysis and record both observations, then use `delivery verify-app DELIVERY_ID --revision CURRENT_REVISION`. In a4, passed analysis observations and app verification also return jobs: use `jobs wait JOB_ID --timeout 30`, then inspect outcomes and the evidence-commit receipt. Read `delivery get` for saved app requirements and `evidence.app_readback.checked_at`; the job itself returns no readiness flag. Public a3 runs those checks synchronously. Follow [DJ delivery](DJ_DELIVERY.md) for the sequence and evidence limits. Standalone rekordbox USB export is a separate `rekordbox_usb` delivery and still requires a player profile.
 
 ## Try without personal music
 
@@ -91,13 +93,15 @@ The demo creates three original tones and export artifacts. It needs no music ac
 
 ## Install only the skill
 
-Download [dj-library-skill-0.1.0a3.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a3/dj-library-skill-0.1.0a3.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
+Download [dj-library-skill-0.1.0a4.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a4/dj-library-skill-0.1.0a4.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
 
 The standalone skill includes [engine installation instructions](../skills/dj-library/references/install.md). It can guide the assistant's workflow, but file acquisition/catalog operations require the installed engine. The complete toolkit install plus `setup-agent` performs this skill installation automatically.
 
 ## Update or remove
 
 Before replacing the engine, stop each workspace coordinator with `djlib --workspace PATH service stop`. Install the newer release's explicit URL, then rerun `setup-agent` into a new session if the installation/interpreter path changed. Keep your existing library workspace; do not reinitialize it as a new library.
+
+Version a4 adds `roots list` and `roots add /actual/music/folder` for explicit additive access. Repeating `init --allow-root` with a new root returns `ROOTS_NOT_UPDATED`; it does not silently ignore the change. No music moves and existing permissions remain. Before a schema upgrade, a4 automatically makes an integrity-checked catalog backup under the workspace's `backups/` directory. This covers the engine database only; retain separate backups of music and native app data. Automatic restore is not implemented.
 
 If a new CLI finds an older running coordinator, ordinary requests return `COORDINATOR_VERSION_MISMATCH` before any requested operation is sent. Read `capabilities` to inspect its version, use `service stop` for that workspace, then retry with the new engine. The tool does not replace an old service or resubmit work automatically.
 

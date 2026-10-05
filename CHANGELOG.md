@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0a4
+
+Local validation passed 498 tests with four Windows-only skips; Ruff checks passed for 95 files. The installed-wheel smoke check passed actual 40-tool MCP calls and three original tones. Release CI and public-artifact verification remain pending; historical a3 evidence is a separate baseline.
+
+- Added paginated catalog and saved collection/request/delivery discovery, explicit additive music-root configuration, and field-level CLI input errors. Collection native state is `not_tracked_here`, not an inferred import/export result.
+- Corrected new recording identity handling for symbol-only labels and untagged files. Existing incorrect merges are not automatically repaired.
+- Added explicit durable reconciliation for changed catalog locations: `tag_only` checks decoded audio and stream properties; `replace_audio` preserves history and uses the new bytes' identity. Old collection revisions and annotations are not silently upgraded or inherited.
+- Moved organization, passed analysis/native-export observations and app verification into durable jobs with item progress and generation-fenced evidence commits. Native-check retries derive their key from the complete intent; completed receipts point to saved delivery evidence, not a fresh readiness result.
+- Allowed full local preparation without a physical pilot. Invalid supplied pilot claims still fail; native/device/playback readiness gates remain. Pilot and full working copies remain separate.
+- Added bounded, read-only Windows partition-style queries; query failures preserve known volume identity and leave partition style unknown.
+- Added checked catalog backups before automatic schema upgrades. This backs up the engine catalog only, not music or native DJ databases, and does not provide a one-command restore workflow.
+
+No new native Serato, real-music, USB export or hardware playback validation is claimed. See [status](docs/STATUS.md) for pending release checks.
+
 ## 0.1.0a3
 
 This alpha separates local library preparation, native app import, native USB export and hardware playback. A file transfer or M3U/XML artifact cannot mark a DJ USB ready.
