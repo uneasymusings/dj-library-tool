@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0a8
+
+Background by default: less of the user's screen and time.
+
+- **rekordbox analysis in the background.** `rekordbox sync` reads rekordbox's own analysis files (beat grid and cues, read-only, no window and no database access), matched by unique file name; after the first sync the coordinator repeats it every two minutes, incrementally (about 0.1 s for 1,160 files). On a real library its BPM matched rekordbox's XML for 959 of 959 comparable tracks. Key still comes from `rekordbox pull` (one brief XML export). `djlib_import_rekordbox_analysis` without a path performs the sync.
+- **Faster, quieter `rekordbox push`.** One import per crate, confirmed by reading rekordbox's menu without focusing it; no XML polling (`--verify` adds a single export). Push several collections at once, push a request list directly with `--request`, and defer until the keyboard and mouse are idle with `--when-idle SECONDS`. Existing playlists are not imported twice; Unicode playlist names are kept. A request list became a rekordbox playlist in 9.5 s with rekordbox in front for 8.8 s.
+- **Faster scans.** Each new file is decoded once instead of twice (validation and fingerprint share one decode), bytes already in the catalog are not decoded again, and up to four files are decoded ahead in parallel.
+- **Untagged files.** Scans label untagged files from names like `03 - Artist - Title (Mix).mp3` (identity stays byte-based); rescans relabel earlier “Unknown artist” entries; request lists match them as `file_name_labels`.
+- **Sturdier discovery.** A failed health probe is retried briefly (0.2 s, then 0.5 s) before djlib concludes the coordinator is gone, unless nothing is recorded or a different coordinator answered. Discovery now records why it failed, and the Windows lifecycle test reports that reason first. The intermittent Windows failure seen since a6 has no proven root cause yet.
+- **Coordinator upkeep.** A coordinator started implicitly by a command exits after 30 idle minutes with no queued or running jobs; `service start` (used before assistant sessions) keeps running.
+- **Assistant fast paths.** The skill now opens with one-command flows and computer etiquette (`--when-idle`, batching, no UI polling).
+
 ## 0.1.0a7
 
 Tracklist-to-crate workflow, rekordbox analysis import, terminal experience, local review page and everyday catalog fixes. The JSON envelope, MCP tools and HTTP routes are unchanged for captured output.

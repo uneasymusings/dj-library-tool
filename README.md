@@ -29,16 +29,16 @@ The headline workflow, step by step:
 | --- | --- | --- |
 | Index | `djlib init --allow-root ~/Music` then `djlib scan` | Reads tags in place; nothing is moved or retagged. |
 | Ask | `djlib requests create --text tracklist.txt` | Each line becomes a request: owned, missing, other version owned, or unknown ID. |
-| Analyze | `djlib import-rekordbox rekordbox.xml` | rekordbox's BPM and key land in the catalog, matched by exact file path. |
+| Analyze | `djlib rekordbox sync` (automatic after the first run) | rekordbox's BPM and cues are read from its analysis files in the background, with no window; `rekordbox pull` or `import-rekordbox XML` adds key. |
 | Crate | `djlib requests collect ID` | Owned songs become an ordered collection; missing ones stay listed. |
-| Push | `djlib rekordbox push ID` | On macOS, djlib drives rekordbox's own File menu: imports the crate as a playlist of your original files, waits for rekordbox's analysis, verifies the playlist from rekordbox's XML export and pulls BPM/key back. |
+| Push | `djlib rekordbox push ID --when-idle 60` | On macOS, djlib uses rekordbox's own File menu to import the crate as a playlist of your original files, in a few seconds and, with `--when-idle`, only after you step away. |
 | Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Separate tagged working copies for rekordbox/Serato or USB delivery, with guided checks. |
 
 `rekordbox push` needs a one-time macOS permission (System Settings → Privacy & Security → Accessibility → your terminal app). It uses only rekordbox's menus (Import Playlist, Export Collection in xml format) and never reads or writes rekordbox's database; before any keystroke it checks that rekordbox and the expected dialog have focus.
 
 In a terminal you get tables, live progress and copy-pasteable next steps; piped or with `--json` every command prints a stable JSON envelope for scripts and assistants. Native import, analysis and USB export still happen in rekordbox or Serato; djlib prepares files and records what you confirm.
 
-> **Experimental alpha, 0.1.0a7.** This release adds the tracklist-to-crate workflow, rekordbox analysis import, the terminal experience and the local review page. Like a6, it is checked by all six OS/Python release jobs and an installed-wheel MCP smoke test. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a8.** a7 added the tracklist-to-crate workflow, rekordbox push, the terminal experience and the local review page; a8 moves rekordbox analysis, scans and upkeep into the background. Like a6, it is checked by all six OS/Python release jobs and an installed-wheel MCP smoke test. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
 [DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. The API exposes 42 MCP tools (a6: 40). See the [requirement and public-release audit](docs/COVERAGE.md).
 
@@ -71,10 +71,10 @@ Soulseek through slskd, complete artist catalog workflows, acoustic track identi
 
 ## Install from GitHub
 
-The commands below target the [v0.1.0a7 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a7), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a8 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a8), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a7/dj_library_tool-0.1.0a7-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a8/dj_library_tool-0.1.0a8-py3-none-any.whl'
 djlib version
 ```
 
@@ -125,7 +125,7 @@ djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-
 djlib --workspace /path/to/dj-workspace jobs list
 ```
 
-In a terminal, commands print readable views (from a7; a6 prints JSON everywhere):
+In a terminal, commands print readable views (since a7; a6 prints JSON everywhere):
 
 ```text
 $ djlib --workspace ~/dj-workspace library --query "night bus"

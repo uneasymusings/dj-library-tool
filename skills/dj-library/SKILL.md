@@ -5,6 +5,24 @@ description: Track exact music requests, acquire selected recordings and organiz
 
 # DJ library workflow
 
+## Fast paths: use these first
+
+One command per intent. Use `djlib --workspace PATH --json …` (or the matching MCP tool), and wait on jobs with `jobs watch ID` or `djlib_job` + `next_poll_after_seconds` instead of tight polling loops.
+
+| Intent | Command | MCP |
+| --- | --- | --- |
+| Which of these songs do I own? | `requests create --text tracklist.txt` (one “Artist - Title (Mix)” per line) | `djlib_create_request` |
+| Owned songs → crate, in order | `requests collect REQUEST_ID` | `djlib_collect_request` |
+| Crate → rekordbox playlist (macOS) | `rekordbox push COLLECTION_ID [--when-idle 60]`, or `rekordbox push --request REQUEST_ID` | CLI only |
+| rekordbox BPM/cues → catalog | `rekordbox sync` (background, no window) | `djlib_import_rekordbox_analysis` without a path |
+| rekordbox key → catalog | `rekordbox pull` (one brief XML export) | same tool with an XML path |
+| Find tracks | `library --query "words"` (every word, case/accent-insensitive) | `djlib_library` |
+
+Respect the user's computer: when you start a rekordbox push yourself, pass `--when-idle 60` so rekordbox only comes to the front once they have stepped away; push several collections in one command; never poll rekordbox's UI, because the background coordinator picks up its analysis files every two minutes. If a push returns `APP_AUTOMATION_NOT_ALLOWED`, ask the user once to enable their terminal under System Settings > Privacy & Security > Accessibility.
+
+The detailed rules below explain identity, evidence and delivery limits; consult them when a fast path reports something unexpected.
+
+
 Use the installed `djlib` utility and the user's selected workspace. Prefer `djlib_*` MCP tools when connected; otherwise use `djlib --workspace PATH --json COMMAND`. Captured output is already JSON; `--json` also keeps it JSON inside a pseudo-terminal, where a7+ otherwise prints human views. Always pass explicit `--key` values. Read [CLI recipes](references/cli.md) for JSON inputs and command sequences. When the user works in the terminal themselves, suggest plain commands: they get tables, live progress and next steps, and `delivery observe ID` can ask them what they saw instead of needing a JSON file.
 
 If the engine or MCP connection is missing, read [GitHub installation](references/install.md). The skill needs the local engine for file operations; a skill file alone is not an executable downloader. Use the published installation rather than assuming a developer checkout exists.
@@ -13,7 +31,7 @@ On Windows, launch the generated session from an external terminal; `launch.py` 
 
 For startup busy/failed/timeout errors, inspect status and the indicated service log before retrying. A timeout can leave startup running and does not mean a music intent was accepted. Use the [startup recovery recipe](references/cli.md#startup-recovery); preserve original keys for separately uncertain submissions.
 
-Read version and capabilities before choosing a workflow. This skill describes a7, which adds `djlib_collect_request` and `djlib_import_rekordbox_analysis` to a6's tools. Earlier a3 supports requests, annotations, organization, delivery and native XML, but lacks a6 discovery/reconciliation tools and performs organization/native checks synchronously. Use connected schemas and flags, not a remembered tool count. Native BPM/key analysis and USB export still require the DJ app; no headless native-export API is implemented. Use the host's search tools for discovery and authorized UI tools for native actions.
+Read version and capabilities before choosing a workflow. This skill describes a8 (a7 added `djlib_collect_request` and `djlib_import_rekordbox_analysis` to a6's tools; a8 makes the latter work without a path). Earlier a3 supports requests, annotations, organization, delivery and native XML, but lacks a6 discovery/reconciliation tools and performs organization/native checks synchronously. Use connected schemas and flags, not a remembered tool count. Native BPM/key analysis and USB export still require the DJ app; no headless native-export API is implemented. Use the host's search tools for discovery and authorized UI tools for native actions.
 
 For app import/analysis, choose `rekordbox_import` or `serato_import` with the installed app version; no model or USB is required. Start with a few owned tracks for a useful native trial. For standalone USB preparation, establish the exact player profile and app version; the physical volume/firmware are needed for device completion. `serato_portable` targets another Serato computer/setup. A small pilot is useful, but a6 full local preparation may omit a pilot ID and remains explicitly unvalidated. Supplied pilot claims must match and pass. Demo tones prove installation only. When native control is unavailable, report that blocked stage and continue independent authorized work.
 

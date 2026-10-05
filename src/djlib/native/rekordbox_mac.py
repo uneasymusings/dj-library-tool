@@ -180,21 +180,35 @@ def _window_count() -> int:
     return int(value) if value.isdigit() else 0
 
 
+def _menus_ready() -> bool:
+    script = (
+        f'tell application "System Events" to tell process "{PROCESS}" to '
+        'exists menu bar item "File" of menu bar 1'
+    )
+    try:
+        return _osascript(script) == "true"
+    except AppError:
+        return False
+
+
 def ensure_running(timeout: float = 120) -> None:
-    """Launch rekordbox if needed and wait until its main window is up."""
+    """Launch rekordbox if needed and wait until its menus respond (no window required)."""
+    launched = False
     if not _running():
         for name in APP_NAMES:
-            if subprocess.run(["open", "-a", name], capture_output=True).returncode == 0:
+            if subprocess.run(["open", "-g", "-a", name], capture_output=True).returncode == 0:
+                launched = True
                 break
         else:
             raise AppError("APP_NOT_INSTALLED", "rekordbox is not installed in /Applications.")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _running() and _window_count() > 0:
-            time.sleep(3)  # let the library finish loading before using menus
+        if _running() and _menus_ready():
+            if launched:
+                time.sleep(5)  # let the library finish loading before importing
             return
         time.sleep(1)
-    raise AppError("APP_NOT_READY", "rekordbox did not open a window in time.")
+    raise AppError("APP_NOT_READY", "rekordbox did not finish starting in time.")
 
 
 def click_menu(name: str) -> None:
@@ -259,3 +273,64 @@ def _cancel(window: str) -> None:
     )
     with contextlib.suppress(AppError):
         _osascript(script)
+
+
+PLAYLISTS = """
+on collect(theMenu)
+  set out to {}
+  tell application "System Events"
+    repeat with itm in menu items of theMenu
+      set n to name of itm
+      if n is not missing value then
+        set end of out to n
+        try
+          set out to out & my collect(menu 1 of itm)
+        end try
+      end if
+    end repeat
+  end tell
+  return out
+end collect
+
+tell application "System Events"
+  tell process "rekordbox"
+    set trackMenu to menu 1 of menu bar item "Track" of menu bar 1
+    set names to my collect(menu 1 of menu item "Add To Playlist" of trackMenu)
+  end tell
+end tell
+set AppleScript's text item delimiters to linefeed
+return names as text
+"""
+
+
+def playlists() -> set[str]:
+    """Playlist names from rekordbox's Track menu; read without focusing rekordbox."""
+    if not _running():
+        return set()
+    return {line for line in _osascript(PLAYLISTS).splitlines() if line}
+
+
+def idle_seconds() -> float:
+    """Seconds since the last keyboard or mouse input."""
+    try:
+        output = subprocess.run(
+            ["ioreg", "-c", "IOHIDSystem"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return 0.0
+    for line in output.splitlines():
+        if "HIDIdleTime" in line:
+            try:
+                return int(line.rsplit("=", 1)[-1].strip()) / 1_000_000_000
+            except ValueError:
+                return 0.0
+    return 0.0
+
+
+def wait_until_idle(seconds: float, timeout: float = 4 * 3600) -> None:
+    """Block until nobody has touched the keyboard or mouse for ``seconds``."""
+    deadline = time.monotonic() + timeout
+    while idle_seconds() < seconds:
+        if time.monotonic() >= deadline:
+            raise AppError("APP_IDLE_TIMEOUT", "The computer never became idle; nothing changed.")
+        time.sleep(5)

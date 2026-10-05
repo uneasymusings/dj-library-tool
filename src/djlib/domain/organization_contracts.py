@@ -135,6 +135,6 @@ class OrganizationRequest(Contract):
 
 
 class AnalysisImport(Contract):
-    """An allowed path to a native rekordbox Collection XML export."""
+    """A rekordbox Collection XML export to read, or null to read its analysis files."""
 
-    path: str = Field(min_length=1, max_length=4096)
+    path: str | None = Field(default=None, min_length=1, max_length=4096)

@@ -14,7 +14,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 
 from djlib.application.service import new_id, require
 from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
@@ -27,6 +27,7 @@ from djlib.domain.contracts import (
 )
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
+from djlib.persistence.database import search_fold
 from djlib.persistence.models import Asset, AssetRevision, FileLocation, Recording, timestamp
 from djlib.persistence.request_models import RequestLedger, RequestSubmission
 from djlib.sources.web import validate_url
@@ -175,6 +176,28 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
         truncated = len(rows) > MAX_CANDIDATES
         rows = rows[:MAX_CANDIDATES]
         if prefixes and not recording_id:
+            # Untagged files carry byte-based identities; their file-name labels can still
+            # match a request. They are reported as such (identity_match file_name_labels).
+            seen = {revision.id for _, revision in rows}
+            wanted_form = label_form(requested["artist"], requested["title"], requested["version"])
+            named = session.execute(
+                select(Recording, AssetRevision)
+                .join(Asset, Asset.recording_id == Recording.id)
+                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                .where(
+                    Recording.identity_key.startswith("provisional:"),
+                    func.djlib_fold(Recording.artist) == search_fold(requested["artist"]),
+                )
+                .order_by(Recording.id, AssetRevision.id)
+                .limit(MAX_CANDIDATES)
+            ).all()
+            rows += [
+                row
+                for row in named
+                if row[1].id not in seen
+                and label_form(row[0].artist, row[0].title, row[0].version) == wanted_form
+            ][: max(0, MAX_CANDIDATES - len(rows))]
+        if prefixes and not recording_id:
             # Other versions you own are shown for context; they never affect matching,
             # ambiguity or the candidate bound above.
             seen = {revision.id for _, revision in rows}
@@ -218,6 +241,7 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                     "title": recording.title,
                     "version": recording.version,
                     "sha256": revision.sha256,
+                    "file_name_labels": recording.identity_key.startswith("provisional:"),
                     "locations": locations[:MAX_LOCATIONS],
                     "locations_truncated": len(locations) > MAX_LOCATIONS,
                 }
@@ -258,9 +282,12 @@ def _refresh_item(app, item, verification):
             == label_form(requested["artist"], requested["title"], requested["version"])
         )
         matches = wanted is None or identical or equivalent
+        from_file_name = candidate.pop("file_name_labels", False)
         candidate["identity_match"] = (
             "operator_identified"
             if wanted is None
+            else "file_name_labels"
+            if from_file_name and (identical or equivalent)
             else "exact_labels"
             if identical
             else "equivalent_labels"

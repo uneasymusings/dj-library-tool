@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a7`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a8`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -76,7 +76,13 @@ App-only workflows accept only `imported` and `analyzed` observations, followed 
 
 `AnalysisImport` (`path`) reads a rekordbox Collection XML export from an allowed folder or the workspace (the CLI copies the chosen file into the workspace first). Tracks match only by exact file location: catalog originals or prepared delivery working copies. Known `AverageBpm`/`Tonality` values are stored as BPM/key annotations with `source: "rekordbox_analysis"` and `verified: false`; values with any other source are kept. Library rows and collection pages include `dj: {bpm, key, bpm_source, key_source, energy, set_role}` from saved annotations.
 
-`rekordbox push` runs in the CLI process, which macOS lets drive another app once the terminal is allowed under Accessibility; the coordinator never automates UI. It exports the collection (hash-checked), copies the M3U8 to `exports/rekordbox/<collection name>.m3u8` (rekordbox names the playlist after the file), chooses it in rekordbox's File > Import > Import Playlist dialog, then repeatedly uses File > Export Collection in xml format until the playlist's members are present and analyzed or `--wait` expires. The result reports `playlist_found`, `entries`, `expected`, `matched`, `analyzed`, `playlists_with_this_name`, `missing_paths` and the analysis import counts, with `verified_by: rekordbox_xml_export` and `database_modified_directly: false`. Dialogs are driven through accessibility values and named buttons; the two shortcut keystrokes are sent only after confirming rekordbox is frontmost and the expected dialog has focus, otherwise the dialog is cancelled with `APP_DIALOG_FAILED`. Missing permission returns `APP_AUTOMATION_NOT_ALLOWED`; non-macOS returns `APP_AUTOMATION_UNSUPPORTED`.
+`rekordbox push` runs in the CLI process, which macOS lets drive another app once the terminal is allowed under Accessibility; the coordinator never automates UI. For each collection it exports (hash-checked) and copies the M3U8 to `exports/rekordbox/<collection name>.m3u8` (only characters illegal in file names are replaced; rekordbox names the playlist after the file), skips names already listed in rekordbox, and chooses the file in File > Import > Import Playlist. Presence is confirmed by reading rekordbox's Track > Add To Playlist menu without focusing it. `--verify` performs one File > Export Collection in xml format and adds `entries/expected/matched/analyzed` per crate; `--when-idle S` waits until there has been no keyboard or mouse input for S seconds; `--request ID` first queues `requests collect`. The result lists `crates` (`collection_id`, `playlist`, `status: imported|already_in_rekordbox`, `playlist_found`), `rekordbox_ui_seconds`, `analysis_sync`, `verified_by` and `database_modified_directly: false`. Dialogs are driven through accessibility values and named buttons; the two shortcut keystrokes are sent only after confirming rekordbox is frontmost and the expected dialog has focus, otherwise the dialog is cancelled with `APP_DIALOG_FAILED`. Missing permission returns `APP_AUTOMATION_NOT_ALLOWED`; non-macOS returns `APP_AUTOMATION_UNSUPPORTED`.
+
+`AnalysisImport.path` is optional. Without it, the coordinator reads rekordbox's analysis folder (macOS `~/Library/Pioneer/rekordbox/share/PIONEER/USBANLZ`, Windows `%APPDATA%\Pioneer\rekordbox\share\PIONEER\USBANLZ`), parsing only files whose size or modification time changed. Each `ANLZ0000.DAT` contributes its file name, median beat-grid tempo and hot/memory cue counts; a track matches only when exactly one catalog recording has that file name (originals or prepared working copies), and the newest analysis per name wins. BPM is stored like XML values (`rekordbox_analysis`, unverified, never replacing other sources) and cue counts under the annotation key `rekordbox`. Key is not included (`key_included: false`). Once a workspace has synced, the coordinator repeats the sync every two minutes. `NATIVE_ANALYSIS_UNAVAILABLE` means no analysis folder exists.
+
+Scans label untagged files from their names (`03 - Artist - Title (Mix)` → artist and title) while keeping provisional byte identity (`identity_evidence.labels_source: file_name`); a rescan relabels an earlier `Unknown artist` provisional recording without changing its identity or memberships. Request matching also considers provisional recordings whose labels are equivalent, reported as `identity_match: file_name_labels`.
+
+A coordinator started implicitly by a command is launched with `--idle-exit 1800` and exits after 30 minutes without requests or queued/running jobs; `service start` launches one without idle exit.
 
 `delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
 
@@ -125,8 +131,9 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `requests report ID --revision N` | `djlib_request_report` | `POST /requests/{id}/report` |
 | `requests collect ID [--name NAME] [--revision N]` | `djlib_collect_request` | `POST /requests/{id}/collection` |
 | `import-rekordbox XML` | `djlib_import_rekordbox_analysis` | `POST /analysis/rekordbox` |
-| `rekordbox push ID [--wait SECONDS]` | CLI only (macOS desktop session) | `POST /exports`, then `POST /analysis/rekordbox` |
-| `rekordbox pull` | CLI only (macOS desktop session) | `POST /analysis/rekordbox` |
+| `rekordbox push [ID...] [--request ID] [--verify] [--when-idle S]` | CLI only (macOS desktop session) | `POST /exports`, then `POST /analysis/rekordbox` |
+| `rekordbox sync` | `djlib_import_rekordbox_analysis` (no path) | `POST /analysis/rekordbox` with `{"path": null}` |
+| `rekordbox pull` | CLI only (macOS desktop session) | `POST /analysis/rekordbox` with an XML path |
 | `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |
 | `organize get ID --asset-revision-id REV_ID` | `djlib_annotations` | `GET /recordings/{id}/annotations` |
 | `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |
