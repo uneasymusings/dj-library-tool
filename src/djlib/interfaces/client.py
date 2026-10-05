@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from filelock import FileLock
+from filelock import Timeout as FileLockTimeout
 
 from djlib import __version__
 from djlib.domain.errors import AppError
@@ -152,44 +153,71 @@ class LocalClient:
                 503,
                 False,
             )
-        with FileLock(self.workspace.runtime / "startup.lock", timeout=15):
+        try:
+            with FileLock(self.workspace.runtime / "startup.lock", timeout=45):
+                return self._start_coordinator()
+        except FileLockTimeout:
+            raise AppError(
+                "SERVICE_START_BUSY",
+                "Another client is starting the coordinator. Check service status and retry; "
+                "no operation was submitted.",
+                503,
+                True,
+            ) from None
+
+    def _start_coordinator(self) -> str:
+        """Spawn once under the startup lock and wait for authenticated readiness."""
+        if url := self.discover():
+            return url
+        kwargs = (
+            {"start_new_session": True}
+            if os.name != "nt"
+            else {
+                "creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            }
+        )
+        log_path = self.workspace.runtime / "service.log"
+        with log_path.open("ab") as log:
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "djlib.interfaces.service",
+                    "--workspace",
+                    str(self.workspace.root),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+                close_fds=True,
+                **kwargs,
+            )
+        deadline = time.monotonic() + 30
+        while True:
             if url := self.discover():
                 return url
-            kwargs = (
-                {"start_new_session": True}
-                if os.name != "nt"
-                else {
-                    "creationflags": subprocess.DETACHED_PROCESS
-                    | subprocess.CREATE_NEW_PROCESS_GROUP
-                }
-            )
-            log_path = self.workspace.runtime / "service.log"
-            with log_path.open("ab") as log:
-                subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-m",
-                        "djlib.interfaces.service",
-                        "--workspace",
-                        str(self.workspace.root),
-                    ],
-                    stdin=subprocess.DEVNULL,
-                    stdout=log,
-                    stderr=log,
-                    close_fds=True,
-                    **kwargs,
-                )
-            deadline = time.monotonic() + 12
-            while time.monotonic() < deadline:
-                if url := self.discover():
-                    return url
-                time.sleep(0.1)
+            exit_code = process.poll()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            # An exited child may have lost the coordinator lock to an existing
+            # primary whose health endpoint is not ready yet. Wait, never respawn.
+            time.sleep(min(0.1, remaining))
+        if exit_code is not None:
             raise AppError(
-                "SERVICE_UNAVAILABLE",
-                f"Local coordinator did not start. See {log_path}.",
+                "SERVICE_START_FAILED",
+                f"Coordinator startup process exited with code {exit_code}; no healthy service "
+                f"was discovered within 30 seconds. See {log_path}.",
                 503,
                 True,
             )
+        raise AppError(
+            "SERVICE_START_TIMEOUT",
+            "Coordinator did not become healthy within 30 seconds; its startup process is "
+            f"still running. Check service status before retrying. See {log_path}.",
+            503,
+            True,
+        )
 
     def request(
         self, method: str, path: str, *, data: dict | None = None, params: dict | None = None

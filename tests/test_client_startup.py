@@ -85,6 +85,91 @@ def test_default_client_still_starts_one_coordinator(application, monkeypatch):
     assert "djlib.interfaces.service" in spawned[0][0][0]
 
 
+def simulated_startup(application, monkeypatch, *, ready_at=None, exit_code=None):
+    clock = {"now": 0.0}
+    process = SimpleNamespace(poll=lambda: exit_code)
+    spawned = []
+
+    def sleep(seconds):
+        assert 0 < seconds <= 0.1
+        clock["now"] += seconds
+
+    def spawn(*args, **kwargs):
+        spawned.append((args, kwargs))
+        return process
+
+    monkeypatch.setattr(
+        client_module, "time", SimpleNamespace(monotonic=lambda: clock["now"], sleep=sleep)
+    )
+    monkeypatch.setattr(client_module.subprocess, "Popen", spawn)
+    client = LocalClient(application.workspace)
+    monkeypatch.setattr(
+        client,
+        "discover",
+        lambda: (
+            "http://127.0.0.1:8181" if ready_at is not None and clock["now"] >= ready_at else None
+        ),
+    )
+    return client, clock, spawned
+
+
+def test_coordinator_can_become_healthy_after_fifteen_seconds(application, monkeypatch):
+    client, clock, spawned = simulated_startup(application, monkeypatch, ready_at=15)
+    assert client.ensure() == "http://127.0.0.1:8181"
+    assert 15 <= clock["now"] < 16
+    assert len(spawned) == 1
+
+
+def test_exited_startup_waits_for_an_existing_primary_before_failing(application, monkeypatch):
+    # The primary can own coordinator.lock before it publishes service.json.
+    client, clock, spawned = simulated_startup(application, monkeypatch, ready_at=15, exit_code=1)
+    assert not (application.workspace.runtime / "service.json").exists()
+    assert client.ensure() == "http://127.0.0.1:8181"
+    assert 15 <= clock["now"] < 16
+    assert len(spawned) == 1
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "code", "diagnostic"),
+    [
+        (7, "SERVICE_START_FAILED", "exited with code 7"),
+        (None, "SERVICE_START_TIMEOUT", "still running"),
+    ],
+)
+def test_startup_failure_distinguishes_exit_from_timeout_without_exposing_logs(
+    application, monkeypatch, exit_code, code, diagnostic
+):
+    secret = "PRIVATE_COORDINATOR_DIAGNOSTIC_DO_NOT_ECHO"
+    (application.workspace.runtime / "service.log").write_text(secret, encoding="utf-8")
+    client, clock, spawned = simulated_startup(application, monkeypatch, exit_code=exit_code)
+    with pytest.raises(AppError) as error:
+        client.ensure()
+    assert error.value.code == code
+    assert error.value.retryable is True
+    assert diagnostic in error.value.message and "30 seconds" in error.value.message
+    assert secret not in error.value.message
+    assert clock["now"] == pytest.approx(30)
+    assert len(spawned) == 1
+
+
+def test_startup_lock_timeout_is_typed_and_never_spawns(application, monkeypatch):
+    def busy(path, *, timeout):
+        assert timeout == 45
+        raise client_module.FileLockTimeout(str(path))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("A busy startup lock must not cause another spawn")
+
+    monkeypatch.setattr(client_module, "FileLock", busy)
+    monkeypatch.setattr(client_module.subprocess, "Popen", forbidden)
+    with pytest.raises(AppError) as error:
+        LocalClient(application.workspace).ensure()
+    assert error.value.code == "SERVICE_START_BUSY"
+    assert error.value.retryable is True
+    assert error.value.status == 503
+    assert not (application.workspace.runtime / "service.log").exists()
+
+
 async def test_windows_mcp_cold_start_returns_typed_envelope(application, monkeypatch):
     monkeypatch.setattr(mcp_server, "sys", SimpleNamespace(platform="win32"))
 

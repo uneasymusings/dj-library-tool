@@ -83,9 +83,20 @@ def cli(workspace, *args, expected=0):
         ],
         capture_output=True,
         text=True,
-        timeout=40,
+        # Allow the bounded 45-second startup-lock wait and 30-second readiness
+        # budget, plus interpreter startup on slower Windows runners.
+        timeout=120,
     )
-    assert result.returncode == expected, result.stdout + result.stderr
+    assert result.returncode == expected, coordinator_diagnostics(
+        workspace,
+        "CLI " + " ".join(map(str, args)),
+        {
+            "expected_exit_code": expected,
+            "actual_exit_code": result.returncode,
+            "stdout_tail": result.stdout[-16 * 1024 :],
+            "stderr_tail": result.stderr[-16 * 1024 :],
+        },
+    )
     return json.loads(result.stdout)
 
 
@@ -239,8 +250,14 @@ async def test_windows_cold_stdio_requires_external_coordinator_start(live_works
     async with Client(transport) as client:
         reply = await client.call_tool("djlib_capabilities")
         envelope = reply.structured_content
-        assert reply.is_error, coordinator_diagnostics(workspace, "cold Windows MCP", envelope)
-        assert envelope["ok"] is False and envelope["result"] is None
+        # Application failures use our structured ok=False envelope; they need
+        # not set the SDK transport-level is_error flag.
+        assert isinstance(envelope, dict), coordinator_diagnostics(
+            workspace, "cold Windows MCP", envelope
+        )
+        assert envelope["ok"] is False and envelope["result"] is None, coordinator_diagnostics(
+            workspace, "cold Windows MCP", envelope
+        )
         assert envelope["error"]["code"] == "COORDINATOR_START_REQUIRED"
         assert envelope["error"]["retryable"] is False
         assert LocalClient(workspace, allow_start=False).discover() is None
