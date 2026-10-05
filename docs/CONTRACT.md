@@ -19,7 +19,9 @@ All application results use:
 
 Failures set `ok: false`, `result: null`, and `error: {code, message, retryable}`. Request IDs identify calls; job IDs identify accepted work. `warnings` is reserved and currently empty. Quality evidence appears in asset properties/manifests; an empty warnings array is not a quality guarantee.
 
-CLI stdout is JSON for application commands; shell/framework help and argument parsing follow Typer conventions. MCP stdout is protocol-only. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
+CLI stdout is this JSON envelope whenever output is captured (pipes, files, assistants, CI), with the global `--json` flag (accepted before or after the subcommand), or with `DJLIB_OUTPUT=json`. In an interactive terminal, commands print readable views instead: tables, live job progress on stderr and copy-pasteable next steps; errors go to stderr. `DJLIB_OUTPUT=pretty` forces the terminal view. Presentation never changes what a command submits, and generated assistant sessions set `DJLIB_OUTPUT=json`. Help and argument parsing follow Typer conventions.
+
+Interactive terminals add conveniences that scripts never get implicitly: `--key` may be omitted for `scan`, `start`, `export` and `delivery prepare` (a fresh key is generated; with JSON output a missing key is an `INPUT_INVALID` envelope), submissions follow their job until it finishes (Ctrl-C detaches; the job keeps running), and `delivery observe ID` without `--file` asks what you saw and fills counts and recording IDs from the frozen, checksummed manifest only after you confirm. `scan` without a path uses the only allowed root, in either mode. MCP stdout is protocol-only. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
 
 ## Inputs
 
@@ -48,7 +50,7 @@ Requests are Pydantic contracts with unknown fields rejected. `djlib schemas` em
 | `RootsRequest` | One to 100 existing directory paths, explicitly added to allowed roots. |
 | `ReconcileRequest` | Stable key and up to 1,000 distinct changed paths, each pinning an old revision, current new SHA-256 and `tag_only` or `replace_audio` action. |
 
-Labels reject control characters and blank artist/title. Named identity normalizes Unicode/case/spacing while retaining versions and symbol-only distinctions. Incomplete-label scans use provisional byte identity. These are conservative catalog rules, not an acoustic identity resolver or automatic repair of historical merges. Input errors identify invalid field locations and generic reasons without echoing submitted values.
+Labels reject control characters and blank artist/title. Named identity normalizes Unicode/case/spacing while retaining versions and symbol-only distinctions. A mix name written inside the title is equivalent to the same name in the version field: “Rain (Extended Mix)” with no version matches title “Rain” plus version “Extended Mix” (`identity_match: equivalent_labels` in request candidates). Identical bytes cataloged under equivalent labels reuse that recording instead of failing with `EXISTING_IDENTITY_CONFLICT`; a different version still conflicts. Stored identity keys are unchanged. Incomplete-label scans use provisional byte identity; WAV artist/title come from ID3 or, when absent, the RIFF INFO chunk. Scans skip djlib's own workspace folders and links that resolve outside allowed roots, and report the counts in the scan job's `result.skipped_files`. These are conservative catalog rules, not an acoustic identity resolver or automatic repair of historical merges. Input errors identify invalid field locations and generic reasons without echoing submitted values.
 
 ### Delivery inputs
 
@@ -83,6 +85,7 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `download --file FILE` | `djlib_download` | `POST /downloads` |
 | `source-inspect URL` | `djlib_source_inspect` | `POST /sources/inspect` |
 | `jobs list/get/items` | `djlib_jobs/job/items` | `GET /jobs`, `/jobs/{id}`, `/jobs/{id}/items` |
+| `jobs watch ID` | CLI only | polls `GET /jobs/{id}` until it leaves queued/running |
 | `jobs events ID` | CLI only | `GET /jobs/{id}/events` |
 | `jobs control ID ACTION` | `djlib_control` | `POST /jobs/{id}/control` |
 | `reviews list/resolve` | `djlib_reviews/resolve` | `GET /reviews`, `POST /reviews/{id}` |
@@ -124,6 +127,7 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 - Items `after` is the last position returned; initial value -1.
 - Events `after` is the last event cursor returned; initial value 0.
 - `next_cursor: null` ends a collection/item/event page.
+- Queries match every word, ignoring case and accents (“bjork radio” finds “Björk … (Radio Edit)”). Library rows are ordered by artist, title, version, then IDs; saved lists newest first. Job queries also match the job kind.
 - Library, jobs and saved collection/request/delivery lists accept a query and opaque `after` cursor. Reuse `next_cursor` with the same listing/query; a null cursor ends paging. Results include total and an insertion cutoff, with current mutable metadata/locations. Library groups each recording/revision and all recorded locations; availability is not freshly checked. Reviews remain a bounded view without a continuation cursor.
 - Plan replies include a ten-track preview; full input is persisted privately.
 - Source descriptions are limited to 30,000 characters and chapters to 500; output declares description truncation.
@@ -136,9 +140,10 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | 0 | Command succeeded or job intent accepted; acceptance does not imply completion. |
 | 2 | Invalid input or application error; inspect the envelope. |
 | 3 | `jobs wait` deadline reached; job continues in the coordinator. |
-| 4 | `jobs wait` returned failure, cancellation, required attention, or completion with gaps. |
+| 4 | `jobs wait`/`watch` returned failure, cancellation, a pause, required attention, or completion with gaps. |
+| 130 | Interrupted in a terminal (Ctrl-C); accepted jobs keep running. |
 
-`jobs wait` is a convenience with a maximum 60-second polling window. MCP clients should poll `djlib_job` and respect `next_poll_after_seconds`. To inspect all items in a bulk job, page through outcomes instead of repeatedly loading the whole input.
+`jobs wait` is a convenience with a maximum 60-second polling window; `jobs watch` waits until the job leaves queued/running. In a terminal, submissions that follow their job use the same exit codes. MCP clients should poll `djlib_job` and respect `next_poll_after_seconds`. To inspect all items in a bulk job, page through outcomes instead of repeatedly loading the whole input.
 
 ## Recovery and readiness
 

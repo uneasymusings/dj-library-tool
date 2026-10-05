@@ -13,6 +13,7 @@ from djlib.workspace import Workspace, atomic_json
 # Kept as a plain Python launcher so paths and quoting also work on Windows.
 LAUNCHER = '''"""Launch an installed AI host with this session's djlib MCP tools."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -57,7 +58,9 @@ if host == "codex":
 else:
     extra = sys.argv[2:]
     command = [executable, "--strict-mcp-config", "--mcp-config", str(root / "mcp.json")]
-raise SystemExit(subprocess.call(command + extra, cwd=root))
+# Commands the assistant runs itself should print the JSON envelope even in a PTY.
+environment = {**os.environ, "DJLIB_OUTPUT": "json"}
+raise SystemExit(subprocess.call(command + extra, cwd=root, env=environment))
 '''
 
 

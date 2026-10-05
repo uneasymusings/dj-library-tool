@@ -72,8 +72,10 @@ def test_launchers_supply_scoped_config_and_forward_arguments(tmp_path, monkeypa
         recorded.update(startup=command, startup_cwd=cwd)
         return SimpleNamespace(returncode=0, stdout=json.dumps({"ok": True}), stderr="")
 
-    def call(command, cwd):
+    def call(command, cwd, env):
         assert "startup" in recorded, "Coordinator must start before the assistant host"
+        # The assistant's own djlib commands keep the JSON contract even inside a PTY.
+        assert env["DJLIB_OUTPUT"] == "json"
         recorded.update(command=command, cwd=cwd)
         return 7
 

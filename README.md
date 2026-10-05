@@ -93,7 +93,21 @@ djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-
 djlib --workspace /path/to/dj-workspace jobs list
 ```
 
-Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
+In a terminal, commands print readable views (on `main`; the a6 release prints JSON everywhere):
+
+```text
+$ djlib --workspace ~/dj-workspace library --query "night bus"
+Artist          Title                      Time   Format     File
+───────────────────────────────────────────────────────────────────────────────────────
+Velvet Static   Night Bus (Extended Mix)   6:52   MP3 320k   House/Velvet Static - Night…
+Velvet Static   Night Bus (Radio Edit)     3:43   MP3 320k   House/Velvet Static - Night…
+
+2 of 2 tracks
+```
+
+Submissions such as `scan`, `start`, `export` and `delivery prepare` follow their job with a live progress bar (Ctrl-C only stops watching) and end with copy-pasteable next steps. In a terminal `--key` is optional, `scan` defaults to your only music folder, and `delivery observe ID` asks what you saw in the app instead of requiring a JSON file. Search ignores case and accents and matches every word.
+
+Output is the JSON envelope whenever it is piped or captured by an assistant, or with `--json` (`DJLIB_OUTPUT=json` also works); scripts must pass explicit `--key` values. Help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
 For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
 

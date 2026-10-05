@@ -25,13 +25,14 @@ dependencies = [
   "mcp>=2,<3",
   "mutagen>=1.47,<2",
   "pydantic>=2.10,<3",
+  "rich>=13.7,<15",
   "sqlalchemy>=2.0,<3",
   "typer>=0.15,<1",
   "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
-djlib = "djlib.interfaces.cli:app"
+djlib = "djlib.interfaces.cli:main"
 
 [project.optional-dependencies]
 download = ["yt-dlp[default]>=2026.1.1"]

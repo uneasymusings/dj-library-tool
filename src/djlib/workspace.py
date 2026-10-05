@@ -118,7 +118,11 @@ class Workspace:
 
     def config(self) -> WorkspaceConfig:
         if not self.config_path.is_file():
-            raise AppError("WORKSPACE_REQUIRED", "Initialize this workspace with djlib init.")
+            raise AppError(
+                "WORKSPACE_REQUIRED",
+                f"No djlib workspace at {self.root}. Create it with djlib init, "
+                "or choose another with --workspace.",
+            )
         try:
             return WorkspaceConfig.model_validate_json(self.config_path.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
