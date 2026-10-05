@@ -938,7 +938,10 @@ def delivery_status(app, delivery_id, *, fresh_readback=None, fresh_app_readback
             if app_only
             else ("eject_safely" if fresh_readback else "verify_device_before_departure")
         ),
-        "source_quality": "Source fidelity is unchanged by compatibility conversion.",
+        "source_quality": (
+            "Compatibility conversion does not improve source fidelity; "
+            "lossy re-encoding can reduce it."
+        ),
         "pilot_required_before_full": False,
         "hardware_required_for_local_preparation": False,
         "preparation_scope": "local_files_only",
