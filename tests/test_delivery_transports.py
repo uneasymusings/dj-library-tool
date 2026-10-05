@@ -184,6 +184,78 @@ def write_native_snapshot(path, manifest, version="7.2.19"):
     ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 
 
+@pytest.mark.skipif(
+    not DECODERS_AVAILABLE, reason="Delivery verification needs real original tones"
+)
+async def test_app_analysis_and_verification_transports_return_durable_jobs(
+    application, delivery_http, audio_factory
+):
+    source, collection_id = catalog_tone(delivery_http, audio_factory)
+    original_bytes = source.read_bytes()
+    planned = assert_envelope(
+        delivery_http.post(
+            "/deliveries",
+            json={
+                **request_body(collection_id),
+                "workflow": "serato_import",
+                "hardware_profile": None,
+            },
+        ).json()
+    )
+    identifier = planned["delivery_id"]
+    accepted = assert_envelope(
+        delivery_http.post(
+            f"/deliveries/{identifier}/prepare",
+            json={"revision": planned["revision"], "idempotency_key": "durable-app-prepare"},
+        ).json()
+    )
+    manifest = prepared_manifest(finish(delivery_http, accepted["job_id"]), source, original_bytes)
+    status = assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json())
+    body = observation(manifest, status["revision"])
+    body.update(
+        stage="imported", notes="Synthetic transport observation; no native app was operated."
+    )
+    async with Client(build_server(application.workspace)) as client:
+        imported = await client.call_tool(
+            "djlib_observe_delivery", {"delivery_id": identifier, "observation": body}
+        )
+        status = assert_envelope(imported.structured_content)
+        body.update(stage="analyzed", revision=status["revision"])
+        analysis = await client.call_tool(
+            "djlib_observe_delivery", {"delivery_id": identifier, "observation": body}
+        )
+        accepted = assert_envelope(analysis.structured_content)
+        assert accepted["kind"] == "delivery_check"
+        completed = finish(delivery_http, accepted["job_id"])
+        assert completed["result"]["evidence_committed"] is True
+        repeated = await client.call_tool(
+            "djlib_observe_delivery", {"delivery_id": identifier, "observation": body}
+        )
+        assert assert_envelope(repeated.structured_content)["job_id"] == accepted["job_id"]
+    status = assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json())
+    arguments = [
+        "--workspace",
+        str(application.workspace.root),
+        "delivery",
+        "verify-app",
+        identifier,
+        "--revision",
+        str(status["revision"]),
+    ]
+    cli = CliRunner().invoke(cli_app, arguments)
+    assert cli.exit_code == 0, cli.output
+    verified = assert_envelope(json.loads(cli.output))
+    assert verified["kind"] == "delivery_check"
+    assert finish(delivery_http, verified["job_id"])["result"]["evidence_committed"] is True
+    replay = CliRunner().invoke(cli_app, arguments)
+    assert assert_envelope(json.loads(replay.output))["job_id"] == verified["job_id"]
+    final = assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json())
+    assert final["evidence"]["analyzed"]["outcome"] == "passed"
+    assert final["evidence"]["app_readback"]["status"] == "verified_working_files"
+    assert final["ready_for_departure"] is False
+    assert source.read_bytes() == original_bytes
+
+
 @pytest.mark.skipif(not DECODERS_AVAILABLE, reason="Native comparison needs prepared real tones")
 async def test_native_snapshot_cli_mcp_and_http_preserve_delivery_boundaries(
     application, delivery_http, audio_factory

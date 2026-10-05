@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import contextlib
+import os
 import secrets
 import socket
 from contextlib import asynccontextmanager
@@ -35,7 +36,9 @@ from djlib.domain.contracts import (
     StartRequest,
 )
 from djlib.domain.errors import AppError
+from djlib.domain.workspace_contracts import RootsRequest
 from djlib.exporting.handoff import device_preflight
+from djlib.interfaces.validation import validation_message
 from djlib.jobs.worker import Worker
 from djlib.persistence.database import Database
 from djlib.sources.web import inspect_source
@@ -91,12 +94,12 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         return JSONResponse(envelope(error=exc.as_dict()), status_code=exc.status)
 
     @app.exception_handler(RequestValidationError)
-    async def invalid_request(_request, _exc):
+    async def invalid_request(_request, exc):
         return JSONResponse(
             envelope(
                 error={
                     "code": "INPUT_INVALID",
-                    "message": "The request does not match the published schema.",
+                    "message": validation_message(exc),
                     "retryable": False,
                 }
             ),
@@ -110,6 +113,7 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
                 "instance_id": instance_id,
                 "workspace_id": workspace.config().workspace_id,
                 "protocol_version": "1",
+                "pid": os.getpid(),
                 "application_version": __version__,
             }
         )
@@ -117,6 +121,17 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
     @app.get("/capabilities")
     async def capabilities():
         return envelope(application.capabilities())
+
+    @app.get("/roots")
+    async def roots():
+        config = workspace.config()
+        return envelope(
+            {"workspace_id": config.workspace_id, "allowed_roots": config.allowed_roots}
+        )
+
+    @app.post("/roots")
+    async def add_roots(body: RootsRequest):
+        return envelope(await asyncio.to_thread(workspace.add_roots, [Path(p) for p in body.paths]))
 
     @app.get("/profiles/{name}")
     async def profile(name: str):
@@ -151,8 +166,12 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         return envelope(await asyncio.to_thread(device_preflight, body.path, body.required_bytes))
 
     @app.get("/jobs")
-    async def jobs(limit: int = Query(default=20, ge=1, le=100)):
-        return envelope(application.jobs(limit))
+    async def jobs(
+        limit: int = Query(default=20, ge=1, le=100),
+        query: str = Query(default="", max_length=500),
+        after: str | None = Query(default=None, max_length=2000),
+    ):
+        return envelope(application.jobs(limit, query, after))
 
     @app.get("/jobs/{job_id}")
     async def job(job_id: str):
@@ -188,8 +207,43 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         return envelope(application.resolve(review_id, body.revision, body.choice))
 
     @app.get("/library")
-    async def library(query: str = "", limit: int = Query(default=20, ge=1, le=100)):
-        return envelope(application.library(query, limit))
+    async def library(
+        query: str = Query(default="", max_length=500),
+        limit: int = Query(default=20, ge=1, le=100),
+        after: str | None = Query(default=None, max_length=2000),
+    ):
+        return envelope(application.library(query, limit, after))
+
+    @app.get("/collections")
+    async def collections(
+        query: str = Query(default="", max_length=500),
+        limit: int = Query(default=20, ge=1, le=100),
+        after: str | None = Query(default=None, max_length=2000),
+    ):
+        return envelope(application.saved("collections", query, limit, after))
+
+    @app.get("/requests")
+    async def requests(
+        query: str = Query(default="", max_length=500),
+        limit: int = Query(default=20, ge=1, le=100),
+        after: str | None = Query(default=None, max_length=2000),
+    ):
+        return envelope(application.saved("requests", query, limit, after))
+
+    @app.get("/deliveries")
+    async def deliveries(
+        query: str = Query(default="", max_length=500),
+        limit: int = Query(default=20, ge=1, le=100),
+        after: str | None = Query(default=None, max_length=2000),
+    ):
+        return envelope(application.saved("deliveries", query, limit, after))
+
+    from djlib.application.reconciliation import reconcile_files
+    from djlib.domain.reconciliation_contracts import ReconcileRequest
+
+    @app.post("/reconciliations")
+    async def reconcile(body: ReconcileRequest):
+        return envelope(reconcile_files(application, body))
 
     @app.get("/collections/{collection_id}")
     async def collection(
@@ -251,9 +305,9 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
 
     @app.post("/deliveries/{delivery_id}/observations")
     async def delivery_observe(delivery_id: str, body: DeliveryObservation):
-        from djlib.application.delivery import observe_delivery
+        from djlib.application.delivery_checks import submit_observation
 
-        return envelope(await asyncio.to_thread(observe_delivery, application, delivery_id, body))
+        return envelope(await asyncio.to_thread(submit_observation, application, delivery_id, body))
 
     @app.post("/deliveries/{delivery_id}/verify")
     async def delivery_verify(delivery_id: str, body: DeliveryVerifyRequest):
@@ -265,10 +319,12 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
 
     @app.post("/deliveries/{delivery_id}/verify-app")
     async def delivery_verify_app(delivery_id: str, body: DeliveryVerifyRequest):
-        from djlib.application.delivery import verify_app
+        from djlib.application.delivery_checks import submit_app_verification
 
         return envelope(
-            await asyncio.to_thread(verify_app, application, delivery_id, body.revision)
+            await asyncio.to_thread(
+                submit_app_verification, application, delivery_id, body.revision
+            )
         )
 
     @app.post("/deliveries/{delivery_id}/native-xml")
@@ -311,6 +367,7 @@ async def serve(workspace: Workspace) -> None:
                 "instance_id": instance_id,
                 "workspace_id": workspace.config().workspace_id,
                 "protocol_version": "1",
+                "pid": os.getpid(),
             },
         )
         try:

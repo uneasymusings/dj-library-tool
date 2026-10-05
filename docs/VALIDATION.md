@@ -1,6 +1,28 @@
 # Validation and first-use checklist
 
-This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for the published **0.1.0a3** prerelease; see [status](STATUS.md) for remaining scope. Current results are separate from the historical public a2 evidence below. Old host/provider/native checks were not rerun merely by building a new version.
+This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for **0.1.0a6**. Local source, a6 installed-wheel and six-job startup-fix branch checks passed; final a6 tag and public-artifact gates remain pending. Unpublished a4/a5 and published a3/a2 observations below are historical evidence, not new-version validation.
+
+## a6 release gates — pending
+
+Current local source validation passed **518 tests in 60.81 seconds**, macOS/Python 3.13, with five Windows-only skips. Ruff lint/format passed **96 files**. After clarifying that compatibility conversion can reduce fidelity, **71 focused delivery tests passed**. The [startup-fix branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273853767) passed all six OS/Python jobs at `0e7e586`, including the actual Windows SDK guard, same-instance coordinator lifetime and accepted-job recovery tests. Each Windows job passed 521 tests with two skips (Python 3.12: 364.06 seconds; Python 3.13: 373.93 seconds); installed-wheel checks exercised 40 tools and three original tones. A local a6 installed-wheel smoke also passed actual 40-tool stdio MCP, three original tones, request/organization and bundled-skill checks; `uv lock --check` passed with 64 packages. After the final documentation freeze, the resource build repeated the installed-wheel check successfully. The fidelity-wording commit also passed its [six-job branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273980856) at `73159f8`. Final a6 tag CI and anonymous public artifact/install checks remain pending. Do not substitute prior candidate outcomes for those gates.
+
+The Windows checks cover external coordinator startup, MCP cold-start rejection with `COORDINATOR_START_REQUIRED`, same-instance continuation after SDK exit, and accepted-job recovery after forced coordinator termination. Startup now has a 30-second readiness window and 45-second lock, with separate busy/failed/timeout errors; the tests do not establish the cause of prior runner delays. Native app and hardware gates remain separate.
+
+## Historical a5 candidate — unpublished
+
+The a5 local suite passed **513 tests in 64.67 seconds**, with five Windows-only skips; Ruff passed **96 files**. Six integration tests passed locally with the Windows-native case skipped. An installed a5 wheel passed actual **40-tool MCP / three-tone** checks, skills and request/organization workflows, without native app observations. Subsequent Windows release checks exposed an incorrect SDK `is_error` assertion and the coordinator not becoming ready within the earlier 12-second window. The underlying startup-delay cause remains unproven. The candidate tag is immutable and unpublished; no anonymous public a5 installation was validated.
+
+## Historical a4 candidate — cancelled and unpublished
+
+The local macOS/Python 3.13 suite passed **498 tests in 60.88 seconds**, with four Windows-only tests skipped. Ruff lint/format checks passed for **95 files**. A fresh installed-wheel smoke check passed actual stdio calls for **40 MCP tools** and **three original tones**. These are local/installed-artifact results, not an anonymous public-download audit.
+
+The [production-change matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37269882474) passed all six Linux/macOS/Windows and Python 3.12/3.13 jobs for commit `810b95f`. A later Windows cold-start check confirmed that MCP SDK Job Object cleanup could terminate a coordinator spawned inside that job. The release was cancelled; tag `039f1ca` is preserved and unpublished, with no public artifact audit. These results do not establish a6 compatibility. Candidate regressions covered provisional/symbol identity, reconciliation/history, paging, roots, durable native checks, optional-pilot preparation and Windows partition metadata. The Windows-native partition test uses the runner's system volume, not a physical DJ USB/player.
+
+An actual installed a3-to-a4 binary upgrade on a separate demo-library copy retained all three recording/revision IDs and hashes, the collection ID/revision and ordered membership, and unchanged configuration/roots. All twelve files in the original stopped workspace remained byte-identical. Both versions used schema revision `f12d20261005`, so this exercised binary upgrade compatibility rather than a schema migration. Both temporary coordinators stopped. Separate regression tests exercise checked backups before schema migrations.
+
+A bounded native trial used the installed a4-candidate wheel with three original tones and a separate workspace/session. It declared rekordbox's bundle build **7.2.19.0342** and Serato DJ Pro **3.1.5**; the rekordbox value was not independently established through About/native XML and must not be treated as the confirmed runtime version. Both preparations completed three tracks without changing source hashes. Screenshots/accessibility worked, but coordinate actions returned `-10005 noWindowsAvailable`. Rekordbox's playlist chooser kept Open disabled for the M3U8 and an identical M3U copy; no import occurred. Serato's Files control could not be operated reliably. No import/analysis/loading, native XML, device export or playback success was recorded. The coordinator stopped with `url: null`; no external physical USB was detected. This is an unsuccessful supervised attempt, not an engine-format defect or a6/native integration proof.
+
+Exercise a small owned-music app trial only after the user supplies actual allowed roots. Confirm membership, analysis, loading and saved-state preservation in each app. Native Serato, real USB export and player playback remain unverified; neither queued verification nor a passing engine test substitutes for those observations.
 
 ## Automated suite
 
@@ -12,7 +34,7 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-### Current a3 checks — 2026-10-04/05
+### Published a3 baseline — 2026-10-04/05
 
 Version: **0.1.0a3**. After the Windows corrections, the local suite passed **403 tests in 45.51 seconds**, macOS, Python 3.13, real FFmpeg/ffprobe installed; only three Windows-native tests skipped on macOS. Ruff lint/format checks passed for 79 source/script/test files. The [release tag matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37261484677) passed all six OS/Python jobs and its draft-artifact job. Windows reported **404 passed, two POSIX-only skips**. The [first candidate matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37259264614) had exposed Windows failures before the portability corrections. Tests use original tones, isolated catalogs, controlled transports and simulated device/operator evidence; they do not establish native app, device export or playback success.
 

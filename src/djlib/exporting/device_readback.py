@@ -13,6 +13,7 @@ import re
 import stat
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -26,6 +27,7 @@ MAX_SCAN_BYTES = 64 * 1024**3
 MAX_SCAN_SECONDS = 120
 MAX_DEPTH = 32
 DISKUTIL_TIMEOUT = 5
+WINDOWS_PARTITION_TIMEOUT = 5
 PARTITION_SCHEMES = frozenset(
     {"FDisk_partition_scheme", "GUID_partition_scheme", "Apple_partition_scheme"}
 )
@@ -263,6 +265,108 @@ def _windows_volume_info(path):
     }
 
 
+def _windows_volume_guid(value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"\\\\\?\\Volume\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+        r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}\\?",
+        value,
+    ):
+        raise OSError("A mount-manager volume GUID is required for partition inspection")
+    return value.rstrip("\\")
+
+
+def _windows_partition_style(data):
+    # PARTITION_INFORMATION_EX begins with a DWORD-sized PARTITION_STYLE.
+    # Its fixed header is at least 32 bytes; the union need not be interpreted.
+    if not 32 <= len(data) <= 256:
+        raise OSError("Invalid partition-information response length")
+    style = struct.unpack_from("<I", data)[0]
+    if style not in {0, 1}:
+        raise OSError("Raw or unknown partition style is not assessed")
+    return {0: "MBR", 1: "GPT"}[style]
+
+
+def _windows_partition_query(volume_guid):
+    """Native metadata-only query, run by the bounded child below.
+
+    Microsoft: IOCTL_DISK_GET_PARTITION_INFO_EX / PARTITION_INFORMATION_EX and
+    CreateFileW. DesiredAccess=0, OPEN_EXISTING, no mutation IOCTLs or disk reads.
+    https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-ioctl_disk_get_partition_info_ex
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    volume = _windows_volume_guid(volume_guid)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.DeviceIoControl.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    kernel.DeviceIoControl.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.CreateFileW(volume, 0, 0x3, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        data, returned = ctypes.create_string_buffer(256), wintypes.DWORD()
+        if not kernel.DeviceIoControl(
+            handle, 0x00070048, None, 0, data, len(data), ctypes.byref(returned), None
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if returned.value > len(data):
+            raise OSError("Partition-information response exceeds its buffer")
+        return _windows_partition_style(data.raw[: returned.value])
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def _windows_partition_scheme(volume_guid):
+    """Bound a stalled device query without leaving background threads/handles.
+
+    The child imports this same installed package, receives only a validated GUID,
+    and emits one enum. Timeout kills/reaps the child and closes its native handles.
+    Dynamic/virtual/unsupported volumes and access failures stay unknown.
+    """
+    volume = _windows_volume_guid(volume_guid)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); "
+            "from djlib.exporting.device_readback import _windows_partition_query; "
+            "print(_windows_partition_query(sys.argv[2]))",
+            str(Path(__file__).resolve().parents[2]),
+            volume,
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=True,
+        timeout=WINDOWS_PARTITION_TIMEOUT,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if completed.stdout not in {b"MBR\n", b"GPT\n", b"MBR\r\n", b"GPT\r\n"}:
+        raise OSError("Partition probe did not return a supported style")
+    return completed.stdout.strip().decode("ascii")
+
+
 def _diskutil_info(value: str) -> dict:
     completed = subprocess.run(
         ["/usr/sbin/diskutil", "info", "-plist", value],
@@ -307,6 +411,14 @@ def _volume_identity(path: Path) -> dict:
             result["warning"] = (
                 "Windows volume GUID unavailable; stat identity is weak and reusable"
             )
+            return result
+        try:
+            result.update(
+                partition_scheme=_windows_partition_scheme(result["value"]),
+                partition_scheme_source="windows_ioctl_disk_get_partition_info_ex",
+            )
+        except (OSError, subprocess.SubprocessError):
+            result["partition_warning"] = "Windows partition style could not be read safely"
         return result
     if platform.system() != "Darwin":
         return result

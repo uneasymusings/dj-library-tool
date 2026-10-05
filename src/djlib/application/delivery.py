@@ -11,6 +11,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from djlib.application.service import add_event, new_id, require
+from djlib.audio.file_identity import path_snapshot
 from djlib.audio.inspection import checksum, inspect_audio
 from djlib.domain.contracts import DeliveryObservation, DeliveryRequest
 from djlib.domain.errors import AppError
@@ -52,8 +53,17 @@ def _revision(d, revision):
         )
 
 
-def _save_evidence(app, d, evidence):
+def _save_evidence(app, d, evidence, *, job_guard=None, job_error=None):
     with app.db.transaction() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        guarded = None
+        if job_guard is not None:
+            job_id, generation = job_guard
+            guarded = require(session, Job, job_id)
+            if guarded.state != "running" or guarded.generation != generation:
+                raise AppError(
+                    "JOB_STALE", "Verification was paused, cancelled, or superseded.", 409
+                )
         result = session.execute(
             update(Delivery)
             .where(Delivery.id == d["delivery_id"], Delivery.revision == d["revision"])
@@ -61,6 +71,16 @@ def _save_evidence(app, d, evidence):
         )
         if result.rowcount != 1:
             raise AppError("DELIVERY_STALE", "The delivery evidence changed; read it again.", 409)
+        if guarded is not None:
+            guarded.state = "failed" if job_error else "completed"
+            guarded.outcome = None if job_error else "complete"
+            guarded.result = {
+                "delivery_id": d["delivery_id"],
+                "revision": d["revision"] + 1,
+                "evidence_committed": True,
+                **({"error": job_error} if job_error else {}),
+            }
+            add_event(session, guarded, guarded.state, {"evidence_committed": True})
 
 
 def create_delivery(app, request: DeliveryRequest):
@@ -89,6 +109,12 @@ def create_delivery(app, request: DeliveryRequest):
         raise AppError("COLLECTION_EMPTY", "Prepare a delivery from accepted catalog recordings.")
     all_tracks = list(unique.values())
     selected = all_tracks[: request.pilot_size] if request.phase == "pilot" else all_tracks
+    if any(not isinstance(track.get("path"), str) or not track["path"] for track in selected):
+        raise AppError(
+            "FILE_UNAVAILABLE",
+            "A selected collection recording has no available file location; reconcile its "
+            "catalog location or rebuild the selection before preparing delivery.",
+        )
     # Freeze explicit annotations with the selected byte revision. Native analysis
     # may replace working-copy tags, but never changes this provenance snapshot.
     annotations = {}
@@ -132,12 +158,15 @@ def create_delivery(app, request: DeliveryRequest):
 
 def _pilot_passed(app, d):
     request = d["request"]
-    if request["phase"] == "pilot":
-        return True
     pilot_id = request.get("pilot_delivery_id")
-    if not pilot_id:
+    if not pilot_id or request["phase"] != "full":
         return False
-    pilot = _load(app, pilot_id)
+    try:
+        pilot = _load(app, pilot_id)
+    except AppError as exc:
+        if exc.code == "NOT_FOUND":
+            return False
+        raise
     if pilot["request"]["phase"] != "pilot":
         return False
     for key in ("workflow", "hardware_profile", "audio_mode", "app_version"):
@@ -149,10 +178,14 @@ def _pilot_passed(app, d):
 def prepare_delivery(app, delivery_id, revision, key):
     d = _load(app, delivery_id)
     _revision(d, revision)
-    if not d["job_id"] and not _pilot_passed(app, d):
+    # Local preparation can happen at home before native or hardware validation.
+    # A supplied pilot is an explicit claim: never silently accept a mismatched,
+    # unavailable or incomplete trial. Omitting it does not grant native readiness.
+    if not d["job_id"] and d["request"].get("pilot_delivery_id") and not _pilot_passed(app, d):
         raise AppError(
             "PILOT_REQUIRED",
-            "Complete a matching small native-app/device trial before full preparation.",
+            "The supplied pilot must be a completed matching native-app/device trial; "
+            "omit its ID to prepare local files without claiming pilot validation.",
         )
     payload = {
         "delivery_id": delivery_id,
@@ -383,6 +416,14 @@ async def finish_preparation(app, job_id, generation):
         "native_steps": _steps(d),
         "app_state": "prepared_for_import",
         "device_state": "not_exported",
+        "preparation_scope": "local_files_only",
+        "pilot_validation": (
+            "validated"
+            if _pilot_passed(app, d)
+            else "not_validated"
+            if d["request"].get("pilot_delivery_id")
+            else "not_supplied"
+        ),
     }
     atomic_json(directory / "delivery-manifest.json", manifest)
     atomic_text(directory / "NATIVE_STEPS.txt", "\n\n".join(_steps(d)) + "\n")
@@ -476,20 +517,24 @@ def _same_volume(before, after):
     )
 
 
-def _reconcile_analysis(app, manifest):
-    result = []
-    for track in manifest["tracks"]:
-        path = app.workspace.authorize(track["path"])
-        if checksum(path) == track["sha256"]:
-            result.append(
-                {
-                    "recording_id": track["recording_id"],
-                    "path": str(path),
-                    "sha256": track["sha256"],
-                    "pcm_sha256": track["pcm_sha256"],
-                }
-            )
-            continue
+def _working_signature(path):
+    observed = path_snapshot(path)
+    if not observed.is_regular or observed.is_reparse:
+        raise AppError("FILE_CHANGED", "A working copy is no longer a regular audio file.")
+    return {
+        "identity": [v.hex() if isinstance(v, bytes) else v for v in observed.identity],
+        "size": observed.size,
+        "modified": observed.modified,
+        "changed": observed.changed,
+    }
+
+
+def _reconcile_analysis_track(app, track):
+    """Check one working copy; the signature fences deferred batch publication."""
+    path = app.workspace.authorize(track["path"])
+    signature = _working_signature(path)
+    measured_hash = checksum(path)
+    if measured_hash != track["sha256"]:
         inspected = inspect_audio(path)
         measured = inspected.as_dict()
         if (
@@ -511,18 +556,61 @@ def _reconcile_analysis(app, manifest):
                 "FILE_CHANGED",
                 "Working-copy tags changed during verification; wait for analysis to finish.",
             )
+        measured_hash = inspected.sha256
+    if _working_signature(path) != signature:
+        raise AppError("FILE_CHANGED", "A working copy changed during analysis verification.")
+    return {
+        "recording_id": track["recording_id"],
+        "path": str(path),
+        "sha256": measured_hash,
+        "pcm_sha256": track["pcm_sha256"],
+        "file_signature": signature,
+    }
+
+
+def _reconcile_analysis(app, manifest):
+    return [_reconcile_analysis_track(app, track) for track in manifest["tracks"]]
+
+
+def _validated_reconciliation(app, tracks, reconciled, *, exact_hash=False):
+    """Accept only complete worker results whose checked file identities still match.
+
+    This is an internal finalizer input, never an operator-supplied proof. Workers
+    must produce it through full hash/audio checks, not from manifest metadata.
+    """
+    if not isinstance(reconciled, list) or len(reconciled) != len(tracks):
+        raise AppError("RECONCILIATION_STALE", "Analysis verification does not cover every track.")
+    by_id = {item.get("recording_id"): item for item in reconciled if isinstance(item, dict)}
+    if len(by_id) != len(tracks) or set(by_id) != {t["recording_id"] for t in tracks}:
+        raise AppError("RECONCILIATION_STALE", "Analysis verification recording IDs do not match.")
+    result = []
+    for track in tracks:
+        item = by_id[track["recording_id"]]
+        path = app.workspace.authorize(track["path"])
+        if (
+            item.get("path") != str(path)
+            or item.get("pcm_sha256") != track["pcm_sha256"]
+            or item.get("file_signature") != _working_signature(path)
+        ):
+            raise AppError(
+                "RECONCILIATION_STALE", "A checked working copy changed; repeat verification."
+            )
+        if exact_hash and item.get("sha256") != track["sha256"]:
+            raise AppError(
+                "ANALYSIS_CHANGED", "Working copies changed after analysis; record analysis again."
+            )
         result.append(
             {
-                "recording_id": track["recording_id"],
-                "path": str(path),
-                "sha256": inspected.sha256,
-                "pcm_sha256": track["pcm_sha256"],
+                key: item[key]
+                for key in ("recording_id", "path", "sha256", "pcm_sha256", "file_signature")
             }
         )
     return result
 
 
-def observe_delivery(app, delivery_id, observation: DeliveryObservation):
+def observe_delivery(
+    app, delivery_id, observation: DeliveryObservation, *, reconciled=None, job_guard=None
+):
     d = _load(app, delivery_id)
     _revision(d, observation.revision)
     if _app_only(d) and observation.stage not in {"imported", "analyzed"}:
@@ -618,7 +706,11 @@ def observe_delivery(app, delivery_id, observation: DeliveryObservation):
     }
     if observation.stage == "analyzed" and observation.outcome == "passed":
         try:
-            record["assets"] = _reconcile_analysis(app, manifest)
+            record["assets"] = _validated_reconciliation(
+                app,
+                manifest["tracks"],
+                _reconcile_analysis(app, manifest) if reconciled is None else reconciled,
+            )
         except (AppError, OSError) as exc:
             exc = (
                 exc
@@ -626,16 +718,21 @@ def observe_delivery(app, delivery_id, observation: DeliveryObservation):
                 else AppError("FILE_UNAVAILABLE", "A working copy is unavailable.")
             )
             evidence[observation.stage] = {**record, "outcome": "failed", "error": exc.as_dict()}
-            _save_evidence(app, d, evidence)
+            _save_evidence(app, d, evidence, job_guard=job_guard, job_error=exc.as_dict())
             raise exc
     if observation.stage == "native_exported" and observation.outcome == "passed":
         try:
-            for t in evidence["analyzed"]["assets"]:
-                if checksum(app.workspace.authorize(t["path"])) != t["sha256"]:
-                    raise AppError(
-                        "ANALYSIS_CHANGED",
-                        "Working copies changed after analysis; record analysis again.",
-                    )
+            if reconciled is not None:
+                _validated_reconciliation(
+                    app, evidence["analyzed"]["assets"], reconciled, exact_hash=True
+                )
+            else:
+                for t in evidence["analyzed"]["assets"]:
+                    if checksum(app.workspace.authorize(t["path"])) != t["sha256"]:
+                        raise AppError(
+                            "ANALYSIS_CHANGED",
+                            "Working copies changed after analysis; record analysis again.",
+                        )
         except (AppError, OSError) as exc:
             exc = (
                 exc
@@ -648,10 +745,10 @@ def observe_delivery(app, delivery_id, observation: DeliveryObservation):
                 "error": exc.as_dict(),
             }
             evidence[observation.stage] = {**record, "outcome": "failed", "error": exc.as_dict()}
-            _save_evidence(app, d, evidence)
+            _save_evidence(app, d, evidence, job_guard=job_guard, job_error=exc.as_dict())
             raise exc
     evidence[observation.stage] = record
-    _save_evidence(app, d, evidence)
+    _save_evidence(app, d, evidence, job_guard=job_guard)
     return delivery_status(app, delivery_id)
 
 
@@ -699,7 +796,7 @@ def _readback_passed(evidence):
     return readback.get("status") == "verified_hashes" and readback.get("volume_unchanged") is True
 
 
-def verify_app(app, delivery_id, revision):
+def verify_app(app, delivery_id, revision, *, reconciled=None, job_guard=None):
     """Refresh working-file evidence without claiming automated native app readback."""
     d = _load(app, delivery_id)
     _revision(d, revision)
@@ -713,12 +810,18 @@ def verify_app(app, delivery_id, revision):
     _prepared(app, d)
     assets = evidence["analyzed"]["assets"]
     try:
-        for track in assets:
-            if checksum(app.workspace.authorize(track["path"])) != track["sha256"]:
-                raise AppError(
-                    "ANALYSIS_CHANGED",
-                    "Working copies changed after analysis; inspect and record analysis again.",
-                )
+        if reconciled is None:
+            reconciled = []
+            for track in assets:
+                path = app.workspace.authorize(track["path"])
+                signature = _working_signature(path)
+                if checksum(path) != track["sha256"]:
+                    raise AppError(
+                        "ANALYSIS_CHANGED",
+                        "Working copies changed after analysis; inspect and record analysis again.",
+                    )
+                reconciled.append({**track, "file_signature": signature})
+        assets = _validated_reconciliation(app, assets, reconciled, exact_hash=True)
         report = {"status": "verified_working_files", "checked_at": timestamp(), "assets": assets}
     except (AppError, OSError) as exc:
         error = (
@@ -736,11 +839,11 @@ def verify_app(app, delivery_id, revision):
             "checked_at": timestamp(),
             "error": error.as_dict(),
         }
-        _save_evidence(app, d, evidence)
+        _save_evidence(app, d, evidence, job_guard=job_guard, job_error=error.as_dict())
         raise error from None
     evidence["analyzed"] = {**evidence["analyzed"], "assets": assets}
     evidence["app_readback"] = report
-    _save_evidence(app, d, evidence)
+    _save_evidence(app, d, evidence, job_guard=job_guard)
     return delivery_status(app, delivery_id, fresh_app_readback=report)
 
 
@@ -800,6 +903,7 @@ def delivery_status(app, delivery_id, *, fresh_readback=None, fresh_app_readback
         except (AppError, OSError):
             current = {"available": False}
             blockers.append("bound_device_unavailable")
+    pilot_validated = _pilot_passed(app, d)
     return {
         **d,
         "preparation_job": job,
@@ -834,6 +938,21 @@ def delivery_status(app, delivery_id, *, fresh_readback=None, fresh_app_readback
             if app_only
             else ("eject_safely" if fresh_readback else "verify_device_before_departure")
         ),
-        "source_quality": "Source fidelity is unchanged by compatibility conversion.",
-        "pilot_required_before_full": d["request"]["phase"] == "pilot",
+        "source_quality": (
+            "Compatibility conversion does not improve source fidelity; "
+            "lossy re-encoding can reduce it."
+        ),
+        "pilot_required_before_full": False,
+        "hardware_required_for_local_preparation": False,
+        "preparation_scope": "local_files_only",
+        "pilot_validation": (
+            "validated"
+            if pilot_validated
+            else "not_validated"
+            if d["request"].get("pilot_delivery_id")
+            else "not_supplied"
+        ),
+        "prepared_without_validated_pilot": prepared
+        and d["request"]["phase"] == "full"
+        and not pilot_validated,
     }

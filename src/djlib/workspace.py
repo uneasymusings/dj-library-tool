@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
+from filelock import FileLock
 from pydantic import Field
 
 from djlib.domain.contracts import Contract, Profile
@@ -55,7 +56,16 @@ class Workspace:
 
     def initialize(self, allowed_roots: list[Path] | None = None) -> WorkspaceConfig:
         if self.config_path.exists():
-            return self.config()
+            config = self.config()
+            if allowed_roots and any(
+                str(p.expanduser().resolve()) not in config.allowed_roots for p in allowed_roots
+            ):
+                raise AppError(
+                    "ROOTS_NOT_UPDATED",
+                    "This workspace exists. Use 'roots add PATH' to explicitly add folders.",
+                    409,
+                )
+            return config
         if self.root.exists() and any(self.root.iterdir()):
             raise AppError("WORKSPACE_NOT_EMPTY", "Choose an empty directory for a new workspace.")
         try:
@@ -80,6 +90,31 @@ class Workspace:
         token_path.write_text(secrets.token_urlsafe(32), encoding="utf-8")
         token_path.chmod(0o600)
         return config
+
+    def add_roots(self, values: list[Path]) -> dict:
+        """Expand read permission explicitly; never move music or remove existing roots."""
+        if not values:
+            raise AppError("SOURCE_ROOT_INVALID", "Supply at least one existing music folder.")
+        roots = []
+        try:
+            for value in values:
+                if any(ord(c) < 32 or ord(c) == 127 for c in str(value)):
+                    raise ValueError("Control characters in root")
+                root = value.expanduser().resolve(strict=True)
+                if not root.is_dir():
+                    raise ValueError("Not a directory")
+                roots.append(str(root))
+        except (OSError, ValueError) as exc:
+            raise AppError(
+                "SOURCE_ROOT_INVALID", "Every allowed root must be an existing folder."
+            ) from exc
+        with FileLock(self.root / "configuration.lock", timeout=10):
+            config = self.config()
+            additions = [root for root in dict.fromkeys(roots) if root not in config.allowed_roots]
+            if additions:
+                config.allowed_roots += additions
+                atomic_json(self.config_path, config.model_dump(mode="json"))
+        return {"allowed_roots": config.allowed_roots, "added": additions, "music_modified": False}
 
     def config(self) -> WorkspaceConfig:
         if not self.config_path.is_file():

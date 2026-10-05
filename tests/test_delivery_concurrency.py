@@ -19,9 +19,10 @@ def test_concurrent_evidence_same_revision_has_one_winner(application):
     both_updates = Barrier(2)
 
     def rendezvous_before_update(conn, cursor, statement, parameters, context, executemany):
-        # Rendezvous after any revision reads, immediately before the actual SQL write.
-        # A read/check followed by an unconditional UPDATE would lose one observation.
-        if statement.lstrip().upper().startswith("UPDATE DELIVERIES "):
+        # Both callers hold the same old revision before contending for the atomic
+        # evidence transaction. Waiting after BEGIN IMMEDIATE would deadlock the
+        # rendezvous: SQLite intentionally admits only one writer at a time.
+        if statement.strip().upper() == "BEGIN IMMEDIATE":
             both_updates.wait(timeout=5)
 
     def save(observer):

@@ -12,47 +12,9 @@ from mutagen.flac import FLAC
 from mutagen.id3 import COMM, ID3, TBPM, TCON, TIT2, TKEY, TPE1
 from mutagen.mp4 import MP4, MP4FreeForm
 
+from djlib.audio.fingerprint import pcm_hash as pcm_hash
 from djlib.audio.inspection import checksum, inspect_audio
 from djlib.domain.errors import AppError
-
-
-def pcm_hash(path: Path) -> str:
-    """A native tag edit may change file bytes, but must not change decoded audio."""
-    try:
-        reply = subprocess.run(
-            [
-                "ffmpeg",
-                "-nostdin",
-                "-v",
-                "error",
-                "-xerror",
-                "-protocol_whitelist",
-                "file,pipe",
-                "-i",
-                str(path),
-                "-map",
-                "0:a:0",
-                "-c:a",
-                "pcm_s32le",
-                "-f",
-                "hash",
-                "-hash",
-                "sha256",
-                "-",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=True,
-        )
-        value = reply.stdout.strip().removeprefix("SHA256=")
-        if not re.fullmatch(r"[0-9a-f]{64}", value):
-            raise ValueError
-        return value
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        raise AppError(
-            "AUDIO_VERIFY_FAILED", "FFmpeg could not verify the working-copy audio."
-        ) from exc
 
 
 def safe_name(value: str) -> str:

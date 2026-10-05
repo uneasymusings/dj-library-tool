@@ -12,7 +12,6 @@ from djlib.domain.contracts import CollectionRequest, DownloadRequest, Profile, 
 from djlib.domain.errors import AppError
 from djlib.persistence.database import Database
 from djlib.persistence.models import (
-    Asset,
     AssetRevision,
     Collection,
     Delivery,
@@ -81,6 +80,10 @@ class Application:
                 "catalog_annotations",
                 "organization_filters",
                 "native_rekordbox_snapshot_inspection",
+                "catalog_pagination",
+                "saved_work_discovery",
+                "explicit_root_management",
+                "file_reconciliation",
             ],
             "planned": [
                 "soulseek",
@@ -197,6 +200,16 @@ class Application:
                                 },
                             )
                         )
+                elif kind == "organize":
+                    for position, track in enumerate(payload["tracks"]):
+                        session.add(
+                            JobItem(
+                                id=new_id("item"),
+                                job_id=value.id,
+                                position=position,
+                                request={"track": track},
+                            )
+                        )
                 elif kind == "delivery":
                     require(session, Delivery, payload["delivery_id"]).job_id = value.id
                     value.result = {"delivery_id": payload["delivery_id"]}
@@ -258,10 +271,17 @@ class Application:
                 "next_poll_after_seconds": 2 if value.state in {"queued", "running"} else None,
             }
 
-    def jobs(self, limit: int = 20) -> dict:
-        with self.db.transaction() as session:
-            ids = list(session.scalars(select(Job.id).order_by(Job.created_at.desc()).limit(limit)))
-        return {"jobs": [self.job(value) for value in ids]}
+    def jobs(self, limit: int = 20, query: str = "", after: str | None = None) -> dict:
+        from djlib.application.catalog_paging import saved
+
+        page = saved(self, "jobs", query, limit, after)
+        page["jobs"] = [{**row, **self.job(row["job_id"])} for row in page["jobs"]]
+        return page
+
+    def saved(self, kind: str, query: str = "", limit: int = 20, after: str | None = None) -> dict:
+        from djlib.application.catalog_paging import saved
+
+        return saved(self, kind, query, limit, after)
 
     def items(
         self, job_id: str, limit: int = 20, after: int = -1, state: str | None = None
@@ -308,11 +328,20 @@ class Application:
     def control(self, job_id: str, action: str) -> dict:
         with self.db.transaction() as session:
             job = require(session, Job, job_id)
-            if job.kind == "organization":
+            if job.kind == "organization" or (job.kind == "organize" and job.state == "completed"):
                 raise AppError(
                     "JOB_TERMINAL",
                     "This organization transaction is complete. Submit a new explicit "
                     "mutation instead of requeuing it.",
+                    409,
+                )
+            if job.kind == "delivery_check" and (
+                job.state == "completed" or (job.result or {}).get("evidence_committed")
+            ):
+                raise AppError(
+                    "JOB_TERMINAL",
+                    "This check committed delivery evidence. Read the current delivery revision "
+                    "and submit a new check instead of requeuing it.",
                     409,
                 )
             if job.state == "cancelled" and action != "cancel":
@@ -393,25 +422,15 @@ class Application:
             add_event(session, job, "review_resolved", {"review_id": review.id, "choice": choice})
         return self.job(job.id)
 
-    def library(self, query: str = "", limit: int = 20) -> dict:
-        with self.db.transaction() as session:
-            statement = (
-                select(Recording, AssetRevision, FileLocation)
-                .select_from(Recording)
-                .join(Asset, Asset.recording_id == Recording.id)
-                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
-                .join(FileLocation, FileLocation.revision_id == AssetRevision.id)
-            )
-            if query:
-                statement = statement.where(
-                    Recording.artist.icontains(query, autoescape=True)
-                    | Recording.title.icontains(query, autoescape=True)
-                )
-            rows = session.execute(statement.order_by(Recording.identity_key).limit(limit)).all()
-            return {"tracks": [self._track(*row) for row in rows]}
+    def library(self, query: str = "", limit: int = 20, after: str | None = None) -> dict:
+        from djlib.application.catalog_paging import library
+
+        return library(self, query, limit, after)
 
     @staticmethod
-    def _track(recording: Recording, revision: AssetRevision, location: FileLocation) -> dict:
+    def _track(
+        recording: Recording, revision: AssetRevision, location: FileLocation | None
+    ) -> dict:
         return {
             "recording_id": recording.id,
             "asset_revision_id": revision.id,
@@ -420,8 +439,11 @@ class Application:
             "version": recording.version,
             "sha256": revision.sha256,
             "properties": revision.properties,
-            "path": location.path,
-            "managed": location.managed,
+            "path": location.path if location else None,
+            "managed": location.managed if location else False,
+            "location_availability": "not_checked" if location else "no_recorded_location",
+            "last_known_path": revision.properties.get("last_known_path")
+            or revision.properties.get("indexed_path"),
             "identity_evidence": recording.evidence,
         }
 
@@ -433,7 +455,7 @@ class Application:
                 .select_from(Membership)
                 .join(Recording, Membership.recording_id == Recording.id)
                 .join(AssetRevision, Membership.revision_id == AssetRevision.id)
-                .join(FileLocation, FileLocation.revision_id == AssetRevision.id)
+                .outerjoin(FileLocation, FileLocation.revision_id == AssetRevision.id)
                 .where(Membership.collection_id == value.id)
                 .order_by(Membership.position, FileLocation.managed.desc())
             ).all()
@@ -447,12 +469,17 @@ class Application:
                 "name": value.name,
                 "revision": value.revision,
                 "tracks": list(unique.values()),
-                "app_state": "not_imported",
-                "device_state": "not_exported",
+                "app_state": "not_tracked_here",
+                "device_state": "not_tracked_here",
+                "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
             }
 
     def export(self, collection_id: str, key: str) -> dict:
         snapshot = self.collection(collection_id)
         if not snapshot["tracks"]:
             raise AppError("COLLECTION_EMPTY", "No validated tracks are ready to export.")
+        if any(not track["path"] for track in snapshot["tracks"]):
+            raise AppError(
+                "FILE_UNAVAILABLE", "A selected historical revision has no current file location."
+            )
         return self.submit("export", {"snapshot": snapshot}, key)

@@ -360,7 +360,9 @@ async def test_symbol_only_artist_names_do_not_collapse_into_one_match(ledger_ap
     track = await owned(ledger_app, audio_factory, artist="!!!")
     result = create(ledger_app, [named(artist="???"), named(artist="!!!")])
     assert result["items"][0]["state"] == "missing"
-    assert result["items"][0]["candidates"][0]["identity_match"] == "different_labels"
+    # Symbol identities now have distinct catalog keys; unrelated symbols are
+    # excluded by the index itself instead of becoming mismatched candidates.
+    assert result["items"][0]["candidates"] == []
     assert result["items"][1]["accepted"]["recording_id"] == track["recording_id"]
     assert result["items"][1]["duplicate_of"] is None
 

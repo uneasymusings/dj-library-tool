@@ -2,6 +2,8 @@
 
 The engine is model-independent. Conversation, online search, and interpretation belong to your chosen assistant; durable side effects belong to `djlib`. A skill supplies workflow guidance, and MCP exposes typed tools. Either can be used independently.
 
+This guide describes a6. Use the matching packaged skill and check the installed version and connected capabilities before using discovery/reconciliation or queued native checks. See [status](STATUS.md) for validation and publication evidence.
+
 ## Prerequisites
 
 Install the complete engine from the [GitHub release using the public installation guide](INSTALL.md). The package includes the skill and MCP server; it needs no checkout. Initialize a separate library workspace:
@@ -45,7 +47,7 @@ claude mcp add --transport stdio djlib -- /absolute/path/to/installed/djlib \
 
 These commands write your host's MCP configuration. Run them when you want to register the server. Find the installed executable with `command -v djlib` on macOS/Linux or `(Get-Command djlib).Source` in PowerShell, and substitute that absolute path. Restart or reconnect the host, then inspect its MCP connections and call `djlib_capabilities` first.
 
-The local MCP process speaks stdio only. It discovers or starts the authenticated loopback coordinator for the workspace. Multiple hosts share the same coordinator and catalog. Accepted jobs are designed to survive disconnection; an MCP reconnection does not submit another acquisition.
+The local MCP process speaks stdio only and discovers the authenticated loopback coordinator. On Windows it requires the coordinator to be started outside the assistant host first; the generated `launch.py` does this before launching Codex/Claude. For manual MCP registration, run `djlib --workspace PATH service start` in an external terminal, then launch/reconnect the host. A Windows cold start from MCP returns `COORDINATOR_START_REQUIRED`. The engine does not escape a Windows Job Object or alter its cleanup policy. Other supported platforms retain normal coordinator startup. Multiple hosts share the coordinator/catalog; reconnecting does not resubmit acquisitions.
 
 Host configuration references: [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp), [Claude Code MCP](https://code.claude.com/docs/en/mcp).
 
@@ -70,7 +72,8 @@ CLI-only use is also supported: make the installed `djlib` executable available 
 
 - “Build a collection from these local paths. Reuse the files in place and show me metadata conflicts.”
 - “Read this set's published tracklist. Find individual sources with your search tools, keep unknown IDs in a missing-track report, and queue the recordings I select.”
-- “Prepare the accepted collection for rekordbox, show me the import paths, and check capacity at `/Volumes/DJ_USB`.”
+- “Prepare a small owned-track collection for rekordbox or Serato, help me import and analyze it, and verify the working files. I do not know my player model yet.”
+- “Find my saved Warm Groove collections and previous deliveries, then show their current blockers.”
 - “Resume my previous job and show the failed items. Reuse the original submission key if the previous response was lost.”
 
 The assistant should report source evidence, unresolved tracks, quality uncertainty, and app/device readiness. Requesting “every ID” does not turn publisher metadata into acoustic recognition. The full workflow for “all Joy Orbison's work” is planned; this first release can operate a selected tracklist, but has no catalog enumeration provider.
@@ -79,6 +82,10 @@ The assistant should report source evidence, unresolved tracks, quality uncertai
 
 Public tools return the same JSON envelope as the CLI. Check `ok` and `error`, even when the host considers an MCP call successfully transported. Application-level errors are structured results, not necessarily MCP protocol errors.
 
-Read-only hints describe the music/catalog effect. A read can start the local coordinator and migrate the workspace database. Mutating tools expose idempotency keys; plan/review revisions guard stale choices. Download tools are marked as contacting external providers. None of the current tools mutates a native DJ database or USB device.
+Read-only hints describe the music/catalog effect. Reads can start the coordinator on supported startup paths and catalog startup can migrate its database; Windows MCP requires the external startup above. Mutating tools expose idempotency keys; plan/review revisions guard stale choices. Download tools contact external providers. None mutates a native DJ database or USB device.
+
+In a6, organization, passed analysis/native-export observations and app verification return durable jobs. Follow job/item progress before using the completed collection or verification receipt. Native-check keys derive from the complete request and delivery revision, so identical retries recover the same job. Verification completion returns only delivery ID, revision and `evidence_committed`. Read `delivery get` for `app_requirements_met_at_last_check` and `evidence.app_readback.checked_at`; these are historical, operator-conditional evidence. Use the latest revision for another check. Saved lists and catalog reads do not freshly verify file availability. Collection native state is `not_tracked_here`; delivery observations track it separately.
+
+Full local preparation need not wait for physical hardware. Omitting a pilot ID records unvalidated preparation; a supplied pilot must match and pass. Native export/device/playback gates remain required for USB readiness. Pilot and full copies use separate paths with no automatic cue/analysis reuse.
 
 The host's own execution permissions still apply. The service is a local trusted-user tool, not a remote multi-user authorization system. Review the [security model](../SECURITY.md).

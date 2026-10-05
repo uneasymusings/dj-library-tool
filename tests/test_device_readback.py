@@ -453,6 +453,79 @@ def test_windows_volume_guid_probe_and_explicit_weak_fallback(tmp_path, monkeypa
     assert result["confidence"] == "weak" and "GUID unavailable" in result["warning"]
 
 
+@pytest.mark.parametrize("style,expected", [(0, "MBR"), (1, "GPT")])
+def test_windows_partition_information_decodes_documented_styles(style, expected):
+    data = struct.pack("<I", style) + bytes(140)
+    assert device._windows_partition_style(data) == expected
+
+
+@pytest.mark.parametrize("data", [b"", bytes(4), bytes(257), struct.pack("<I", 2) + bytes(140)])
+def test_windows_partition_information_does_not_guess_on_unknown_response(data):
+    with pytest.raises(OSError):
+        device._windows_partition_style(data)
+
+
+@pytest.mark.parametrize("output,expected", [(b"MBR\r\n", "MBR"), (b"GPT\n", "GPT")])
+def test_windows_partition_probe_uses_only_validated_guid_and_bounded_child(
+    monkeypatch, output, expected
+):
+    guid = "\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\"
+
+    def run(args, **kwargs):
+        assert args[0] == device.sys.executable and args[1:3] == ["-I", "-c"]
+        assert args[-1] == guid.rstrip("\\")
+        assert kwargs["timeout"] == device.WINDOWS_PARTITION_TIMEOUT
+        assert kwargs["check"] and kwargs["stdin"] == subprocess.DEVNULL
+        assert "shell" not in kwargs
+        return SimpleNamespace(stdout=output)
+
+    monkeypatch.setattr(device.subprocess, "run", run)
+    assert device._windows_partition_scheme(guid) == expected
+    with pytest.raises(OSError):
+        device._windows_partition_scheme("C:\\arbitrary-file-or-command")
+
+
+@pytest.mark.parametrize("failure", ["timeout", "unavailable", "malformed"])
+def test_windows_partition_failure_retains_strong_guid_and_filesystem(
+    tmp_path, monkeypatch, failure
+):
+    guid = "\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\"
+    monkeypatch.setattr(device.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        device,
+        "_windows_volume_info",
+        lambda _: {
+            "value": guid,
+            "method": "windows_volume_guid",
+            "confidence": "strong",
+            "filesystem": "FAT32",
+            "filesystem_type": "FAT32",
+        },
+    )
+
+    def run(*args, **kwargs):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired("bounded native query", 5)
+        if failure == "unavailable":
+            raise subprocess.CalledProcessError(1, "bounded native query")
+        return SimpleNamespace(stdout=b"RAW\n")
+
+    monkeypatch.setattr(device.subprocess, "run", run)
+    result = device._volume_identity(tmp_path)
+    assert result["value"] == guid and result["confidence"] == "strong"
+    assert result["filesystem"] == "FAT32"
+    assert result["partition_scheme"] is None and result["partition_scheme_source"] is None
+    assert "partition_warning" in result
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Exercises the native Windows partition query")
+def test_windows_native_system_volume_partition_query_is_read_only():
+    root = Path(Path.cwd().anchor)
+    info = device._windows_volume_info(root)
+    assert info["method"] == "windows_volume_guid"
+    assert device._windows_partition_scheme(info["value"]) in {"MBR", "GPT"}
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Exercises Windows native directory handles")
 def test_windows_native_unicode_scan_and_handles_are_closed(mounted, monkeypatch):
     path = mounted / "音楽 🎵" / "opening 🎶.mp3"
