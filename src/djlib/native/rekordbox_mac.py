@@ -303,11 +303,18 @@ return names as text
 """
 
 
-def playlists() -> set[str]:
-    """Playlist names from rekordbox's Track menu; read without focusing rekordbox."""
+def playlists() -> set[str] | None:
+    """Playlist names from rekordbox's Track menu, read without focusing rekordbox.
+
+    None when rekordbox is not running or the menu is unavailable (it only exists while a
+    track is selected); callers must then confirm through an XML export instead.
+    """
     if not _running():
-        return set()
-    return {line for line in _osascript(PLAYLISTS).splitlines() if line}
+        return None
+    try:
+        return {line for line in _osascript(PLAYLISTS).splitlines() if line}
+    except AppError:
+        return None
 
 
 def idle_seconds() -> float:

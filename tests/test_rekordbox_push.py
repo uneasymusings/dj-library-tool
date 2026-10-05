@@ -78,6 +78,8 @@ class FakeRekordbox:
         self.present.add(playlist.stem)
 
     def export_collection(self, destination: Path) -> Path:
+        if not self.imported:
+            return write_export(destination, "Existing playlist", [])
         lines = self.imported[-1].read_text(encoding="utf-8").splitlines()
         paths = [line for line in lines if line and not line.startswith("#")]
         return write_export(destination, self.imported[-1].stem, [(p, "126.00") for p in paths])
@@ -223,3 +225,23 @@ def test_idle_coordinator_exits_only_without_work(application, monkeypatch):
         while not app.state.server.should_exit and time.monotonic() < deadline:
             time.sleep(0.05)
     assert app.state.server.should_exit is True
+
+
+def test_push_without_a_readable_menu_checks_through_xml(
+    application, library_http, audio_factory, monkeypatch
+):
+    collection_id = build(
+        library_http, [audio_factory("menuless.wav", frequency=520)], [("Velvet Static", "Menu")]
+    )["result"]["collection_id"]
+    fake = FakeRekordbox(monkeypatch)
+    monkeypatch.setattr(rekordbox_mac, "playlists", lambda: None)  # no track selected
+    workspace = ["--workspace", str(application.workspace.root)]
+    first = CliRunner().invoke(cli_app, [*workspace, "rekordbox", "push", collection_id])
+    assert first.exit_code == 0, first.output
+    crate = json.loads(first.stdout)["result"]["crates"][0]
+    assert crate["status"] == "imported" and crate["playlist_found"] is True
+    assert crate["matched"] == crate["expected"] == 1
+    second = CliRunner().invoke(cli_app, [*workspace, "rekordbox", "push", collection_id])
+    assert second.exit_code == 0, second.output
+    assert json.loads(second.stdout)["result"]["crates"][0]["status"] == "already_in_rekordbox"
+    assert len(fake.imported) == 1
