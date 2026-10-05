@@ -14,8 +14,16 @@ from djlib.workspace import Workspace
 
 
 def run_demo(workspace: Workspace) -> dict:
-    workspace.initialize()
     source = workspace.root / "demo-source"
+    if workspace.config_path.exists() and not source.is_dir():
+        # Never mix generated tones into a real library.
+        raise AppError(
+            "DEMO_WORKSPACE_IN_USE",
+            "This workspace already holds a library. Run the demo in a new folder, "
+            "for example: djlib --workspace ./djlib-demo demo",
+            409,
+        )
+    workspace.initialize()
     source.mkdir(exist_ok=True)
     tracks = []
     for index, frequency in enumerate((220, 330, 440), 1):

@@ -64,6 +64,13 @@ def rekordbox_xml(snapshot: dict) -> str:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
+def playlist_label(track: dict) -> str:
+    """M3U display label; keeps the version so Extended and Radio Edit stay distinct."""
+    label = f"{track['artist']} - {track['title']}"
+    version = (track.get("version") or "").strip()
+    return f"{label} ({version})" if version else label
+
+
 def device_preflight(value: str, required_bytes: int = 0) -> dict:
     try:
         path = Path(value).expanduser().resolve(strict=True)
@@ -74,16 +81,24 @@ def device_preflight(value: str, required_bytes: int = 0) -> dict:
         raise AppError(
             "DEVICE_UNAVAILABLE", "Choose an existing mounted storage directory."
         ) from exc
+    mounted = path.is_mount()
+    enough = usage.free >= required_bytes + 64 * 1024 * 1024
+    if not mounted:
+        next_step = "Choose the top folder of the mounted USB volume, not a folder inside it."
+    elif not enough:
+        next_step = "Free space on this volume or choose a larger one before exporting."
+    else:
+        next_step = "Confirm player/filesystem, then export the imported playlist in rekordbox."
     return {
         "path": str(path),
-        "is_mount_point": path.is_mount(),
+        "is_mount_point": mounted,
         "free_bytes": usage.free,
         "total_bytes": usage.total,
         "required_bytes": required_bytes,
-        "has_requested_space": usage.free >= required_bytes + 64 * 1024 * 1024,
+        "has_requested_space": enough,
         "filesystem": "not_detected",
         "player_compatibility": "not_verified",
         "device_state": "not_exported",
         "writes_performed": False,
-        "next_step": "Confirm player/filesystem, then export the imported playlist in rekordbox.",
+        "next_step": next_step,
     }

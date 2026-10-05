@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Terminal experience and everyday catalog fixes. The JSON envelope, MCP tools and HTTP routes are unchanged for captured output.
+
+- **Readable terminal output.** In an interactive terminal, commands render tables, job cards, delivery stage checklists and copy-pasteable next steps; errors go to stderr with a recovery hint. Output stays the JSON envelope when piped or captured, with `--json` (before or after the subcommand) or with `DJLIB_OUTPUT=json`. Generated assistant sessions set `DJLIB_OUTPUT=json`.
+- **Live job progress.** `scan`, `start`, `export`, `delivery prepare`, `delivery verify-app`, passed analysis observations and `organize collection` follow their job with a progress bar in a terminal; Ctrl-C detaches and the job keeps running. New `jobs watch ID` follows any job until it finishes.
+- **Fewer manual steps in a terminal.** `--key` is generated when omitted (JSON output still requires it); `scan` without a path uses the only allowed root; `delivery observe ID` without `--file` asks what you saw and fills counts and recording IDs from the frozen manifest after you confirm.
+- **Grouped help** along the workflow (start here, library, requests, DJ app and USB, jobs, assistants) with shorter command descriptions.
+- **Search** matches every word and ignores case and accents (`bjork` finds Björk, `royksopp` finds RØYKSOPP); the library is ordered by artist and title instead of internal IDs.
+- **Mix names in titles.** “Rain (Extended Mix)” matches a request for “Rain” + “Extended Mix” (`equivalent_labels`), and building a collection from identical bytes with equivalent labels reuses the cataloged recording instead of failing. Different mixes still never match.
+- **Scans** read WAV RIFF INFO artist/title, skip djlib's own workspace folders when the workspace sits inside a music root, and skip links that leave the allowed folders instead of failing the whole scan. Skipped counts appear in `result.skipped_files`.
+- **Fixes:** relative CLI paths resolve in the CLI's working directory rather than the coordinator's; `jobs wait` on a paused job exits 4 instead of 0; `jobs items --state` rejects unknown states; `demo` refuses to add tones to a real library; M3U labels keep the version; `usb-preflight` gives a next step that matches its result; clearer `WORKSPACE_REQUIRED`, `DELIVERY_STALE`, `EXISTING_IDENTITY_CONFLICT` and not-found messages; Ctrl-C prints a short note instead of a traceback; tracebacks no longer show local variables.
+
 ## 0.1.0a6
 
 Published [v0.1.0a6](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6) on **2026-10-05 at 07:14:53 UTC**. The [release matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37275004527) passed all six OS/Python jobs and artifact packaging. An independent anonymous public installation verified package hashes, installed bytes, complete skill resources, actual MCP calls with all 40 tool schemas exposed and three original tones. An installed a3-to-a6 demo-copy compatibility check preserved all existing data; no schema migration was needed. Local source validation passed 518 tests with five Windows-only skips; Ruff passed 96 files. See [validation](docs/VALIDATION.md) for exact evidence and the earlier unresolved Windows discovery failure; subsequent passing matrices do not establish its cause.

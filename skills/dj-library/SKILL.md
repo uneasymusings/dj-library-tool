@@ -5,7 +5,7 @@ description: Track exact music requests, acquire selected recordings and organiz
 
 # DJ library workflow
 
-Use the installed `djlib` utility and the user's selected workspace. Prefer `djlib_*` MCP tools when connected; otherwise use `djlib --workspace PATH COMMAND`. Read [CLI recipes](references/cli.md) for JSON inputs and command sequences.
+Use the installed `djlib` utility and the user's selected workspace. Prefer `djlib_*` MCP tools when connected; otherwise use `djlib --workspace PATH --json COMMAND`. Captured output is already JSON; `--json` also keeps it JSON inside a pseudo-terminal, where a7+ otherwise prints human views. Always pass explicit `--key` values. Read [CLI recipes](references/cli.md) for JSON inputs and command sequences. When the user works in the terminal themselves, suggest plain commands: they get tables, live progress and next steps, and `delivery observe ID` can ask them what they saw instead of needing a JSON file.
 
 If the engine or MCP connection is missing, read [GitHub installation](references/install.md). The skill needs the local engine for file operations; a skill file alone is not an executable downloader. Use the published installation rather than assuming a developer checkout exists.
 

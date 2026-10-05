@@ -18,7 +18,7 @@ from djlib.domain.errors import AppError
 from djlib.exporting.app_targets import assess_app_track
 from djlib.exporting.delivery_media import pcm_hash, prepare_media, safe_name
 from djlib.exporting.device_readback import inspect_device
-from djlib.exporting.handoff import atomic_text
+from djlib.exporting.handoff import atomic_text, playlist_label
 from djlib.exporting.targets import assess_track, target_profiles
 from djlib.persistence.models import Delivery, Job, JobItem, timestamp
 from djlib.persistence.organization_models import RecordingAnnotation
@@ -49,7 +49,10 @@ def _load(app, delivery_id):
 def _revision(d, revision):
     if d["revision"] != revision:
         raise AppError(
-            "DELIVERY_STALE", "Read the current delivery revision before recording evidence.", 409
+            "DELIVERY_STALE",
+            f"This delivery is at revision {d['revision']}, not {revision}. "
+            "Read it again, then retry with the current revision.",
+            409,
         )
 
 
@@ -393,7 +396,7 @@ async def finish_preparation(app, job_id, generation):
         atomic_text(
             path,
             "#EXTM3U\n"
-            + "".join(f"#EXTINF:-1,{t['artist']} - {t['title']}\n{t['path']}\n" for t in selected),
+            + "".join(f"#EXTINF:-1,{playlist_label(t)}\n{t['path']}\n" for t in selected),
         )
         expected[snapshot["collection_id"]] = len(selected)
         playlists.append(

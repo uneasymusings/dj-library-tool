@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import time
+import unicodedata
 from contextlib import AbstractContextManager, closing
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +18,18 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from djlib.domain.errors import AppError
 
+# Letters that NFKD does not decompose into a base letter plus a combining mark.
+_FOLD_LETTERS = str.maketrans({"ø": "o", "æ": "ae", "œ": "oe", "đ": "d", "ł": "l", "ð": "d"})
+
+
+def search_fold(value: str | None) -> str | None:
+    """Case- and accent-insensitive search text: "Björk" and "BJORK" both become "bjork"."""
+    if value is None:
+        return None
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(stripped.translate(_FOLD_LETTERS).split())
+
 
 class Database:
     def __init__(self, path: Path):
@@ -28,6 +41,8 @@ class Database:
             connection.execute("PRAGMA foreign_keys=ON")
             # A single coordinator does not need WAL; DELETE avoids runtime-specific WAL issues.
             connection.execute("PRAGMA journal_mode=DELETE")
+            # SQLite lower()/LIKE fold ASCII only; search and sorting use Unicode folding.
+            connection.create_function("djlib_fold", 1, search_fold, deterministic=True)
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
 
