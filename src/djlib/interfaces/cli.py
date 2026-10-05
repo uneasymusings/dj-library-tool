@@ -561,6 +561,15 @@ def service_status(ctx: typer.Context) -> None:
     emit(envelope({"url": client(ctx).discover()}))
 
 
+@service.command("start")
+@handled
+def service_start(ctx: typer.Context) -> None:
+    """Start or reuse the matching coordinator outside the assistant's MCP process."""
+    local = client(ctx)
+    url = local.start()
+    emit(envelope({"url": url, "application_version": __version__}))
+
+
 @service.command("stop")
 @handled
 def service_stop(ctx: typer.Context) -> None:

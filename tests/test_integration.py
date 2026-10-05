@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import os
+import signal
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +22,53 @@ from djlib.interfaces.service import create_app
 from djlib.workspace import Workspace
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def coordinator_diagnostics(workspace, operation, value):
+    # Synthetic workspace logs only; never include tokens or request headers.
+    try:
+        with (workspace.runtime / "service.log").open("rb") as stream:
+            stream.seek(0, 2)
+            stream.seek(max(0, stream.tell() - 16 * 1024))
+            log_tail = stream.read(16 * 1024).decode("utf-8", errors="replace")
+    except OSError as exc:
+        log_tail = f"Coordinator log unavailable: {type(exc).__name__}"
+    return {"operation": operation, "response": value, "coordinator_log_tail": log_tail}
+
+
+def live_identity(workspace, expected=None):
+    """Health-check without a startup path; an exited coordinator must fail this test."""
+    client = LocalClient(workspace, allow_start=False)
+    url = client.discover()
+    assert url, coordinator_diagnostics(workspace, "discover existing coordinator", None)
+    record = json.loads((workspace.runtime / "service.json").read_text())
+    identity = {key: record.get(key) for key in ("instance_id", "pid", "url")}
+    assert isinstance(identity["pid"], int) and identity["pid"] > 0, identity
+    assert identity["instance_id"] and identity["url"] == url, identity
+    try:
+        health = client.request("GET", "/health")["result"]
+    except AppError as error:
+        pytest.fail(
+            str(coordinator_diagnostics(workspace, "authenticated identity", error.as_dict()))
+        )
+    assert (health["instance_id"], health["pid"]) == (identity["instance_id"], identity["pid"]), (
+        coordinator_diagnostics(
+            workspace, "runtime identity must match authenticated health", identity
+        )
+    )
+    if expected is not None:
+        assert identity == expected, coordinator_diagnostics(
+            workspace, "coordinator must survive without replacement", identity
+        )
+    return identity
+
+
+def stdio_transport(workspace):
+    return StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "djlib.interfaces.cli", "--workspace", str(workspace.root), "mcp", "serve"],
+        cwd=ROOT,
+    )
 
 
 def cli(workspace, *args, expected=0):
@@ -110,18 +159,17 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
     workspace = live_workspace
     path = audio_factory()
     workspace.initialize([path.parent])
+    if sys.platform == "win32":
+        # Start from the ordinary CLI parent, outside the SDK's disposable Windows
+        # subprocess job. POSIX deliberately still exercises MCP cold startup.
+        assert cli(workspace, "service", "start")["ok"]
+        prestarted = live_identity(workspace)
+    else:
+        assert LocalClient(workspace).discover() is None
+        prestarted = None
 
     def diagnostics(operation, value):
-        # These are isolated synthetic workspaces. Include only the response and
-        # a bounded log tail, never the coordinator token or HTTP headers.
-        try:
-            with (workspace.runtime / "service.log").open("rb") as stream:
-                stream.seek(0, 2)
-                stream.seek(max(0, stream.tell() - 16 * 1024))
-                log_tail = stream.read(16 * 1024).decode("utf-8", errors="replace")
-        except OSError as exc:
-            log_tail = f"Coordinator log unavailable: {type(exc).__name__}"
-        return {"operation": operation, "response": value, "coordinator_log_tail": log_tail}
+        return coordinator_diagnostics(workspace, operation, value)
 
     def checked_envelope(value, operation):
         assert isinstance(value, dict), diagnostics(operation, value)
@@ -134,11 +182,7 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
         assert not reply.is_error, diagnostics(operation, reply.model_dump(mode="json"))
         return checked_envelope(reply.structured_content, operation)
 
-    transport = StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "djlib.interfaces.cli", "--workspace", str(workspace.root), "mcp", "serve"],
-        cwd=ROOT,
-    )
+    transport = stdio_transport(workspace)
     async with Client(transport) as client:
         tools = (await client.list_tools()).tools
         from djlib.interfaces.tool_manifest import TOOL_NAMES
@@ -162,8 +206,15 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
         started = checked_tool(reply, "djlib_start")
         assert started.get("job_id"), diagnostics("djlib_start", reply.structured_content)
         job_id = started["job_id"]
+        original = live_identity(workspace, prestarted)
     # The protocol client has exited. Accepted work still belongs to the coordinator.
-    result = await asyncio.to_thread(LocalClient(workspace).wait, job_id, 30)
+    # Assert before any request that could mask process death by starting another
+    # daemon, then use a non-starting client for every subsequent job poll.
+    live_identity(workspace, original)
+    try:
+        result = await asyncio.to_thread(LocalClient(workspace, allow_start=False).wait, job_id, 30)
+    except AppError as error:
+        pytest.fail(str(diagnostics("wait after stdio client exit", error.as_dict())))
     completed = checked_envelope(result, "wait for durable job")
     assert not completed.get("timed_out"), diagnostics("wait for durable job", result)
     assert completed.get("state") == "completed", diagnostics("wait for durable job", result)
@@ -177,6 +228,98 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
         assert persisted.get("outcome") == "complete", diagnostics(
             "djlib_job from fresh client", reply.structured_content
         )
+    live_identity(workspace, original)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Actual Windows SDK process-lifetime guard")
+async def test_windows_cold_stdio_requires_external_coordinator_start(live_workspace):
+    workspace = live_workspace
+    workspace.initialize()
+    transport = stdio_transport(workspace)
+    async with Client(transport) as client:
+        reply = await client.call_tool("djlib_capabilities")
+        envelope = reply.structured_content
+        assert reply.is_error, coordinator_diagnostics(workspace, "cold Windows MCP", envelope)
+        assert envelope["ok"] is False and envelope["result"] is None
+        assert envelope["error"]["code"] == "COORDINATOR_START_REQUIRED"
+        assert envelope["error"]["retryable"] is False
+        assert LocalClient(workspace, allow_start=False).discover() is None
+        assert not (workspace.runtime / "service.json").exists()
+        assert not (workspace.runtime / "service.log").exists()
+    assert not (workspace.runtime / "service.json").exists()
+    assert cli(workspace, "service", "start")["ok"]
+    original = live_identity(workspace)
+    async with Client(transport) as client:
+        reply = await client.call_tool("djlib_capabilities")
+        envelope = reply.structured_content
+        assert not reply.is_error and envelope["ok"], coordinator_diagnostics(
+            workspace, "Windows MCP after external start", envelope
+        )
+        assert envelope["result"]["workspace_id"] == workspace.config().workspace_id
+        live_identity(workspace, original)
+    live_identity(workspace, original)
+
+
+def test_forced_coordinator_exit_preserves_durable_review_and_accepted_job(
+    live_workspace, audio_factory, tmp_path
+):
+    """A forced restart is distinct from survival and preserves a real worker checkpoint."""
+    workspace = live_workspace
+    path = audio_factory(artist="Original performer", title="Original tone")
+    workspace.initialize([path.parent])
+    assert cli(workspace, "service", "start")["ok"]
+    request = tmp_path / "recovery-collection.json"
+    request.write_text(
+        json.dumps(
+            {
+                "name": "Durable review after forced exit",
+                "tracks": [
+                    {"path": str(path), "artist": "Conflicting performer", "title": "Other"}
+                ],
+            }
+        )
+    )
+    plan = cli(workspace, "plan", "--file", request)["result"]
+    started = cli(workspace, "start", plan["plan_id"], "--revision", 1, "--key", "forced-exit")[
+        "result"
+    ]
+    client = LocalClient(workspace, allow_start=False)
+    attention = client.wait(started["job_id"], 30)["result"]
+    assert attention["state"] == "needs_attention", attention
+    review = cli(workspace, "reviews", "list", "--job-id", started["job_id"])["result"]["reviews"][
+        0
+    ]
+    original = live_identity(workspace)
+    # The PID belongs to the authenticated, isolated fixture coordinator. Never
+    # signal a stale runtime record or the test runner itself.
+    assert original["pid"] != os.getpid()
+    live_identity(workspace, original)
+    os.kill(original["pid"], signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL)
+    wait_for_coordinator_exit(workspace)
+    assert client.discover() is None
+    assert cli(workspace, "service", "start")["ok"]
+    recovered = live_identity(workspace)
+    assert recovered["instance_id"] != original["instance_id"]
+    persisted = client.request("GET", f"/jobs/{started['job_id']}")["result"]
+    assert persisted["state"] == "needs_attention" and persisted["counts"] == attention["counts"]
+    restored = cli(workspace, "reviews", "list", "--job-id", started["job_id"])["result"]["reviews"]
+    assert restored == [review]
+    cli(
+        workspace,
+        "reviews",
+        "resolve",
+        review["review_id"],
+        "--revision",
+        review["revision"],
+        "--choice",
+        "use_file_metadata",
+    )
+    completed = client.wait(started["job_id"], 30)["result"]
+    assert completed["state"] == "completed" and completed["outcome"] == "complete", completed
+    assert completed["counts"] == {"succeeded": 1}
+    tracks = cli(workspace, "collection", completed["result"]["collection_id"])["result"]["tracks"]
+    assert len(tracks) == 1 and tracks[0]["artist"] == "Original performer"
+    live_identity(workspace, recovered)
 
 
 async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatch, tmp_path):

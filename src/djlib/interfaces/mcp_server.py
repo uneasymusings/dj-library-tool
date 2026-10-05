@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from typing import Literal
 
 from mcp.server import MCPServer
@@ -58,7 +59,7 @@ def build_server(workspace: Workspace) -> MCPServer:
             "Prepared exports are not app-imported or USB-ready. No acoustic recognition yet."
         ),
     )
-    client = LocalClient(workspace)
+    client = LocalClient(workspace, allow_start=sys.platform != "win32")
     read = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
     write = ToolAnnotations(
         readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False

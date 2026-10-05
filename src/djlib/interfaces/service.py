@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import contextlib
+import os
 import secrets
 import socket
 from contextlib import asynccontextmanager
@@ -112,6 +113,7 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
                 "instance_id": instance_id,
                 "workspace_id": workspace.config().workspace_id,
                 "protocol_version": "1",
+                "pid": os.getpid(),
                 "application_version": __version__,
             }
         )
@@ -365,6 +367,7 @@ async def serve(workspace: Workspace) -> None:
                 "instance_id": instance_id,
                 "workspace_id": workspace.config().workspace_id,
                 "protocol_version": "1",
+                "pid": os.getpid(),
             },
         )
         try:

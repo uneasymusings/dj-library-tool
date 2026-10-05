@@ -18,8 +18,9 @@ from djlib.workspace import Workspace
 
 
 class LocalClient:
-    def __init__(self, workspace: Workspace):
+    def __init__(self, workspace: Workspace, *, allow_start: bool = True):
         self.workspace = workspace
+        self.allow_start = allow_start
         self._coordinator_identity = None
         self._coordinator_version = None
         self._version_checked = False
@@ -129,8 +130,28 @@ class LocalClient:
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.workspace.token()}"}
 
+    def start(self) -> str:
+        """Start or reuse a compatible coordinator before launching an assistant host."""
+        url = self.ensure()
+        self._require_matching_version(url)
+        return url
+
     def ensure(self) -> str:
         self.workspace.config()
+        if not self.allow_start:
+            if url := self.discover():
+                return url
+            # A Windows MCP host can own a kill-on-close Job Object. Console
+            # detachment does not let a spawned coordinator outlive that host.
+            raise AppError(
+                "COORDINATOR_START_REQUIRED",
+                "No running coordinator is available. Run 'djlib --workspace WORKSPACE "
+                "service start' from a terminal outside MCP, or start the assistant session "
+                "with its generated launch.py. This connection cannot start a persistent "
+                "coordinator. Accepted jobs remain stored; no operation was submitted.",
+                503,
+                False,
+            )
         with FileLock(self.workspace.runtime / "startup.lock", timeout=15):
             if url := self.discover():
                 return url
