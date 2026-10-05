@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`main` after `0.1.0a6`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a7`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 

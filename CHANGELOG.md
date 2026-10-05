@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a7
 
-Terminal experience and everyday catalog fixes. The JSON envelope, MCP tools and HTTP routes are unchanged for captured output.
+Tracklist-to-crate workflow, rekordbox analysis import, terminal experience, local review page and everyday catalog fixes. The JSON envelope, MCP tools and HTTP routes are unchanged for captured output.
 
 - **Tracklist → crate.** `requests create --text FILE` turns a pasted tracklist into a request list (numbering, timestamps and labels stripped; headings name the list; skipped lines reported). Missing songs show which other versions you own. `requests collect ID` (MCP `djlib_collect_request`, `POST /requests/{id}/collection`) queues an ordered collection of the owned songs.
 - **rekordbox analysis import.** `import-rekordbox XML` (MCP `djlib_import_rekordbox_analysis`, `POST /analysis/rekordbox`) reads BPM/key from a rekordbox Collection XML export, matched by exact file path to originals or prepared working copies, as unverified `rekordbox_analysis` annotations that never overwrite values you set. Library rows and collection pages include a `dj` summary, and terminal tables show BPM/Key.
