@@ -770,6 +770,15 @@ def init_view(term: Terminal, result: dict) -> None:
     next_steps(term, steps)
 
 
+@view("ui")
+def review_page(term: Terminal, result: dict) -> None:
+    header(term, "Review page", "opening in your browser")
+    term.out.print(Text("  " + (result.get("url") or ""), style="path"), soft_wrap=True)
+    term.out.print()
+    note(term, "The link contains this workspace's access token. Keep it to yourself.")
+    note(term, "It works while djlib's background service is running.")
+
+
 @view("doctor")
 def doctor(term: Terminal, result: dict) -> None:
     header(term, "djlib doctor", __version__)

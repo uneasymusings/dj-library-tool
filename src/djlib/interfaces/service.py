@@ -12,7 +12,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from filelock import FileLock
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -56,6 +56,30 @@ def envelope(result: dict | None = None, error: dict | None = None) -> dict:
     }
 
 
+# The review page's static files carry no catalog data, so they load without the token;
+# the page then calls the JSON routes with it. Exact paths only.
+UI_FILES = {
+    "/ui/": ("index.html", "text/html; charset=utf-8"),
+    "/ui/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/ui/app.css": ("app.css", "text/css; charset=utf-8"),
+}
+UI_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+        "img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
+
+
+def ui_file(name: str) -> bytes:
+    from importlib.resources import files
+
+    return files("djlib.interfaces").joinpath("web", name).read_bytes()
+
+
 def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = True) -> FastAPI:
     database = Database(workspace.database)
     database.migrate()
@@ -72,6 +96,8 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
         database.engine.dispose()
 
     async def authorized(request: Request, authorization: str | None = Header(default=None)):
+        if request.method == "GET" and request.url.path in UI_FILES:
+            return
         expected = f"Bearer {workspace.token()}"
         if not authorization or not secrets.compare_digest(authorization, expected):
             raise AppError("AUTH_REQUIRED", "A valid local service token is required.", 401)
@@ -105,6 +131,14 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
             ),
             status_code=422,
         )
+
+    def ui_route(path: str, name: str, media_type: str) -> None:
+        @app.get(path, include_in_schema=False)
+        async def page():
+            return Response(ui_file(name), media_type=media_type, headers=UI_HEADERS)
+
+    for path, (name, media_type) in UI_FILES.items():
+        ui_route(path, name, media_type)
 
     @app.get("/health")
     async def health():
