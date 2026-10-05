@@ -3,24 +3,21 @@
 import hashlib
 import json
 import math
-import re
-from collections import Counter
 
 import mutagen
 from sqlalchemy import select, update
 
 from djlib.application.service import add_event, new_id, require
+from djlib.audio.file_identity import path_snapshot
 from djlib.audio.inspection import checksum
 from djlib.domain.errors import AppError
 from djlib.domain.organization_contracts import AnnotationRequest, OrganizationRequest, clean_key
 from djlib.persistence.models import (
     Asset,
     AssetRevision,
-    Collection,
     FileLocation,
     Job,
     JobItem,
-    Membership,
     Recording,
     Submission,
     timestamp,
@@ -161,14 +158,16 @@ def inspect_metadata(app, recording_id: str, asset_revision_id: str) -> dict:
     for candidate in paths:
         try:
             path = app.workspace.authorize(candidate)
-            before = path.stat()
-            if before.st_size > 2 * 1024 * 1024 * 1024:
+            before = path_snapshot(path)
+            if not before.is_regular or before.is_reparse:
+                raise AppError("FILE_CHANGED", "Metadata requires a stable regular file.")
+            if before.size > 2 * 1024 * 1024 * 1024:
                 raise AppError("AUDIO_SIZE_LIMIT", "Metadata inspection is limited to 2 GiB.")
             if checksum(path) != digest:
                 raise AppError("RECONCILIATION_REQUIRED", "Catalog bytes changed; reconcile first.")
             embedded = _embedded(path)
-            after = path.stat()
-            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            after = path_snapshot(path)
+            if before.signature != after.signature:
                 raise AppError("FILE_CHANGED", "The file changed during metadata inspection.")
             return {
                 "recording_id": recording_id,
@@ -342,112 +341,7 @@ def _filter(metadata, request):
 
 
 def organize_collection(app, request: OrganizationRequest) -> dict:
-    """Freeze evaluated membership; a repeated key returns the same completed collection."""
-    payload, digest = _intent("collection", request)
-    with app.db.transaction() as session:
-        prior = _previous(session, request.idempotency_key, digest)
-    if prior:
-        return app.job(prior)
-    seen, evaluated, selected, excluded = {}, [], [], []
-    for position, track in enumerate(request.tracks):
-        ref = track.model_dump()
-        if track.recording_id in seen:
-            if seen[track.recording_id] != track.asset_revision_id:
-                raise AppError(
-                    "ORGANIZATION_REVISION_CONFLICT",
-                    "One recording has different selected byte revisions.",
-                )
-            excluded.append({**ref, "reasons": ["duplicate_reference"]})
-            continue
-        seen[track.recording_id] = track.asset_revision_id
-        try:
-            metadata = inspect_metadata(app, track.recording_id, track.asset_revision_id)
-        except AppError as exc:
-            excluded.append({**ref, "reasons": [exc.code]})
-            continue
-        evaluated.append(metadata)
-        reasons, unknowns = _filter(metadata, request)
-        if reasons:
-            excluded.append({**ref, "reasons": reasons})
-        else:
-            selected.append({**metadata, "input_position": position, "unknowns": unknowns})
-    if request.order_by != "input":
+    """Accept a durable selection; use job progress before reading its collection ID."""
+    from djlib.application.organization_jobs import submit_organization
 
-        def sort_value(track):
-            field = request.order_by
-            value = track.get(field) if field in {"artist", "title"} else track["effective"][field]
-            if field in {"bpm", "key"}:
-                value = value["value"]
-            if field == "key" and value is not None:
-                wheel = re.fullmatch(r"(\d{1,2})([ABdm])", value)
-                # Numeric wheel order, without guessing equivalences across key notations.
-                return (0, int(wheel[1]), wheel[2]) if wheel else (1, 0, value.casefold())
-            return value.casefold() if isinstance(value, str) else value
-
-        # Unknown sort values remain last in either direction; IDs break ties deterministically.
-        known = [t for t in selected if sort_value(t) is not None]
-        unknown = [t for t in selected if sort_value(t) is None]
-        known.sort(
-            key=lambda t: (sort_value(t), t["recording_id"], t["asset_revision_id"]),
-            reverse=request.descending,
-        )
-        selected = known + sorted(
-            unknown, key=lambda t: (t["recording_id"], t["asset_revision_id"])
-        )
-    elif request.descending:
-        selected.reverse()
-    with app.db.transaction() as session:
-        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
-        prior = _previous(session, request.idempotency_key, digest)
-        if prior:
-            job_id = prior
-        else:
-            # Decisions cannot commit against annotations changed during tag reads.
-            for metadata in evaluated:
-                row = session.get(RecordingAnnotation, metadata["asset_revision_id"])
-                if (row.revision if row else 0) != metadata["revision"]:
-                    raise AppError(
-                        "ANNOTATION_STALE", "Annotations changed; rebuild the selection.", 409
-                    )
-            collection = Collection(id=new_id("collection"), name=request.name)
-            session.add(collection)
-            session.flush()
-            items = []
-            for position, track in enumerate(selected):
-                session.add(
-                    Membership(
-                        id=new_id("membership"),
-                        collection_id=collection.id,
-                        recording_id=track["recording_id"],
-                        revision_id=track["asset_revision_id"],
-                        position=position,
-                    )
-                )
-                items.append(
-                    (
-                        track,
-                        "succeeded",
-                        {"collection_position": position, "unknowns": track["unknowns"]},
-                    )
-                )
-            items.extend(
-                (track, "skipped", {"exclusion_reasons": track["reasons"]}) for track in excluded
-            )
-            result = {
-                "collection_id": collection.id,
-                "name": request.name,
-                "selected_count": len(selected),
-                "excluded_count": len(excluded),
-                "exclusion_counts": dict(
-                    Counter(reason for item in excluded for reason in item["reasons"])
-                ),
-                "excluded": excluded,
-                "order_by": request.order_by,
-                "unknown_included_count": sum(bool(t["unknowns"]) for t in selected),
-                "source_modified": False,
-                "acoustic_analysis_performed": False,
-                "app_state": "not_imported",
-                "device_state": "not_exported",
-            }
-            job_id = _completed(session, request, payload, digest, result, items)
-    return app.job(job_id)
+    return submit_organization(app, request)

@@ -209,11 +209,18 @@ class DeliveryNativeXMLRequest(Contract):
 def normalize(value: str) -> str:
     """Normalize labels for conservative text matching, retaining mix qualifiers."""
     value = unicodedata.normalize("NFKC", value).casefold()
-    return " ".join(re.sub(r"[^\w]+", " ", value).split())
+    words = " ".join(re.sub(r"[^\w]+", " ", value).split())
+    # Symbol-only names are valid musical labels. An empty normalized name would
+    # silently merge every such artist/title, including unrelated recordings.
+    return words or " ".join(value.split())
 
 
 def recording_key(artist: str, title: str, version: str = "") -> str:
-    return "|".join(normalize(part) for part in (artist, title, version))
+    # Escape delimiters in preserved symbol-only labels without changing existing
+    # ordinary text keys. Catalog upgrades deliberately do not rewrite old IDs.
+    return "|".join(
+        normalize(part).replace("%", "%25").replace("|", "%7C") for part in (artist, title, version)
+    )
 
 
 def version_markers(value: str) -> frozenset[str]:

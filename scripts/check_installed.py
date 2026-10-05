@@ -25,6 +25,18 @@ from djlib.interfaces.tool_manifest import TOOL_NAMES
 from djlib.workspace import Workspace
 
 
+async def wait_for_mcp_job(call, job_id: str, *, timeout: float = 30) -> dict:
+    """Bounded original-tone check; a terminal partial result is never success."""
+    deadline = time.monotonic() + timeout
+    while True:
+        job = await call("djlib_job", {"job_id": job_id})
+        if job["state"] not in {"queued", "running"}:
+            assert job["state"] == "completed" and job["outcome"] == "complete", job
+            return job
+        assert time.monotonic() < deadline, {"timed_out": True, "job": job}
+        await asyncio.sleep(0.1)
+
+
 async def check_library_workflows(client, collection_id: str) -> None:
     """Exercise the installed request/organization adapters using only original demo bytes."""
 
@@ -124,10 +136,12 @@ async def check_library_workflows(client, collection_id: str) -> None:
         "order_by": "input",
     }
     organized = await call("djlib_organize", {"request_body": organization_body})
-    assert (await call("djlib_organize", {"request_body": organization_body})) == organized
+    repeated = await call("djlib_organize", {"request_body": organization_body})
+    assert repeated["job_id"] == organized["job_id"]
+    organized = await wait_for_mcp_job(call, organized["job_id"])
     assert organized["result"]["selected_count"] == 1
-    assert organized["result"]["app_state"] == "not_imported"
-    assert organized["result"]["device_state"] == "not_exported"
+    assert organized["result"]["app_state"] == "not_tracked_here"
+    assert organized["result"]["device_state"] == "not_tracked_here"
     filtered = await call(
         "djlib_collection", {"collection_id": organized["result"]["collection_id"]}
     )

@@ -27,6 +27,21 @@ executable = shutil.which(host)
 if not executable:
     raise SystemExit(f"Install and sign into {host} first; it is not on PATH.")
 server = config["server"]
+# Start outside the host's MCP stdio job. Windows MCP transports may kill the
+# complete child process tree when a connection closes, including a daemon
+# incorrectly started inside that job. Never escape or weaken a host job.
+startup = [server["command"], "-m", "djlib.interfaces.cli", "--workspace",
+    config["workspace"], "service", "start"]
+started = subprocess.run(startup, cwd=root, capture_output=True, text=True, check=False)
+if started.returncode:
+    sys.stderr.write(started.stderr or started.stdout)
+    raise SystemExit(started.returncode)
+try:
+    reply = json.loads(started.stdout)
+except ValueError:
+    raise SystemExit("Coordinator startup returned invalid JSON; the host was not launched.")
+if reply.get("ok") is not True:
+    raise SystemExit("Coordinator startup failed; the host was not launched.")
 if host == "codex":
     # --ignore-user-config is currently an exec option, not an interactive option.
     extra = sys.argv[2:]
@@ -101,12 +116,16 @@ def create_agent_session(workspace: Workspace, output: Path) -> dict:
             "# Fresh assistant session\n\n"
             "From this directory, use your installed Python to run:\n\n"
             "```sh\npython launch.py codex\npython launch.py claude\n```\n\n"
-            "The launchers supply explicit local MCP configuration. "
+            "The launchers start or reuse the matching coordinator before the AI host, "
+            "then supply explicit local MCP configuration. "
             "Codex exec ignores personal config; interactive Codex retains personal host settings. "
             "Claude uses only this MCP config but retains other personal host settings. "
             "Existing host sign-in and execution permissions still apply. "
             "The project contains the portable skill for both hosts. "
-            "No personal host configuration or credentials are copied or changed.\n\n"
+            "No personal host configuration or credentials are copied or changed. "
+            "For manually configured Windows MCP, run djlib --workspace YOUR_LIBRARY "
+            "service start in an ordinary terminal before connecting. "
+            "The engine must live outside the MCP transport's process job.\n\n"
             "Try: Read djlib capabilities, inspect the existing collections, prepare an export, "
             "and report the exact app import paths and remaining USB steps.\n",
             encoding="utf-8",

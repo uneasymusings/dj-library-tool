@@ -2,13 +2,54 @@
 
 All application commands emit an envelope with `schema_version`, `ok`, `result`, `warnings`, and `error`. No `--json` option is needed. Supply an initialized workspace explicitly. Do not pass private user paths into public repository examples or commits.
 
-`requests`, `organize`, and `delivery` below are a3 interfaces; they are not available in the older a2 wheel. Check `version`, `capabilities` and connected tool schemas before using them.
+These recipes describe a6. Earlier a3 has requests, organization and delivery but lacks a6 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
+
+Windows MCP requires a coordinator started outside the assistant host. Generated `launch.py` starts it before the host; manual configurations require `djlib --workspace PATH service start` from an external terminal. `COORDINATOR_START_REQUIRED` is the recovery signal, not an accepted background job. The engine does not escape Windows Job Object cleanup. `service status` inspects the service and `service stop` explicitly checkpoints/stops it.
+
+## Startup recovery
+
+`SERVICE_START_BUSY` means another starter held the lock beyond 45 seconds: inspect status before retrying. `SERVICE_START_FAILED` means the child exited and no healthy service appeared: inspect `runtime/service.log` and resolve the actual error. `SERVICE_START_TIMEOUT` means the 30-second readiness window expired while the child remained running: inspect status/logs before retrying rather than launching repeatedly. Each startup attempt spawns at most one child. These errors do not submit a music intent. Redact logs before sharing; a later uncertain mutation still uses its original idempotency key.
 
 ```bash
 djlib --workspace /path/to/workspace capabilities
 djlib --workspace /path/to/workspace library --query "Joy Orbison"
 djlib --workspace /path/to/workspace source-inspect 'https://soundcloud.com/USER/SET'
 ```
+
+## Discover saved work and reconcile changed files
+
+Version a6 adds six MCP tools:
+
+| MCP tool | CLI | Purpose |
+| --- | --- | --- |
+| `djlib_collections` | `collections --query TEXT` | Find saved collections. |
+| `djlib_requests` | `requests list --query TEXT` | Find persisted request ledgers. |
+| `djlib_deliveries` | `delivery list --query TEXT` | Find persisted app/device deliveries. |
+| `djlib_roots` | `roots list` | Read allowed music roots. |
+| `djlib_add_roots` | `roots add PATH...` | Explicitly add existing user-authorized folders. |
+| `djlib_reconcile` | `reconcile --file FILE` | Queue explicit changed-file reconciliation. |
+
+Catalog, jobs and saved-work lists accept `query`, `limit` (1–100) and optional opaque `after`. Pass returned `next_cursor` with the same listing/query until null. CLI example: `library --query "Artist" --limit 100 --after NEXT_CURSOR`. Results report total and insertion cutoff; mutable metadata/locations may change between pages. Each library row groups a recording/revision and its locations. A path is recorded evidence, not freshly verified availability. Generic collection app/device state is `not_tracked_here`; inspect delivery evidence for native progress.
+
+`djlib_add_roots` accepts `{"paths":["/actual/music/folder"]}`. It preserves existing roots and moves no music. Existing-workspace `init --allow-root` does not add permissions; a new root returns `ROOTS_NOT_UPDATED` and directs to this explicit operation.
+
+After a catalog file changes, submit `reconciliation.json`:
+
+```json
+{
+  "idempotency_key": "changed-file-v1",
+  "items": [{
+    "path": "/allowed/music/track.flac",
+    "expected_asset_revision_id": "OLD_ASSET_REVISION_ID",
+    "expected_sha256": "REPLACE_WITH_CURRENT_NEW_FILE_64_CHARACTER_SHA256",
+    "action": "tag_only"
+  }]
+}
+```
+
+Replace the hash placeholder with SHA-256 of the **current changed file**, not its old catalog hash. `reconcile --file reconciliation.json` returns a durable job; wait/poll and inspect all item outcomes. Up to 1,000 distinct paths are accepted. `tag_only` checks unchanged decoded payload and stream format, preserving recording/asset identity while adding a revision. A legacy revision needs another verified original-byte location when no baseline is saved; `AUDIO_BASELINE_UNAVAILABLE` cannot be overridden by assuming tags-only changes. `replace_audio` uses exact known bytes or a provisional identity, never the old song label by assumption.
+
+Both actions leave audio untouched and retain old revision/history. They do not move pinned memberships or copy prior annotations; build/review new selections explicitly. Affected request matches and delivery evidence are invalidated; historical exports retain their outcomes with a stale reconciliation marker. New provisional/symbol-aware identity rules do not automatically repair old incorrect merges.
 
 ## Exact requests and unknown IDs
 
@@ -91,7 +132,7 @@ Example `organized.json`:
 djlib --workspace PATH organize collection --file organized.json
 ```
 
-The completed job returns a frozen collection and item outcomes. Review exclusions; recordings can appear in several collections. Up to 1,000 explicit references are accepted. Filter fields are `bpm_min`, `bpm_max`, `keys`, `genres`, `tags`, `set_roles` and `require_verified`. Active categories combine with AND; labels within a category are alternatives. Unknown/unverified filter values use `exclude` by default, or explicit `include`/`error`. Sorting supports `input`, `artist`, `title`, `bpm`, `key` or `energy`, with `descending`; unknown sort values remain last. Key filters match supplied labels; wheel labels sort numerically, without translating between key systems or checking harmonic compatibility. Stable keys return the original result; changed organization needs a new key. Metadata/organization hashing is synchronous (180-second client timeout), not a background analysis job; inspect state after a lost response and keep large selections bounded.
+Organization returns a queued job; use `jobs wait JOB_ID --timeout 30`, inspect `jobs items JOB_ID`, then use its completed collection result. Review exclusions; recordings may appear in several collections. Up to 1,000 explicit references are accepted. Filter fields are `bpm_min`, `bpm_max`, `keys`, `genres`, `tags`, `set_roles` and `require_verified`. Active categories combine with AND; labels within a category are alternatives. Unknown/unverified evidence uses `exclude` by default, or explicit `include`/`error`. Sorting supports `input`, `artist`, `title`, `bpm`, `key` or `energy`, with `descending`; unknown sort values remain last. Key filters match labels and wheel labels sort numerically without translating systems. Stable keys return the original job; changed intent needs a new key. Metadata reads and annotation checks remain bounded synchronous operations; queued organization does not perform acoustic analysis.
 
 ## Owned tracks
 
@@ -167,6 +208,8 @@ For local app preparation, no exact hardware model or USB is needed. Read `djlib
 
 Choose `serato_import` for Serato. Omit `hardware_profile` for both app-only workflows. App profiles assess a conservative documented input subset, not musical accuracy or standalone player compatibility.
 
+Supply the version observed in the app's About screen or a supported native XML snapshot. Bundle build metadata such as `CFBundleVersion` can differ; it must not be used as an unqualified runtime-version guess. Resolve mismatches before planning or recording matching-version observations.
+
 Plans freeze explicit catalog annotations and their revision in `dj_metadata`. Preparation writes supplied BPM/key/genre tags and notes/tags/role/energy comments into separate WAV/AIFF/MP3, FLAC or MP4 working copies; originals remain untouched. Where no override is supplied, existing supported embedded tags remain. The manifest preserves exact annotations/provenance. MP4's integer `tmpo` cannot hold fractional BPM: the exact value is retained in a freeform tag/manifest with a warning, never rounded into a false tempo. Check actual native display and analysis after import; tag writing is not acoustic analysis or an accuracy guarantee. Later annotation changes do not alter an already frozen delivery.
 
 ```bash
@@ -180,9 +223,11 @@ After all preparation items succeed, import the named playlists/files and analyz
 
 ```bash
 djlib --workspace PATH delivery verify-app DELIVERY_ID --revision CURRENT
+djlib --workspace PATH jobs wait VERIFICATION_JOB_ID --timeout 30
+djlib --workspace PATH jobs items VERIFICATION_JOB_ID
 ```
 
-MCP equivalent: `djlib_verify_delivery_app(delivery_id, revision)`. Fresh successful `ready_for_app_use` verifies working files and depends on the recorded native observations. `delivery get` does not perform a fresh check, and neither action grants USB readiness. This completes the app-only scope without device binding/playback evidence. A later USB delivery needs its own matching pilot.
+MCP equivalent: `djlib_verify_delivery_app(delivery_id, revision)`, returning a job. A completed successful job returns only `delivery_id`, `revision` and `evidence_committed: true`, never `ready_for_app_use`. Read `delivery get` for `app_requirements_met_at_last_check`, blockers and `evidence.app_readback.checked_at` (also `last_app_readback_at`); these retain saved, operator-conditional evidence. Rereading that saved job or `delivery get` is not a fresh check; read the latest delivery revision and submit again when freshness matters. No USB readiness is granted. This completes app-only scope without device binding/playback. Later USB work is a separate delivery; local preparation may start without a physical pilot.
 
 For rekordbox, export a supported snapshot through **File > Export Collection in xml format** into the allowed workspace, then inspect its exact working paths, playlist membership/order and declared app version:
 
@@ -223,7 +268,7 @@ Follow the job's named playlists, frozen `delivery-manifest.json` and `NATIVE_ST
 
 Stages are `imported`, `analyzed`, `native_exported`, `device_library_checked`, and `hardware_playback`. Use `native_app_ui` for the first four and `physical_hardware` for actual playback. Successful native observations cover all frozen IDs/counts; hardware playback covers all pilot tracks and may sample a full delivery. Failed observations preserve real partial counts and invalidate later evidence.
 
-A successful rekordbox USB `hardware_playback` observation also needs the matching `hardware_profile`, actual nonblank `firmware_version`, and `storage_recognized: true`. CDJ-3000 firmware 3.30 was withdrawn and cannot pass, including v/case variants. Analysis reconciliation is synchronous; changed working-copy tags require audio checks. Observation/app-verification clients allow 600 seconds; larger changed batches can exceed that. If a request times out, read the delivery again before retrying its revision.
+A successful rekordbox USB `hardware_playback` observation also needs matching `hardware_profile`, actual nonblank `firmware_version`, and `storage_recognized: true`. CDJ-3000 firmware 3.30 cannot pass, including v/case variants. Passed `analyzed` and `native_exported` observations queue per-track check jobs; wait for each job and read the updated revision before another stage or app verification. Stable native-check keys derive from delivery ID, revision, operation and full observation. Retry the identical intent after a lost response to recover the same job, even after its evidence commit. Pause/cancel fences prevent stale finalization. Native-export jobs require exact analyzed hashes for every working file and validate the bound volume at acceptance/finalization; they do not export audio. Other observation stages and device verification remain direct revision-checked operations.
 
 After native export and device-library inspection:
 
@@ -231,4 +276,4 @@ After native export and device-library inspection:
 djlib --workspace PATH delivery verify-device DELIVERY_ID --revision CURRENT
 ```
 
-Test hardware playback, record it, reconnect and run a fresh verification before ejecting. `delivery get` never freshly verifies audio hashes. `ready_for_departure` can only be true in a fresh successful verification response with all required operator/native evidence present. A full request uses `phase: "full"` and a matching `pilot_delivery_id`; it cannot prepare before that pilot passes. The snapshot does not grow as later downloads finish.
+Test hardware playback, record it, reconnect and freshly verify before ejecting. `delivery get` never freshly verifies audio hashes. `ready_for_departure` requires fresh successful device verification plus all native/hardware evidence. A full request uses `phase: "full"` and may omit `pilot_delivery_id` for explicitly unvalidated local preparation. If supplied, the pilot must match and pass. Pilot/full working paths are separate; native cues and analysis are not reused automatically. Snapshots do not grow as later downloads finish.

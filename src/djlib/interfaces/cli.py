@@ -5,6 +5,7 @@ import json
 import shutil
 from functools import wraps
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from pydantic import ValidationError
@@ -20,6 +21,7 @@ from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient, default_workspace
 from djlib.interfaces.library_cli import register_commands
 from djlib.interfaces.service import envelope
+from djlib.interfaces.validation import validation_message
 from djlib.workspace import Workspace
 
 app = typer.Typer(help="Build traceable DJ music collections locally.", no_args_is_help=True)
@@ -27,12 +29,14 @@ jobs = typer.Typer(help="Inspect and control durable jobs.")
 reviews = typer.Typer(help="Resolve explicit metadata conflicts.")
 service = typer.Typer(help="Manage the local coordinator.")
 mcp = typer.Typer(help="Expose the same use cases over MCP stdio.")
-delivery = typer.Typer(help="Prepare and verify an app-mediated DJ USB workflow.")
+delivery = typer.Typer(help="Prepare and verify native DJ app import or portable USB delivery.")
+roots = typer.Typer(help="Inspect or explicitly add allowed music folders.")
 app.add_typer(jobs, name="jobs")
 app.add_typer(reviews, name="reviews")
 app.add_typer(service, name="service")
 app.add_typer(mcp, name="mcp")
 app.add_typer(delivery, name="delivery")
+app.add_typer(roots, name="roots")
 
 
 def handled(function):
@@ -46,6 +50,8 @@ def handled(function):
             error = (
                 exc
                 if isinstance(exc, AppError)
+                else AppError("INPUT_INVALID", validation_message(exc))
+                if isinstance(exc, ValidationError)
                 else AppError("INPUT_INVALID", "Check input JSON, paths, and the command schema.")
             )
             emit(envelope(error=error.as_dict()))
@@ -81,6 +87,23 @@ def init(ctx: typer.Context, allow_root: list[Path] = typer.Option(None, "--allo
     """Initialize an empty workspace and explicitly allow existing music folders."""
     config = ctx.obj.initialize(allow_root)
     emit(envelope({"workspace": str(ctx.obj.root), "config": config.model_dump(mode="json")}))
+
+
+@roots.command("list")
+@handled
+def roots_list(ctx: typer.Context):
+    """Read explicit media permissions; no filesystem discovery."""
+    emit(client(ctx).request("GET", "/roots"))
+
+
+@roots.command("add")
+@handled
+def roots_add(ctx: typer.Context, paths: Annotated[list[Path], typer.Argument()]):
+    """Add existing music folders without changing music or previous permissions."""
+    from djlib.domain.workspace_contracts import RootsRequest
+
+    body = RootsRequest(paths=[str(path) for path in paths])
+    emit(client(ctx).request("POST", "/roots", data=body.model_dump(mode="json")))
 
 
 @app.command()
@@ -125,7 +148,9 @@ def schemas() -> None:
         StartRequest,
     )
     from djlib.domain.organization_contracts import AnnotationRequest, OrganizationRequest
+    from djlib.domain.reconciliation_contracts import ReconcileRequest
     from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
+    from djlib.domain.workspace_contracts import RootsRequest
 
     emit(
         envelope(
@@ -153,6 +178,8 @@ def schemas() -> None:
                     RequestCreate,
                     RequestRefresh,
                     RequestResolution,
+                    ReconcileRequest,
+                    RootsRequest,
                 )
             }
         )
@@ -240,10 +267,41 @@ def source_inspect(ctx: typer.Context, url: str) -> None:
 @app.command()
 @handled
 def library(
-    ctx: typer.Context, query: str = "", limit: int = typer.Option(20, min=1, max=100)
+    ctx: typer.Context,
+    query: str = "",
+    limit: int = typer.Option(20, min=1, max=100),
+    after: str | None = typer.Option(None),
 ) -> None:
-    """Search catalog labels with bounded results."""
-    emit(client(ctx).request("GET", "/library", params={"query": query, "limit": limit}))
+    """Page distinct catalog recordings/revisions; reuse next_cursor with --after."""
+    params = {"query": query, "limit": limit}
+    if after is not None:
+        params["after"] = after
+    emit(client(ctx).request("GET", "/library", params=params))
+
+
+@app.command("collections")
+@handled
+def collections(
+    ctx: typer.Context,
+    query: str = "",
+    limit: int = typer.Option(20, min=1, max=100),
+    after: str | None = typer.Option(None),
+):
+    """Find saved collections without remembering their IDs."""
+    params = {"query": query, "limit": limit}
+    if after is not None:
+        params["after"] = after
+    emit(client(ctx).request("GET", "/collections", params=params))
+
+
+@app.command("reconcile")
+@handled
+def reconcile(ctx: typer.Context, file: Path = typer.Option(..., "--file")):
+    """Queue explicit hash-pinned tag-only or replacement reconciliation."""
+    from djlib.domain.reconciliation_contracts import ReconcileRequest
+
+    request = ReconcileRequest.model_validate_json(file.read_text(encoding="utf-8"))
+    emit(client(ctx).request("POST", "/reconciliations", data=request.model_dump(mode="json")))
 
 
 @app.command()
@@ -288,8 +346,31 @@ def usb_preflight(
 
 @jobs.command("list")
 @handled
-def job_list(ctx: typer.Context, limit: int = typer.Option(20, min=1, max=100)) -> None:
-    emit(client(ctx).request("GET", "/jobs", params={"limit": limit}))
+def job_list(
+    ctx: typer.Context,
+    limit: int = typer.Option(20, min=1, max=100),
+    query: str = typer.Option(""),
+    after: str | None = typer.Option(None),
+) -> None:
+    params = {"limit": limit, "query": query}
+    if after is not None:
+        params["after"] = after
+    emit(client(ctx).request("GET", "/jobs", params=params))
+
+
+@delivery.command("list")
+@handled
+def delivery_list(
+    ctx: typer.Context,
+    query: str = typer.Option(""),
+    limit: int = typer.Option(20, min=1, max=100),
+    after: str | None = typer.Option(None),
+):
+    """Find saved deliveries; listed observations are not fresh verification."""
+    params = {"query": query, "limit": limit}
+    if after is not None:
+        params["after"] = after
+    emit(client(ctx).request("GET", "/deliveries", params=params))
 
 
 @delivery.command("targets")
@@ -478,6 +559,15 @@ def review_resolve(
 @handled
 def service_status(ctx: typer.Context) -> None:
     emit(envelope({"url": client(ctx).discover()}))
+
+
+@service.command("start")
+@handled
+def service_start(ctx: typer.Context) -> None:
+    """Start or reuse the matching coordinator outside the assistant's MCP process."""
+    local = client(ctx)
+    url = local.start()
+    emit(envelope({"url": url, "application_version": __version__}))
 
 
 @service.command("stop")

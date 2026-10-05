@@ -20,6 +20,7 @@ from djlib.domain.contracts import (
     TrackInput,
 )
 from djlib.domain.errors import AppError
+from djlib.exporting import device_readback
 from djlib.exporting.delivery_media import pcm_hash
 from djlib.jobs.worker import Worker
 from djlib.persistence.models import AssetRevision, Recording
@@ -252,6 +253,135 @@ async def test_full_preparation_requires_matching_completed_native_pilot(
     with pytest.raises(AppError) as error:
         delivery.prepare_delivery(application, mismatched["delivery_id"], 1, "wrong-mode")
     assert error.value.code == "PILOT_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    "workflow", ["rekordbox_usb", "serato_portable", "rekordbox_import", "serato_import"]
+)
+async def test_full_local_preparation_without_pilot_never_grants_native_readiness(
+    application, audio_factory, monkeypatch, media_dependencies, workflow
+):
+    _, collections = await catalog(application, audio_factory)
+    monkeypatch.setattr(
+        delivery, "inspect_device", lambda *_: pytest.fail("Local preparation must not query USB")
+    )
+    status = delivery.create_delivery(
+        application,
+        request(
+            collections,
+            phase="full",
+            pilot_size=1,
+            workflow=workflow,
+            hardware_profile="cdj-3000" if workflow == "rekordbox_usb" else None,
+        ),
+    )
+    assert status["snapshot"]["selected_unique_tracks"] == 3
+    assert status["pilot_validation"] == "not_supplied"
+    assert not status["pilot_required_before_full"]
+    job = delivery.prepare_delivery(application, status["delivery_id"], 1, "full-at-home")
+    completed = await execute(application, job["job_id"])
+    assert completed["outcome"] == "complete"
+    manifest = json.loads(Path(completed["result"]["manifest_path"]).read_text())
+    assert manifest["preparation_scope"] == "local_files_only"
+    assert manifest["pilot_validation"] == "not_supplied"
+    status = delivery.delivery_status(application, status["delivery_id"])
+    assert status["prepared_for_import"] and status["prepared_without_validated_pilot"]
+    assert not status["ready_for_app_use"] and not status["ready_for_departure"]
+    assert "imported" in status["blockers"] and "analyzed" in status["blockers"]
+    with pytest.raises(AppError) as error:
+        if workflow.endswith("_import"):
+            delivery.verify_app(application, status["delivery_id"], status["revision"])
+        else:
+            delivery.verify_device(application, status["delivery_id"], status["revision"])
+    assert error.value.code in {"APP_STAGE_REQUIRED", "NATIVE_EXPORT_REQUIRED"}
+
+
+async def test_nonexistent_or_nonpilot_claim_is_rejected(application, audio_factory):
+    _, collections = await catalog(application, audio_factory)
+    full = delivery.create_delivery(application, request(collections, phase="full"))
+    for claimed in ("delivery_missing", full["delivery_id"]):
+        status = delivery.create_delivery(
+            application, request(collections, phase="full", pilot_delivery_id=claimed)
+        )
+        assert status["pilot_validation"] == "not_validated"
+        with pytest.raises(AppError) as error:
+            delivery.prepare_delivery(application, status["delivery_id"], 1, f"invalid-{claimed}")
+        assert error.value.code == "PILOT_REQUIRED"
+
+
+async def test_delivery_unavailable_selected_location_is_actionable(
+    application, audio_factory, monkeypatch
+):
+    _, collections = await catalog(application, audio_factory)
+    original = application.collection
+
+    def unavailable(collection_id):
+        snapshot = original(collection_id)
+        for track in snapshot["tracks"]:
+            track["path"] = None
+        return snapshot
+
+    monkeypatch.setattr(application, "collection", unavailable)
+    with pytest.raises(AppError, match="reconcile") as error:
+        delivery.create_delivery(application, request(collections))
+    assert error.value.code == "FILE_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("partition", ["MBR", "GPT", None])
+async def test_windows_partition_evidence_reaches_actual_departure_gate(
+    application, audio_factory, monkeypatch, tmp_path, media_dependencies, partition
+):
+    _, _, status, manifest = await prepared_delivery(
+        application, audio_factory, workflow="rekordbox_usb", hardware_profile="cdj-3000"
+    )
+    root = tmp_path / "windows-volume-fixture"
+    root.mkdir()
+    marker = root / "PIONEER/rekordbox/export.pdb"
+    marker.parent.mkdir(parents=True)
+    marker.write_bytes(b"synthetic marker only; no native database written")
+    monkeypatch.setattr(Path, "is_mount", lambda self: self == root)
+    monkeypatch.setattr(device_readback.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        device_readback,
+        "_windows_volume_info",
+        lambda _: {
+            "value": "\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\",
+            "method": "windows_volume_guid",
+            "confidence": "strong",
+            "filesystem": "FAT32",
+            "filesystem_type": "FAT32",
+        },
+    )
+
+    def scheme(_):
+        if partition is None:
+            raise OSError("Partition query unavailable")
+        return partition
+
+    monkeypatch.setattr(device_readback, "_windows_partition_scheme", scheme)
+    status = delivery.bind_device(application, status["delivery_id"], status["revision"], str(root))
+    for stage in ("imported", "analyzed", "native_exported", "device_library_checked"):
+        status = observe(application, status, manifest, stage)
+    for track in status["evidence"]["analyzed"]["assets"]:
+        shutil.copyfile(track["path"], root / f"{track['recording_id']}.wav")
+    status = delivery.verify_device(application, status["delivery_id"], status["revision"])
+    assert not status["ready_for_departure"] and "hardware_playback" in status["blockers"]
+    status = observe(
+        application,
+        status,
+        manifest,
+        "hardware_playback",
+        hardware_profile="cdj-3000",
+        firmware_version="3.20",
+        storage_recognized=True,
+    )
+    status = delivery.verify_device(application, status["delivery_id"], status["revision"])
+    assert status["ready_for_departure"] is (partition == "MBR")
+    assert status["current_device"]["volume_identity"]["partition_scheme"] == partition
+    if partition != "MBR":
+        assert (
+            "partition_scheme_unknown" if partition is None else "partition_scheme_unsupported"
+        ) in status["blockers"]
 
 
 async def test_failed_preparation_retains_successes_but_publishes_no_handoff(

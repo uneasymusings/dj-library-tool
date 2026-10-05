@@ -1,8 +1,8 @@
 # Deliver a collection through a native DJ app
 
-This workflow describes **0.1.0a3**. It prepares isolated working copies and records the path from a catalog collection to a native app, with a separate route for device delivery. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
+This workflow describes **0.1.0a6**. It prepares isolated working copies and records the path to a native app, with a separate route for device delivery. Earlier a3 requires a matching pilot before full preparation and performs analysis/app checks synchronously. See [status](STATUS.md) for actual validation and publication evidence. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
 
-Use `delivery get DELIVERY_ID` to resume a delivery and see its next blocker. App-only work progresses through **cataloged → prepared for import → imported → analyzed → working files checked**. A separate USB delivery continues through **native exported → device library checked → hardware playback checked**, with device byte readback. A download, M3U, XML, database filename, or successful hash readback alone cannot establish native app or hardware behavior.
+Use `delivery list --query NAME` to rediscover saved work, then `delivery get DELIVERY_ID` for its next blocker. App-only work progresses through **cataloged → prepared for import → imported → analyzed → working files checked**. A separate USB delivery continues through **native exported → device library checked → hardware playback checked**, with device byte readback. A download, M3U, XML, database filename, or successful hash readback alone cannot establish native app or hardware behavior.
 
 ## Choose the destination before preparing music
 
@@ -10,11 +10,11 @@ Use `delivery get DELIVERY_ID` to resume a delivery and see its next blocker. Ap
 | --- | --- | --- |
 | `rekordbox_import` | Local rekordbox Collection/playlists and analysis | Accepted collection IDs and installed app version. No USB or player profile. |
 | `serato_import` | Local Serato regular crates and analysis | Accepted collection IDs and installed app version. No USB or controller model. |
-| `rekordbox_usb` | USB exported by rekordbox for a standalone player | Installed app version, exact supported hardware profile, actual USB mount, player firmware check. |
-| `serato_portable` | Regular crates and audio copied through Serato for a Serato computer/setup | Installed app version, actual USB mount, destination computer/controller and operating-system compatibility. No standalone-player profile is implied. |
+| `rekordbox_usb` | USB exported by rekordbox for a standalone player | App version and exact supported hardware profile for preparation; USB mount and actual firmware/playback evidence for device completion. |
+| `serato_portable` | Regular crates and audio copied through Serato for a Serato computer/setup | App version for preparation; actual USB mount and destination computer/controller/OS checks for device completion. No standalone-player profile is implied. |
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery targets
+djlib --workspace /path/to/dj-workspace delivery targets
 ```
 
 The small profile table covers `cdj-2000nxs`, `cdj-3000`, `xdj-rx3`, and `opus-quad`. It includes source links and known audio/filesystem restrictions. Unknown hardware is blocked rather than guessed. CDJ-2000NXS does not support FLAC; RX3 and CDJ-3000 have different lossless sample-rate limits. These are technical checks, not firmware or hardware certifications. A null partition-scheme allowlist means the sources do not establish an exhaustive list; it does not mean every partition scheme works.
@@ -25,7 +25,9 @@ Keep existing native libraries and USB contents intact. If the current filesyste
 
 ## Start with the app when the player is not known
 
-Choose `rekordbox_import` or `serato_import` when the immediate task is organizing music in that application. An unknown player/controller is not a blocker for these workflows. Create `app-trial.json` with actual collection IDs and the installed version:
+Choose `rekordbox_import` or `serato_import` when the immediate task is organizing music in that application. An unknown player/controller is not a blocker for these workflows. Use actual collection IDs and confirm the version before creating `app-trial.json`.
+
+Establish the version from the app's **About** screen or a supported native XML export before planning. OS bundle/build metadata may differ; `CFBundleVersion` alone is not a reliable substitute. If the app and snapshot disagree, preserve that uncertainty and check the active app rather than rewriting later evidence.
 
 ```json
 {
@@ -42,25 +44,27 @@ Choose `rekordbox_import` or `serato_import` when the immediate task is organizi
 For Serato, replace the workflow with `serato_import` and supply its actual app version. Omit `hardware_profile`; it applies only to `rekordbox_usb`.
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery plan --file app-trial.json
-uv run djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
+djlib --workspace /path/to/dj-workspace delivery plan --file app-trial.json
+djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key local-app-pilot-v1
-uv run djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
-uv run djlib --workspace /path/to/dj-workspace jobs items JOB_ID
+djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
+djlib --workspace /path/to/dj-workspace jobs items JOB_ID
 ```
 
 After all preparation items succeed, import the provided M3U8 in rekordbox, or import the working files into regular Serato crates matching the manifest. Inspect all memberships/paths and analyze only the selected new working copies. Record `imported` and `analyzed` using the observation contract below, then refresh the working-file evidence:
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery verify-app DELIVERY_ID \
+djlib --workspace /path/to/dj-workspace delivery verify-app DELIVERY_ID \
   --revision CURRENT_REVISION
+djlib --workspace /path/to/dj-workspace jobs wait VERIFICATION_JOB_ID --timeout 30
+djlib --workspace /path/to/dj-workspace jobs items VERIFICATION_JOB_ID
 ```
 
-A successful fresh check can return `ready_for_app_use: true`, conditional on operator-reported native import/analysis and the checked working files. `delivery get` reports saved evidence without rehashing; it does not newly assert readiness. The engine still does not read the app's database or independently prove its BPM/key/grid accuracy.
+A passed `analyzed` observation and `verify-app` each return a durable job. Wait for the analysis job before submitting app verification with the updated revision. A successful completed job returns only `delivery_id`, `revision` and `evidence_committed: true`; it never returns `ready_for_app_use`. Read `delivery get` for `app_requirements_met_at_last_check`, blockers and `evidence.app_readback.checked_at` (also `last_app_readback_at`). These describe saved file checks and operator-reported native behavior, not a new check. `delivery get` reports saved evidence without rehashing; submit verification against its current revision for a new check. The engine does not read the app's database or independently prove musical accuracy.
 
 App-first preparation checks native-app input profiles rather than a standalone player's limits. Rekordbox numeric limits come from its manual; the Serato profile uses documented format families with an explicitly conservative engine subset because the cited DJ Pro pages do not establish exhaustive numeric maxima. Out-of-subset files require review or an explicitly chosen conversion; preserve remains the default. Native app trials remain necessary.
 
-No device binding, USB readback or hardware-playback observation is needed to complete this app-only scope. To prepare a USB afterward, create a separate `rekordbox_usb` or `serato_portable` request and complete that workflow. An app-only pilot cannot substitute for the matching USB pilot. [rekordbox import/analysis manual](https://cdn.rekordbox.com/files/20260807093645/rekordbox7.2.18_manual_EN.pdf), [Serato import](https://support.serato.com/hc/en-us/articles/223446528-Adding-files-to-the-Serato-DJ-Pro-Library).
+No device binding, USB readback or hardware-playback observation is needed to complete this app-only scope. To prepare a USB afterward, create a separate `rekordbox_usb` or `serato_portable` request and complete that workflow. An app-only pilot cannot be cited as a validated USB pilot, but an unvalidated local full preparation may proceed without any pilot ID. [rekordbox import/analysis manual](https://cdn.rekordbox.com/files/20260807093645/rekordbox7.2.18_manual_EN.pdf), [Serato import](https://support.serato.com/hc/en-us/articles/223446528-Adding-files-to-the-Serato-DJ-Pro-Library).
 
 ## Inspect a native rekordbox snapshot
 
@@ -97,13 +101,13 @@ Start with accepted, inspected collection members. Substitute real collection ID
 The version and hardware here are examples, not defaults or recommended upgrades. A pilot selects up to five recordings, sampling collections in round-robin order; three is the default. Inspect the selected recordings and retained playlist memberships before proceeding.
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery plan --file delivery.json
-uv run djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
-uv run djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
+djlib --workspace /path/to/dj-workspace delivery plan --file delivery.json
+djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
+djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key friday-pilot-prepare-v1
-uv run djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
-uv run djlib --workspace /path/to/dj-workspace jobs items JOB_ID
-uv run djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
+djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
+djlib --workspace /path/to/dj-workspace jobs items JOB_ID
+djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
 ```
 
 Use the IDs and current revision from JSON responses. Preparation is a durable job; retain its stable key and inspect item outcomes. Every frozen recording must prepare successfully before native-stage observations can pass. A job completed with gaps is not a complete handoff.
@@ -127,14 +131,14 @@ Read the generated manifest, then import its M3U8 playlists in **rekordbox EXPOR
 Record `imported`, then `analyzed`, using actual observations as described below. Bind the mounted USB root; an ordinary directory cannot stand in for a device:
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery bind-device DELIVERY_ID \
+djlib --workspace /path/to/dj-workspace delivery bind-device DELIVERY_ID \
   /Volumes/DJ_USB --revision CURRENT_REVISION
 ```
 
-Export the selected playlists through rekordbox's **Devices** workflow or Sync Manager, using the target's required library format. Wait for completion, then browse the device library in rekordbox and check playlist membership/counts and track loading. Record `native_exported`, then `device_library_checked`. Preserve an existing device library before any separately approved library conversion. AlphaTheta documents native USB export and library selection in its [USB export guide](https://cdn.rekordbox.com/files/20260318114024/OneLibrary-Compatible-USB-Device-Export_en.pdf).
+Export the selected playlists through rekordbox's **Devices** workflow or Sync Manager, using the target's required library format. Wait for completion, then browse the device library in rekordbox and check playlist membership/counts and track loading. Record `native_exported`, wait for its check job to succeed, then read the updated revision before recording `device_library_checked`. Preserve an existing device library before any separately approved library conversion. AlphaTheta documents native USB export and library selection in its [USB export guide](https://cdn.rekordbox.com/files/20260318114024/OneLibrary-Compatible-USB-Device-Export_en.pdf).
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery verify-device DELIVERY_ID \
+djlib --workspace /path/to/dj-workspace delivery verify-device DELIVERY_ID \
   --revision CURRENT_REVISION
 ```
 
@@ -160,8 +164,8 @@ Create an observation file only after the corresponding action. This example des
 ```
 
 ```bash
-uv run djlib --workspace /path/to/dj-workspace delivery observe DELIVERY_ID --file observation.json
-uv run djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
+djlib --workspace /path/to/dj-workspace delivery observe DELIVERY_ID --file observation.json
+djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
 ```
 
 | Stage | Required observation |
@@ -186,7 +190,7 @@ Observations are stored as `operator_reported`, with timestamps and revision che
 
 Analysis may change tags on working copies. When recording successful analysis, an unchanged file hash takes the fast path without redundant decoding. Changed file bytes trigger fresh stream-property and decoded-audio checks against the prepared copy, then the engine captures the new file hashes for device readback. Changed audio is blocked. This reconciliation is limited to these isolated copies; it does not adopt arbitrary changes to original catalog files or parse native analysis databases.
 
-Reconciliation runs synchronously in observation and app-verification requests, not as a durable preparation job. The client allows up to 600 seconds for those requests; large batches of changed working copies can exceed that limit. After a lost response, read the delivery's current revision and evidence before retrying rather than assuming the operation failed.
+Successful `analyzed`/`native_exported` observations and `verify-app` queue `delivery_check` jobs with per-track progress. Save the job ID, poll or use `jobs wait`, inspect failures, and read the completed result before continuing. These submissions derive an idempotency key from delivery ID, revision, operation and complete observation. Retrying the identical intent returns the same job even after its successful evidence commit advances the revision. A new fresh check uses the delivery's latest revision. Pause/cancel/generation checks fence the final evidence commit; a paused job cannot newly assert readiness. Native-export jobs check every working copy against its exact analyzed hash and validate the bound volume at acceptance and finalization. They verify the supplied observation, not perform native export. Other observation stages and device verification remain direct revision-checked operations. Metadata reads and request-ledger refreshes also retain their own bounded synchronous behavior.
 
 ## USB example 2: a portable Serato library
 
@@ -210,15 +214,17 @@ Import the working audio through Serato's Files panel and create **regular crate
 
 In Serato's Files panel, drag each regular crate to the bound USB and choose **Copy**, then wait for completion. Serato's documented portable-library procedure transfers crates and audio; Smart Crates cannot be transferred this way. Reconnect and inspect the portable crates, preferably on the destination computer, then test playback with the intended setup and record the same evidence stages. This prepares a Serato library for a computer, not a standalone CDJ library. [Serato portable library](https://support.serato.com/hc/en-us/articles/202304844-Using-a-USB-external-hard-drive-for-your-portable-library), [Files-panel copy](https://support.serato.com/hc/en-us/articles/12859556039695-Copying-and-Managing-Files-from-the-Files-Tab-Serato-DJ-Pro-Lite).
 
-## Expand only after the pilot
+## Prepare a full collection before the hardware is available
 
-Create a new request with `phase: "full"` and `pilot_delivery_id: "SUCCESSFUL_PILOT_ID"`. Keep the workflow, app version, hardware profile if applicable, and audio mode matching the completed pilot. Full preparation is gated by that pilot's relevant app/device requirements; changing the target requires another trial. The new plan freezes the requested collections again, so review its full membership rather than assuming the pilot contained everything.
+Create a new request with `phase: "full"`. Omit `pilot_delivery_id` when you need local preparation before a physical/native trial. Status and the manifest label this as local files only, with `pilot_validation: "not_supplied"`; completed full preparation reports `prepared_without_validated_pilot: true`. It grants no app or USB readiness. A small trial remains useful before spending time on a large native import.
+
+If you supply `pilot_delivery_id`, it must identify a completed trial matching workflow, app version, hardware profile and audio mode; an incomplete, nonexistent or mismatched claim still returns `PILOT_REQUIRED`. The new full plan freezes current collection membership and annotations. Pilot and full preparations have separate working paths: native cues, grids and analysis on pilot copies are not automatically reused or migrated. Plan the full import accordingly rather than claiming preservation that has not occurred.
 
 Complete every stage required by the full delivery's workflow. Keep the acquisition/missing-track report separate: a finished delivery only covers its frozen accepted recordings, not unavailable or unresolved requested songs.
 
 ## What device verification proves
 
-`verify-device` is bounded, read-only SHA-256 presence checking against the post-analysis working copies, with volume identity checks. It skips symlinks, Windows reparse points and nested volumes. Incomplete scanning, missing files, changed identity, or unsupported safe traversal must remain visible blockers. macOS can supply a stronger identity through `diskutil`; Windows can query the mount manager's volume GUID and filesystem name. Failed queries and other platforms retain weaker evidence and cannot satisfy the same readiness gate. Windows partition schemes remain unknown and must not be guessed where a target requires them. CI uses filesystem fixtures; no physical FAT32/exFAT USB compatibility or playback claim follows from those tests.
+`verify-device` is bounded, read-only SHA-256 presence checking against post-analysis working copies, with volume identity checks. It skips symlinks, Windows reparse points and nested volumes. Incomplete scanning, missing files, changed identity or unsupported safe traversal remain visible blockers. macOS uses `diskutil`; Windows can query the mount manager's volume GUID/filesystem and a bounded metadata-only partition-style IOCTL. Failed partition queries retain any known GUID/filesystem and leave partition style unknown; they do not guess MBR/GPT. Unsupported platforms or failed identity queries cannot satisfy a strong-identity gate. CI fixtures and native system-volume probes do not establish physical FAT32/exFAT USB or player compatibility.
 
 Native database paths are **existence markers only**. The engine does not parse their playlist references, grids, cues, integrity, or freshness. Hash presence cannot prove that the native library references those bytes. Operator inspection and physical playback remain necessary.
 
