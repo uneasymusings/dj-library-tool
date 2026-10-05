@@ -1,6 +1,6 @@
 # Validation and first-use checklist
 
-This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-04 for **0.1.0a3**; see [status](STATUS.md) for publication and remaining scope. Current local results are separate from the historical public a2 evidence below. Old host/provider/native checks were not rerun merely by building a new version.
+This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for the published **0.1.0a3** prerelease; see [status](STATUS.md) for remaining scope. Current results are separate from the historical public a2 evidence below. Old host/provider/native checks were not rerun merely by building a new version.
 
 ## Automated suite
 
@@ -12,9 +12,11 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-### Current a3 checks — 2026-10-04
+### Current a3 checks — 2026-10-04/05
 
-Version: **0.1.0a3**. After the Windows corrections, the local suite passed **403 tests in 45.51 seconds**, macOS, Python 3.13, real FFmpeg/ffprobe installed; only three Windows-native tests skipped on macOS. Ruff lint/format checks passed for 79 source/script/test files. An isolated rebuilt candidate wheel passed all 34 MCP schemas, request/organization workflows, original-tone preparation and packaged skill setup. The [first candidate matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37259264614) passed four Linux/macOS jobs and failed both Windows runtime jobs. A replacement six-job pass and fresh public-artifact checks remain release gates. Tests use original tones, isolated catalogs, controlled transports and simulated device/operator evidence; they do not establish native app, device export or playback success.
+Version: **0.1.0a3**. After the Windows corrections, the local suite passed **403 tests in 45.51 seconds**, macOS, Python 3.13, real FFmpeg/ffprobe installed; only three Windows-native tests skipped on macOS. Ruff lint/format checks passed for 79 source/script/test files. The [release tag matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37261484677) passed all six OS/Python jobs and its draft-artifact job. Windows reported **404 passed, two POSIX-only skips**. The [first candidate matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37259264614) had exposed Windows failures before the portability corrections. Tests use original tones, isolated catalogs, controlled transports and simulated device/operator evidence; they do not establish native app, device export or playback success.
+
+Follow-up commit `16d8461` changes test diagnostics and bounded scheduling checks only; production code and packaged resources match tag `05a8fff512f8b828897259b66614e0f42967c928`. Both its [push matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37262032083) and [PR matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37262035841) passed all six jobs before publication, and the focused local checks passed. Two errors from an earlier PR attempt did not recur; their root cause was not established, so this does not claim the diagnostic changes fixed those errors.
 
 Coordinator upgrade checks reject old or unknown engine versions before sending ordinary requests. Authenticated capabilities, status and explicit shutdown remain usable; no old coordinator is replaced and no operation is resubmitted automatically. Twenty-seven focused cases plus actual process/stdio integration cover this boundary.
 
@@ -104,9 +106,20 @@ Earlier on **2026-10-04**, a development `0.1.0a3.dev0` wheel passed in a separa
 
 That earlier candidate ran from installed site-packages, ingested/exported three original tones and exposed 33 tool schemas through real stdio. The packaged skill installed into a separate session; MCP delivery targets/plan/prepare completed an app-only pilot with `prepared_for_import=true` and `ready_for_departure=false`. This verifies the earlier installed build, not the final 34-tool candidate, native automation or device readiness.
 
-The earlier `0.1.0a2` installed-package check reported three tracks, 16 tools, and the packaged skill. Today's local wheel result does not mean a new GitHub release was published. A separate independent a2 public-installation audit is recorded in [coverage](COVERAGE.md); it does not make the new APIs part of a2.
+The earlier `0.1.0a2` installed-package check reported three tracks, 16 tools, and the packaged skill. The independent a2 public-installation audit remains in [coverage](COVERAGE.md); it does not make the new APIs part of a2. The separate a3 public-artifact audit below verifies the published 34-tool package.
 
-The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows cleanup additionally waits for the exiting process to close its inherited log handle. The CI workflow includes this installed-wheel smoke check; today's observed result above is local, not a claim that the new version has passed its full CI matrix.
+The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows cleanup additionally waits for the exiting process to close its inherited log handle. The installed-wheel smoke check passed in the six-job release matrix and separately against the public a3 wheel.
+
+## Public a3 distribution check — 2026-10-05 UTC
+
+The [v0.1.0a3 prerelease](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) was published at **04:15:02 UTC**, from tag commit [`05a8fff512f8b828897259b66614e0f42967c928`](https://github.com/uneasymusings/dj-library-tool/commit/05a8fff512f8b828897259b66614e0f42967c928). The ordinary published `uv tool install --python 3.13 'dj-library-tool[download] @ …v0.1.0a3…whl'` command installed into a new persistent tool environment outside the checkout, preserving existing installations and music.
+
+- Anonymous downloads found exactly the wheel, source archive, standalone skill ZIP and `SHA256SUMS`; all three package hashes matched. Wheel and ZIP skill resources/license matched byte for byte.
+- The module resolved inside that tool environment's site-packages; installed package bytes matched the checked public wheel. `djlib version` returned `0.1.0a3`.
+- The smoke script came from the checksummed public source archive and ran with the installed interpreter, isolated imports and a working directory outside the checkout. It passed actual stdio MCP calls, **34 tool schemas**, **three original tones**, request matching/missing reports, annotations, organization and separate skill setup. App preparation used synthetic app-version evidence; no native app was operated.
+- A separate persistent original-tone demo completed ingestion/export and generated a separate assistant session with both complete project skills. Doctor detected FFmpeg, ffprobe, yt-dlp and supported Node. The demo coordinator stopped, and a subsequent status returned `url: null`.
+
+Artifact hashes and the historical a2 comparison are recorded in [coverage](COVERAGE.md). This is public installation and engine/MCP evidence on macOS/Python 3.13, not a new signed-in AI-host, live provider, native app or hardware trial. Private paths, catalog IDs and transcripts are omitted.
 
 ## Historical public GitHub distribution check — 2026-10-03
 

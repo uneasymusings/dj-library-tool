@@ -1,6 +1,6 @@
 # User workflow and public-release coverage
 
-Updated 2026-10-04 for **v0.1.0a3**. This matrix compares a3 capabilities with the historical public a2 baseline and tracks the core requirements in [PLAN.md](../PLAN.md). It does not claim every milestone is complete. [Status](STATUS.md) records current publication, CI and native-trial evidence separately from implemented features.
+Updated 2026-10-05 UTC for the published **v0.1.0a3** prerelease. This matrix compares a3 capabilities with the historical public a2 baseline and tracks the core requirements in [PLAN.md](../PLAN.md). It does not claim every milestone is complete. [Status](STATUS.md) records CI and native-trial evidence separately from implemented features.
 
 ## Requirement matrix
 
@@ -15,7 +15,7 @@ Updated 2026-10-04 for **v0.1.0a3**. This matrix compares a3 capabilities with t
 | R07 — Prepare USB use | Read-only mount/capacity preflight; generic handoff artifacts. | `rekordbox_usb` uses an exact player profile; `serato_portable` is a separate computer-library workflow. Working copies, operator evidence and read-only byte/volume checks are implemented. The native app owns export/copy; physical playback and preservation trials remain required. |
 | R08 — Conversational use through an existing host | JSON CLI, 16 MCP tools, complete skill and separate Codex/Claude sessions, with actual host trials. | JSON CLI, 34 MCP tools, bundled workflow skill and separate sessions. Installed-package checks exercise request/organization/delivery transports. A successful smoke check is not broad model-reliability evidence; the historical host trials do not cover every new tool. |
 | R09 — Standalone conversational CLI | Not implemented; requires an existing assistant host. | Still unresolved: no independent model adapter/chat loop. |
-| R10 — Public, reusable GitHub toolkit | Installable wheel, source archive, standalone skill, checksums, MIT license, docs, CI and original-tone demo. | Builds the same release artifacts and adds validation-gated draft-release automation. Publishing and fresh public-artifact checks are separate release steps; see current [status](STATUS.md). The independent a2 installation audit is retained below. |
+| R10 — Public, reusable GitHub toolkit | Installable wheel, source archive, standalone skill, checksums, MIT license, docs, CI and original-tone demo. | Published a3 artifacts passed anonymous checksum/resource verification and a fresh persistent public-URL installation with actual 34-tool MCP checks. The release tag passed all six CI jobs. Both a3 and historical a2 audits are retained below; this does not complete native app/hardware or broader roadmap requirements. |
 | R11 — Public project website | Repository, release page and documentation are public. | The planned dedicated early-web project home is not implemented. |
 | R12 — Optional local browser operation | Not implemented. | Still subject to the product decision in PLAN.md; no local browser UI parity or browser security validation claim. |
 
@@ -35,7 +35,31 @@ Organization reads hash-matching embedded tags and stores explicit notes, catego
 
 App-only readiness never sets USB departure readiness. Hardware uncertainty blocks dependent standalone export, not library import and analysis. See [DJ delivery](DJ_DELIVERY.md) for the separate workflows and the distinction between operator reports and machine checks.
 
-## Independent public distribution audit
+## Independent public a3 distribution audit
+
+The ordinary published wheel URL was installed with its `[download]` extra into a new persistent uv tool environment outside the checkout. Downloads were anonymous, and existing installations, configuration and music were preserved.
+
+| Check | Observed result |
+| --- | --- |
+| Public release | [v0.1.0a3](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3), published **2026-10-05 at 04:15:02 UTC**; prerelease, not draft. |
+| Source and CI | Tag [`05a8fff512f8b828897259b66614e0f42967c928`](https://github.com/uneasymusings/dj-library-tool/commit/05a8fff512f8b828897259b66614e0f42967c928) passed the [six-job release matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37261484677). Windows: 404 passed, two POSIX-only skips. |
+| Artifact integrity | Exactly four assets: wheel, source archive, skill ZIP and SHA256SUMS. All three package hashes matched; complete wheel/ZIP skill resources and license matched byte for byte. |
+| Installed provenance | Version `0.1.0a3`; module resolved in isolated tool-environment site-packages, with installed package bytes equal to the public wheel. No developer checkout or editable installation. |
+| Actual MCP and workflows | The checksummed public source archive's smoke script passed three original tones, all 34 stdio MCP tool schemas, request/annotation/organization calls and packaged skill setup. |
+| Persistent demo/session | A separate three-tone demo completed generic export and generated both complete project skills in a separate assistant session. Doctor found FFmpeg/ffprobe, yt-dlp and supported Node; the coordinator stopped and status returned `url: null`. |
+| Evidence boundary | No new signed-in AI-host, live acquisition, native app import/analysis, physical USB export or player trial occurred in this installation audit. |
+
+Verified package SHA-256 values:
+
+| Public artifact | SHA-256 |
+| --- | --- |
+| `dj_library_tool-0.1.0a3-py3-none-any.whl` | `2935d4e5f2c5b1b362d3193e441844eee0a71a9d96d613c30f8fb7ac1be5d0d3` |
+| `dj_library_tool-0.1.0a3.tar.gz` | `06ec2e9ba99bd7cd11e941ee7d007fe2a8bf59d67fe0f2188d4b1190ed14ee44` |
+| `dj-library-skill-0.1.0a3.zip` | `911ad0f715a426e6889fc8074b7cecaa85a6beed47cf5ea45cee3da643d10dda` |
+
+This is a public macOS/Python 3.13 installation check with actual engine/MCP work. Separate [validation evidence](VALIDATION.md) records the tag matrix, later test-only diagnostic checks, and native-trial limits; passing installation does not establish the full personal-library workflow.
+
+## Historical independent public a2 distribution audit
 
 The audit used anonymous public artifact downloads and the published `uv tool install --python 3.13 'dj-library-tool[download] @ …v0.1.0a2…whl'` command in new, isolated tool/bin directories outside the checkout. It preserved existing installations, configurations and music. No original developer checkout was needed by the installed engine.
 
@@ -58,12 +82,12 @@ This proves a public macOS/Python 3.13 installation and local core/MCP smoke pat
 
 - CI pins the checkout/setup-uv actions and uv version, installs locked dependencies, runs tests/lint/formatting, builds packages, checks an installed wheel, and builds the standalone skill/checksums across Python 3.12/3.13 on Linux/macOS/Windows. That matrix does not itself exercise native DJ software or hardware.
 - The skill ZIP uses fixed timestamps and an explicit file allowlist; its reproducibility is tested. The checksum builder selects the current version's wheel/source/skill rather than every old file in `dist/`. Whole-wheel/source bit-for-bit reproducibility is not established by that skill test.
-- The public a2 baseline has a quality workflow, without automated GitHub release creation. a3 adds a tag-triggered workflow that first runs the quality matrix, checks tag/package version agreement, and creates a **draft** prerelease with built artifacts. Publishing the draft and verifying public URLs remain separate steps; actual run results are recorded in [status](STATUS.md).
+- The public a2 baseline has a quality workflow, without automated GitHub release creation. a3 adds a tag-triggered workflow that first runs the quality matrix, checks tag/package version agreement, checks the newly built wheel, and creates a **draft** prerelease with exactly the current four artifacts. Publishing the draft and verifying public URLs are separate steps; both completed for a3. Actual run results are recorded in [status](STATUS.md).
 - Public wheel dependency ranges can resolve newer packages than `uv.lock`; normal installation is documented accordingly. Maintain both locked development tests and fresh public-wheel installation checks.
-- The installed-wheel smoke checks tool names against a shared manifest, exercises request/annotation/organization tools and prepares an app-only rekordbox pilot through MCP. It uses original tones and synthetic app-version evidence only; it cannot establish native app import or analysis. Run it against the final built wheel and freshly published artifacts.
-- The install guide, README and packaged skill pin matching a3 artifact URLs. Verify those exact public assets after publication; preparing release documentation does not establish that an upload has completed.
+- The installed-wheel smoke checks tool names against a shared manifest, exercises request/annotation/organization tools and prepares an app-only rekordbox pilot through MCP. It uses original tones and synthetic app-version evidence only; it cannot establish native app import or analysis. It passed against the release build and freshly published a3 artifacts.
+- The install guide, README and packaged skill pin matching a3 artifact URLs. Anonymous public downloads and ordinary installation verified those URLs after publication.
 
-## Native app trial and remaining release gate
+## Native app trial and remaining acceptance gate
 
 Use a uniquely named small collection of original generated audio and isolated working copies. Import only that selection, inspect exact membership and paths, analyze only those tracks, and verify load/play behavior plus preservation after reopening the app. Keep existing collections and manually edited analysis intact. Short pure tones can test import, waveform generation and persistence; they cannot demonstrate musically correct BPM, key or beatgrids.
 
@@ -71,4 +95,4 @@ For rekordbox, use its documented M3U8 import and selected-track analysis. The F
 
 For Serato, create a uniquely named regular crate using the Files panel and keep the referenced working paths stable. Analyze the chosen crate, not the entire existing library. Serato 3.3.5 and earlier require disconnected DJ hardware for analysis. These native operations remain outside the engine. [Serato import](https://support.serato.com/hc/en-us/articles/223446528-Adding-files-to-the-Serato-DJ-Pro-Library), [Serato analysis](https://support.serato.com/hc/en-us/articles/14361068095759-Analyzing-Files).
 
-Before publishing new compatibility claims, record the exact app versions, input formats, selected recording IDs, observed membership/analysis, preservation checks and trial scope. Run public-artifact installation after publishing. Keep failed or unavailable native/device checks visible in [STATUS.md](STATUS.md); neither the existence of GitHub assets nor the new local code completes all of PLAN.md.
+Before publishing new compatibility claims, record the exact app versions, input formats, selected recording IDs, observed membership/analysis, preservation checks and trial scope. Repeat public-artifact installation for future releases. Keep failed or unavailable native/device checks visible in [STATUS.md](STATUS.md); neither the existence of GitHub assets nor the new local code completes all of PLAN.md.
