@@ -1,5 +1,9 @@
 # Implementation status
 
+## 0.1.0a7
+
+Adds the tracklist → owned/missing → crate workflow (`requests create --text`, `requests collect`), rekordbox BPM/key import from a Collection XML export, flag-based `delivery plan`, the terminal experience (readable views, live progress, guided `delivery observe`), the local review page (`djlib ui`) and catalog fixes from a hands-on audit. MCP grows to 42 tools. Local validation: 606 tests passed with five Windows-only skips; the installed-wheel smoke check exposed all 42 tools. Release-matrix and public-installation evidence are recorded on the GitHub release. Real-music native import, analysis, USB export and hardware playback remain unverified; see the a6 limits below, which still apply.
+
 Updated 2026-10-05 UTC for **0.1.0a6**. The [a6 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6) was published at **07:14:53 UTC**. Its six-job release matrix, anonymous public installation and installed a3-to-a6 demo-copy compatibility checks passed. a4/a5 tags are preserved, unpublished candidates with failed release checks. The [a3 public release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3) remains a separate audited baseline. [Coverage](COVERAGE.md) separates implementation, observed evidence and remaining goals.
 
 ## a6 engineering changes

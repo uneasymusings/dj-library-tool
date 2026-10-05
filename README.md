@@ -35,9 +35,9 @@ The headline workflow, step by step:
 
 In a terminal you get tables, live progress and copy-pasteable next steps; piped or with `--json` every command prints a stable JSON envelope for scripts and assistants. Native import, analysis and USB export still happen in rekordbox or Serato; djlib prepares files and records what you confirm.
 
-> **Experimental alpha.** The latest release is 0.1.0a6; the workflow above is on `main` and not yet released. a6 passed all six OS/Python release jobs and an independent installation audit with actual MCP calls. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a7.** This release adds the tracklist-to-crate workflow, rekordbox analysis import, the terminal experience and the local review page. Like a6, it is checked by all six OS/Python release jobs and an installed-wheel MCP smoke test. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
-[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. `main` exposes 42 MCP tools (a6: 40). See the [requirement and public-release audit](docs/COVERAGE.md).
+[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. The API exposes 42 MCP tools (a6: 40). See the [requirement and public-release audit](docs/COVERAGE.md).
 
 ## Your first useful session
 
@@ -68,10 +68,10 @@ Soulseek through slskd, complete artist catalog workflows, acoustic track identi
 
 ## Install from GitHub
 
-The commands below target the [v0.1.0a6 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a7 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a7), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a6/dj_library_tool-0.1.0a6-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a7/dj_library_tool-0.1.0a7-py3-none-any.whl'
 djlib version
 ```
 
@@ -122,7 +122,7 @@ djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-
 djlib --workspace /path/to/dj-workspace jobs list
 ```
 
-In a terminal, commands print readable views (on `main`; the a6 release prints JSON everywhere):
+In a terminal, commands print readable views (from a7; a6 prints JSON everywhere):
 
 ```text
 $ djlib --workspace ~/dj-workspace library --query "night bus"
@@ -144,7 +144,7 @@ For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DEL
 
 If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies accepted collection IDs, the actual app version, and default preservation of source format. No hardware profile is required. Follow the [app-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player). In a6, organization, successful analysis/native-export observations and app verification return jobs. Wait for completion and inspect the receipt, then read the delivery evidence and its check time. Rereading a saved receipt or delivery does not perform another check.
 
-Version a6 also permits full local preparation before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
+Since a6, full local preparation is permitted before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
 
 ## Use with an AI CLI
 
