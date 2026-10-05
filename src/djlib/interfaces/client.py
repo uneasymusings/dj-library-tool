@@ -18,6 +18,11 @@ from djlib.domain.errors import AppError
 from djlib.workspace import Workspace
 
 HEALTH_TIMEOUT = 5
+DISCOVERY_RETRY_DELAYS = (0.2, 0.5)
+# Answers that a retry cannot change: nothing recorded, or a different coordinator replied.
+DEFINITE_DISCOVERY_FAILURES = frozenset(
+    {"no_runtime_record", "invalid_runtime_url", "identity_mismatch"}
+)
 # A coordinator started implicitly by a command exits after this long without use.
 # `service start` (used before assistant sessions) keeps its coordinator running.
 IDLE_EXIT_SECONDS = 1800
@@ -31,6 +36,7 @@ class LocalClient:
         self._coordinator_version = None
         self._version_checked = False
         self._version_from_health = False
+        self.last_discovery_error: str | None = None
 
     def _forget_coordinator(self) -> None:
         self._coordinator_identity = None
@@ -93,6 +99,22 @@ class LocalClient:
             )
 
     def discover(self) -> str | None:
+        """The live coordinator's URL, or None. Transient failures are retried briefly.
+
+        On Windows, a file-sharing conflict or a dropped loopback connection can make one
+        probe fail while the coordinator is healthy; concluding "absent" would start a
+        second one or block an MCP session. A missing runtime record fails immediately.
+        """
+        for delay in DISCOVERY_RETRY_DELAYS:
+            if url := self._discover_once():
+                self.last_discovery_error = None
+                return url
+            if self.last_discovery_error in DEFINITE_DISCOVERY_FAILURES:
+                return None
+            time.sleep(delay)
+        return self._discover_once()
+
+    def _discover_once(self) -> str | None:
         try:
             record = json.loads(
                 (self.workspace.runtime / "service.json").read_text(encoding="utf-8")
@@ -110,6 +132,7 @@ class LocalClient:
                 or parts.query
                 or parts.fragment
             ):
+                self.last_discovery_error = "invalid_runtime_url"
                 self._forget_coordinator()
                 return None
             # A stopped coordinator refuses the connection immediately. A live one can
@@ -130,9 +153,15 @@ class LocalClient:
             ):
                 self._observe_health(url, result)
                 return url
-        except (OSError, ValueError, KeyError, httpx.HTTPError):
+        except FileNotFoundError:
+            self.last_discovery_error = "no_runtime_record"
             self._forget_coordinator()
             return None
+        except (OSError, ValueError, KeyError, httpx.HTTPError) as exc:
+            self.last_discovery_error = type(exc).__name__
+            self._forget_coordinator()
+            return None
+        self.last_discovery_error = "identity_mismatch"
         self._forget_coordinator()
         return None
 
