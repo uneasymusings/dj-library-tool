@@ -11,7 +11,7 @@ uv run djlib --workspace /path/to/dj-workspace doctor
 
 The workspace stores its catalog, runtime token, media, and exports. Its directory must be empty on first initialization. Repeat initialization returns the existing configuration; it does **not** silently add new allowed roots. To allow another music folder, stop the coordinator and edit `allowed_roots` in `workspace.json` to include its resolved absolute path. Symlinks outside those roots are rejected.
 
-Always specify `--workspace` before the subcommand, or set `DJLIB_WORKSPACE`. The default is `~/.local/share/djlib/default`; initialization is explicit. `doctor` reports FFmpeg, ffprobe, optional yt-dlp, Deno, and Node availability, without starting the coordinator. Availability is not a runtime version/compatibility check.
+Always specify `--workspace` before the subcommand, or set `DJLIB_WORKSPACE`. The default is `~/.local/share/djlib/default`; initialization is explicit. `doctor` reports FFmpeg, ffprobe, optional yt-dlp, Deno, and Node without starting the coordinator. Version a3 additionally checks JavaScript runtime versions and reports which supported runtime was selected; the public a2 availability check does not establish runtime compatibility. Neither check guarantees provider extraction success.
 
 To try this through a fresh AI CLI, run `setup-agent --output /absolute/path/new-session`, then use that folder's `launch.py`. See [agent setup](AGENTS.md).
 
@@ -26,10 +26,34 @@ Save `result.job_id` from the response:
 ```bash
 uv run djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
 uv run djlib --workspace /path/to/dj-workspace jobs items JOB_ID
-uv run djlib --workspace /path/to/dj-workspace library "Artist"
+uv run djlib --workspace /path/to/dj-workspace library --query "Artist"
 ```
 
 Scans index WAV, MP3, FLAC, AIFF, and M4A files in place, using embedded artist/title tags or filename fallbacks. A hash proves byte identity, not musical identity. Untagged scan entries are explicitly labeled `Unknown artist`; scans do not identify them acoustically. Large scans are limited to 10,000 supported files; choose subfolders for larger libraries. Original files are never renamed or retagged.
+
+### Track exact requests
+
+Before acquiring more music, save the intended songs and unresolved set IDs in `wanted.json`:
+
+```json
+{
+  "name": "Friday requests",
+  "idempotency_key": "friday-requests-v1",
+  "items": [
+    {"artist": "Artist", "title": "Track", "version": "Extended Mix"},
+    {"kind": "unknown", "label": "Unidentified track in the set", "timestamp": "00:47:12"}
+  ]
+}
+```
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace requests create --file wanted.json
+uv run djlib --workspace /path/to/dj-workspace requests get REQUEST_ID --after 0 --limit 100
+uv run djlib --workspace /path/to/dj-workspace requests refresh REQUEST_ID --revision CURRENT_REVISION
+uv run djlib --workspace /path/to/dj-workspace requests report REQUEST_ID --revision CURRENT_REVISION
+```
+
+Use returned IDs and read the current revision after mutations. Matching uses normalized artist/title/version labels; another mix is not an automatic substitute. Multiple matching byte revisions remain ambiguous. Reads show saved evidence and timestamps; create/refresh/resolution performs bounded file checks. For a large list, repeat `refresh` with selected `--item-id ITEM_ID` options and the latest revision. Unknown IDs remain explicit. Selecting a source through `requests resolve` records a candidate only; it does not download it. Use the acquisition workflow below for accepted sources, then refresh the ledger.
 
 ## 3. Build a named collection
 
@@ -55,7 +79,7 @@ uv run djlib --workspace /path/to/dj-workspace plan --file request.json
 uv run djlib --workspace /path/to/dj-workspace start PLAN_ID --revision 1 --key friday-v1
 ```
 
-The `club` profile references existing files. `archive` copies accepted files into the managed `media/` directory. Plans snapshot profile settings. Changes to `workspace.json` don't alter an already accepted plan. This release organizes named collections; genre, energy, BPM, key, and cue analysis are later work.
+The `club` profile references existing files. `archive` copies accepted files into the managed `media/` directory. Plans snapshot profile settings. Changes to `workspace.json` don't alter an already accepted plan. Automatic genre, energy, BPM, key, and cue analysis remain later work; this version can organize explicit annotations and existing tags as described below.
 
 A mismatch between requested labels and embedded metadata produces a review:
 
@@ -66,6 +90,56 @@ uv run djlib --workspace /path/to/dj-workspace reviews resolve REVIEW_ID \
 ```
 
 Other choices: `accept_requested` or `skip`. An override records user choice and still does not establish acoustic identity. Some bytes can only have one catalog identity; conflicts with an already cataloged revision currently fail the item rather than rewriting history.
+
+### Keep notes and sort explicit selections
+
+Use the recording and byte-revision IDs returned by the catalog:
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace organize metadata RECORDING_ID \
+  --asset-revision-id ASSET_REVISION_ID
+uv run djlib --workspace /path/to/dj-workspace organize get RECORDING_ID \
+  --asset-revision-id ASSET_REVISION_ID
+```
+
+Metadata inspection checks the catalog hash and reads embedded BPM/key/genre/comments. Missing, malformed or conflicting BPM/key values stay unknown; a known tag is still unverified. Save supplied subjective notes in `annotations.json`, using the returned annotation revision (`0` for the first annotation):
+
+```json
+{
+  "recording_id": "RECORDING_ID",
+  "asset_revision_id": "ASSET_REVISION_ID",
+  "revision": 0,
+  "idempotency_key": "friday-notes-v1",
+  "tags": ["vocals", "warm"],
+  "set_role": "Warm Groove",
+  "notes": "Review the vocal entrance before placing this in the opening sequence."
+}
+```
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace organize annotate --file annotations.json
+```
+
+Only supplied fields change; explicit null clears a field. BPM/key annotations additionally require a source (`operator` or `native_tag`) and default to `verified: false`. `native_tag` must match freshly read catalog tags; it does not read a DJ app's analysis database. Store measured values or explicit operator judgments, not invented defaults.
+
+Create `organized.json` from accepted catalog references:
+
+```json
+{
+  "name": "Warm Groove",
+  "tracks": [{"recording_id": "RECORDING_ID", "asset_revision_id": "ASSET_REVISION_ID"}],
+  "filters": {"tags": ["warm"]},
+  "unknown": "exclude",
+  "order_by": "bpm",
+  "idempotency_key": "friday-warm-groove-v1"
+}
+```
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace organize collection --file organized.json
+```
+
+The returned completed job includes the collection ID and per-item exclusion reasons. Collections can overlap. All active filter categories must match; values within a category are alternatives. Unknown filter evidence is excluded by default, with explicit include/error policies available. Unknown sort values remain last in either direction. Key filters match supplied labels; wheel labels sort numerically without translating between key systems. These operations do not retag originals, set native cues, or infer mood, energy or genre. A later delivery plan freezes the annotations and prepares them as tags/comments in separate app working copies; inspect their display and native analysis after import.
 
 ## 4. Inspect a set and select recording URLs
 
@@ -102,7 +176,7 @@ For YouTube the adapter selects installed Deno, then Node (22+ required by yt-dl
 
 ## 5. Prepare handoff
 
-For a real DJ destination in the **unpublished local 0.1.0a3.dev0 preview**, follow [DJ delivery](DJ_DELIVERY.md): choose `rekordbox_usb` with the exact player profile, or `serato_portable` for a Serato computer; prepare a small pilot; then record native import, analysis, export, device inspection and physical playback. `delivery targets` lists supported profiles. The persisted workflow keeps app working copies separate from catalog originals and performs read-only device verification. It is not included in the public `v0.1.0a2` release wheel.
+For a real DJ destination, follow [DJ delivery](DJ_DELIVERY.md). Start with `rekordbox_import` or `serato_import` for local app import/analysis; neither needs a USB or player model. Prepare a small pilot, record native import/analysis, and use `delivery verify-app`. For a device afterward, create a separate `rekordbox_usb` delivery with the exact player profile, or `serato_portable`, then complete native export, device inspection and playback. The persisted workflow keeps app working copies separate from catalog originals.
 
 The older `export` command below remains a generic interchange handoff. It does not create or complete a target delivery.
 

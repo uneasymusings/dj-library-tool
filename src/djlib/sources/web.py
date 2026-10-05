@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from djlib.domain.errors import AppError
+from djlib.sources.runtimes import javascript_runtimes
 from djlib.workspace import atomic_json
 
 DOMAINS = ("youtube.com", "youtu.be", "soundcloud.com", "bandcamp.com")
@@ -61,18 +62,22 @@ def command() -> list[str]:
         "2",
         "--no-progress",
     ]
-    # yt-dlp validates runtime versions. Prefer its recommended Deno, then Node >=22.
-    # EJS is installed by the download extra; no remote code/component flag is enabled.
-    if shutil.which("deno"):
-        args.extend(["--js-runtimes", "deno"])
-    elif shutil.which("node"):
-        args.extend(["--js-runtimes", "node"])
+    # An old Deno on PATH must not hide a supported Node installation.
+    # EJS is installed by the download extra; no remote component flag is enabled.
+    if runtime := javascript_runtimes()["selected"]:
+        args.extend(["--js-runtimes", runtime])
     return args
 
 
 def provider_error(stderr: bytes) -> AppError:
     """Classify bounded diagnostics without reflecting publisher text or private URLs."""
     text = stderr.decode("utf-8", errors="replace").lower()
+    if "no supported javascript runtime" in text or "javascript runtime is not supported" in text:
+        return AppError(
+            "JAVASCRIPT_RUNTIME_REQUIRED",
+            "YouTube extraction needs Deno 2.3+ or Node 22+. Run doctor for runtime details.",
+            502,
+        )
     if any(marker in text for marker in ("sign in", "login required", "private video", "cookies")):
         return AppError(
             "SOURCE_AUTH_REQUIRED",

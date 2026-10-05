@@ -14,14 +14,21 @@ from djlib.application.service import add_event, new_id, require
 from djlib.audio.inspection import checksum, inspect_audio
 from djlib.domain.contracts import DeliveryObservation, DeliveryRequest
 from djlib.domain.errors import AppError
+from djlib.exporting.app_targets import assess_app_track
 from djlib.exporting.delivery_media import pcm_hash, prepare_media, safe_name
 from djlib.exporting.device_readback import inspect_device
 from djlib.exporting.handoff import atomic_text
 from djlib.exporting.targets import assess_track, target_profiles
 from djlib.persistence.models import Delivery, Job, JobItem, timestamp
+from djlib.persistence.organization_models import RecordingAnnotation
 from djlib.workspace import atomic_json
 
 STAGES = ("imported", "analyzed", "native_exported", "device_library_checked", "hardware_playback")
+APP_WORKFLOWS = frozenset({"rekordbox_import", "serato_import"})
+
+
+def _app_only(d):
+    return d["request"]["workflow"] in APP_WORKFLOWS
 
 
 def _load(app, delivery_id):
@@ -82,6 +89,26 @@ def create_delivery(app, request: DeliveryRequest):
         raise AppError("COLLECTION_EMPTY", "Prepare a delivery from accepted catalog recordings.")
     all_tracks = list(unique.values())
     selected = all_tracks[: request.pilot_size] if request.phase == "pilot" else all_tracks
+    # Freeze explicit annotations with the selected byte revision. Native analysis
+    # may replace working-copy tags, but never changes this provenance snapshot.
+    annotations = {}
+    with app.db.transaction() as session:
+        ids = [t["asset_revision_id"] for t in selected]
+        for start in range(0, len(ids), 500):
+            for row in session.scalars(
+                select(RecordingAnnotation).where(
+                    RecordingAnnotation.asset_revision_id.in_(ids[start : start + 500])
+                )
+            ):
+                annotations[row.asset_revision_id] = row
+        for track in selected:
+            row = annotations.get(track["asset_revision_id"])
+            track["dj_metadata"] = {
+                "annotation_revision": row.revision if row else 0,
+                "annotations": dict(row.annotations) if row else {},
+                "source": "explicit_catalog_annotation",
+                "acoustic_analysis_performed": False,
+            }
     chosen = {t["recording_id"] for t in selected}
     for s in snapshots:
         s["tracks"] = [t for t in s["tracks"] if t["recording_id"] in chosen]
@@ -167,6 +194,14 @@ async def prepare_item(app, job_id, generation, item_id):
                     "Prepared audio does not meet the selected player profile: "
                     + ", ".join(problems),
                 )
+        else:
+            app_name = "rekordbox" if request["workflow"] == "rekordbox_import" else "serato"
+            problems = assess_app_track(app_name, result["properties"], Path(result["path"]).suffix)
+            if problems:
+                raise AppError(
+                    "APP_AUDIO_OUTSIDE_SUBSET",
+                    "Prepared audio is outside the native app input subset: " + ", ".join(problems),
+                )
         if not _active(app, job_id, generation):
             return
         with app.db.transaction() as session:
@@ -201,6 +236,27 @@ async def prepare_item(app, job_id, generation, item_id):
 
 
 def _steps(d):
+    if _app_only(d):
+        if d["request"]["workflow"] == "rekordbox_import":
+            return [
+                "In rekordbox: File > Import > Import Playlist; import each prepared M3U8.",
+                "Confirm exact playlist membership and source paths. Analyze the new "
+                "working copies for BPM/Grid and Key; inspect grids and audition cue points.",
+                "Record imported and analyzed only after checking these tracks in the app. "
+                "Keep working copies in place. No USB or player model is needed for app import.",
+                "For a standalone player USB, create a separate rekordbox_usb delivery "
+                "with its documented hardware profile and complete native device export.",
+            ]
+        return [
+            "In Serato Files, import the prepared working copies and create regular "
+            "crates matching the supplied playlist memberships.",
+            "Analyze BPM, Key and beatgrids, then inspect and load the selected tracks. "
+            "Use the analysis instructions for the installed Serato version.",
+            "Record imported and analyzed only after checking these tracks in the app. "
+            "Keep working copies in place. No USB or controller model is needed for app import.",
+            "For a portable Serato USB library, create a separate serato_portable "
+            "delivery and copy regular crates through the native Files panel.",
+        ]
     if d["request"]["workflow"] == "rekordbox_usb":
         profile = target_profiles()[d["request"]["hardware_profile"]]
         library = profile.get("library_format", "the player-compatible device library")
@@ -363,9 +419,39 @@ def _prepared(app, d):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def inspect_native_xml(app, delivery_id, revision, path):
+    """Compare a supported native XML snapshot; never advance a delivery stage."""
+    from djlib.exporting.native_rekordbox import inspect_native_rekordbox
+
+    d = _load(app, delivery_id)
+    _revision(d, revision)
+    if d["request"]["workflow"] not in {"rekordbox_import", "rekordbox_usb"}:
+        raise AppError("WORKFLOW_SCOPE", "This snapshot inspection supports rekordbox deliveries.")
+    report = inspect_native_rekordbox(app.workspace.authorize(path), _prepared(app, d))
+    report["delivery_id"] = delivery_id
+    report["delivery_revision"] = d["revision"]
+    report["delivery_state_changed"] = False
+    report["working_file_hashes_rechecked"] = False
+    report["native_app_version_matches_request"] = (
+        report["native_product_version"] == d["request"]["app_version"]
+    )
+    if not report["native_app_version_matches_request"]:
+        report["status"] = "mismatch"
+        report["errors"].append(
+            {
+                "code": "APP_VERSION_MISMATCH",
+                "message": "Native snapshot version differs from the delivery's declared app "
+                "version. Use the observed app version for a new trial.",
+            }
+        )
+    return report
+
+
 def bind_device(app, delivery_id, revision, path):
     d = _load(app, delivery_id)
     _revision(d, revision)
+    if _app_only(d):
+        raise AppError("WORKFLOW_SCOPE", "App-import deliveries do not require a USB device.")
     report = inspect_device(path)
     if not report["is_mount_point"]:
         raise AppError(
@@ -439,6 +525,10 @@ def _reconcile_analysis(app, manifest):
 def observe_delivery(app, delivery_id, observation: DeliveryObservation):
     d = _load(app, delivery_id)
     _revision(d, observation.revision)
+    if _app_only(d) and observation.stage not in {"imported", "analyzed"}:
+        raise AppError(
+            "WORKFLOW_SCOPE", "This delivery tracks native app import and analysis only."
+        )
     manifest = _prepared(app, d)
     if observation.app_version != d["request"]["app_version"]:
         raise AppError(
@@ -518,6 +608,8 @@ def observe_delivery(app, delivery_id, observation: DeliveryObservation):
         evidence.pop(later, None)
     if index <= STAGES.index("native_exported"):
         evidence.pop("readback", None)
+    if index <= STAGES.index("analyzed"):
+        evidence.pop("app_readback", None)
     record = {
         **observation.model_dump(mode="json"),
         "observed_at": timestamp(),
@@ -566,6 +658,10 @@ def observe_delivery(app, delivery_id, observation: DeliveryObservation):
 def verify_device(app, delivery_id, revision):
     d = _load(app, delivery_id)
     _revision(d, revision)
+    if _app_only(d):
+        raise AppError(
+            "WORKFLOW_SCOPE", "Use an app-import check for this delivery, not USB readback."
+        )
     evidence = dict(d["evidence"])
     if evidence.get("native_exported", {}).get("outcome") != "passed":
         raise AppError(
@@ -603,7 +699,52 @@ def _readback_passed(evidence):
     return readback.get("status") == "verified_hashes" and readback.get("volume_unchanged") is True
 
 
-def delivery_status(app, delivery_id, *, fresh_readback=None):
+def verify_app(app, delivery_id, revision):
+    """Refresh working-file evidence without claiming automated native app readback."""
+    d = _load(app, delivery_id)
+    _revision(d, revision)
+    if not _app_only(d):
+        raise AppError("WORKFLOW_SCOPE", "Use device verification for this USB delivery.")
+    evidence = dict(d["evidence"])
+    if any(evidence.get(stage, {}).get("outcome") != "passed" for stage in STAGES[:2]):
+        raise AppError(
+            "APP_STAGE_REQUIRED", "Observe native import and analysis before app verification."
+        )
+    _prepared(app, d)
+    assets = evidence["analyzed"]["assets"]
+    try:
+        for track in assets:
+            if checksum(app.workspace.authorize(track["path"])) != track["sha256"]:
+                raise AppError(
+                    "ANALYSIS_CHANGED",
+                    "Working copies changed after analysis; inspect and record analysis again.",
+                )
+        report = {"status": "verified_working_files", "checked_at": timestamp(), "assets": assets}
+    except (AppError, OSError) as exc:
+        error = (
+            exc
+            if isinstance(exc, AppError)
+            else AppError("FILE_UNAVAILABLE", "A working copy is unavailable.")
+        )
+        evidence["analyzed"] = {
+            **evidence["analyzed"],
+            "outcome": "failed",
+            "error": error.as_dict(),
+        }
+        evidence["app_readback"] = {
+            "status": "failed",
+            "checked_at": timestamp(),
+            "error": error.as_dict(),
+        }
+        _save_evidence(app, d, evidence)
+        raise error from None
+    evidence["analyzed"] = {**evidence["analyzed"], "assets": assets}
+    evidence["app_readback"] = report
+    _save_evidence(app, d, evidence)
+    return delivery_status(app, delivery_id, fresh_app_readback=report)
+
+
+def delivery_status(app, delivery_id, *, fresh_readback=None, fresh_app_readback=None):
     d = _load(app, delivery_id)
     evidence = d["evidence"]
     job = app.job(d["job_id"]) if d["job_id"] else None
@@ -611,13 +752,16 @@ def delivery_status(app, delivery_id, *, fresh_readback=None):
     blockers = []
     if not prepared:
         blockers.append("prepare_working_copies")
-    if not evidence.get("device"):
+    app_only = _app_only(d)
+    if not app_only and not evidence.get("device"):
         blockers.append("bind_target_usb")
-    for stage in STAGES:
+    for stage in STAGES[:2] if app_only else STAGES:
         if evidence.get(stage, {}).get("outcome") != "passed":
             blockers.append(stage)
-    if not _readback_passed(evidence):
+    if not app_only and not _readback_passed(evidence):
         blockers.append("device_audio_hash_readback")
+    if app_only and evidence.get("app_readback", {}).get("status") != "verified_working_files":
+        blockers.append("app_working_file_readback")
     current = None
     if evidence.get("device"):
         try:
@@ -664,19 +808,32 @@ def delivery_status(app, delivery_id, *, fresh_readback=None):
         "native_steps": _steps(d),
         "blockers": blockers,
         "requirements_met_at_last_check": not blockers,
-        "ready_for_departure": not blockers
+        "app_requirements_met_at_last_check": app_only and not blockers,
+        "ready_for_app_use": app_only
+        and not blockers
+        and fresh_app_readback is not None
+        and fresh_app_readback.get("status") == "verified_working_files",
+        "ready_for_departure": not app_only
+        and not blockers
         and fresh_readback is not None
         and fresh_readback.get("status") == "verified_hashes",
         "readiness_basis": (
-            "operator-reported native stages and hardware sample plus machine audio hashes"
+            "operator-reported native import/analysis plus working-file verification"
+            if app_only
+            else "operator-reported native stages and hardware sample plus machine audio hashes"
         ),
         "hardware_verified_automatically": False,
         "native_automation_available": False,
         "last_audio_readback_at": evidence.get("readback", {}).get("checked_at"),
+        "last_app_readback_at": evidence.get("app_readback", {}).get("checked_at"),
         "hashes_rechecked_by_status": False,
         "next_step": blockers[0]
         if blockers
-        else ("eject_safely" if fresh_readback else "verify_device_before_departure"),
+        else (
+            ("app_import_and_analysis_observed" if fresh_app_readback else "verify_app_before_use")
+            if app_only
+            else ("eject_safely" if fresh_readback else "verify_device_before_departure")
+        ),
         "source_quality": "Source fidelity is unchanged by compatibility conversion.",
         "pilot_required_before_full": d["request"]["phase"] == "pilot",
     }

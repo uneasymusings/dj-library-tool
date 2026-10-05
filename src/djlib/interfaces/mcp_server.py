@@ -208,4 +208,23 @@ def build_server(workspace: Workspace) -> MCPServer:
         """Verify prepared audio hashes on the bound USB without writing the device."""
         return await request("POST", f"/deliveries/{delivery_id}/verify", {"revision": revision})
 
+    @server.tool(structured_output=True, annotations=intent)
+    async def djlib_verify_delivery_app(delivery_id: str, revision: int) -> ResponseEnvelope:
+        """Verify app-import working files after observed native import/analysis; no USB needed."""
+        return await request(
+            "POST", f"/deliveries/{delivery_id}/verify-app", {"revision": revision}
+        )
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_inspect_delivery_native_xml(
+        delivery_id: str, revision: int, path: str
+    ) -> ResponseEnvelope:
+        """Compare native rekordbox XML paths/playlists; snapshot only, never changes readiness."""
+        return await request(
+            "POST", f"/deliveries/{delivery_id}/native-xml", {"revision": revision, "path": path}
+        )
+
+    from djlib.interfaces.library_workflows import register_mcp
+
+    register_mcp(server, request, read, write, intent)
     return server

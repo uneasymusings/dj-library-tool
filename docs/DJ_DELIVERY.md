@@ -1,13 +1,15 @@
 # Deliver a collection through a native DJ app
 
-This workflow belongs to **0.1.0a3.dev0, an unpublished local preview**. It prepares isolated working copies and records the path from a catalog collection to a tested device. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware. These commands are not part of the public `v0.1.0a2` release wheel.
+This workflow describes **0.1.0a3**. It prepares isolated working copies and records the path from a catalog collection to a native app, with a separate route for device delivery. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
 
-Use `delivery get DELIVERY_ID` to resume a delivery and see its next blocker. Report the actual stage reached: **cataloged → prepared for import → imported → analyzed → native exported → device library checked → hardware playback checked**. A download, M3U, XML, database filename, or successful hash readback alone cannot establish the later stages.
+Use `delivery get DELIVERY_ID` to resume a delivery and see its next blocker. App-only work progresses through **cataloged → prepared for import → imported → analyzed → working files checked**. A separate USB delivery continues through **native exported → device library checked → hardware playback checked**, with device byte readback. A download, M3U, XML, database filename, or successful hash readback alone cannot establish native app or hardware behavior.
 
 ## Choose the destination before preparing music
 
 | Workflow | Destination | Required target information |
 | --- | --- | --- |
+| `rekordbox_import` | Local rekordbox Collection/playlists and analysis | Accepted collection IDs and installed app version. No USB or player profile. |
+| `serato_import` | Local Serato regular crates and analysis | Accepted collection IDs and installed app version. No USB or controller model. |
 | `rekordbox_usb` | USB exported by rekordbox for a standalone player | Installed app version, exact supported hardware profile, actual USB mount, player firmware check. |
 | `serato_portable` | Regular crates and audio copied through Serato for a Serato computer/setup | Installed app version, actual USB mount, destination computer/controller and operating-system compatibility. No standalone-player profile is implied. |
 
@@ -21,7 +23,61 @@ OneLibrary is the current name for Device Library Plus. OPUS-QUAD requires that 
 
 Keep existing native libraries and USB contents intact. If the current filesystem or device is unsuitable, record the blocker and choose a separately approved remedy. This workflow never reformats a device or overwrites an existing native library by itself.
 
-## Example 1: a three-track rekordbox trial
+## Start with the app when the player is not known
+
+Choose `rekordbox_import` or `serato_import` when the immediate task is organizing music in that application. An unknown player/controller is not a blocker for these workflows. Create `app-trial.json` with actual collection IDs and the installed version:
+
+```json
+{
+  "name": "Local app pilot",
+  "collection_ids": ["COLLECTION_ID"],
+  "workflow": "rekordbox_import",
+  "app_version": "7.2.8",
+  "audio_mode": "preserve",
+  "phase": "pilot",
+  "pilot_size": 3
+}
+```
+
+For Serato, replace the workflow with `serato_import` and supply its actual app version. Omit `hardware_profile`; it applies only to `rekordbox_usb`.
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace delivery plan --file app-trial.json
+uv run djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
+  --revision CURRENT_REVISION --key local-app-pilot-v1
+uv run djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
+uv run djlib --workspace /path/to/dj-workspace jobs items JOB_ID
+```
+
+After all preparation items succeed, import the provided M3U8 in rekordbox, or import the working files into regular Serato crates matching the manifest. Inspect all memberships/paths and analyze only the selected new working copies. Record `imported` and `analyzed` using the observation contract below, then refresh the working-file evidence:
+
+```bash
+uv run djlib --workspace /path/to/dj-workspace delivery verify-app DELIVERY_ID \
+  --revision CURRENT_REVISION
+```
+
+A successful fresh check can return `ready_for_app_use: true`, conditional on operator-reported native import/analysis and the checked working files. `delivery get` reports saved evidence without rehashing; it does not newly assert readiness. The engine still does not read the app's database or independently prove its BPM/key/grid accuracy.
+
+App-first preparation checks native-app input profiles rather than a standalone player's limits. Rekordbox numeric limits come from its manual; the Serato profile uses documented format families with an explicitly conservative engine subset because the cited DJ Pro pages do not establish exhaustive numeric maxima. Out-of-subset files require review or an explicitly chosen conversion; preserve remains the default. Native app trials remain necessary.
+
+No device binding, USB readback or hardware-playback observation is needed to complete this app-only scope. To prepare a USB afterward, create a separate `rekordbox_usb` or `serato_portable` request and complete that workflow. An app-only pilot cannot substitute for the matching USB pilot. [rekordbox import/analysis manual](https://cdn.rekordbox.com/files/20260807093645/rekordbox7.2.18_manual_EN.pdf), [Serato import](https://support.serato.com/hc/en-us/articles/223446528-Adding-files-to-the-Serato-DJ-Pro-Library).
+
+## Inspect a native rekordbox snapshot
+
+After import, use rekordbox's supported **File → Export Collection in xml format** operation. Save a new XML file within the library workspace or an explicitly allowed root, preserving any existing snapshot. Then compare it with the prepared delivery:
+
+```bash
+djlib --workspace /path/to/dj-workspace delivery inspect-native-xml DELIVERY_ID \
+  /path/to/dj-workspace/native-collection.xml --revision CURRENT_REVISION
+```
+
+The MCP equivalent is `djlib_inspect_delivery_native_xml(delivery_id, revision, path)`. It checks exact prepared working paths, native playlist membership/order and the XML's declared product version against the request. It reports missing, duplicate, ambiguous and mismatched entries, with unknown BPM/key preserved. The input must be a native rekordbox export; the engine's experimental XML handoff is not accepted as native evidence. The format follows [AlphaTheta's official XML specification](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf).
+
+This bounded, read-only comparison opens no audio paths referenced by the XML, changes no delivery state and never returns app/device readiness. The snapshot may become stale, and its product label is not independently authenticated. A match supports snapshot membership evidence only; inspect loading and musical BPM/key/grid accuracy in the app and use the normal observations plus fresh verification for readiness. A declared version mismatch remains unresolved rather than being rewritten to match.
+
+The report's known BPM/key values can support explicit catalog annotations for the corresponding recording/revision. Use `source: "operator"`, note the XML checksum/version and keep `verified: false` until actual musical review. Unknown or ambiguous values remain unset. `native_tag` is reserved for matching freshly read catalog-file tags, not values from this XML. After annotation, create a new filtered collection and delivery snapshot when needed.
+
+## USB example 1: a three-track rekordbox trial
 
 Start with accepted, inspected collection members. Substitute real collection IDs, the installed app version, and the actual player profile in `delivery.json`:
 
@@ -63,6 +119,8 @@ Player assessment conservatively covers mono/stereo audio with known channel met
 | `wav16_44100` | Explicit compatibility option. Create stereo, 16-bit, 44.1 kHz WAV working copies. |
 
 No mode improves source fidelity. Supplied artist/title/version tags are display labels, not proof of exact recording identity. Conversion never silently replaces the catalog originals.
+
+Plans also freeze explicit catalog annotations and their revision. Preparation writes supplied BPM/key/genre tags plus notes, tags, role and energy comments into the separate working copies (ID3 for WAV/AIFF/MP3, FLAC tags or MP4 atoms). Existing tags remain where no override is supplied, and the manifest preserves exact annotations and provenance. These writes are display metadata, not native analysis or evidence of musical accuracy. MP4's integer tempo field cannot represent fractional BPM: the exact value stays in the manifest/freeform tag with a warning, so check its native display. Later annotation edits require a new delivery snapshot.
 
 Read the generated manifest, then import its M3U8 playlists in **rekordbox EXPORT mode → File → Import → Import Playlist**. Check membership; analyze the new working copies for BPM/Grid and Key, then audition and correct beatgrids/cues as needed. Preserve existing manual edits rather than reanalyzing the whole library. The native application owns this work. [rekordbox manual, playlist import and analysis](https://cdn.rekordbox.com/files/20260807093645/rekordbox7.2.18_manual_EN.pdf).
 
@@ -128,9 +186,9 @@ Observations are stored as `operator_reported`, with timestamps and revision che
 
 Analysis may change tags on working copies. When recording successful analysis, an unchanged file hash takes the fast path without redundant decoding. Changed file bytes trigger fresh stream-property and decoded-audio checks against the prepared copy, then the engine captures the new file hashes for device readback. Changed audio is blocked. This reconciliation is limited to these isolated copies; it does not adopt arbitrary changes to original catalog files or parse native analysis databases.
 
-Reconciliation runs synchronously in the observation request, not as a durable preparation job. The client allows up to 600 seconds for observation requests; large batches of changed working copies can exceed that limit. After a lost response, read the delivery's current revision and evidence before retrying rather than assuming the observation failed.
+Reconciliation runs synchronously in observation and app-verification requests, not as a durable preparation job. The client allows up to 600 seconds for those requests; large batches of changed working copies can exceed that limit. After a lost response, read the delivery's current revision and evidence before retrying rather than assuming the operation failed.
 
-## Example 2: a portable Serato library
+## USB example 2: a portable Serato library
 
 Create a second request for the installed Serato version:
 
@@ -154,9 +212,9 @@ In Serato's Files panel, drag each regular crate to the bound USB and choose **C
 
 ## Expand only after the pilot
 
-Create a new request with `phase: "full"` and `pilot_delivery_id: "SUCCESSFUL_PILOT_ID"`. Keep the workflow, app version, hardware profile, and audio mode matching the completed pilot. Full preparation is gated by that pilot; changing the target requires another trial. The new plan freezes the requested collections again, so review its full membership rather than assuming the pilot contained everything.
+Create a new request with `phase: "full"` and `pilot_delivery_id: "SUCCESSFUL_PILOT_ID"`. Keep the workflow, app version, hardware profile if applicable, and audio mode matching the completed pilot. Full preparation is gated by that pilot's relevant app/device requirements; changing the target requires another trial. The new plan freezes the requested collections again, so review its full membership rather than assuming the pilot contained everything.
 
-Complete every native stage for the full delivery. Keep the acquisition/missing-track report separate: a finished delivery only covers its frozen accepted recordings, not unavailable or unresolved requested songs.
+Complete every stage required by the full delivery's workflow. Keep the acquisition/missing-track report separate: a finished delivery only covers its frozen accepted recordings, not unavailable or unresolved requested songs.
 
 ## What device verification proves
 
@@ -174,6 +232,10 @@ Keep native BPM/key columns sortable after analysis and audition the results. Us
 
 The engine currently does not compute BPM, musical key, genre or energy, edit native cues, or implement native app automation. Its XML follows [AlphaTheta's published interchange specification](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf); that specification is not a headless native USB export API.
 
+The [organization commands](QUICKSTART.md#keep-notes-and-sort-explicit-selections) can read existing tagged BPM/key and save supplied notes, tags, roles and analysis provenance against catalog byte revisions. Use them to build ordered, overlapping collections before planning delivery. Known tags remain unverified until explicitly reviewed. Delivery carries frozen supplied values into working-copy tags/comments for the app to read; verify the actual native display. It does not set native cues, and native analysis databases or changed working tags are not automatically adopted into catalog annotations.
+
 ## Release acceptance gate
 
-Before claiming a supported end-to-end delivery, retain a trial record with app version, player/controller model and firmware, volume identity/filesystem/partition information, frozen IDs and playlist counts, preparation outcomes, native observations, readback results, and actual playback scope. Exercise at least one real target through the native app; a filesystem fixture or mocked observation cannot replace it. Test both workflow providers separately before claiming both are validated. See [status](STATUS.md) for what has actually been observed.
+For app-only readiness, retain the actual app version, frozen IDs and playlist/crate counts, preparation outcomes, native import/analysis observations, fresh working-file checks and observed load/play scope. A player model or USB is not part of this app-only acceptance gate. Exercise both native apps before claiming both app workflows are validated.
+
+For USB delivery, additionally retain the player/controller model and firmware, volume identity/filesystem/partition information, native export/copy and device-library observations, readback results, and physical playback scope. Exercise at least one real target through the native app; a filesystem fixture or mocked observation cannot replace it. Test both USB workflow providers separately before claiming both are validated. See [status](STATUS.md) for what has actually been observed.

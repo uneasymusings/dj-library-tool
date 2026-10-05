@@ -19,8 +19,121 @@ from mcp.client.stdio import StdioServerParameters
 
 from djlib.application.agent_setup import create_agent_session
 from djlib.application.demo import run_demo
+from djlib.audio.inspection import checksum
 from djlib.interfaces.client import LocalClient
+from djlib.interfaces.tool_manifest import TOOL_NAMES
 from djlib.workspace import Workspace
+
+
+async def check_library_workflows(client, collection_id: str) -> None:
+    """Exercise the installed request/organization adapters using only original demo bytes."""
+
+    async def call(name, arguments):
+        reply = await client.call_tool(name, arguments)
+        assert not reply.is_error, reply
+        envelope = reply.structured_content
+        assert envelope["ok"], envelope
+        assert envelope["error"] is None
+        return envelope["result"]
+
+    original = await call("djlib_collection", {"collection_id": collection_id})
+    tracks = original["tracks"]
+    hashes = {track["path"]: checksum(Path(track["path"])) for track in tracks}
+    first = tracks[0]
+    reference = {key: first[key] for key in ("recording_id", "asset_revision_id")}
+    body = {
+        "name": "Installed request trial",
+        "idempotency_key": "installed-request-trial",
+        "items": [
+            {key: first[key] for key in ("artist", "title", "version")},
+            {"kind": "unknown", "label": "Unidentified synthetic set ID", "timestamp": "00:30"},
+        ],
+    }
+    requested = await call("djlib_create_request", {"request_body": body})
+    assert requested["counts"]["satisfied"] == requested["counts"]["unknown"] == 1
+    assert requested["items"][0]["accepted"]["asset_revision_id"] == first["asset_revision_id"]
+    assert (await call("djlib_create_request", {"request_body": body})) == requested
+    request_id = requested["request_id"]
+    page = await call("djlib_request", {"request_id": request_id, "after": 1, "limit": 1})
+    assert page["items"][0]["input"]["timestamp"] == "00:30"
+    refreshed = await call(
+        "djlib_refresh_request",
+        {"request_id": request_id, "revision": 1, "item_ids": [requested["items"][1]["item_id"]]},
+    )
+    assert refreshed["items"][0] == requested["items"][0]
+    satisfied = await call(
+        "djlib_resolve_request",
+        {
+            "request_id": request_id,
+            "item_id": requested["items"][0]["item_id"],
+            "resolution": {
+                "revision": 2,
+                "action": "satisfy",
+                **reference,
+                "notes": "Explicitly reuse the generated tone's existing catalog revision.",
+            },
+        },
+    )
+    assert satisfied["items"][1]["state"] == "unknown"
+    report = await call("djlib_request_report", {"request_id": request_id, "revision": 3})
+    missing = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
+    assert missing["unresolved_items"] == 1
+    assert missing["items"][0]["input"] == requested["items"][1]["input"]
+    assert missing["automatic_acquisition"] is False
+    metadata = await call("djlib_track_metadata", reference)
+    assert metadata["acoustic_analysis_performed"] is False
+    assert metadata["effective"]["bpm"]["known"] is False
+    assert (await call("djlib_annotations", reference))["revision"] == 0
+    annotation = await call(
+        "djlib_annotate",
+        {
+            "request_body": {
+                **reference,
+                "revision": 0,
+                "idempotency_key": "installed-annotation",
+                "tags": ["synthetic-smoke-test"],
+                "set_role": "test fixture",
+                "energy": 2,
+                "notes": "Synthetic label only; no native or acoustic analysis observed.",
+            }
+        },
+    )
+    assert annotation["state"] == "completed"
+    patched = await call(
+        "djlib_annotate",
+        {
+            "request_body": {
+                **reference,
+                "revision": 1,
+                "idempotency_key": "installed-annotation-patch",
+                "notes": "Updated test note; omitted fields must remain intact.",
+            }
+        },
+    )
+    stored = await call("djlib_annotations", reference)
+    assert stored["revision"] == 2
+    assert stored["annotations"] == patched["result"]["annotations"]
+    for field in ("tags", "set_role", "energy"):
+        assert stored["annotations"][field] == annotation["result"]["annotations"][field]
+    organization_body = {
+        "name": "Installed filtered synthetic collection",
+        "idempotency_key": "installed-organization",
+        "tracks": [{key: track[key] for key in reference} for track in reversed(tracks)],
+        "filters": {"tags": ["synthetic-smoke-test"]},
+        "unknown": "exclude",
+        "order_by": "input",
+    }
+    organized = await call("djlib_organize", {"request_body": organization_body})
+    assert (await call("djlib_organize", {"request_body": organization_body})) == organized
+    assert organized["result"]["selected_count"] == 1
+    assert organized["result"]["app_state"] == "not_imported"
+    assert organized["result"]["device_state"] == "not_exported"
+    filtered = await call(
+        "djlib_collection", {"collection_id": organized["result"]["collection_id"]}
+    )
+    assert [track["recording_id"] for track in filtered["tracks"]] == [first["recording_id"]]
+    assert (await call("djlib_collection", {"collection_id": collection_id})) == original
+    assert {path: checksum(Path(path)) for path in hashes} == hashes
 
 
 async def check() -> None:
@@ -49,18 +162,22 @@ async def check() -> None:
             )
             async with Client(transport) as client:
                 tools = (await client.list_tools()).tools
-                assert len(tools) == 23 and all(tool.output_schema for tool in tools)
+                assert {tool.name for tool in tools} == TOOL_NAMES
+                assert all(tool.output_schema for tool in tools)
                 reply = await client.call_tool("djlib_capabilities", {})
                 assert reply.structured_content["ok"]
                 reply = await client.call_tool("djlib_delivery_targets", {})
                 assert "cdj-2000nxs" in reply.structured_content["result"]["targets"]
+                await check_library_workflows(
+                    client, result["ingestion"]["result"]["collection_id"]
+                )
                 if shutil.which("ffmpeg") and shutil.which("ffprobe"):
                     planned = await client.call_tool(
                         "djlib_plan_delivery",
                         {
                             "request_body": {
                                 "name": "Installed delivery pilot",
-                                "workflow": "serato_portable",
+                                "workflow": "rekordbox_import",
                                 "app_version": "synthetic-smoke-test",
                                 "collection_ids": [result["ingestion"]["result"]["collection_id"]],
                             }
@@ -85,7 +202,37 @@ async def check() -> None:
                     )
                     assert status.structured_content["result"]["prepared_for_import"]
                     assert not status.structured_content["result"]["ready_for_departure"]
-            print(json.dumps({"ok": True, "tracks": 3, "mcp_tools": 23, "skill_packaged": True}))
+                    # An engine-shaped XML file cannot stand in for native export evidence.
+                    generated_xml = workspace.exports / "engine-shaped.xml"
+                    generated_xml.write_text(
+                        '<DJ_PLAYLISTS><PRODUCT Name="dj-library-tool" Version="test"/>'
+                        '<COLLECTION Entries="0"/><PLAYLISTS/></DJ_PLAYLISTS>',
+                        encoding="utf-8",
+                    )
+                    readback = await client.call_tool(
+                        "djlib_inspect_delivery_native_xml",
+                        {
+                            "delivery_id": delivery["delivery_id"],
+                            "revision": status.structured_content["result"]["revision"],
+                            "path": str(generated_xml),
+                        },
+                    )
+                    assert readback.structured_content["error"]["code"] == (
+                        "NATIVE_XML_PRODUCT_INVALID"
+                    )
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "tracks": 3,
+                        "mcp_tools": len(tools),
+                        "skill_packaged": True,
+                        "request_ledger_checked": True,
+                        "organization_checked": True,
+                        "native_app_observed": False,
+                    }
+                )
+            )
         finally:
             if workspace.config_path.exists() and local.discover():
                 local.request("POST", "/shutdown")

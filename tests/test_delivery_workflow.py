@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from mutagen.id3 import TBPM, TKEY
 from mutagen.wave import WAVE
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from djlib.application import delivery
@@ -377,13 +378,14 @@ async def test_rekordbox_hardware_observation_requires_actual_target_and_support
         {"hardware_profile": None},
         {"hardware_profile": "cdj-2000nxs"},
         {"firmware_version": None},
-        {"firmware_version": " "},
         {"storage_recognized": None},
         {"storage_recognized": False},
     ]:
         with pytest.raises(AppError) as error:
             observe(application, status, manifest, "hardware_playback", **{**details, **missing})
         assert error.value.code == "HARDWARE_DETAILS_REQUIRED"
+    with pytest.raises(ValidationError):
+        observation(status, manifest, "hardware_playback", **{**details, "firmware_version": " "})
     for withdrawn in ["3.30", "v3.30", " 3.30 "]:
         with pytest.raises(AppError) as error:
             observe(

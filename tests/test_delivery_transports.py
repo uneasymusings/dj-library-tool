@@ -8,6 +8,7 @@ import asyncio
 import json
 import shutil
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,8 @@ DELIVERY_TOOLS = {
     "djlib_bind_delivery_device",
     "djlib_observe_delivery",
     "djlib_verify_delivery_device",
+    "djlib_verify_delivery_app",
+    "djlib_inspect_delivery_native_xml",
 }
 DECODERS_AVAILABLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -153,10 +156,112 @@ def prepared_manifest(job, source, original_bytes):
     return manifest
 
 
+def write_native_snapshot(path, manifest, version="7.2.19"):
+    root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
+    ET.SubElement(root, "PRODUCT", Name="rekordbox", Version=version, Company="AlphaTheta")
+    collection = ET.SubElement(root, "COLLECTION", Entries=str(len(manifest["tracks"])))
+    for index, track in enumerate(manifest["tracks"]):
+        ET.SubElement(
+            collection,
+            "TRACK",
+            TrackID=str(index),
+            Location=Path(track["path"]).as_uri(),
+            AverageBpm="0.00",
+            Tonality="",
+        )
+    playlists = ET.SubElement(root, "PLAYLISTS")
+    container = ET.SubElement(playlists, "NODE", Name="ROOT", Type="0", Count="1")
+    playlist = ET.SubElement(
+        container,
+        "NODE",
+        Name=Path(manifest["playlists"][0]["path"]).stem,
+        Type="1",
+        KeyType="0",
+        Entries=str(len(manifest["tracks"])),
+    )
+    for index in range(len(manifest["tracks"])):
+        ET.SubElement(playlist, "TRACK", Key=str(index))
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+@pytest.mark.skipif(not DECODERS_AVAILABLE, reason="Native comparison needs prepared real tones")
+async def test_native_snapshot_cli_mcp_and_http_preserve_delivery_boundaries(
+    application, delivery_http, audio_factory
+):
+    source, collection_id = catalog_tone(delivery_http, audio_factory)
+    planned = assert_envelope(
+        delivery_http.post(
+            "/deliveries",
+            json={
+                **request_body(collection_id),
+                "workflow": "rekordbox_import",
+                "hardware_profile": None,
+                "app_version": "7.2.19",
+            },
+        ).json()
+    )
+    identifier = planned["delivery_id"]
+    job = assert_envelope(
+        delivery_http.post(
+            f"/deliveries/{identifier}/prepare",
+            json={
+                "revision": planned["revision"],
+                "idempotency_key": "native-snapshot-transport",
+            },
+        ).json()
+    )
+    manifest = prepared_manifest(finish(delivery_http, job["job_id"]), source, source.read_bytes())
+    before = assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json())
+    path = application.workspace.exports / "simulated-native.xml"
+    write_native_snapshot(path, manifest)
+    body = {"revision": before["revision"], "path": str(path)}
+    report = assert_envelope(
+        delivery_http.post(f"/deliveries/{identifier}/native-xml", json=body).json()
+    )
+    assert report["status"] == "matched"
+    assert report["snapshot_only"] is True
+    assert report["manual_accuracy_review_required"] is True
+    assert report["native_app_version_matches_request"] is True
+    assert report["delivery_state_changed"] is False
+    assert report["working_file_hashes_rechecked"] is False
+    cli = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "delivery",
+            "inspect-native-xml",
+            identifier,
+            str(path),
+            "--revision",
+            str(before["revision"]),
+        ],
+    )
+    assert cli.exit_code == 0, cli.output
+    assert assert_envelope(json.loads(cli.stdout)) == report
+    async with Client(build_server(application.workspace)) as client:
+        result = await client.call_tool(
+            "djlib_inspect_delivery_native_xml",
+            {
+                "delivery_id": identifier,
+                **body,
+            },
+        )
+        assert assert_envelope(result.structured_content) == report
+    assert assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json()) == before
+    write_native_snapshot(path, manifest, version="7.2.18")
+    mismatch = assert_envelope(
+        delivery_http.post(f"/deliveries/{identifier}/native-xml", json=body).json()
+    )
+    assert mismatch["status"] == "mismatch"
+    assert mismatch["errors"][-1]["code"] == "APP_VERSION_MISMATCH"
+    assert assert_envelope(delivery_http.get(f"/deliveries/{identifier}").json()) == before
+
+
 @pytest.mark.skipif(
     not DECODERS_AVAILABLE, reason="Real delivery preparation requires FFmpeg/ffprobe"
 )
-async def test_all_seven_delivery_mcp_tools_through_asgi(
+async def test_all_delivery_mcp_tools_through_asgi(
     application, delivery_http, audio_factory, tmp_path
 ):
     source, collection_id = catalog_tone(delivery_http, audio_factory)
@@ -231,6 +336,21 @@ async def test_all_seven_delivery_mcp_tools_through_asgi(
             },
             error="NATIVE_EXPORT_REQUIRED",
         )
+        await call(
+            "djlib_verify_delivery_app",
+            {"delivery_id": delivery_id, "revision": revision},
+            error="WORKFLOW_SCOPE",
+        )
+        invalid_xml = application.workspace.exports / "invalid-native.xml"
+        write_native_snapshot(invalid_xml, manifest)
+        parsed = ET.parse(invalid_xml)
+        parsed.getroot().find("PRODUCT").set("Name", "dj-library-tool")
+        parsed.write(invalid_xml, encoding="utf-8")
+        await call(
+            "djlib_inspect_delivery_native_xml",
+            {"delivery_id": delivery_id, "revision": revision, "path": str(invalid_xml)},
+            error="NATIVE_XML_PRODUCT_INVALID",
+        )
         unchanged = await call("djlib_delivery", {"delivery_id": delivery_id})
         assert unchanged["revision"] == revision
         assert unchanged["evidence"] == {}
@@ -292,6 +412,7 @@ def test_delivery_cli_commands_use_real_asgi_and_worker(
         ("/deliveries", {**request_body("collection-not-used"), "phase": "already_exported"}),
         ("/deliveries/not-used/prepare", {"revision": 1, "idempotency_key": "x", "force": True}),
         ("/deliveries/not-used/verify", {"revision": 1, "hardware_verified": True}),
+        ("/deliveries/not-used/native-xml", {"revision": 1, "path": "x", "mark_ready": True}),
         (
             "/deliveries/not-used/observations",
             {

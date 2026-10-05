@@ -15,11 +15,13 @@ from fastapi.responses import JSONResponse
 from filelock import FileLock
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from djlib import __version__
 from djlib.application.service import Application, new_id
 from djlib.domain.contracts import (
     CollectionRequest,
     ControlRequest,
     DeliveryDeviceRequest,
+    DeliveryNativeXMLRequest,
     DeliveryObservation,
     DeliveryPrepareRequest,
     DeliveryRequest,
@@ -108,6 +110,7 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
                 "instance_id": instance_id,
                 "workspace_id": workspace.config().workspace_id,
                 "protocol_version": "1",
+                "application_version": __version__,
             }
         )
 
@@ -207,9 +210,16 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
 
     @app.get("/delivery-targets")
     async def delivery_targets():
+        from djlib.exporting.app_targets import app_profiles
         from djlib.exporting.targets import target_profiles
 
-        return envelope({"targets": target_profiles(), "native_automation_available": False})
+        return envelope(
+            {
+                "targets": target_profiles(),
+                "apps": app_profiles(),
+                "native_automation_available": False,
+            }
+        )
 
     @app.post("/deliveries")
     async def delivery_plan(body: DeliveryRequest):
@@ -253,6 +263,24 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
             await asyncio.to_thread(verify_device, application, delivery_id, body.revision)
         )
 
+    @app.post("/deliveries/{delivery_id}/verify-app")
+    async def delivery_verify_app(delivery_id: str, body: DeliveryVerifyRequest):
+        from djlib.application.delivery import verify_app
+
+        return envelope(
+            await asyncio.to_thread(verify_app, application, delivery_id, body.revision)
+        )
+
+    @app.post("/deliveries/{delivery_id}/native-xml")
+    async def delivery_native_xml(delivery_id: str, body: DeliveryNativeXMLRequest):
+        from djlib.application.delivery import inspect_native_xml
+
+        return envelope(
+            await asyncio.to_thread(
+                inspect_native_xml, application, delivery_id, body.revision, body.path
+            )
+        )
+
     @app.post("/shutdown")
     async def shutdown():
         server = getattr(app.state, "server", None)
@@ -260,6 +288,9 @@ def create_app(workspace: Workspace, instance_id: str, *, run_worker: bool = Tru
             asyncio.get_running_loop().call_later(0.2, setattr, server, "should_exit", True)
         return envelope({"state": "stopping"})
 
+    from djlib.interfaces.library_workflows import register_http
+
+    register_http(app, application, envelope)
     return app
 
 

@@ -1,6 +1,6 @@
 # Validation and first-use checklist
 
-This document separates repeatable engine checks from actual host, provider, app, and hardware observations. Updated 2026-10-04; see [status](STATUS.md) for remaining scope. Today's local, unpublished `0.1.0a3.dev0` evidence is separate from the historical public `0.1.0a2` evidence below. Old host, provider, release, and native-app checks were not rerun merely by building the development version.
+This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-04 for **0.1.0a3**; see [status](STATUS.md) for publication and remaining scope. Current local results are separate from the historical public a2 evidence below. Old host/provider/native checks were not rerun merely by building a new version.
 
 ## Automated suite
 
@@ -12,27 +12,33 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-### Current development checks — 2026-10-04
+### Current a3 checks — 2026-10-04
 
-Version: **0.1.0a3.dev0, local and unpublished**. Current development suite result: **206 passed in 34.78 seconds**, macOS, Python 3.13.3, real FFmpeg/ffprobe installed; no skips reported. Tests use generated tones, isolated catalogs, controlled transports, and simulated device/operator evidence. They do not establish a real native-app import, device export, or hardware playback result.
+Version: **0.1.0a3**. Local suite result: **378 passed in 45.02 seconds**, macOS, Python 3.13, real FFmpeg/ffprobe installed; no skips. Ruff lint/format checks passed for 77 source/script/test files. A fresh isolated installed-wheel check passed all 34 MCP schemas, request/organization workflows, original-tone preparation and packaged skill setup. The six-job GitHub matrix and public-artifact checks are pending. Tests use original tones, isolated catalogs, controlled transports and simulated device/operator evidence; they do not establish native app, device export or playback success.
+
+Coordinator upgrade checks reject old or unknown engine versions before sending ordinary requests. Authenticated capabilities, status and explicit shutdown remain usable; no old coordinator is replaced and no operation is resubmitted automatically. Twenty-seven focused cases plus actual process/stdio integration cover this boundary.
 
 | Added suite | Scenarios |
 | --- | --- |
 | `test_worker_scheduling` | Late-arriving collection/export requests, serial download rotation, bounded handoff preference, checkpoint pause/resume, restart recovery, stale generations, and delivery-item/finalization dispatch. |
 | `test_delivery_workflow` | Frozen stable IDs and collection membership, conflicting byte revisions, immutable originals, pilot gating, partial preparation, stage/coverage/revision evidence, manifest tampering, native tag changes versus replaced audio, invalidated stale readiness, and actual-player/firmware detail requirements. |
-| `test_delivery_media` | Isolated compatibility copies, source integrity, output properties, and interruption/failure boundaries. |
+| `test_delivery_media` | Isolated compatibility copies, source integrity, output properties, supplied annotation tags/comments across five formats, and interruption/failure boundaries. |
 | `test_delivery_targets` | Documented target-profile limits and rejection of unsupported or insufficiently specified audio properties. |
+| Native rekordbox XML tests | Bounded descriptor reads/parsing, exact prepared paths and playlist membership/order, duplicate/unknown/version mismatches, and snapshot-only reports without readiness or referenced-media access. |
+| `test_app_targets` | Separate app input subsets, conservative unknown/unsupported handling, filename/channel checks and no hardware-readiness implication. |
+| `test_requests` | Exact version matching, byte-revision ambiguity, unknown IDs, bounded freshness checks, explicit resolution and missing reports. |
+| `test_organization` | Five-format embedded metadata, byte-bound annotations, source preservation, concurrent revisions, stable ordered collections and unknown/exclusion policies. |
 | `test_device_readback` | Read-only mount identity, native-marker limitations, bounded hash presence checks, traversal boundaries, and incomplete/changed-volume outcomes. |
-| `test_delivery_transports` | Seven delivery commands/tools through real CLI/MCP/ASGI/worker contracts with original tones; device/native observations remain controlled test inputs. |
+| `test_delivery_transports` | Delivery commands/tools through real CLI/MCP/ASGI/worker contracts with original tones; device/native observations remain controlled test inputs. |
 | `test_delivery_concurrency` | One preparation job under concurrent submissions and one winner for competing evidence updates at the same revision. |
 
-Newly generated development sessions use a 660-second Codex MCP tool timeout and a 660,000-millisecond Claude server timeout, covering the client's 600-second delivery-observation timeout. Existing generated sessions are unchanged.
+Newly generated sessions use a 660-second Codex MCP tool timeout and a 660,000-millisecond Claude server timeout, covering the client's 600-second delivery-observation/app-verification timeout. Existing generated sessions are unchanged.
 
-The installed development wheel also passed the separate check described below. No signed-in AI-host trial, live provider acquisition, physical USB trial, or native rekordbox/Serato operation was performed as part of today's development validation. Target manuals and simulated observations are not hardware test evidence.
+An earlier development wheel passed the separate 33-tool check below, and migration from a2 passed. The final 34-tool a3 wheel passed its own fresh isolated installation and actual stdio check, including request matching, unknown reports, annotations and filtered collections. The smoke script stopped its coordinator and performed no native app actions. No new signed-in AI-host trial, live provider acquisition or physical USB/player trial was part of a3 validation. Native rekordbox XML confirms prepared paths and playlist membership/order; loading and musical analysis accuracy remain unverified.
 
 ### Historical public-alpha baseline — 2026-10-03
 
-For `0.1.0a2`, the recorded local result was **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. The following table records that baseline; its 16-tool count is not the current development count. Tests generated their own short tones without accessing a personal music catalog or physical USB. Live network access was not a test-suite prerequisite.
+For `0.1.0a2`, the recorded local result was **115 passed in 22.76 seconds**, macOS, Python 3.13.3, FFmpeg/ffprobe installed. The following table records that baseline; its 16-tool count is not the current a3 count. Tests generated their own short tones without accessing a personal music catalog or physical USB. Live network access was not a test-suite prerequisite.
 
 | Suite | Scenarios |
 | --- | --- |
@@ -45,7 +51,7 @@ For `0.1.0a2`, the recorded local result was **115 passed in 22.76 seconds**, ma
 | `test_release_artifacts` | Engine/project/lock version consistency, complete standalone skill allowlist, reproducible ZIP bytes, and checksums for current release artifacts only. |
 | `test_agent_setup` | Both portable skills, absolute executable config, existing-output preservation, workspace boundaries, launcher option placement, clean MCP stdout on startup failure. |
 
-The public `0.1.0a2` release passed its three-OS/Python 3.12–3.13 CI matrix. At that revision, five FFmpeg-dependent cases skipped if the runner had no decoder. The POSIX descendant test skipped on Windows; Windows retrieval used `taskkill /T` for process-tree cancellation. Symlink tests could skip where link creation was unavailable. These historical matrix results do not establish cross-platform results for the new development suites; check each actual run's summaries.
+The public `0.1.0a2` release passed its three-OS/Python 3.12–3.13 CI matrix. At that revision, five FFmpeg-dependent cases skipped if the runner had no decoder. The POSIX descendant test skipped on Windows; Windows retrieval used `taskkill /T` for process-tree cancellation. Symlink tests could skip where link creation was unavailable. These historical matrix results do not establish cross-platform results for the a3 suites; check each actual run's summaries.
 
 ## Historical AI CLI trials — 2026-10-03
 
@@ -90,15 +96,15 @@ uv run --locked python scripts/check_distribution.py
 uv run --locked python scripts/release_artifacts.py
 ```
 
-On **2026-10-04**, the locally built, unpublished `0.1.0a3.dev0` wheel passed in a separate installed environment:
+Earlier on **2026-10-04**, a development `0.1.0a3.dev0` wheel passed in a separate installed environment before native XML inspection was added:
 
 ```json
-{"ok": true, "tracks": 3, "mcp_tools": 23, "skill_packaged": true}
+{"ok": true, "tracks": 3, "mcp_tools": 33, "skill_packaged": true}
 ```
 
-Three original generated tones were ingested/exported, all 23 MCP tool schemas were exposed through a real stdio child, and the packaged skill was installed into a separate assistant session. The check also called the real MCP delivery-target, delivery-plan, and delivery-prepare tools, waited for the three-tone preparation, and checked delivery status: `prepared_for_import=true`, `ready_for_departure=false`. This verifies installed delivery packaging and transport, not native app automation or device readiness.
+That earlier candidate ran from installed site-packages, ingested/exported three original tones and exposed 33 tool schemas through real stdio. The packaged skill installed into a separate session; MCP delivery targets/plan/prepare completed an app-only pilot with `prepared_for_import=true` and `ready_for_departure=false`. This verifies the earlier installed build, not the final 34-tool candidate, native automation or device readiness.
 
-The earlier `0.1.0a2` installed-package check reported three tracks, 16 tools, and the packaged skill. Today's local wheel result does not mean a new GitHub release was published or that the historical public-wheel checks were rerun.
+The earlier `0.1.0a2` installed-package check reported three tracks, 16 tools, and the packaged skill. Today's local wheel result does not mean a new GitHub release was published. A separate independent a2 public-installation audit is recorded in [coverage](COVERAGE.md); it does not make the new APIs part of a2.
 
 The script uses a temporary workspace, stops its coordinator, and waits for its lock before cleanup. Windows cleanup additionally waits for the exiting process to close its inherited log handle. The CI workflow includes this installed-wheel smoke check; today's observed result above is local, not a claim that the new version has passed its full CI matrix.
 
@@ -129,15 +135,23 @@ Verified in **rekordbox 7.2.8 on macOS**:
 
 The installed app had an existing personal catalog; the check added only the generated tones. No native database files were edited directly. Actual XML-library import and device export have not yet passed. The manifest correctly remains `prepared_for_import`/`not_exported`: engine state does not automatically observe native app actions.
 
-Native apps may legitimately change file tags. Generic catalog exports still reject changed catalog bytes with `RECONCILIATION_REQUIRED`; do not disable that check. The new development delivery workflow prepares separate working copies and checks decoded PCM identity when native analysis changes their tags. That behavior has generated-audio test evidence today, not a new native rekordbox observation.
+Native apps may legitimately change file tags. Generic catalog exports still reject changed catalog bytes with `RECONCILIATION_REQUIRED`; do not disable that check. The a3 delivery workflow prepares separate working copies and checks decoded PCM identity when native analysis changes their tags. That behavior has generated-audio test evidence today, not a new native rekordbox observation.
+
+## Current native trial — 2026-10-04
+
+The supported Import Playlist UI selected the installed candidate's three-original-tone M3U8 and completed `Importing 3/3`. Subsequent coordinate actions returned `noWindowsAvailable`, but the supported **File > Export Collection in xml format** UI succeeded. This native snapshot contains all three exact prepared working paths and the matching playlist's three TrackIDs in the expected order. It declares **rekordbox 7.2.19**, differing from the old 7.2.8 app-bundle metadata used to declare this trial. That mismatch stays unresolved; do not fabricate matching-version observations. The native snapshot is private local validation data and is not shipped.
+
+The snapshot reports zero/unknown BPM for the short tones and key labels, which are not musical accuracy evidence. Track loading, audition and BPM/key/grid correctness remain unverified. No passing analysis or app-readiness record was inferred from this export, and no native database was edited directly.
+
+Serato DJ Pro **3.1.5** was running, but application capture failed; import and analysis remain unverified. Both apps need an app-only pilot with actual membership/analysis/load observations before `verify-app` can support readiness. No player model or USB is needed for this app-only gate. The short tones establish pipeline behavior only, not musical BPM/key/grid accuracy.
 
 ## Serato check to complete
 
-In the **2026-10-03** trial, Serato DJ Pro **3.1.5** opened and exposed its library/Files interface. The automation service subsequently failed with screen-capture errors, so import and analysis were unverified. No new native Serato trial was performed on 2026-10-04.
+In the **2026-10-03** trial, Serato DJ Pro **3.1.5** opened and exposed its library/Files interface. The automation service subsequently failed with screen-capture errors, so import and analysis were unverified. The 2026-10-04 capture attempt above did not resolve that missing evidence.
 
 Manual procedure for the next supervised trial:
 
-1. For the development delivery workflow, prepare an original-tone pilot and locate its isolated working copies and manifest. Open those working copies in Serato Files.
+1. For the delivery workflow, prepare an original-tone pilot and locate its isolated working copies and manifest. Open those working copies in Serato Files.
 2. Create a distinctly named test crate and add only those generated tracks using Serato's supported UI.
 3. Confirm three entries and their paths, then run Analyze Files. Verify no missing-file warning and load one tone into a deck with audio output under your control.
 4. Record the observed app version, count, analysis/load outcome, and any errors. An M3U file by itself is not a native Serato crate.
@@ -146,7 +160,7 @@ Selected managed FLAC downloads now contain readable artist/title/version displa
 
 ## Physical USB and player gate
 
-The published `0.1.0a2` original-tone validation recorded no external physical USB disk. Today's `0.1.0a3.dev0` development validation also did not test a physical USB or player. A mounted app installer image is not a target USB. The engine does not format, write to, or create a native player database on a device.
+The published a2 original-tone validation recorded no external physical USB disk. The a3 validation also did not test a physical USB or player. A mounted app installer image is not a target USB. The engine does not format, write to or create a native player database on a device.
 
 Once the user supplies the exact mounted volume and player/controller model:
 
@@ -156,4 +170,4 @@ Once the user supplies the exact mounted volume and player/controller model:
 4. Inspect actual native playlist/crate membership, run `delivery verify-device`, eject normally, and load/play every pilot track on the specified player or destination Serato setup. Record the actual hardware details required by the target workflow.
 5. Record each native/device/hardware observation and perform fresh device verification before departure. `delivery get` reports historical evidence and lightweight current-device checks; it does not rehash the audio. A capacity check, M3U/XML generation, native-library filename, or file copy cannot substitute for native and hardware evidence.
 
-After the small gate passes, try a small owned-music collection before a large artist/set acquisition. Soulseek, complete discographies, automatic set recognition, musical categorization, and unattended app/USB automation are subsequent milestones in [the plan](../PLAN.md).
+After the small gate passes, try a small owned-music collection before scaling its delivery. Soulseek, complete discographies, automatic set recognition, inferred musical categorization, and unattended app/USB automation are subsequent milestones in [the plan](../PLAN.md). Explicit catalog annotation and filtering are narrower a3 capabilities, not those automatic analyses.

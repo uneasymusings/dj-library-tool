@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -11,6 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 from filelock import FileLock
 
+from djlib import __version__
 from djlib.domain.errors import AppError
 from djlib.workspace import Workspace
 
@@ -18,6 +20,70 @@ from djlib.workspace import Workspace
 class LocalClient:
     def __init__(self, workspace: Workspace):
         self.workspace = workspace
+        self._coordinator_identity = None
+        self._coordinator_version = None
+        self._version_checked = False
+        self._version_from_health = False
+
+    def _forget_coordinator(self) -> None:
+        self._coordinator_identity = None
+        self._coordinator_version = None
+        self._version_checked = False
+        self._version_from_health = False
+
+    @staticmethod
+    def _version_label(value) -> str | None:
+        # Do not reflect arbitrary server diagnostic text in a client error.
+        return (
+            value
+            if isinstance(value, str) and re.fullmatch(r"[0-9][A-Za-z0-9.!+_-]{0,99}", value)
+            else None
+        )
+
+    def _observe_health(self, url: str, result: dict) -> None:
+        identity = (url, result["instance_id"], result["workspace_id"])
+        if identity != self._coordinator_identity:
+            self._forget_coordinator()
+            self._coordinator_identity = identity
+        if "application_version" in result:
+            self._coordinator_version = self._version_label(result["application_version"])
+            self._version_checked = self._version_from_health = True
+        elif self._version_from_health:
+            self._coordinator_version = None
+            self._version_checked = self._version_from_health = False
+
+    def _observe_capabilities(self, value: dict) -> None:
+        self._version_checked = True
+        result = value.get("result") if isinstance(value, dict) and value.get("ok") else None
+        if (
+            isinstance(result, dict)
+            and result.get("workspace_id") == self.workspace.config().workspace_id
+        ):
+            self._coordinator_version = self._version_label(result.get("application_version"))
+        else:
+            self._coordinator_version = None
+
+    def _require_matching_version(self, url: str) -> None:
+        if not self._version_checked:
+            # Public a2 health responses have no application version. Capabilities
+            # is authenticated and read-only, and this lookup is cached per instance.
+            try:
+                with httpx.Client(trust_env=False, timeout=3) as client:
+                    response = client.get(f"{url}/capabilities", headers=self.headers())
+                    response.raise_for_status()
+                    self._observe_capabilities(response.json())
+            except (httpx.HTTPError, ValueError):
+                self._coordinator_version = None
+                self._version_checked = True
+        if self._coordinator_version != __version__:
+            observed = self._coordinator_version or "an unknown application version"
+            raise AppError(
+                "COORDINATOR_VERSION_MISMATCH",
+                f"The running coordinator reports {observed}; this client requires {__version__}. "
+                "Run 'djlib --workspace WORKSPACE service stop' for this workspace, then retry. "
+                "Accepted jobs remain stored. No requested operation was sent or resubmitted.",
+                409,
+            )
 
     def discover(self) -> str | None:
         try:
@@ -37,21 +103,27 @@ class LocalClient:
                 or parts.query
                 or parts.fragment
             ):
+                self._forget_coordinator()
                 return None
             with httpx.Client(trust_env=False, timeout=1) as client:
                 reply = client.get(f"{url}/health", headers=self.headers()).json()
-            result = reply.get("result", {})
+            result = reply.get("result", {}) if isinstance(reply, dict) else {}
             if (
-                reply.get("ok")
+                isinstance(reply, dict)
+                and reply.get("ok")
+                and isinstance(result, dict)
                 and result.get("instance_id") == record["instance_id"]
                 and (
                     result.get("workspace_id") == self.workspace.config().workspace_id
                     and result.get("protocol_version") == "1"
                 )
             ):
+                self._observe_health(url, result)
                 return url
         except (OSError, ValueError, KeyError, httpx.HTTPError):
+            self._forget_coordinator()
             return None
+        self._forget_coordinator()
         return None
 
     def headers(self) -> dict[str, str]:
@@ -102,13 +174,22 @@ class LocalClient:
         self, method: str, path: str, *, data: dict | None = None, params: dict | None = None
     ) -> dict:
         url = self.ensure()
+        administrative = (method.upper(), path) in {
+            ("GET", "/health"),
+            ("GET", "/capabilities"),
+            ("POST", "/shutdown"),
+        }
+        if not administrative:
+            self._require_matching_version(url)
         timeout = 15
         if path == "/sources/inspect":
             timeout = 100
         elif path.startswith("/deliveries/"):
             # Readback has a 120-second scan budget plus volume probes. Tag-only
             # reconciliation can decode changed working copies; do not cut it off at 15s.
-            timeout = 600 if path.endswith("/observations") else 180
+            timeout = 600 if path.endswith(("/observations", "/verify-app")) else 180
+        elif path.startswith(("/requests", "/organization", "/annotations", "/recordings/")):
+            timeout = 180
         try:
             with httpx.Client(trust_env=False, timeout=timeout) as client:
                 response = client.request(
@@ -123,6 +204,12 @@ class LocalClient:
                         response.status_code,
                         error.get("retryable", False),
                     )
+                if (
+                    method.upper() == "GET"
+                    and path == "/capabilities"
+                    and not self._version_from_health
+                ):
+                    self._observe_capabilities(value)
                 return value
         except (httpx.HTTPError, ValueError) as exc:
             # Do not blindly resubmit a mutation after an ambiguous transport failure.

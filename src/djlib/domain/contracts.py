@@ -116,7 +116,7 @@ class DeviceRequest(Contract):
 class DeliveryRequest(Contract):
     name: str = Field(min_length=1, max_length=200)
     collection_ids: list[str] = Field(min_length=1, max_length=100)
-    workflow: Literal["rekordbox_usb", "serato_portable"]
+    workflow: Literal["rekordbox_import", "serato_import", "rekordbox_usb", "serato_portable"]
     app_version: str = Field(min_length=1, max_length=100)
     hardware_profile: str | None = None
     audio_mode: Literal["preserve", "mp3_320", "wav16_44100"] = "preserve"
@@ -124,10 +124,22 @@ class DeliveryRequest(Contract):
     pilot_size: int = Field(default=3, ge=1, le=5)
     pilot_delivery_id: str | None = None
 
+    @field_validator("name", "app_version", "hardware_profile")
+    @classmethod
+    def target_labels(cls, value):
+        if value is None:
+            return value
+        value = value.strip()
+        if not value or any(unicodedata.category(c) == "Cc" for c in value):
+            raise ValueError("Delivery labels must be nonblank and contain no control characters.")
+        return value
+
     @model_validator(mode="after")
     def validate_target(self):
         if self.workflow == "rekordbox_usb" and not self.hardware_profile:
             raise ValueError("A player hardware profile is required for standalone USB export.")
+        if self.workflow != "rekordbox_usb" and self.hardware_profile is not None:
+            raise ValueError("A player profile applies only to standalone rekordbox USB export.")
         if len(set(self.collection_ids)) != len(self.collection_ids):
             raise ValueError("Collection IDs must be unique.")
         if any(ord(c) < 32 for c in self.name):
@@ -152,8 +164,8 @@ class DeliveryObservation(Contract):
     ]
     app_version: str = Field(min_length=1, max_length=100)
     track_count: int = Field(ge=0)
-    playlist_counts: dict[str, int]
-    checked_recording_ids: list[str]
+    playlist_counts: dict[str, int] = Field(max_length=100)
+    checked_recording_ids: list[str] = Field(max_length=10_000)
     observer: str = Field(min_length=1, max_length=200)
     notes: str = Field(min_length=1, max_length=4000)
     # Explicit operator observations, never inferred from artifact or database filenames.
@@ -163,9 +175,35 @@ class DeliveryObservation(Contract):
     firmware_version: str | None = Field(default=None, min_length=1, max_length=100)
     storage_recognized: bool | None = None
 
+    @field_validator("app_version", "observer", "firmware_version")
+    @classmethod
+    def evidence_labels(cls, value):
+        return DeliveryRequest.target_labels(value)
+
+    @field_validator("playlist_counts")
+    @classmethod
+    def nonnegative_counts(cls, value):
+        if any(not key.strip() or len(key) > 200 or count < 0 for key, count in value.items()):
+            raise ValueError("Playlist counts need bounded IDs and nonnegative counts.")
+        return value
+
+    @field_validator("checked_recording_ids")
+    @classmethod
+    def recording_identifiers(cls, value):
+        if len(set(value)) != len(value) or any(
+            not item.strip() or len(item) > 200 for item in value
+        ):
+            raise ValueError("Checked recording IDs must be unique, nonblank and bounded.")
+        return value
+
 
 class DeliveryVerifyRequest(Contract):
     revision: int = Field(ge=1)
+
+
+class DeliveryNativeXMLRequest(Contract):
+    revision: int = Field(ge=1)
+    path: str = Field(min_length=1, max_length=4096)
 
 
 def normalize(value: str) -> str:

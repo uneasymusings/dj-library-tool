@@ -105,7 +105,7 @@ def test_flac_compatibility_conversion_decodes_and_meets_legacy_audio_target(
     assert delivery_media.pcm_hash(output) == prepared["pcm_sha256"]
     assert measured.sha256 == prepared["sha256"]
     assert prepared["source_sha256"] == original_hashes[source]
-    assert assess_track("cdj-2000nxs", measured.as_dict()) == []
+    assert assess_track("cdj-2000nxs", measured.as_dict(), file_extension=output.suffix) == []
     assert {path: checksum(path) for path in original_hashes} == original_hashes
 
 
@@ -122,7 +122,9 @@ def test_preserved_flac_remains_unsupported_for_cdj_2000nxs(application, origina
     assert measured.artist == "Test Artist"
     assert measured.title == "Regression tone"
     assert delivery_media.pcm_hash(output) == delivery_media.pcm_hash(source)
-    assert assess_track("cdj-2000nxs", measured.as_dict()) == ["TARGET_CODEC_UNSUPPORTED"]
+    assert assess_track("cdj-2000nxs", measured.as_dict(), file_extension=output.suffix) == [
+        "TARGET_CODEC_UNSUPPORTED"
+    ]
     assert {path: checksum(path) for path in original_hashes} == original_hashes
 
 
@@ -176,7 +178,12 @@ def test_existing_lower_bitrate_mp3_is_reused_without_reencoding(
     assert measured.artist == track["artist"]
     assert measured.title == track["title"]
     assert prepared["pcm_sha256"] == source_pcm
-    assert assess_track("cdj-2000nxs", measured.as_dict()) == []
+    assert (
+        assess_track(
+            "cdj-2000nxs", measured.as_dict(), file_extension=Path(prepared["path"]).suffix
+        )
+        == []
+    )
     assert commands
     assert all("libmp3lame" not in command and "-b:a" not in command for command in commands)
     assert {path: checksum(path) for path in original_hashes} == original_hashes

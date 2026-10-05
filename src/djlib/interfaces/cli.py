@@ -18,6 +18,7 @@ from djlib.domain.contracts import (
 )
 from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient, default_workspace
+from djlib.interfaces.library_cli import register_commands
 from djlib.interfaces.service import envelope
 from djlib.workspace import Workspace
 
@@ -112,6 +113,7 @@ def schemas() -> None:
     from djlib.domain.contracts import (
         ControlRequest,
         DeliveryDeviceRequest,
+        DeliveryNativeXMLRequest,
         DeliveryPrepareRequest,
         DeliveryVerifyRequest,
         DeviceRequest,
@@ -122,6 +124,8 @@ def schemas() -> None:
         SourceRequest,
         StartRequest,
     )
+    from djlib.domain.organization_contracts import AnnotationRequest, OrganizationRequest
+    from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
 
     emit(
         envelope(
@@ -143,6 +147,12 @@ def schemas() -> None:
                     DeliveryDeviceRequest,
                     DeliveryObservation,
                     DeliveryVerifyRequest,
+                    DeliveryNativeXMLRequest,
+                    AnnotationRequest,
+                    OrganizationRequest,
+                    RequestCreate,
+                    RequestRefresh,
+                    RequestResolution,
                 )
             }
         )
@@ -161,6 +171,8 @@ def capabilities(ctx: typer.Context) -> None:
 def doctor(ctx: typer.Context) -> None:
     """Report local prerequisites without changing DJ apps or devices."""
     config = ctx.obj.config()
+    from djlib.sources.runtimes import javascript_runtimes
+
     emit(
         envelope(
             {
@@ -171,6 +183,7 @@ def doctor(ctx: typer.Context) -> None:
                 "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,
                 "deno": shutil.which("deno"),
                 "node": shutil.which("node"),
+                "javascript_runtimes": javascript_runtimes(),
                 "coordinator_url": client(ctx).discover(),
                 "native_app_compatibility": "not_verified",
             }
@@ -359,6 +372,34 @@ def delivery_verify(
     )
 
 
+@delivery.command("verify-app")
+@handled
+def delivery_verify_app(
+    ctx: typer.Context, delivery_id: str, revision: int = typer.Option(...)
+) -> None:
+    """Verify working files after observed app import/analysis; no USB or player required."""
+    emit(
+        client(ctx).request(
+            "POST", f"/deliveries/{delivery_id}/verify-app", data={"revision": revision}
+        )
+    )
+
+
+@delivery.command("inspect-native-xml")
+@handled
+def delivery_native_xml(
+    ctx: typer.Context, delivery_id: str, path: Path, revision: int = typer.Option(...)
+) -> None:
+    """Compare a native rekordbox snapshot with prepared membership; does not mark ready."""
+    emit(
+        client(ctx).request(
+            "POST",
+            f"/deliveries/{delivery_id}/native-xml",
+            data={"revision": revision, "path": str(path)},
+        )
+    )
+
+
 @jobs.command("get")
 @handled
 def job_get(ctx: typer.Context, job_id: str) -> None:
@@ -462,6 +503,9 @@ def mcp_serve(ctx: typer.Context) -> None:
         message = exc.message if isinstance(exc, AppError) else "Check workspace and MCP setup."
         typer.echo(message, err=True)
         raise typer.Exit(code=2) from exc
+
+
+register_commands(app, client, emit, handled)
 
 
 if __name__ == "__main__":

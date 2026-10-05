@@ -6,9 +6,9 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental local preview, 0.1.0a3.dev0 — unpublished.** The public release remains **0.1.0a2**, whose runtime/installed-wheel checks, fresh assistant sessions, selected live downloads, and three-tone rekordbox import/analysis trial passed. The preview adds the supervised delivery workflow below; Serato import and physical USB/player export remain unverified. See the [evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a3.** This version adds supervised app delivery, exact-request coverage, catalog annotations and read-only native XML inspection. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
-**In the unpublished 0.1.0a3.dev0 preview:** [DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies for a specified target, records native-stage observations, and performs read-only device hash checks. Native import/analysis/export still happen in rekordbox or Serato; playback must be checked on the intended setup. These additions are not included in the published `v0.1.0a2` wheel.
+[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The current API exposes 34 MCP tools. See the [requirement and public-release audit](docs/COVERAGE.md).
 
 ## What is here
 
@@ -21,16 +21,19 @@
 | Agent operation | JSON CLI, MCP stdio, and [portable skill](skills/dj-library/SKILL.md). No model API key required by the engine. |
 | DJ handoff | Hash-checked manifest, M3U playlist, and experimental rekordbox XML. |
 | USB preflight | Read capacity and mount status; no device writes or compatibility claim. |
-| Target delivery (development) | Persisted pilot/full plans, isolated working copies, four documented player profiles, operator-reported native stages and bounded read-only device verification. |
+| Target delivery | App-first import/analysis plans without hardware prerequisites; separate USB workflows, isolated copies, sourced format profiles, operator observations and read-only verification. |
+| Request coverage | Persist exact song/version requests and unknown IDs; hash-check local matches and save missing/ambiguous reports. Source selection is separate from acquisition. |
+| DJ organization | Read tagged metadata, save byte-bound notes/categories with provenance, and build ordered collections from explicit catalog selections. No automatic musical inference or native database edits. |
+| Native rekordbox snapshot | Compare a native Collection XML export with prepared paths and playlist membership/order. Snapshot inspection never grants readiness or proves analysis accuracy. |
 
 Soulseek through slskd, complete artist catalog workflows, acoustic track identification, musical analysis, native Serato/rekordbox automation, automatically verified player-ready USB export, and the early-web public home remain in the [full implementation plan](PLAN.md). There is no frontend yet.
 
 ## Install from GitHub
 
-Install the complete [v0.1.0a2 release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a2), including the engine, MCP server, and portable skill. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a3 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a3), including the engine, MCP server, and portable skill; see [status](docs/STATUS.md) for publication and validation state. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a2/dj_library_tool-0.1.0a2-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a3/dj_library_tool-0.1.0a3-py3-none-any.whl'
 djlib version
 ```
 
@@ -61,7 +64,7 @@ For web source inspection and downloads:
 uv sync --locked --extra download
 ```
 
-Install FFmpeg/ffprobe separately for compressed formats and downloads. YouTube needs a supported JavaScript runtime: the adapter selects installed Deno first, then Node (yt-dlp requires Node 22+). It does not install a runtime. See [yt-dlp's EJS guidance](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+Install FFmpeg/ffprobe separately for compressed formats and downloads. YouTube needs a supported JavaScript runtime: the adapter checks versions and selects supported Deno first, then supported Node (yt-dlp requires Node 22+). It does not install a runtime. See [yt-dlp's EJS guidance](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 
 ## Try the local workflow
 
@@ -83,7 +86,9 @@ uv run djlib --workspace /path/to/dj-workspace jobs list
 
 Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
-For an actual DJ destination, use the development [rekordbox USB or portable Serato workflow](docs/DJ_DELIVERY.md). Start with a small pilot and the actual app/hardware target. An M3U or copied audio folder is prepared material; the native app must create its device library or portable crates.
+For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
+
+If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies the accepted `collection_ids`, actual `app_version`, and default `audio_mode: "preserve"`; no hardware profile is required. `delivery plan --file app-trial.json` and `delivery prepare DELIVERY_ID --revision CURRENT_REVISION --key app-trial-v1` prepare the separate copies. After native import/analysis observations, `delivery verify-app` refreshes working-file evidence. This is app readiness, not USB readiness. [App-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player).
 
 ## Use with an AI CLI
 
@@ -146,6 +151,6 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-CI runs runtime tests, lint, formatting, and packaging on Linux, macOS, and Windows with Python 3.12/3.13. FFmpeg tests skip when the runner lacks it; all five formats were decoded locally. Provider tests in CI use controlled fixtures; actual host, provider, and app checks are recorded separately in the [validation guide](docs/VALIDATION.md). See [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
+CI is configured for runtime tests, lint, formatting, and packaging on Linux, macOS, and Windows with Python 3.12/3.13. The workflow installs and requires FFmpeg/ffprobe on every matrix runner; tests can still skip when those tools are absent from an independently configured environment. Provider tests in CI use controlled fixtures; actual CI outcomes and host/provider/app checks are recorded separately in the [validation guide](docs/VALIDATION.md). See [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
 
 MIT licensed. Music remains local; users supply their own sources and download rights. Independent project; no affiliation with Serato, AlphaTheta/rekordbox, Soulseek, or the supported assistant hosts.

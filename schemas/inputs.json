@@ -1,5 +1,198 @@
 {
   "contracts": {
+    "AnnotationRequest": {
+      "$defs": {
+        "BPMAnnotation": {
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "enum": [
+                "operator",
+                "native_tag"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "value": {
+              "maximum": 400,
+              "minimum": 20,
+              "title": "Value",
+              "type": "number"
+            },
+            "verified": {
+              "default": false,
+              "title": "Verified",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "source"
+          ],
+          "title": "BPMAnnotation",
+          "type": "object"
+        },
+        "KeyAnnotation": {
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "enum": [
+                "operator",
+                "native_tag"
+              ],
+              "title": "Source",
+              "type": "string"
+            },
+            "value": {
+              "maxLength": 32,
+              "minLength": 1,
+              "title": "Value",
+              "type": "string"
+            },
+            "verified": {
+              "default": false,
+              "title": "Verified",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "value",
+            "source"
+          ],
+          "title": "KeyAnnotation",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Patch supplied fields only; null clears a field. Revision zero creates a row.",
+      "properties": {
+        "asset_revision_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Asset Revision Id",
+          "type": "string"
+        },
+        "bpm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BPMAnnotation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "genres": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Genres"
+        },
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyAnnotation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "recording_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Recording Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "set_role": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Set Role"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        }
+      },
+      "required": [
+        "recording_id",
+        "asset_revision_id",
+        "revision",
+        "idempotency_key"
+      ],
+      "title": "AnnotationRequest",
+      "type": "object"
+    },
     "CollectionRequest": {
       "$defs": {
         "TrackInput": {
@@ -111,6 +304,28 @@
       "title": "DeliveryDeviceRequest",
       "type": "object"
     },
+    "DeliveryNativeXMLRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "path"
+      ],
+      "title": "DeliveryNativeXMLRequest",
+      "type": "object"
+    },
     "DeliveryObservation": {
       "additionalProperties": false,
       "properties": {
@@ -124,6 +339,7 @@
           "items": {
             "type": "string"
           },
+          "maxItems": 10000,
           "title": "Checked Recording Ids",
           "type": "array"
         },
@@ -185,6 +401,7 @@
           "additionalProperties": {
             "type": "integer"
           },
+          "maxProperties": 100,
           "title": "Playlist Counts",
           "type": "object"
         },
@@ -335,6 +552,8 @@
         },
         "workflow": {
           "enum": [
+            "rekordbox_import",
+            "serato_import",
             "rekordbox_usb",
             "serato_portable"
           ],
@@ -480,6 +699,167 @@
       "title": "ExportRequest",
       "type": "object"
     },
+    "OrganizationRequest": {
+      "$defs": {
+        "OrganizationFilters": {
+          "additionalProperties": false,
+          "properties": {
+            "bpm_max": {
+              "anyOf": [
+                {
+                  "maximum": 400,
+                  "minimum": 20,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Bpm Max"
+            },
+            "bpm_min": {
+              "anyOf": [
+                {
+                  "maximum": 400,
+                  "minimum": 20,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Bpm Min"
+            },
+            "genres": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Genres",
+              "type": "array"
+            },
+            "keys": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Keys",
+              "type": "array"
+            },
+            "require_verified": {
+              "default": false,
+              "title": "Require Verified",
+              "type": "boolean"
+            },
+            "set_roles": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Set Roles",
+              "type": "array"
+            },
+            "tags": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tags",
+              "type": "array"
+            }
+          },
+          "title": "OrganizationFilters",
+          "type": "object"
+        },
+        "RecordingReference": {
+          "additionalProperties": false,
+          "properties": {
+            "asset_revision_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Asset Revision Id",
+              "type": "string"
+            },
+            "recording_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Recording Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "recording_id",
+            "asset_revision_id"
+          ],
+          "title": "RecordingReference",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "descending": {
+          "default": false,
+          "title": "Descending",
+          "type": "boolean"
+        },
+        "filters": {
+          "$ref": "#/$defs/OrganizationFilters"
+        },
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "order_by": {
+          "default": "input",
+          "enum": [
+            "input",
+            "artist",
+            "title",
+            "bpm",
+            "key",
+            "energy"
+          ],
+          "title": "Order By",
+          "type": "string"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/RecordingReference"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Tracks",
+          "type": "array"
+        },
+        "unknown": {
+          "default": "exclude",
+          "enum": [
+            "exclude",
+            "include",
+            "error"
+          ],
+          "title": "Unknown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "tracks",
+        "idempotency_key"
+      ],
+      "title": "OrganizationRequest",
+      "type": "object"
+    },
     "Profile": {
       "additionalProperties": false,
       "properties": {
@@ -513,6 +893,244 @@
         }
       },
       "title": "Profile",
+      "type": "object"
+    },
+    "RequestCreate": {
+      "$defs": {
+        "RequestItem": {
+          "additionalProperties": false,
+          "properties": {
+            "artist": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Artist"
+            },
+            "kind": {
+              "default": "named",
+              "enum": [
+                "named",
+                "unknown"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "label": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Label"
+            },
+            "notes": {
+              "default": "",
+              "maxLength": 4000,
+              "title": "Notes",
+              "type": "string"
+            },
+            "source_url": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Url"
+            },
+            "timestamp": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Timestamp"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "version": {
+              "default": "",
+              "maxLength": 300,
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "title": "RequestItem",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/RequestItem"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "items",
+        "idempotency_key"
+      ],
+      "title": "RequestCreate",
+      "type": "object"
+    },
+    "RequestRefresh": {
+      "additionalProperties": false,
+      "properties": {
+        "item_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 1000,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Ids"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "RequestRefresh",
+      "type": "object"
+    },
+    "RequestResolution": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "select_source",
+            "satisfy",
+            "clear"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "asset_revision_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Revision Id"
+        },
+        "notes": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Notes",
+          "type": "string"
+        },
+        "recording_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recording Id"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        }
+      },
+      "required": [
+        "revision",
+        "action"
+      ],
+      "title": "RequestResolution",
       "type": "object"
     },
     "ResolveRequest": {

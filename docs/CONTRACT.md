@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes the current `0.1.0a3.dev0` development interfaces. The public `0.1.0a2` release does not include the delivery commands below. The response envelope remains schema version `1`.
+This document describes the `0.1.0a3` interfaces: 34 MCP tools plus the JSON CLI and authenticated local HTTP routes. The earlier `0.1.0a2` release does not include the delivery, request-ledger or organization commands below. The response envelope remains schema version `1`.
 
 ## Envelope
 
@@ -38,7 +38,13 @@ Requests are Pydantic contracts with unknown fields rejected. `djlib schemas` em
 | `DeliveryPrepareRequest` | Current delivery revision and preparation submission key. |
 | `DeliveryDeviceRequest` | Current delivery revision and exact mounted volume path to bind read-only. |
 | `DeliveryObservation` | Current revision, observed stage, app version, track/playlist coverage, checked recording IDs, observer, notes, method, outcome, and optional actual hardware details. |
-| `DeliveryVerifyRequest` | Current delivery revision for machine audio-hash readback on the bound volume. |
+| `DeliveryVerifyRequest` | Current delivery revision for working-file verification or audio-hash readback on the bound volume. |
+| `DeliveryNativeXMLRequest` | Current delivery revision and allowed native rekordbox XML path; read-only snapshot comparison. |
+| `RequestCreate` | Stable key, list name and up to 1,000 exact named requests or unknown IDs with evidence. |
+| `RequestRefresh` | Current request revision and optional selected item IDs for bounded file checks. |
+| `RequestResolution` | Current revision and explicit source, catalog identity selection or clear action. |
+| `AnnotationRequest` | Exact recording/byte revision, annotation revision, stable key and supplied field patch. |
+| `OrganizationRequest` | Stable key, explicit catalog references, filters, unknown policy and ordering. |
 
 Labels reject control characters and blank artist/title. Recording normalization uses Unicode NFKC, casefolding, and punctuation/whitespace normalization; it retains version words. This is text matching, not an acoustic identity resolver.
 
@@ -46,8 +52,8 @@ Labels reject control characters and blank artist/title. Recording normalization
 
 `DeliveryRequest` accepts 1–100 distinct `collection_ids` and freezes their accepted recording IDs, byte revisions, labels, and membership. Repeated recordings are prepared once while retaining each collection's membership. Different byte revisions for the same recording return `DELIVERY_REVISION_CONFLICT`; delivery does not silently select one. The combined selection is limited to 10,000 unique recordings.
 
-- `workflow`: `rekordbox_usb` or `serato_portable`.
-- `app_version`: required. `hardware_profile` is also required for `rekordbox_usb` and must be returned by `delivery targets`.
+- `workflow`: `rekordbox_import`, `serato_import`, `rekordbox_usb` or `serato_portable`.
+- `app_version`: required. `hardware_profile` is required only for `rekordbox_usb` and must be returned by `delivery targets`; the other workflows reject that field. App-only import/analysis needs no USB or player/controller model.
 - `audio_mode`: `preserve` (default), `mp3_320`, or `wav16_44100`. Preparation always creates separate working copies; conversion does not improve source fidelity.
 - `phase`: `pilot` (default) or `full`. `pilot_size` is 1–5, default 3; sampling visits the selected collections in round-robin order.
 - A full delivery requires `pilot_delivery_id` pointing to a completed native-app/device trial with matching workflow, hardware profile, audio mode, and app version. Otherwise preparation returns `PILOT_REQUIRED`.
@@ -55,6 +61,14 @@ Labels reject control characters and blank artist/title. Recording normalization
 `DeliveryObservation.stage` is one of `imported`, `analyzed`, `native_exported`, `device_library_checked`, or `hardware_playback`. Passed observations require preceding stages, the planned app version, exact unique-track and per-collection counts, and every checked recording ID. Only hardware playback for a full delivery permits a nonempty sample; a pilot requires playback of every selected recording. `playlist_counts` uses collection IDs as keys. Failed observations may report incomplete or zero coverage and invalidate later observations.
 
 `method` is `native_app_ui` for the first four stages and `physical_hardware` for playback. `outcome` is `passed` or `failed`; `observer` and `notes` are required. These observations remain operator-reported evidence. Passed rekordbox hardware playback additionally requires matching `hardware_profile`, nonblank `firmware_version`, and `storage_recognized: true`; missing details return `HARDWARE_DETAILS_REQUIRED`. CDJ-3000 firmware 3.30, including normalized whitespace/`v` prefixes, returns `FIRMWARE_UNSUPPORTED`.
+
+App-only workflows accept only `imported` and `analyzed` observations, followed by `verify-app`. A fresh successful result can set `ready_for_app_use`, never `ready_for_departure`. USB workflows require their device/native/hardware stages and fresh `verify-device`. A native XML inspection checks a rekordbox snapshot without changing any stage or readiness; the input path must be authorized, and product-version mismatches remain explicit.
+
+### Request and organization inputs
+
+Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/cli.md#exact-requests-and-unknown-ids).
+
+Annotations bind exact recording/revision IDs. Revision `0` creates the first annotation; later patches require the current revision. Omitted fields are unchanged and explicit null clears the annotation. BPM/key values carry `source: operator|native_tag` and `verified: false` by default; `native_tag` must match freshly read catalog tags. Organization freezes ordered collections from up to 1,000 explicit references, reports exclusions and uses explicit unknown policies. It does not perform acoustic analysis or retag catalog originals. See [organization recipes](../skills/dj-library/references/cli.md#catalog-notes-and-ordered-collections).
 
 ## Use cases and routes
 
@@ -70,7 +84,7 @@ Labels reject control characters and blank artist/title. Recording normalization
 | `jobs events ID` | CLI only | `GET /jobs/{id}/events` |
 | `jobs control ID ACTION` | `djlib_control` | `POST /jobs/{id}/control` |
 | `reviews list/resolve` | `djlib_reviews/resolve` | `GET /reviews`, `POST /reviews/{id}` |
-| `library QUERY` | `djlib_library` | `GET /library` |
+| `library --query QUERY` | `djlib_library` | `GET /library` |
 | `collection ID` | `djlib_collection` | `GET /collections/{id}` |
 | `export ID --key KEY` | `djlib_export` | `POST /exports` |
 | `usb-preflight PATH` | `djlib_usb_preflight` | `POST /devices/preflight` |
@@ -81,8 +95,19 @@ Labels reject control characters and blank artist/title. Recording normalization
 | `delivery bind-device ID PATH --revision N` | `djlib_bind_delivery_device` | `POST /deliveries/{delivery_id}/device` |
 | `delivery observe ID --file FILE` | `djlib_observe_delivery` | `POST /deliveries/{delivery_id}/observations` |
 | `delivery verify-device ID --revision N` | `djlib_verify_delivery_device` | `POST /deliveries/{delivery_id}/verify` |
+| `delivery verify-app ID --revision N` | `djlib_verify_delivery_app` | `POST /deliveries/{delivery_id}/verify-app` |
+| `delivery inspect-native-xml ID PATH --revision N` | `djlib_inspect_delivery_native_xml` | `POST /deliveries/{delivery_id}/native-xml` |
+| `requests create --file FILE` | `djlib_create_request` | `POST /requests` |
+| `requests get ID` | `djlib_request` | `GET /requests/{id}` |
+| `requests refresh ID --revision N` | `djlib_refresh_request` | `POST /requests/{id}/refresh` |
+| `requests resolve ID ITEM_ID --file FILE` | `djlib_resolve_request` | `POST /requests/{id}/items/{item_id}` |
+| `requests report ID --revision N` | `djlib_request_report` | `POST /requests/{id}/report` |
+| `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |
+| `organize get ID --asset-revision-id REV_ID` | `djlib_annotations` | `GET /recordings/{id}/annotations` |
+| `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |
+| `organize collection --file FILE` | `djlib_organize` | `POST /organization` |
 
-`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the portable skill and explicit MCP configuration, without copying credentials or editing personal host configuration. New development sessions set the Codex MCP tool timeout to 660 seconds and the Claude server timeout to 660,000 milliseconds, allowing the client's 600-second delivery-observation check to finish. Existing generated sessions are unchanged. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
+`init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the portable skill and explicit MCP configuration, without copying credentials or editing personal host configuration. New sessions set the Codex MCP tool timeout to 660 seconds and the Claude server timeout to 660,000 milliseconds, allowing the client's 600-second delivery-observation/app-verification check to finish. Existing generated sessions are unchanged. `demo` combines synthetic file generation and normal use cases. `service status` does not start a coordinator; normal requests do. `service stop` checkpoints the current worker and exits the coordinator.
 
 ## Bounds and paging
 

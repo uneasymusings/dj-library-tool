@@ -75,6 +75,12 @@ class Application:
                 "native_app_working_copies",
                 "device_audio_readback",
                 "operator_native_stage_evidence",
+                "app_import_workflow",
+                "owned_request_matching",
+                "missing_track_ledger",
+                "catalog_annotations",
+                "organization_filters",
+                "native_rekordbox_snapshot_inspection",
             ],
             "planned": [
                 "soulseek",
@@ -302,6 +308,13 @@ class Application:
     def control(self, job_id: str, action: str) -> dict:
         with self.db.transaction() as session:
             job = require(session, Job, job_id)
+            if job.kind == "organization":
+                raise AppError(
+                    "JOB_TERMINAL",
+                    "This organization transaction is complete. Submit a new explicit "
+                    "mutation instead of requeuing it.",
+                    409,
+                )
             if job.state == "cancelled" and action != "cancel":
                 raise AppError(
                     "JOB_TERMINAL", "A cancelled job cannot resume; create a new intent.", 409

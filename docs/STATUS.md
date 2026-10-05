@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-04. **0.1.0a3.dev0 is an unpublished local preview** for supervised trials. The public release remains 0.1.0a2; its wheel does not contain the target-delivery additions. The complete product and unattended personal-library workflow remain unfinished.
+Updated 2026-10-04 for **0.1.0a3**. The local release suite passed; the a3 GitHub matrix, publication and fresh public-artifact verification are pending. Installation links target a3 but do not prove a completed upload. The complete product and unattended personal-library workflow remain unfinished. [Coverage](COVERAGE.md) maps requirements to a2, a3 and remaining gaps.
 
 ## Implemented first milestone
 
@@ -11,26 +11,36 @@ Updated 2026-10-04. **0.1.0a3.dev0 is an unpublished local preview** for supervi
 - Hash-checked manifest/M3U/experimental rekordbox XML and read-only mount/capacity preflight.
 - Runtime/lint/format/build CI for Linux/macOS/Windows with Python 3.12/3.13.
 
-## Development: target-aware DJ delivery
+## Target-aware DJ delivery
 
 - Persisted delivery requests freeze collection membership and selected recording identities; pilot/full phases separate small target trials from broad preparation.
+- `rekordbox_import` and `serato_import` prepare native app libraries without requiring a player/controller model or USB. Their sourced input profiles describe an explicitly conservative subset; Serato numeric bounds are engine policy, not claimed vendor maxima. App-only verification can establish `ready_for_app_use`, never USB departure readiness.
 - Durable preparation creates isolated, labeled app working copies and playlist/manifest artifacts. Preserve is the default; compatibility conversion is explicit. Catalog originals remain unchanged.
 - Four sourced hardware profiles distinguish CDJ-2000NXS, CDJ-3000, XDJ-RX3 and OPUS-QUAD audio/library requirements. Unknown metadata and unknown targets cannot silently pass audio checks. Firmware and physical hardware remain unverified.
 - Typed, revision-checked observations record native import, analysis, export, device-library inspection and playback as operator reports. They are not automatic native app integration.
 - Passing rekordbox hardware-playback reports require the matching player profile, actual firmware version and successful storage recognition. CDJ-3000 firmware 3.30 is rejected, including `v3.30`/`V3.30` spellings.
 - Read-only device verification checks volume identity and expected post-analysis audio hashes. Database filenames are existence markers only; their contents, membership and analysis are not parsed.
-- Full preparation requires a completed matching pilot. Fresh `verify-device` evidence is required for the departure flag; an ordinary status query does not rehash audio.
-- Analysis reconciliation is synchronous. Unchanged file hashes avoid redundant decoding; changed working copies require stream/audio checks. Observation requests have a 600-second client timeout, so large changed batches remain a practical limit rather than a background-job guarantee.
+- Full preparation requires a completed matching pilot. App-only workflows use fresh `verify-app` checks after reported native import/analysis. Fresh `verify-device` evidence is required for the departure flag; an ordinary status query does not rehash audio.
+- Analysis reconciliation is synchronous. Unchanged file hashes avoid redundant decoding; changed working copies require stream/audio checks. Observation and app-verification requests have a 600-second client timeout, so large changed batches remain a practical limit rather than a background-job guarantee.
+- Native rekordbox Collection XML inspection compares prepared paths, playlist membership/order and declared app version read-only. It reports raw BPM/key and unknowns without granting readiness or automatically changing annotations. No native database or referenced media is opened.
 
-See [DJ delivery](DJ_DELIVERY.md) for both native workflows, commands, exact evidence boundaries and organization suggestions. **No new physical-player or complete native USB export validation is claimed by these additions.**
+See [DJ delivery](DJ_DELIVERY.md) for the four workflows, commands, exact evidence boundaries and organization suggestions. **No new physical-player or complete native USB export validation is claimed by these additions.**
+
+## Exact requests and missing reports
+
+The persisted request ledger accepts named artist/title/version requests and unknown IDs with source or timestamp evidence. It preserves missing, ambiguous and unavailable outcomes; source selection alone is not acquisition. Matching is exact after label normalization, with explicit resolution for multiple byte revisions. Bounded create/refresh/resolution checks inspect current files; reads return saved evidence and per-item refresh times. Larger lists can refresh selected items. Missing reports are written atomically within the workspace. This is a tested song-list reconciliation slice, not complete artist enumeration, automatic set identification, online search or an upgrade policy.
+
+## Explicit DJ organization
+
+Hash-checked metadata reads expose embedded BPM/key/genre/comments without inferring them. Byte-bound, revision-checked annotations store supplied notes, categories, role, energy and BPM/key provenance; embedded values and new BPM/key annotations default to unverified. Ordered collections use explicit recording/revision references, filters with unknown policies, deterministic sorting and per-item exclusion reasons. Original tags stay unchanged and recordings may appear in several collections. Delivery plans freeze annotations and apply supplied BPM/key/genre and descriptive comments to separate app working copies, retaining provenance in the manifest. MP4 fractional tempo stays exact in a freeform tag/manifest, with a native-display warning. This does not read native analysis databases, establish musical accuracy, translate harmonic key systems or set cues. See the [quickstart examples](QUICKSTART.md#keep-notes-and-sort-explicit-selections).
 
 ## Evidence and precise limits
 
-Unless marked as preview/development evidence, the observations below describe the published 0.1.0a2 baseline.
+Rows labeled a3 describe current implementation evidence. Other historical observations describe the published 0.1.0a2 baseline and do not imply those host/provider/device trials were rerun for a3.
 
 | Area | Observed evidence | Remaining limit |
 | --- | --- | --- |
-| Local runtime | **Preview: 206 tests passed in 34.78 seconds** on macOS/Python 3.13.3 with FFmpeg; no skips. Published baseline: **115 tests passed** on macOS/Python 3.13, including a 200-item batch, review races, idempotency, partial retries, restart/fencing, auth, corruption, export readback, subprocess bounds/cancellation, CLI and MCP. | No multi-hour or 10,000-track performance claim. |
+| a3 local runtime | **378 tests passed in 45.02 seconds** on macOS/Python 3.13 with FFmpeg; no skips. Ruff lint/format checks passed for 77 source/script/test files. Published a2 baseline: **115 tests passed**, including a 200-item batch and recovery, integrity, CLI/MCP checks. | No multi-hour or 10,000-track performance claim. The a3 six-job GitHub matrix is pending. |
 | Audio | Real WAV, FLAC, MP3, M4A, and AIFF decoding locally. Managed FLAC labels and original/final hashes checked. | Lossless output does not prove lossless source fidelity; no acoustic identity. |
 | MCP | All 16 tools exercised through real MCP/ASGI/coordinator contracts; actual stdio subprocess reconnects and continues accepted work. | CI uses source fixtures, not live accounts. |
 | Codex | Fresh **0.160.0** ephemeral sessions discovered the project skill, used MCP, completed two-tone collections/exports, and accurately reported `not_exported`; the latest trial used only the public GitHub-installed package outside the checkout. | Controlled end-to-end behavior trials; no broad model reliability claim. |
@@ -41,15 +51,16 @@ Unless marked as preview/development evidence, the observations below describe t
 | Cross-platform | The release commit passed runtime, lint, formatting, build, installed-wheel, and skill/checksum packaging on [all six OS/Python combinations](https://github.com/uneasymusings/dj-library-tool/actions/runs/37155504190). | FFmpeg cases skip when unavailable; native app evidence is macOS only. See the latest Actions run for matrix outcomes. |
 | rekordbox | **7.2.8**: generated M3U8 imported three original WAV tones; native waveforms/key analysis appeared in Collection. | Native XML import, playlists with real music, USB export, and player playback pending. |
 | Serato | **DJ Pro 3.1.5** launched and its Files/library interface was visible. | Import/analysis not verified: the computer-use service timed out, then screen capture failed. No direct crate/database write performed. |
-| USB release baseline | Read-only preflight tested for missing paths, folders, mount reporting, and capacity. No external physical disk was connected during the original app check. | This historical preflight evidence does not validate a native device library or hardware playback. New development readback is described separately below. |
-| Delivery preview | Preview profiles, real working-copy conversions, simulated evidence/readback, concurrent updates and transports passed within the 206-test suite. The installed wheel exposed 23 MCP tools and prepared three original tones. Machine evidence and operator observations have separate labels. | Native target trial remains a release gate. Hash presence and database markers do not establish playable native playlists. |
+| USB release baseline | Read-only preflight tested for missing paths, folders, mount reporting, and capacity. No external physical disk was connected during the original app check. | This historical preflight evidence does not validate a native device library or hardware playback. The a3 readback workflow has controlled test evidence. |
+| a3 delivery/catalog/XML | App/player profiles, working-copy conversion and annotation tags, request coverage, organization, native XML parsing, simulated evidence/readback, concurrency, coordinator version checks and transports passed within the 378-test suite. A fresh isolated a3 wheel installation passed all 34 MCP tool schemas, request/organization calls, three-tone preparation and packaged skill setup. Migration from a2 passed. | Public-artifact installation and the GitHub matrix are pending. No native app action was performed by the installed smoke script. Hash presence and database markers do not establish playable native playlists. |
+| Current native trial | The supported rekordbox UI imported the candidate's three-tone M3U8. A subsequent **native Collection XML export declares rekordbox 7.2.19** and contains all three exact prepared paths and matching playlist IDs/order. | The app bundle's older 7.2.8 metadata differs from the runtime snapshot; the trial declared that older version and cannot pass its version check. Track loading and musical BPM/key/grid accuracy remain unverified. Serato 3.1.5 capture failed, so import/analysis remains unverified. No USB readiness or passing analysis observation is claimed. |
 
 The native rekordbox validation added only the three generated test tones through its own import UI. This is app import evidence, not an automatic native integration feature. Existing music was not batch imported or retagged. No device was formatted or written.
 
 ## Next acceptance gate
 
 1. Follow [fresh session setup](AGENTS.md) and start with original demo audio or a small owned selection.
-2. Complete the [Serato import and native XML checks](VALIDATION.md) in the installed app versions.
+2. Complete the [app-only native trials](VALIDATION.md) in both installed app versions: inspect membership/paths, analysis and loading, then perform fresh app verification. This scope needs no player model. Experimental XML import remains a separate unverified path.
 3. Complete a [small target delivery](DJ_DELIVERY.md) using the actual app version, player/controller model and firmware, intended volume, native export/copy, device-library inspection, readback and physical playback. Record exact IDs/counts and retain any failed stages. Exercise rekordbox and Serato independently before claiming both workflows validated.
 4. Exercise the user's chosen recordings; preserve provider failures and quality uncertainty.
 5. Exercise native tag changes on isolated delivery working copies and confirm decoded-audio preservation and post-analysis hash readback. Changed original catalog hashes still require separate reconciliation.
@@ -58,6 +69,6 @@ Do not call the milestone ready for unattended personal-library use until the de
 
 ## Still planned
 
-Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; set tracklist reconciliation/acoustic recognition; missing/upgrade ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
+Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation/acoustic recognition; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
 
 See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria. No frontend has started.
