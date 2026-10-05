@@ -13,12 +13,12 @@ import ntpath
 import os
 import posixpath
 import re
-import stat
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.errors import AppError
 
 MAX_XML_BYTES = 32 * 1024 * 1024
@@ -38,31 +38,26 @@ class _Errors:
             self.items.append({"code": code, "message": message, **context})
 
 
-def _signature(value):
-    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-
-
 def _read_xml(path):
     descriptor = None
     try:
-        before = path.lstat()
-        if stat.S_ISLNK(before.st_mode):
+        before = path_snapshot(path)
+        if before.is_reparse:
             raise AppError("NATIVE_XML_UNSAFE", "Choose the XML file itself, not a symbolic link.")
-        if not stat.S_ISREG(before.st_mode):
+        if not before.is_regular:
             raise AppError("NATIVE_XML_INVALID", "Choose a regular native XML export file.")
-        if before.st_size > MAX_XML_BYTES:
+        if before.size > MAX_XML_BYTES:
             raise AppError("NATIVE_XML_LIMIT", "Native XML is limited to 32 MiB.")
         # NOFOLLOW rejects a link swapped in after lstat. NONBLOCK prevents a
         # substituted POSIX FIFO from hanging before fstat can reject it.
-        # Windows has neither flag on some versions: lstat/fstat identity checks
-        # still reject a changed target before reading any descriptor bytes.
+        # Windows handle identities reject a changed target before reading bytes.
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         descriptor = os.open(path, flags)
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
+        opened = descriptor_snapshot(descriptor)
+        if not opened.is_regular or opened.is_reparse:
             raise AppError("NATIVE_XML_INVALID", "The opened XML descriptor is not a regular file.")
-        if _signature(opened) != _signature(before):
+        if opened.signature != before.signature:
             raise AppError("NATIVE_XML_FILE_CHANGED", "The XML path changed before it was opened.")
         data = bytearray()
         while len(data) <= MAX_XML_BYTES:
@@ -70,8 +65,8 @@ def _read_xml(path):
             if not chunk:
                 break
             data.extend(chunk)
-        after = os.fstat(descriptor)
-        current = path.lstat()
+        after = descriptor_snapshot(descriptor)
+        current = path_snapshot(path)
     except OSError as exc:
         raise AppError("NATIVE_XML_UNAVAILABLE", "The native XML file is unavailable.") from exc
     finally:
@@ -80,10 +75,11 @@ def _read_xml(path):
     if len(data) > MAX_XML_BYTES:
         raise AppError("NATIVE_XML_LIMIT", "Native XML is limited to 32 MiB.")
     if (
-        not stat.S_ISREG(current.st_mode)
-        or _signature(before) != _signature(after)
-        or _signature(after) != _signature(current)
-        or len(data) != after.st_size
+        not current.is_regular
+        or current.is_reparse
+        or before.signature != after.signature
+        or after.signature != current.signature
+        or len(data) != after.size
     ):
         raise AppError("NATIVE_XML_FILE_CHANGED", "The native XML changed while being read.")
     data = bytes(data)

@@ -7,7 +7,6 @@ Saved matches are observations at refresh time, not acoustic or playback verific
 import hashlib
 import json
 import os
-import stat
 import tempfile
 import time
 import unicodedata
@@ -18,6 +17,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from djlib.application.service import new_id, require
+from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.contracts import normalize, recording_key
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
@@ -53,16 +53,20 @@ class _Verification:
     def _location(self, value, expected):
         try:
             path = self.app.workspace.authorize(value)
-            before = path.stat()
+            before = path_snapshot(path)
+            if not before.is_regular or before.is_reparse:
+                return "unavailable"
             if (
-                self.bytes_read + before.st_size > MAX_VERIFY_BYTES
+                self.bytes_read + before.size > MAX_VERIFY_BYTES
                 or time.monotonic() - self.started > MAX_VERIFY_SECONDS
             ):
                 return "verification_limit"
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            descriptor = os.open(path, flags)
             with os.fdopen(descriptor, "rb") as stream:
-                opened = os.fstat(stream.fileno())
-                if not stat.S_ISREG(opened.st_mode) or _signature(opened) != _signature(before):
+                opened = descriptor_snapshot(stream.fileno())
+                if opened.signature != before.signature:
                     return "changed"
                 digest = hashlib.sha256()
                 while chunk := stream.read(1024 * 1024):
@@ -73,9 +77,10 @@ class _Verification:
                     ):
                         return "verification_limit"
                     digest.update(chunk)
-                after = os.fstat(stream.fileno())
-            if _signature(before) != _signature(after) or _signature(after) != _signature(
-                path.stat()
+                after = descriptor_snapshot(stream.fileno())
+            if (
+                before.signature != after.signature
+                or after.signature != path_snapshot(path).signature
             ):
                 return "changed"
             return "verified" if digest.hexdigest() == expected else "changed"
@@ -83,10 +88,6 @@ class _Verification:
             return "outside_roots" if error.code == "SOURCE_NOT_ALLOWED" else "unavailable"
         except (OSError, ValueError):
             return "unavailable"
-
-
-def _signature(value):
-    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
 
 def _identity(artist, title, version=""):

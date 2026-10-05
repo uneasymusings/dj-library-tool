@@ -252,6 +252,8 @@ def test_dtd_and_entity_declarations_are_rejected_before_parse(
 
 
 def test_engine_generated_experimental_xml_is_not_native_evidence(tmp_path, manifest):
+    for track in manifest["tracks"]:
+        track["path"] = str(tmp_path / f"{track['recording_id']}.wav")
     snapshot = {
         "name": "Synthetic demo",
         "tracks": [

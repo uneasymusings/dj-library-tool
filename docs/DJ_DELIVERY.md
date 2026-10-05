@@ -218,7 +218,7 @@ Complete every stage required by the full delivery's workflow. Keep the acquisit
 
 ## What device verification proves
 
-`verify-device` is bounded, read-only SHA-256 presence checking against the post-analysis working copies, with volume identity checks. It skips symlinks and nested volumes. Incomplete scanning, missing files, changed identity, or unsupported safe traversal must remain visible blockers. macOS can supply a stronger identity through `diskutil`; other platforms currently fall back to weaker identity evidence and cannot satisfy the same readiness gate.
+`verify-device` is bounded, read-only SHA-256 presence checking against the post-analysis working copies, with volume identity checks. It skips symlinks, Windows reparse points and nested volumes. Incomplete scanning, missing files, changed identity, or unsupported safe traversal must remain visible blockers. macOS can supply a stronger identity through `diskutil`; Windows can query the mount manager's volume GUID and filesystem name. Failed queries and other platforms retain weaker evidence and cannot satisfy the same readiness gate. Windows partition schemes remain unknown and must not be guessed where a target requires them. CI uses filesystem fixtures; no physical FAT32/exFAT USB compatibility or playback claim follows from those tests.
 
 Native database paths are **existence markers only**. The engine does not parse their playlist references, grids, cues, integrity, or freshness. Hash presence cannot prove that the native library references those bytes. Operator inspection and physical playback remain necessary.
 

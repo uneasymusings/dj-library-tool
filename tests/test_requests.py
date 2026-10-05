@@ -1,6 +1,7 @@
 """Original-tone request ledgers preserve uncertainty, exact versions, and CAS evidence."""
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
@@ -115,6 +116,30 @@ async def test_owned_exact_reuse_and_duplicate_rows_are_persistent_without_jobs(
         )  # original catalog job only
 
 
+async def test_file_replaced_at_open_is_not_reused_even_with_identical_bytes(
+    ledger_app, audio_factory, monkeypatch
+):
+    track = await owned(ledger_app, audio_factory)
+    path = Path(track["path"])
+    replacement = path.with_name("replacement.wav")
+    replacement.write_bytes(path.read_bytes())
+    before = path.stat()
+    os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+    real_open = os.open
+
+    def swap_before_open(value, flags, *args, **kwargs):
+        assert Path(value) == path
+        os.replace(replacement, path)
+        return real_open(value, flags, *args, **kwargs)
+
+    monkeypatch.setattr(requests.os, "open", swap_before_open)
+    ledger = create(ledger_app, [named()])
+    item = ledger["items"][0]
+    assert item["state"] == "unavailable"
+    assert item["accepted"] is None
+    assert item["candidates"][0]["availability"] == "changed"
+
+
 async def test_different_version_is_only_a_candidate_and_cannot_be_selected(
     ledger_app, audio_factory
 ):
@@ -187,7 +212,7 @@ def test_unknown_timestamp_evidence_survives_atomic_missing_reports(ledger_app):
     assert first["report_path"] != second["report_path"]
     path = Path(first["report_path"])
     assert path.is_relative_to(ledger_app.workspace.exports)
-    report = json.loads(path.read_text())
+    report = json.loads(path.read_text(encoding="utf-8"))
     assert report["unresolved_items"] == 2
     assert report["items"][0]["input"] == unknown.model_dump()
     assert report["items"][0]["position"] == 1
@@ -244,7 +269,7 @@ async def test_selected_source_stays_unresolved_until_catalog_refresh(ledger_app
     assert refreshed["items"][0]["accepted"]["recording_id"] == track["recording_id"]
     assert refreshed["items"][0]["source_selection"]["source_url"] == source_url
     report = requests.export_missing_report(ledger_app, result["request_id"], 3)
-    assert json.loads(Path(report["report_path"]).read_text())["items"] == []
+    assert json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))["items"] == []
 
 
 async def test_refresh_invalidates_changed_bytes_and_rejects_stale_evidence(

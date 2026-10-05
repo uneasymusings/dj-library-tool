@@ -1,5 +1,6 @@
 """Regression checks for audio semantics and exclusive working-copy publication."""
 
+import os
 import shutil
 import struct
 import subprocess
@@ -31,6 +32,30 @@ def track_for(source):
         "sha256": inspected.sha256,
         "properties": inspected.as_dict(),
     }
+
+
+def test_working_copy_flush_uses_writable_handle_without_changing_source(
+    application, audio_factory, monkeypatch
+):
+    source = audio_factory("flush-original.wav", frames=44100)
+    before = checksum(source)
+    real_sync = delivery_media.os.fsync
+    handles = []
+
+    def require_writable(fd):
+        # A zero-byte write checks descriptor access, without modifying content.
+        # Windows's _commit refuses a read-only handle even after prior writes.
+        assert os.write(fd, b"") == 0
+        handles.append(fd)
+        return real_sync(fd)
+
+    monkeypatch.setattr(delivery_media.os, "fsync", require_writable)
+    prepared = delivery_media.prepare_media(
+        source, track_for(source), application.workspace.exports / "flush", "preserve"
+    )
+    assert handles
+    assert checksum(source) == before
+    assert checksum(Path(prepared["path"])) == prepared["sha256"]
 
 
 @pytest.fixture

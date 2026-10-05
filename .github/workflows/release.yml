@@ -31,10 +31,16 @@ jobs:
         run: |
           uv sync --locked --extra download
           uv build
+          uv run --locked python scripts/check_distribution.py
           uv run --locked python scripts/release_artifacts.py
       - name: Create draft with verified artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --generate-notes --title "DJ Library Tool $RELEASE_TAG" dist/*
+          release_version="${RELEASE_TAG#v}"
+          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --generate-notes --title "DJ Library Tool $RELEASE_TAG" \
+            "dist/dj_library_tool-${release_version}-py3-none-any.whl" \
+            "dist/dj_library_tool-${release_version}.tar.gz" \
+            "dist/dj-library-skill-${release_version}.zip" \
+            dist/SHA256SUMS

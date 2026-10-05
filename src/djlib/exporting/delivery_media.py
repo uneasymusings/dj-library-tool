@@ -230,7 +230,9 @@ def prepare_media(source: Path, track: dict, directory: Path, mode: str) -> dict
         if checksum(source) != original.sha256:
             raise AppError("FILE_CHANGED", "Source changed during preparation.")
         audio_hash = pcm_hash(temporary)
-        with temporary.open("rb") as stream:
+        # Windows _commit/FlushFileBuffers requires a writable handle. This is
+        # our private temporary copy, never the user's source audio.
+        with temporary.open("r+b") as stream:
             os.fsync(stream.fileno())
         # No existing user file can be replaced: output is inside a new per-item directory.
         os.link(temporary, destination)
