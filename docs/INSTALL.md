@@ -1,8 +1,8 @@
 # Install and use the GitHub release
 
-The [v0.1.0a6 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6) comprise a Python wheel, source archive, standalone skill ZIP and `SHA256SUMS`. The wheel contains the CLI, 40-tool MCP server, database migrations and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
+The [v0.1.0a7 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a7) comprise a Python wheel, source archive, standalone skill ZIP and `SHA256SUMS`. The wheel contains the CLI, 40-tool MCP server, database migrations and full skill. You don't need a Git clone, our developer directories, or a PyPI account.
 
-These commands are pinned to **v0.1.0a6**. Check [status](STATUS.md) for publication, CI and public-installation evidence before using the asset URLs. The [coverage audit](COVERAGE.md) preserves earlier a3/a2 results separately.
+These commands are pinned to **v0.1.0a7**. Check [status](STATUS.md) for publication, CI and public-installation evidence before using the asset URLs. The [coverage audit](COVERAGE.md) preserves earlier a3/a2 results separately.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ These commands are pinned to **v0.1.0a6**. Check [status](STATUS.md) for publica
 ## Install the complete toolkit
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a6/dj_library_tool-0.1.0a6-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a7/dj_library_tool-0.1.0a7-py3-none-any.whl'
 djlib version
 ```
 
@@ -113,7 +113,7 @@ The demo creates three original tones and export artifacts. It needs no music ac
 
 ## Install only the skill
 
-Download [dj-library-skill-0.1.0a6.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a6/dj-library-skill-0.1.0a6.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
+Download [dj-library-skill-0.1.0a7.zip](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a7/dj-library-skill-0.1.0a7.zip) and extract it. Copy the `dj-library` directory, including `references/`, into `.agents/skills/` for a Codex project or `.claude/skills/` for a Claude project. Preserve an existing skill installation rather than overwriting it blindly.
 
 The standalone skill includes [engine installation instructions](../skills/dj-library/references/install.md). It can guide the assistant's workflow, but file acquisition/catalog operations require the installed engine. The complete toolkit install plus `setup-agent` performs this skill installation automatically.
 

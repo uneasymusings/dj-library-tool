@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a6`**: 40 MCP tools plus JSON CLI and authenticated local HTTP routes. Earlier a3 exposes 34 tools; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a7`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -19,7 +19,9 @@ All application results use:
 
 Failures set `ok: false`, `result: null`, and `error: {code, message, retryable}`. Request IDs identify calls; job IDs identify accepted work. `warnings` is reserved and currently empty. Quality evidence appears in asset properties/manifests; an empty warnings array is not a quality guarantee.
 
-CLI stdout is JSON for application commands; shell/framework help and argument parsing follow Typer conventions. MCP stdout is protocol-only. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
+CLI stdout is this JSON envelope whenever output is captured (pipes, files, assistants, CI), with the global `--json` flag (accepted before or after the subcommand), or with `DJLIB_OUTPUT=json`. In an interactive terminal, commands print readable views instead: tables, live job progress on stderr and copy-pasteable next steps; errors go to stderr. `DJLIB_OUTPUT=pretty` forces the terminal view. Presentation never changes what a command submits, and generated assistant sessions set `DJLIB_OUTPUT=json`. Help and argument parsing follow Typer conventions.
+
+Interactive terminals add conveniences that scripts never get implicitly: `--key` may be omitted for `scan`, `start`, `export` and `delivery prepare` (a fresh key is generated; with JSON output a missing key is an `INPUT_INVALID` envelope), submissions follow their job until it finishes (Ctrl-C detaches; the job keeps running), and `delivery observe ID` without `--file` asks what you saw and fills counts and recording IDs from the frozen, checksummed manifest only after you confirm. `scan` without a path uses the only allowed root, in either mode. MCP stdout is protocol-only. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
 
 ## Inputs
 
@@ -48,7 +50,7 @@ Requests are Pydantic contracts with unknown fields rejected. `djlib schemas` em
 | `RootsRequest` | One to 100 existing directory paths, explicitly added to allowed roots. |
 | `ReconcileRequest` | Stable key and up to 1,000 distinct changed paths, each pinning an old revision, current new SHA-256 and `tag_only` or `replace_audio` action. |
 
-Labels reject control characters and blank artist/title. Named identity normalizes Unicode/case/spacing while retaining versions and symbol-only distinctions. Incomplete-label scans use provisional byte identity. These are conservative catalog rules, not an acoustic identity resolver or automatic repair of historical merges. Input errors identify invalid field locations and generic reasons without echoing submitted values.
+Labels reject control characters and blank artist/title. Named identity normalizes Unicode/case/spacing while retaining versions and symbol-only distinctions. A mix name written inside the title is equivalent to the same name in the version field: “Rain (Extended Mix)” with no version matches title “Rain” plus version “Extended Mix” (`identity_match: equivalent_labels` in request candidates). Identical bytes cataloged under equivalent labels reuse that recording instead of failing with `EXISTING_IDENTITY_CONFLICT`; a different version still conflicts. Stored identity keys are unchanged. Incomplete-label scans use provisional byte identity; WAV artist/title come from ID3 or, when absent, the RIFF INFO chunk. Scans skip djlib's own workspace folders and links that resolve outside allowed roots, and report the counts in the scan job's `result.skipped_files`. These are conservative catalog rules, not an acoustic identity resolver or automatic repair of historical merges. Input errors identify invalid field locations and generic reasons without echoing submitted values.
 
 ### Delivery inputs
 
@@ -68,6 +70,16 @@ App-only workflows accept only `imported` and `analyzed` observations, followed 
 
 ### Request and organization inputs
 
+`requests create --text FILE` builds a `RequestCreate` from a plain tracklist in the CLI: one `Artist - Title (Mix)` per line, with numbering, bullets, timestamps and a trailing `[LABEL]` removed (a bracketed mix name is kept). `ID - ID` lines become unknown items when they carry a timestamp or `--source` URL. Leading unnumbered lines of a numbered list are headings; the first names the list. Lines that are skipped are reported in the envelope's `warnings`.
+
+`RequestCollect` (`revision`, optional `name`) queues an `organize` job over the request's `satisfied` items in list order, deduplicated by byte revision; nothing else is included and an empty selection is `COLLECTION_EMPTY`. Request candidates may include up to five `different_version` recordings of the same song (same artist and base title) for context; they never satisfy, disambiguate or truncate a match.
+
+`AnalysisImport` (`path`) reads a rekordbox Collection XML export from an allowed folder or the workspace (the CLI copies the chosen file into the workspace first). Tracks match only by exact file location: catalog originals or prepared delivery working copies. Known `AverageBpm`/`Tonality` values are stored as BPM/key annotations with `source: "rekordbox_analysis"` and `verified: false`; values with any other source are kept. Library rows and collection pages include `dj: {bpm, key, bpm_source, key_source, energy, set_role}` from saved annotations.
+
+`rekordbox push` runs in the CLI process, which macOS lets drive another app once the terminal is allowed under Accessibility; the coordinator never automates UI. It exports the collection (hash-checked), copies the M3U8 to `exports/rekordbox/<collection name>.m3u8` (rekordbox names the playlist after the file), chooses it in rekordbox's File > Import > Import Playlist dialog, then repeatedly uses File > Export Collection in xml format until the playlist's members are present and analyzed or `--wait` expires. The result reports `playlist_found`, `entries`, `expected`, `matched`, `analyzed`, `playlists_with_this_name`, `missing_paths` and the analysis import counts, with `verified_by: rekordbox_xml_export` and `database_modified_directly: false`. Dialogs are driven through accessibility values and named buttons; the two shortcut keystrokes are sent only after confirming rekordbox is frontmost and the expected dialog has focus, otherwise the dialog is cancelled with `APP_DIALOG_FAILED`. Missing permission returns `APP_AUTOMATION_NOT_ALLOWED`; non-macOS returns `APP_AUTOMATION_UNSUPPORTED`.
+
+`delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
+
 Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/cli.md#exact-requests-and-unknown-ids).
 
 Annotations bind exact recording/revision IDs. Revision `0` creates the first annotation; later patches require the current revision. Omitted fields are unchanged and explicit null clears the annotation. BPM/key values carry `source: operator|native_tag` and `verified: false` by default; `native_tag` must match freshly read catalog tags. Organization freezes ordered collections from up to 1,000 explicit references, reports exclusions and uses explicit unknown policies. It does not perform acoustic analysis or retag catalog originals. See [organization recipes](../skills/dj-library/references/cli.md#catalog-notes-and-ordered-collections).
@@ -83,6 +95,7 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `download --file FILE` | `djlib_download` | `POST /downloads` |
 | `source-inspect URL` | `djlib_source_inspect` | `POST /sources/inspect` |
 | `jobs list/get/items` | `djlib_jobs/job/items` | `GET /jobs`, `/jobs/{id}`, `/jobs/{id}/items` |
+| `jobs watch ID` | CLI only | polls `GET /jobs/{id}` until it leaves queued/running |
 | `jobs events ID` | CLI only | `GET /jobs/{id}/events` |
 | `jobs control ID ACTION` | `djlib_control` | `POST /jobs/{id}/control` |
 | `reviews list/resolve` | `djlib_reviews/resolve` | `GET /reviews`, `POST /reviews/{id}` |
@@ -110,10 +123,16 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `requests refresh ID --revision N` | `djlib_refresh_request` | `POST /requests/{id}/refresh` |
 | `requests resolve ID ITEM_ID --file FILE` | `djlib_resolve_request` | `POST /requests/{id}/items/{item_id}` |
 | `requests report ID --revision N` | `djlib_request_report` | `POST /requests/{id}/report` |
+| `requests collect ID [--name NAME] [--revision N]` | `djlib_collect_request` | `POST /requests/{id}/collection` |
+| `import-rekordbox XML` | `djlib_import_rekordbox_analysis` | `POST /analysis/rekordbox` |
+| `rekordbox push ID [--wait SECONDS]` | CLI only (macOS desktop session) | `POST /exports`, then `POST /analysis/rekordbox` |
+| `rekordbox pull` | CLI only (macOS desktop session) | `POST /analysis/rekordbox` |
 | `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |
 | `organize get ID --asset-revision-id REV_ID` | `djlib_annotations` | `GET /recordings/{id}/annotations` |
 | `organize annotate --file FILE` | `djlib_annotate` | `POST /annotations` |
 | `organize collection --file FILE` | `djlib_organize` | `POST /organization` |
+
+`djlib ui` starts or reuses the coordinator and returns `{"url": "http://127.0.0.1:PORT/ui/#token=…"}`; in a terminal it also opens the review page unless `--no-open`, and JSON output never opens a browser. The page's three static files (`GET /ui/`, `/ui/app.js`, `/ui/app.css`) are the only routes served without the bearer token; they contain no catalog data and carry a strict Content-Security-Policy (no inline code, same-origin connections only), `nosniff`, `no-referrer` and `no-store`. The page reads the token from the URL fragment (never sent to the server), keeps it in tab-scoped session storage, removes it from the address bar and calls the same authenticated JSON routes listed above. Its only writes are request-item `satisfy` resolutions and building a crate from owned request items.
 
 `init`, `doctor`, `version`, `schemas`, and `setup-agent --output PATH` are local CLI operations. Session setup requires an initialized workspace and a new output folder outside it; it copies the skill and explicit MCP configuration without credentials or personal configuration changes. Session timeouts are transport ceilings, not job deadlines. Existing sessions are unchanged. `demo` combines original tones and normal use cases. `service status` does not start a coordinator; `service start` explicitly starts/discovers it, and `service stop` checkpoints work and exits. Windows MCP cold start returns `COORDINATOR_START_REQUIRED`; generated `launch.py` pre-starts the service before the host, or manual configurations require external-terminal startup. Other supported client/platform paths retain coordinator startup. The Windows process-job boundary is preserved, not escaped.
 
@@ -124,6 +143,7 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 - Items `after` is the last position returned; initial value -1.
 - Events `after` is the last event cursor returned; initial value 0.
 - `next_cursor: null` ends a collection/item/event page.
+- Queries match every word, ignoring case and accents (“bjork radio” finds “Björk … (Radio Edit)”). Library rows are ordered by artist, title, version, then IDs; saved lists newest first. Job queries also match the job kind.
 - Library, jobs and saved collection/request/delivery lists accept a query and opaque `after` cursor. Reuse `next_cursor` with the same listing/query; a null cursor ends paging. Results include total and an insertion cutoff, with current mutable metadata/locations. Library groups each recording/revision and all recorded locations; availability is not freshly checked. Reviews remain a bounded view without a continuation cursor.
 - Plan replies include a ten-track preview; full input is persisted privately.
 - Source descriptions are limited to 30,000 characters and chapters to 500; output declares description truncation.
@@ -136,9 +156,10 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | 0 | Command succeeded or job intent accepted; acceptance does not imply completion. |
 | 2 | Invalid input or application error; inspect the envelope. |
 | 3 | `jobs wait` deadline reached; job continues in the coordinator. |
-| 4 | `jobs wait` returned failure, cancellation, required attention, or completion with gaps. |
+| 4 | `jobs wait`/`watch` returned failure, cancellation, a pause, required attention, or completion with gaps. |
+| 130 | Interrupted in a terminal (Ctrl-C); accepted jobs keep running. |
 
-`jobs wait` is a convenience with a maximum 60-second polling window. MCP clients should poll `djlib_job` and respect `next_poll_after_seconds`. To inspect all items in a bulk job, page through outcomes instead of repeatedly loading the whole input.
+`jobs wait` is a convenience with a maximum 60-second polling window; `jobs watch` waits until the job leaves queued/running. In a terminal, submissions that follow their job use the same exit codes. MCP clients should poll `djlib_job` and respect `next_poll_after_seconds`. To inspect all items in a bulk job, page through outcomes instead of repeatedly loading the whole input.
 
 ## Recovery and readiness
 

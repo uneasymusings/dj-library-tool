@@ -134,3 +134,15 @@ class RequestResolution(RequestContract):
         elif self.source_url or self.recording_id or self.asset_revision_id:
             raise ValueError("Clearing a resolution cannot also select a source or recording.")
         return self
+
+
+class RequestCollect(RequestContract):
+    """Build an ordered collection from a request list's owned tracks."""
+
+    revision: int = Field(ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+
+    @field_validator("name")
+    @classmethod
+    def collection_name(cls, value):
+        return clean_text(value) if value is not None else value

@@ -29,15 +29,27 @@ from djlib.persistence.models import (
 from djlib.sources.web import validate_url
 from djlib.workspace import Workspace
 
+ITEM_STATES = frozenset(
+    {"pending", "running", "succeeded", "failed", "skipped", "needs_input", "cancelled"}
+)
+
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
 
 
+ENTITY_NAMES = {
+    "AssetRevision": "Asset revision",
+    "JobItem": "Job item",
+    "RequestLedger": "Request list",
+}
+
+
 def require(session, model, entity_id: str):
     value = session.get(model, entity_id)
     if value is None:
-        raise AppError("NOT_FOUND", f"{model.__name__} was not found.", 404)
+        name = ENTITY_NAMES.get(model.__name__, model.__name__)
+        raise AppError("NOT_FOUND", f"{name} was not found.", 404)
     return value
 
 
@@ -286,6 +298,10 @@ class Application:
     def items(
         self, job_id: str, limit: int = 20, after: int = -1, state: str | None = None
     ) -> dict:
+        if state is not None and state not in ITEM_STATES:
+            raise AppError(
+                "INPUT_INVALID", "Use an item state: " + ", ".join(sorted(ITEM_STATES)) + "."
+            )
         with self.db.transaction() as session:
             require(session, Job, job_id)
             query = select(JobItem).where(JobItem.job_id == job_id, JobItem.position > after)

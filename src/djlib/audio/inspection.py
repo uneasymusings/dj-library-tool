@@ -44,14 +44,47 @@ def checksum(path: Path) -> str:
 def labels(path: Path) -> tuple[str, str]:
     try:
         media = mutagen.File(path, easy=True)
-        if media is None or media.tags is None:
-            return "", ""
-        # WAV may expose ID3 frames even when easy=True; normalize both representations.
-        artist = media.tags.get("artist") or media.tags.get("TPE1") or []
-        title = media.tags.get("title") or media.tags.get("TIT2") or []
-        return str(artist[0]) if artist else "", str(title[0]) if title else ""
+        artist = title = []
+        if media is not None and media.tags is not None:
+            # WAV may expose ID3 frames even when easy=True; normalize both representations.
+            artist = media.tags.get("artist") or media.tags.get("TPE1") or []
+            title = media.tags.get("title") or media.tags.get("TIT2") or []
+        found = (str(artist[0]) if artist else "", str(title[0]) if title else "")
+        if path.suffix.lower() == ".wav" and not all(found):
+            info = riff_info(path)
+            found = (found[0] or info[0], found[1] or info[1])
+        return found
     except (mutagen.MutagenError, ValueError, OSError):
         return "", ""
+
+
+def riff_info(path: Path) -> tuple[str, str]:
+    """Artist/title from a WAV LIST/INFO chunk, which many exporters write instead of ID3."""
+    values: dict[bytes, str] = {}
+    with path.open("rb") as stream:
+        header = stream.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            return "", ""
+        for _ in range(64):  # bounded walk; audio data chunks are skipped, not read
+            chunk = stream.read(8)
+            if len(chunk) < 8:
+                break
+            ident, size = chunk[:4], int.from_bytes(chunk[4:], "little")
+            if ident != b"LIST" or size > 1024 * 1024:
+                stream.seek(size + (size & 1), 1)
+                continue
+            body = stream.read(size + (size & 1))
+            offset = 4 if body[:4] == b"INFO" else len(body)
+            while offset + 8 <= len(body):
+                key = body[offset : offset + 4]
+                length = int.from_bytes(body[offset + 4 : offset + 8], "little")
+                raw = body[offset + 8 : offset + 8 + length].split(b"\0", 1)[0]
+                try:
+                    values[key] = raw.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    values[key] = raw.decode("latin-1").strip()
+                offset += 8 + length + (length & 1)
+    return values.get(b"IART", ""), values.get(b"INAM", "")
 
 
 def inspect_audio(path: Path) -> Inspection:

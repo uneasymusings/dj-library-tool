@@ -223,6 +223,45 @@ def recording_key(artist: str, title: str, version: str = "") -> str:
     )
 
 
+TRAILING_VERSION = re.compile(r"^(?P<title>.*\S)\s*[\(\[](?P<version>[^\)\]]+)[\)\]]\s*$")
+
+
+def label_form(artist: str, title: str, version: str = "") -> tuple[str, str]:
+    """Labels compared as written: "Rain (Extended Mix)" equals "Rain" + "Extended Mix".
+
+    Taggers store mix names either inside the title or in a separate version field. This is
+    label equivalence for matching only; identity keys and stored IDs are unchanged.
+    """
+    return normalize(artist), normalize(f"{title} {version}" if version.strip() else title)
+
+
+def base_title(title: str) -> str:
+    """The title without a trailing bracketed mix name."""
+    match = TRAILING_VERSION.match(title)
+    return match["title"] if match else title
+
+
+def base_form(artist: str, title: str) -> tuple[str, str]:
+    """Same song, any version: artist plus the title without its trailing mix name."""
+    return normalize(artist), normalize(base_title(title))
+
+
+def version_prefixes(artist: str, title: str, version: str = "") -> list[str]:
+    """Catalog key prefixes that can hold a recording with equivalent labels."""
+    prefixes = [recording_key(artist, title)]
+    if version.strip():
+        prefixes.append(recording_key(artist, f"{title} {version}"))
+    elif (base := base_title(title)) != title:
+        prefixes.append(recording_key(artist, base))
+    return list(dict.fromkeys(prefixes))
+
+
+def related_prefixes(artist: str, title: str) -> list[str]:
+    """Prefixes for other versions of the same song, e.g. "Night Bus (Radio Edit)"."""
+    base = recording_key(artist, base_title(title))
+    return [base, base.removesuffix("|") + " "]
+
+
 def version_markers(value: str) -> frozenset[str]:
     """Detect obvious incompatible edits; this is not acoustic identification."""
     text = normalize(value)
