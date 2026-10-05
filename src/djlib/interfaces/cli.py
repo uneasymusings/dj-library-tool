@@ -48,7 +48,7 @@ EPILOG = (
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "demo", "doctor", "setup-agent"),
+    *("init", "demo", "doctor", "ui", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
     *("delivery", "export", "usb-preflight"),
@@ -348,6 +348,33 @@ def doctor(ctx: typer.Context) -> None:
             }
         )
     )
+
+
+@app.command(rich_help_panel=START)
+@handled
+def ui(
+    ctx: typer.Context,
+    open_browser: bool = typer.Option(
+        True, "--open/--no-open", help="Open the page in your browser (terminal only)."
+    ),
+) -> None:
+    """Open the review page: library, requests, collections and deliveries in a browser.
+
+    The link includes this workspace's local access token; keep it to yourself.
+    """
+    from urllib.parse import urlencode
+
+    url = client(ctx).start()
+    term = terminal.current()
+    handoff = {"token": ctx.obj.token()}
+    if term.workspace is not None:
+        handoff["ws"] = terminal.shell_path(term.workspace)
+    page = f"{url}/ui/#{urlencode(handoff)}"
+    if not term.json and open_browser:
+        import webbrowser
+
+        webbrowser.open(page)
+    emit(envelope({"url": page}))
 
 
 @app.command(rich_help_panel=BUILD)
