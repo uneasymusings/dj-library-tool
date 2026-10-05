@@ -1,5 +1,9 @@
 # Implementation status
 
+## 0.1.0a9
+
+Adds `djlib status` (library, BPM/key coverage, request lists, crates and whether each is already a rekordbox playlist, next commands) and a remembered default workspace (`djlib use`), plus `rekordbox pull --when-idle`. Checked against the user's real 690-recording workspace: request lists, crates and rekordbox playlist presence matched. Local validation: 626 tests passed with five Windows-only skips. USB export remains a native rekordbox step: its browser is not exposed to macOS accessibility, so djlib does not script it.
+
 ## 0.1.0a8
 
 Moves work off the user's screen: rekordbox analysis is read from its analysis files in the background (BPM/cues; key still via a brief XML export), `rekordbox push` imports once per crate and can wait for idle time, scans decode each file once and skip known bytes, untagged files take labels from their names, and implicitly started coordinators exit when idle. Measured on the same 708-track real library: first scan 661 s → 189 s, rescan 15 s; analysis-file BPM matched rekordbox's XML for 959 of 959 comparable tracks; a request list became a rekordbox playlist in 9.5 s (8.8 s with rekordbox in front). Local validation: 622 tests passed with five Windows-only skips.

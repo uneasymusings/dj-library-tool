@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -304,3 +305,41 @@ def test_guided_observation_refuses_unready_or_hardware_stages(monkeypatch, tmp_
     with pytest.raises(AppError) as declined:
         guided.observe(term, FakeClient(guided_delivery(tmp_path)), "delivery_x", None)
     assert declined.value.message == "Nothing was recorded."
+
+
+def test_first_workspace_becomes_the_default(tmp_path):
+    from djlib.interfaces.client import default_workspace
+
+    (tmp_path / "music").mkdir()
+    first = invoke("init", "--allow-root", str(tmp_path / "music"), workspace=tmp_path / "lib")
+    assert json.loads(first.stdout)["result"]["default_workspace"] is True
+    assert default_workspace() == (tmp_path / "lib").resolve()
+    second = invoke("init", workspace=tmp_path / "other")
+    assert json.loads(second.stdout)["result"]["default_workspace"] is False
+    assert default_workspace() == (tmp_path / "lib").resolve()  # the first one stays
+
+    switched = json.loads(invoke("use", str(tmp_path / "other")).stdout)["result"]
+    assert switched["source"] == "remembered" and switched["changed"] is True
+    assert default_workspace() == (tmp_path / "other").resolve()
+    missing = invoke("use", str(tmp_path / "nowhere"))
+    assert json.loads(missing.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
+    assert default_workspace() == (tmp_path / "other").resolve()
+
+
+def test_status_summarizes_library_requests_and_crates(local_http, audio_factory, monkeypatch):
+    from djlib.interfaces import rekordbox_cli
+
+    audio_factory("status.wav", frequency=640, artist="Velvet Static", title="Night Bus")
+    assert invoke("scan", "--key", "s", workspace=local_http.root).exit_code == 0
+    for _ in range(100):
+        jobs = json.loads(invoke("jobs", "list", workspace=local_http.root).stdout)["result"]
+        if all(job["state"] not in {"queued", "running"} for job in jobs["jobs"]):
+            break
+        time.sleep(0.05)
+    monkeypatch.setattr(rekordbox_cli, "rekordbox_playlists", lambda: {"Elsewhere"})
+    reply = invoke("status", workspace=local_http.root)
+    summary = json.loads(reply.stdout)["result"]
+    assert summary["tracks"] == 2 and summary["active_jobs"] == 0
+    assert summary["rekordbox_checked"] is True
+    pretty = invoke("status", pretty=True, workspace=local_http.root)
+    assert "2 tracks" in pretty.stdout and "BPM for 0" in pretty.stdout

@@ -1,6 +1,6 @@
 # Quickstart
 
-These recipes describe **0.1.0a8**; install using [INSTALL](INSTALL.md) and consult [status](STATUS.md) for validation/publication evidence. Earlier a3 lacks discovery/reconciliation commands and runs organization/native checks synchronously. Check `djlib version` and `capabilities`. Use installed `djlib` below; contributors can prefix it with `uv run` in their checkout.
+These recipes describe **0.1.0a9**; install using [INSTALL](INSTALL.md) and consult [status](STATUS.md) for validation/publication evidence. Earlier a3 lacks discovery/reconciliation commands and runs organization/native checks synchronously. Check `djlib version` and `capabilities`. Use installed `djlib` below; contributors can prefix it with `uv run` in their checkout.
 
 ## 1. Choose a workspace
 
