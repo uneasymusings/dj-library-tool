@@ -14,11 +14,17 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from djlib.application.service import new_id, require
 from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
-from djlib.domain.contracts import normalize, recording_key
+from djlib.domain.contracts import (
+    base_form,
+    label_form,
+    normalize,
+    related_prefixes,
+    version_prefixes,
+)
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
 from djlib.persistence.models import Asset, AssetRevision, FileLocation, Recording, timestamp
@@ -26,6 +32,7 @@ from djlib.persistence.request_models import RequestLedger, RequestSubmission
 from djlib.sources.web import validate_url
 
 MAX_CANDIDATES = 20
+MAX_RELATED = 5
 MAX_LOCATIONS = 10
 MAX_VERIFY_BYTES = 1024**3
 MAX_VERIFY_SECONDS = 30
@@ -135,12 +142,12 @@ def _save(app, ledger):
 
 def _catalog_candidates(app, item, verification, recording_id=None, asset_revision_id=None):
     requested = item["input"]
-    prefix = (
-        recording_key(requested["artist"], requested["title"])
+    prefixes = (
+        tuple(version_prefixes(requested["artist"], requested["title"], requested["version"]))
         if requested["kind"] == "named"
         else None
     )
-    cache_key = prefix, recording_id, asset_revision_id
+    cache_key = prefixes, recording_id, asset_revision_id
     if cache_key in verification.catalog_cache:
         return deepcopy(verification.catalog_cache[cache_key])
     with app.db.transaction() as session:
@@ -154,12 +161,47 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
             if asset_revision_id:
                 statement = statement.where(AssetRevision.id == asset_revision_id)
         else:
-            statement = statement.where(Recording.identity_key.startswith(prefix, autoescape=True))
+            statement = statement.where(
+                or_(
+                    *(
+                        Recording.identity_key.startswith(prefix, autoescape=True)
+                        for prefix in prefixes
+                    )
+                )
+            )
         rows = session.execute(
             statement.order_by(Recording.id, AssetRevision.id).limit(MAX_CANDIDATES + 1)
         ).all()
+        truncated = len(rows) > MAX_CANDIDATES
+        rows = rows[:MAX_CANDIDATES]
+        if prefixes and not recording_id:
+            # Other versions you own are shown for context; they never affect matching,
+            # ambiguity or the candidate bound above.
+            seen = {revision.id for _, revision in rows}
+            related = session.execute(
+                select(Recording, AssetRevision)
+                .join(Asset, Asset.recording_id == Recording.id)
+                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                .where(
+                    or_(
+                        *(
+                            Recording.identity_key.startswith(prefix, autoescape=True)
+                            for prefix in related_prefixes(requested["artist"], requested["title"])
+                        )
+                    )
+                )
+                .order_by(Recording.id, AssetRevision.id)
+                .limit(MAX_RELATED + len(seen))
+            ).all()
+            rows += [
+                row
+                for row in related
+                if row[1].id not in seen
+                and base_form(row[0].artist, row[0].title)
+                == base_form(requested["artist"], requested["title"])
+            ][:MAX_RELATED]
         candidates = []
-        for recording, revision in rows[:MAX_CANDIDATES]:
+        for recording, revision in rows:
             locations = list(
                 session.scalars(
                     select(FileLocation.path)
@@ -180,7 +222,7 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                     "locations_truncated": len(locations) > MAX_LOCATIONS,
                 }
             )
-    result = candidates, len(rows) > MAX_CANDIDATES
+    result = candidates, truncated
     verification.catalog_cache[cache_key] = deepcopy(result)
     return result
 
@@ -207,17 +249,26 @@ def _refresh_item(app, item, verification):
     )
     exact = []
     for candidate in candidates:
-        matches = (
-            wanted is None
-            or _identity(candidate["artist"], candidate["title"], candidate["version"]) == wanted
+        labels = candidate["artist"], candidate["title"], candidate["version"]
+        identical = wanted is not None and _identity(*labels) == wanted
+        equivalent = (
+            wanted is not None
+            and not identical
+            and label_form(*labels)
+            == label_form(requested["artist"], requested["title"], requested["version"])
         )
+        matches = wanted is None or identical or equivalent
         candidate["identity_match"] = (
             "operator_identified"
             if wanted is None
             else "exact_labels"
-            if matches
+            if identical
+            else "equivalent_labels"
+            if equivalent
             else "different_version"
             if _identity(candidate["artist"], candidate["title"])[:2] == wanted[:2]
+            or base_form(candidate["artist"], candidate["title"])
+            == base_form(requested["artist"], requested["title"])
             else "different_labels"
         )
         locations = candidate.pop("locations")
@@ -399,9 +450,9 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
         with app.db.transaction() as session:
             recording = require(session, Recording, request.recording_id)
             value = item["input"]
-            if value["kind"] == "named" and _identity(
+            if value["kind"] == "named" and label_form(
                 recording.artist, recording.title, recording.version
-            ) != _identity(value["artist"], value["title"], value["version"]):
+            ) != label_form(value["artist"], value["title"], value["version"]):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",
                     "The selected recording is a different artist, title, or version.",
@@ -447,3 +498,44 @@ def export_missing_report(app, request_id: str, revision: int) -> dict:
         "report_path": str(destination),
         "unresolved_items": len(unresolved),
     }
+
+
+def collect_request(app, request_id: str, revision: int, name: str | None = None) -> dict:
+    """Queue an ordered collection of the owned tracks in a request list, in list order.
+
+    Only items already ``satisfied`` by a hash-verified catalog revision are included;
+    missing, ambiguous and unknown entries stay in the request for later acquisition.
+    """
+    from djlib.application.organization import organize_collection
+    from djlib.domain.organization_contracts import OrganizationRequest, RecordingReference
+
+    ledger = _load(app, request_id)
+    _revision(ledger, revision)
+    references, seen = [], set()
+    for item in ledger["items"]:
+        accepted = item.get("accepted") if item.get("state") == "satisfied" else None
+        if not accepted or accepted["asset_revision_id"] in seen:
+            continue
+        seen.add(accepted["asset_revision_id"])
+        references.append(
+            RecordingReference(
+                recording_id=accepted["recording_id"],
+                asset_revision_id=accepted["asset_revision_id"],
+            )
+        )
+    if not references:
+        raise AppError(
+            "COLLECTION_EMPTY",
+            "None of these songs are owned yet. Add music, then refresh the request list.",
+        )
+    title = (name or ledger["name"]).strip()
+    digest = hashlib.sha256(title.encode()).hexdigest()[:12]
+    return organize_collection(
+        app,
+        OrganizationRequest(
+            name=title,
+            tracks=references,
+            unknown="include",
+            idempotency_key=f"request-collection:{request_id}:{revision}:{digest}",
+        ),
+    )

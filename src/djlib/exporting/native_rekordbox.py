@@ -450,3 +450,62 @@ def inspect_native_rekordbox(xml_path: Path, manifest: dict) -> dict:
         "writes_performed": False,
         "referenced_media_opened": False,
     }
+
+
+def playlist_report(xml_path: Path, name: str, expected_paths: list[str]) -> dict:
+    """What rekordbox's own XML export says about one playlist: presence, members, analysis."""
+    import unicodedata
+
+    def key(path_key):
+        return path_key[0], unicodedata.normalize("NFC", path_key[1])
+
+    root, source, _ = _read_xml(Path(xml_path))
+    products, collections = root.findall("PRODUCT"), root.findall("COLLECTION")
+    if root.tag != "DJ_PLAYLISTS" or len(collections) != 1 or len(products) != 1:
+        raise AppError("NATIVE_XML_INVALID", "Expected one rekordbox collection export.")
+    by_id, by_path = {}, {}
+    for node in collections[0].findall("TRACK"):
+        try:
+            path = key(_location(node.get("Location")))
+        except (ValueError, UnicodeError):
+            continue
+        entry = {"path": path, "analyzed": _metadata(node)["bpm"]["known"]}
+        if node.get("TrackID"):
+            by_id[node.get("TrackID")] = entry
+        by_path[path] = entry
+    playlists = [
+        node for node in root.iter("NODE") if node.get("Type") == "1" and node.get("Name") == name
+    ]
+    # Report missing files in their original form (e.g. Windows backslashes).
+    originals = {key(_path_key(path)): path for path in expected_paths}
+    wanted = set(originals)
+    members: list[dict] = []
+    if playlists:
+        node = playlists[-1]
+        for track in node.findall("TRACK"):
+            reference = track.get("Key")
+            if node.get("KeyType") == "1":
+                try:
+                    entry = by_path.get(key(_location(reference)))
+                except (ValueError, UnicodeError):
+                    entry = None
+            else:
+                entry = by_id.get(reference)
+            if entry:
+                members.append(entry)
+    present = {member["path"] for member in members}
+    matched = wanted & present
+    return {
+        "xml": source,
+        "app_version": products[0].get("Version"),
+        "playlist": name,
+        "playlist_found": bool(playlists),
+        "playlists_with_this_name": len(playlists),
+        "entries": len(members),
+        "expected": len(wanted),
+        "matched": len(matched),
+        "missing_paths": sorted(originals[path] for path in wanted - present)[:20],
+        "analyzed": sum(
+            1 for member in members if member["path"] in matched and member["analyzed"]
+        ),
+    }

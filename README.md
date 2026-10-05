@@ -2,13 +2,45 @@
 
 [![Tests, quality, and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
 
-**Turn music requests into traceable DJ collections, using your existing AI assistant.**
+**From a tracklist to a ready crate in rekordbox, using the music you already own.**
 
-`djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
+`djlib` is a local-first prep engine for DJs. Paste a set's tracklist or a request list; it tells you which songs you own, which are missing, and where you only have a different mix. It builds the crate in list order, prepares working copies for rekordbox or Serato, and brings rekordbox's BPM and key analysis back so you can sort and filter. Drive it from the terminal, or let Claude Code or Codex drive it through MCP. Your music, catalog and jobs never leave your computer.
 
-> **Experimental alpha, 0.1.0a6.** This version adds safer catalog reconciliation, saved-work discovery and background verification. The public release passed all six OS/Python release jobs and an independent anonymous installation audit with actual MCP calls with all 40 tool schemas exposed and three original tones. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+```text
+$ djlib requests create --text "Set Zero.txt"
+⣠⣴⣿⣦⣄ Set Zero — Friday  6 songs
+  4 owned  ·  1 missing  ·  1 unknown ID
 
-[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The API exposes 40 MCP tools; older a3 exposes 34. See the [requirement and public-release audit](docs/COVERAGE.md).
+#   Status         Requested                                Match
+1   ✓ owned        Nia Okoro - Slow Burn                    House/Nia Okoro - Slow Burn.flac
+2   ✓ owned        Velvet Static - Night Bus (Extended Mix) House/Velvet Static - Night Bus (Ex…
+3   ✗ missing      Velvet Static - Night Bus (Dub)          you own: Extended Mix, Radio Edit
+4   ○ unknown ID   ID - ID  @ 31:40
+…
+
+$ djlib import-rekordbox ~/Desktop/rekordbox.xml    # BPM/key from rekordbox's own analysis
+$ djlib requests collect REQUEST_ID                  # owned songs → crate, in set order
+$ djlib rekordbox push ID                            # playlist in rekordbox, analyzed, verified
+```
+
+The headline workflow, step by step:
+
+| Step | Command | What happens |
+| --- | --- | --- |
+| Index | `djlib init --allow-root ~/Music` then `djlib scan` | Reads tags in place; nothing is moved or retagged. |
+| Ask | `djlib requests create --text tracklist.txt` | Each line becomes a request: owned, missing, other version owned, or unknown ID. |
+| Analyze | `djlib import-rekordbox rekordbox.xml` | rekordbox's BPM and key land in the catalog, matched by exact file path. |
+| Crate | `djlib requests collect ID` | Owned songs become an ordered collection; missing ones stay listed. |
+| Push | `djlib rekordbox push ID` | On macOS, djlib drives rekordbox's own File menu: imports the crate as a playlist of your original files, waits for rekordbox's analysis, verifies the playlist from rekordbox's XML export and pulls BPM/key back. |
+| Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Separate tagged working copies for rekordbox/Serato or USB delivery, with guided checks. |
+
+`rekordbox push` needs a one-time macOS permission (System Settings → Privacy & Security → Accessibility → your terminal app). It uses only rekordbox's menus (Import Playlist, Export Collection in xml format) and never reads or writes rekordbox's database; before any keystroke it checks that rekordbox and the expected dialog have focus.
+
+In a terminal you get tables, live progress and copy-pasteable next steps; piped or with `--json` every command prints a stable JSON envelope for scripts and assistants. Native import, analysis and USB export still happen in rekordbox or Serato; djlib prepares files and records what you confirm.
+
+> **Experimental alpha, 0.1.0a7.** This release adds the tracklist-to-crate workflow, rekordbox analysis import, the terminal experience and the local review page. Like a6, it is checked by all six OS/Python release jobs and an installed-wheel MCP smoke test. Real-music import in Serato and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+
+[DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. The API exposes 42 MCP tools (a6: 40). See the [requirement and public-release audit](docs/COVERAGE.md).
 
 ## Your first useful session
 
@@ -39,10 +71,10 @@ Soulseek through slskd, complete artist catalog workflows, acoustic track identi
 
 ## Install from GitHub
 
-The commands below target the [v0.1.0a6 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
+The commands below target the [v0.1.0a7 release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a7), including the engine, MCP server and matching skill. Check [status](docs/STATUS.md) for publication and public-installation evidence. No clone or developer checkout is required. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a6/dj_library_tool-0.1.0a6-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a7/dj_library_tool-0.1.0a7-py3-none-any.whl'
 djlib version
 ```
 
@@ -93,13 +125,29 @@ djlib --workspace /path/to/dj-workspace scan /path/to/music --key first-library-
 djlib --workspace /path/to/dj-workspace jobs list
 ```
 
-Application commands emit JSON; help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
+In a terminal, commands print readable views (from a7; a6 prints JSON everywhere):
+
+```text
+$ djlib --workspace ~/dj-workspace library --query "night bus"
+Artist          Title                      Time   Format     File
+───────────────────────────────────────────────────────────────────────────────────────
+Velvet Static   Night Bus (Extended Mix)   6:52   MP3 320k   House/Velvet Static - Night…
+Velvet Static   Night Bus (Radio Edit)     3:43   MP3 320k   House/Velvet Static - Night…
+
+2 of 2 tracks
+```
+
+Submissions such as `scan`, `start`, `export` and `delivery prepare` follow their job with a live progress bar (Ctrl-C only stops watching) and end with copy-pasteable next steps. In a terminal `--key` is optional, `scan` defaults to your only music folder, and `delivery observe ID` asks what you saw in the app instead of requiring a JSON file. Search ignores case and accents and matches every word.
+
+`djlib ui` opens a local review page in your browser: search the library with BPM/key readouts, see which requested songs you own, pick between versions, build a crate from what you own, and follow each delivery's checklist. It is served by the same background service on `127.0.0.1` and opened with a private link; nothing leaves your computer.
+
+Output is the JSON envelope whenever it is piped or captured by an assistant, or with `--json` (`DJLIB_OUTPUT=json` also works); scripts must pass explicit `--key` values. Help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
 For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
 
 If the immediate request is “put this in rekordbox/Serato,” start with `rekordbox_import` or `serato_import`. A delivery request specifies accepted collection IDs, the actual app version, and default preservation of source format. No hardware profile is required. Follow the [app-first example](docs/INSTALL.md#prepare-an-app-before-choosing-a-player). In a6, organization, successful analysis/native-export observations and app verification return jobs. Wait for completion and inspect the receipt, then read the delivery evidence and its check time. Rereading a saved receipt or delivery does not perform another check.
 
-Version a6 also permits full local preparation before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
+Since a6, full local preparation is permitted before physical testing. Omit `pilot_delivery_id` to prepare with an explicit unvalidated-pilot state; a supplied pilot must be successful and match the target. App/USB readiness still requires its native and verification stages. Pilot and full deliveries use separate working paths, so cues or analysis on pilot copies do not automatically transfer.
 
 ## Use with an AI CLI
 

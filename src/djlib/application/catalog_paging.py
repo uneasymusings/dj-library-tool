@@ -9,6 +9,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, select, tuple_
 
 from djlib.domain.errors import AppError
+from djlib.persistence.database import search_fold
 from djlib.persistence.models import (
     Asset,
     AssetRevision,
@@ -20,10 +21,19 @@ from djlib.persistence.models import (
     Recording,
     timestamp,
 )
+from djlib.persistence.organization_models import RecordingAnnotation
 from djlib.persistence.request_models import RequestLedger
 
 
-def _context(kind, query, limit, after):
+def _fold(column):
+    return func.djlib_fold(column)
+
+
+def _terms(query: str) -> list[str]:
+    return (search_fold(query) or "").split()[:12]
+
+
+def _context(kind, query, limit, after, key_size=2):
     if (
         not isinstance(query, str)
         or len(query) > 500
@@ -37,7 +47,7 @@ def _context(kind, query, limit, after):
     if after is None:
         return {"scope": scope, "cutoff": timestamp(), "key": None}
     try:
-        if not isinstance(after, str) or not 1 <= len(after) <= 2000:
+        if not isinstance(after, str) or not 1 <= len(after) <= 8000:
             raise ValueError
         data = json.loads(base64.urlsafe_b64decode(after + "=" * (-len(after) % 4)))
         if set(data) != {"scope", "cutoff", "key"} or data["scope"] != scope:
@@ -46,9 +56,13 @@ def _context(kind, query, limit, after):
             raise ValueError
         if datetime.fromisoformat(data["cutoff"]).tzinfo is None:
             raise ValueError
-        if not isinstance(data["key"], list) or len(data["key"]) != 2:
+        key = data["key"]
+        if not isinstance(key, list) or len(key) != key_size:
             raise ValueError
-        if any(not isinstance(x, str) or not 1 <= len(x) <= 200 for x in data["key"]):
+        # Leading sort labels may be empty; trailing identifiers never are.
+        if any(not isinstance(x, str) or len(x) > 1000 for x in key[:-2]):
+            raise ValueError
+        if any(not isinstance(x, str) or not 1 <= len(x) <= 200 for x in key[-2:]):
             raise ValueError
         return data
     except (ValueError, TypeError, KeyError, UnicodeError):
@@ -77,31 +91,67 @@ def _result(kind, rows, total, limit, context, key):
     }
 
 
+def dj_summary(annotations: dict) -> dict:
+    """Saved BPM/key with their provenance; embedded tags are read per track, not here."""
+    bpm, key = annotations.get("bpm") or {}, annotations.get("key") or {}
+    return {
+        "bpm": bpm.get("value"),
+        "key": key.get("value"),
+        "bpm_source": bpm.get("source"),
+        "key_source": key.get("source"),
+        "bpm_verified": bool(bpm.get("verified")),
+        "key_verified": bool(key.get("verified")),
+        "energy": annotations.get("energy"),
+        "set_role": annotations.get("set_role"),
+    }
+
+
+def attach_dj(app, tracks: list[dict]) -> list[dict]:
+    """Add saved BPM/key summaries to a page of tracks without changing frozen snapshots."""
+    revisions = [track["asset_revision_id"] for track in tracks]
+    with app.db.transaction() as session:
+        saved = {
+            row.asset_revision_id: row.annotations
+            for row in session.scalars(
+                select(RecordingAnnotation).where(
+                    RecordingAnnotation.asset_revision_id.in_(revisions)
+                )
+            )
+        }
+    return [
+        {**track, "dj": dj_summary(saved.get(track["asset_revision_id"]) or {})} for track in tracks
+    ]
+
+
 def library(app, query="", limit=20, after=None):
-    context = _context("library", query, limit, after)
+    context = _context("library", query, limit, after, key_size=5)
     statement = (
         select(Recording, AssetRevision)
         .join(Asset, Asset.recording_id == Recording.id)
         .join(AssetRevision, AssetRevision.asset_id == Asset.id)
         .where(AssetRevision.created_at <= context["cutoff"])
     )
-    if query:
+    # Every word must appear in the artist, title or version, ignoring case and accents.
+    for term in _terms(query):
         statement = statement.where(
             or_(
-                Recording.artist.icontains(query, autoescape=True),
-                Recording.title.icontains(query, autoescape=True),
-                Recording.version.icontains(query, autoescape=True),
+                _fold(Recording.artist).contains(term, autoescape=True),
+                _fold(Recording.title).contains(term, autoescape=True),
+                _fold(Recording.version).contains(term, autoescape=True),
             )
         )
+    order = (
+        _fold(Recording.artist),
+        _fold(Recording.title),
+        _fold(Recording.version),
+        Recording.id,
+        AssetRevision.id,
+    )
     with app.db.transaction() as session:
         total = session.scalar(select(func.count()).select_from(statement.subquery()))
         if context["key"]:
-            statement = statement.where(
-                tuple_(Recording.id, AssetRevision.id) > tuple(context["key"])
-            )
-        rows = session.execute(
-            statement.order_by(Recording.id, AssetRevision.id).limit(limit + 1)
-        ).all()
+            statement = statement.where(tuple_(*order) > tuple(context["key"]))
+        rows = session.execute(statement.order_by(*order).limit(limit + 1)).all()
         locations = defaultdict(list)
         if rows:
             for location in session.scalars(
@@ -110,6 +160,18 @@ def library(app, query="", limit=20, after=None):
                 .order_by(FileLocation.managed.desc(), FileLocation.path, FileLocation.id)
             ):
                 locations[location.revision_id].append(location)
+        annotations = (
+            {
+                row.asset_revision_id: row.annotations
+                for row in session.scalars(
+                    select(RecordingAnnotation).where(
+                        RecordingAnnotation.asset_revision_id.in_([r.id for _, r in rows])
+                    )
+                )
+            }
+            if rows
+            else {}
+        )
         tracks = []
         for recording, revision in rows:
             candidates = locations[revision.id]
@@ -134,6 +196,7 @@ def library(app, query="", limit=20, after=None):
                     "availability": "not_checked" if candidates else "no_recorded_location",
                     "last_known_path": revision.properties.get("last_known_path")
                     or revision.properties.get("indexed_path"),
+                    "dj": dj_summary(annotations.get(revision.id) or {}),
                 }
             )
     return _result(
@@ -142,7 +205,13 @@ def library(app, query="", limit=20, after=None):
         total,
         limit,
         context,
-        lambda r: [r["recording_id"], r["asset_revision_id"]],
+        lambda r: [
+            search_fold(r["artist"]) or "",
+            search_fold(r["title"]) or "",
+            search_fold(r["version"]) or "",
+            r["recording_id"],
+            r["asset_revision_id"],
+        ],
     )
 
 
@@ -189,9 +258,12 @@ def saved(app, kind, query="", limit=20, after=None):
     else:
         columns += [model.kind, model.state, model.outcome, model.updated_at]
     statement = select(*columns).where(model.created_at <= context["cutoff"])
-    if query:
+    searchable = [_fold(name), model.id]
+    if kind == "jobs":
+        searchable.append(model.kind)
+    for term in _terms(query):
         statement = statement.where(
-            or_(name.icontains(query, autoescape=True), model.id.icontains(query, autoescape=True))
+            or_(*(column.contains(term, autoescape=True) for column in searchable))
         )
     with app.db.transaction() as session:
         total = session.scalar(select(func.count()).select_from(statement.subquery()))

@@ -13,9 +13,16 @@ from djlib.application.service import Application, add_event, new_id, require
 from djlib.audio.catalog_inspection import inspect_catalog_audio
 from djlib.audio.inspection import SUPPORTED_EXTENSIONS, Inspection, checksum, inspect_audio, labels
 from djlib.audio.preparation import tag_download_copy
-from djlib.domain.contracts import Profile, TrackInput, normalize, recording_key, version_markers
+from djlib.domain.contracts import (
+    Profile,
+    TrackInput,
+    label_form,
+    normalize,
+    recording_key,
+    version_markers,
+)
 from djlib.domain.errors import AppError
-from djlib.exporting.handoff import atomic_text, rekordbox_xml
+from djlib.exporting.handoff import atomic_text, playlist_label, rekordbox_xml
 from djlib.persistence.models import (
     Asset,
     AssetRevision,
@@ -132,10 +139,14 @@ class Worker:
             with self.app.db.transaction() as session:
                 exists = session.scalar(select(JobItem.id).where(JobItem.job_id == job_id))
             if not exists:
-                tracks = await asyncio.to_thread(self.discover, request["path"])
+                tracks, skipped = await asyncio.to_thread(self.discover, request["path"])
                 if not self.active(job_id, generation):
                     return
                 with self.app.db.transaction() as session:
+                    require(session, Job, job_id).result = {
+                        "discovered_files": len(tracks),
+                        "skipped_files": skipped,
+                    }
                     for position, track in enumerate(tracks):
                         session.add(
                             JobItem(
@@ -219,13 +230,37 @@ class Worker:
 
                 finish_delivery_check(self.app, job_id, generation)
 
-    def discover(self, value: str) -> list[dict]:
+    def discover(self, value: str) -> tuple[list[dict], dict]:
         root = self.app.workspace.authorize(value, directory=True)
-        tracks = []
+        workspace = self.app.workspace
+        # djlib's own working copies and downloads are never rediscovered as new music,
+        # even when the workspace sits inside an allowed music folder.
+        generated = [
+            folder
+            for folder in (
+                workspace.exports,
+                workspace.staging,
+                workspace.incoming,
+                workspace.managed,
+                workspace.runtime,
+            )
+            if not root.is_relative_to(folder)
+        ]
+        tracks, skipped = [], {"workspace_files": 0, "outside_allowed_folders": 0}
         for path in sorted(root.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
-            authorized = self.app.workspace.authorize(str(path))
+            if any(path.is_relative_to(folder) for folder in generated):
+                skipped["workspace_files"] += 1
+                continue
+            try:
+                authorized = self.app.workspace.authorize(str(path))
+            except AppError as exc:
+                # A symlink that leaves the allowed folders is skipped, not followed.
+                if exc.code != "SOURCE_NOT_ALLOWED":
+                    raise
+                skipped["outside_allowed_folders"] += 1
+                continue
             artist, title = labels(authorized)
             track = TrackInput(
                 path=str(authorized), artist=artist or "Unknown artist", title=title or path.stem
@@ -235,7 +270,7 @@ class Worker:
                 raise AppError(
                     "ITEM_LIMIT", "A scan is limited to 10,000 media files; choose a subfolder."
                 )
-        return tracks
+        return tracks, skipped
 
     async def ingest(self, job_id: str, generation: int, item_id: str) -> None:
         with self.app.db.transaction() as session:
@@ -466,6 +501,16 @@ class Worker:
                 if revision is not None and job.kind == "scan"
                 else session.scalar(select(Recording).where(Recording.identity_key == key))
             )
+            if not recording and revision is not None:
+                # Identical bytes already cataloged with equivalent labels, e.g. title
+                # "Rain (Extended Mix)" for a request of "Rain" + "Extended Mix".
+                existing = require(
+                    session, Recording, require(session, Asset, revision.asset_id).recording_id
+                )
+                if existing.evidence.get("labels_are_identity", True) and label_form(
+                    existing.artist, existing.title, existing.version
+                ) == label_form(track.artist, track.title, track.version):
+                    recording = existing
             if not recording:
                 recording = Recording(
                     id=new_id("rec"),
@@ -495,7 +540,10 @@ class Worker:
                 if asset.recording_id != recording.id:
                     raise AppError(
                         "EXISTING_IDENTITY_CONFLICT",
-                        "These bytes already have another catalog identity.",
+                        f"This file is already cataloged as recording {asset.recording_id} "
+                        "under a different identity. Add cataloged tracks to a collection by "
+                        "their IDs with 'organize collection'; retag the file and reconcile it "
+                        "to change its identity.",
                     )
             else:
                 asset = Asset(
@@ -587,7 +635,7 @@ class Worker:
         atomic_json(export_dir / "manifest.json", manifest)
         # Track labels are validated against control characters to keep M3U records unambiguous.
         playlist = "#EXTM3U\n" + "".join(
-            f"#EXTINF:-1,{t['artist']} - {t['title']}\n{t['path']}\n" for t in snapshot["tracks"]
+            f"#EXTINF:-1,{playlist_label(t)}\n{t['path']}\n" for t in snapshot["tracks"]
         )
         atomic_text(export_dir / "collection.m3u8", playlist)
         atomic_text(export_dir / "rekordbox.xml", rekordbox_xml(snapshot))
