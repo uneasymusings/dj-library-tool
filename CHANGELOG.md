@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a8
 
 Background by default: less of the user's screen and time.
 
