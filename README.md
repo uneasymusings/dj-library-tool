@@ -20,7 +20,7 @@ $ djlib requests create --text "Set Zero.txt"
 
 $ djlib import-rekordbox ~/Desktop/rekordbox.xml    # BPM/key from rekordbox's own analysis
 $ djlib requests collect REQUEST_ID                  # owned songs → crate, in set order
-$ djlib delivery plan --collection ID --workflow rekordbox_import --app-version 7.2.3
+$ djlib rekordbox push ID                            # playlist in rekordbox, analyzed, verified
 ```
 
 The headline workflow, step by step:
@@ -31,7 +31,10 @@ The headline workflow, step by step:
 | Ask | `djlib requests create --text tracklist.txt` | Each line becomes a request: owned, missing, other version owned, or unknown ID. |
 | Analyze | `djlib import-rekordbox rekordbox.xml` | rekordbox's BPM and key land in the catalog, matched by exact file path. |
 | Crate | `djlib requests collect ID` | Owned songs become an ordered collection; missing ones stay listed. |
-| Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Tagged working copies and playlists for rekordbox/Serato, then guided checks of what you saw in the app. |
+| Push | `djlib rekordbox push ID` | On macOS, djlib drives rekordbox's own File menu: imports the crate as a playlist of your original files, waits for rekordbox's analysis, verifies the playlist from rekordbox's XML export and pulls BPM/key back. |
+| Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Separate tagged working copies for rekordbox/Serato or USB delivery, with guided checks. |
+
+`rekordbox push` needs a one-time macOS permission (System Settings → Privacy & Security → Accessibility → your terminal app). It uses only rekordbox's menus (Import Playlist, Export Collection in xml format) and never reads or writes rekordbox's database; before any keystroke it checks that rekordbox and the expected dialog have focus.
 
 In a terminal you get tables, live progress and copy-pasteable next steps; piped or with `--json` every command prints a stable JSON envelope for scripts and assistants. Native import, analysis and USB export still happen in rekordbox or Serato; djlib prepares files and records what you confirm.
 
