@@ -38,7 +38,7 @@ def rekordbox_playlists() -> set[str] | None:
 
     try:
         ui.ensure_supported()
-        return ui.playlists() if ui._running() else None
+        return ui.playlists()
     except AppError:
         return None
 
@@ -156,6 +156,11 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                 ui.wait_until_idle(when_idle)
         started = time.monotonic()
         existing = ui.playlists()
+        if existing is None:
+            from djlib.exporting.native_rekordbox import playlist_names
+
+            # Learn current playlists from one export so a crate is never imported twice.
+            existing = playlist_names(export_xml(workspace, ui))
         for crate in crates:
             if crate["playlist"] in existing:
                 crate["status"] = "already_in_rekordbox"
@@ -164,8 +169,11 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                 ui.import_playlist(Path(crate["playlist_file"]))
             crate["status"] = "imported"
         present = ui.playlists()
+        # rekordbox's playlist menu is only readable while a track is selected; without it,
+        # one XML export (File menu, always available) confirms the import instead.
+        verify = verify or present is None
         for crate in crates:
-            crate["playlist_found"] = crate["playlist"] in present
+            crate["playlist_found"] = present is not None and crate["playlist"] in present
         reports = {}
         if verify:
             from djlib.exporting.native_rekordbox import playlist_report
@@ -175,6 +183,7 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                 reports[crate["collection_id"]] = playlist_report(
                     xml, crate["playlist"], crate["paths"]
                 )
+                crate["playlist_found"] = reports[crate["collection_id"]]["playlist_found"]
             local.request("POST", "/analysis/rekordbox", data={"path": str(xml)})
         ui_seconds = round(time.monotonic() - started, 1)
         missing = [crate["playlist"] for crate in crates if not crate["playlist_found"]]

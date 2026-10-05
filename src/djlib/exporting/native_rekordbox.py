@@ -509,3 +509,9 @@ def playlist_report(xml_path: Path, name: str, expected_paths: list[str]) -> dic
             1 for member in members if member["path"] in matched and member["analyzed"]
         ),
     }
+
+
+def playlist_names(xml_path: Path) -> set[str]:
+    """Every playlist name in a rekordbox Collection XML export."""
+    root, _, _ = _read_xml(Path(xml_path))
+    return {node.get("Name") for node in root.iter("NODE") if node.get("Type") == "1"} - {None}
