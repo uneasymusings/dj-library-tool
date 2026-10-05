@@ -6,9 +6,12 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlsplit
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from filelock import FileLock
@@ -24,7 +27,37 @@ from djlib.workspace import Workspace
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def coordinator_diagnostics(workspace, operation, value):
+def process_alive_diagnostic(pid):
+    """Read-only observation; never use os.kill(pid, 0) on Windows."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only.
+        if not handle:
+            return {"open_process_error": ctypes.get_last_error()}
+        try:
+            state = kernel.WaitForSingleObject(handle, 0)
+            return {"alive": state == 258 if state in (0, 258) else None, "wait_result": state}
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return {"alive": True}
+    except ProcessLookupError:
+        return {"alive": False}
+    except OSError as error:
+        return {"alive": None, "error": type(error).__name__}
+
+
+def coordinator_diagnostics(workspace, operation, value, *, expected=None):
     # Synthetic workspace logs only; never include tokens or request headers.
     try:
         with (workspace.runtime / "service.log").open("rb") as stream:
@@ -33,15 +66,95 @@ def coordinator_diagnostics(workspace, operation, value):
             log_tail = stream.read(16 * 1024).decode("utf-8", errors="replace")
     except OSError as exc:
         log_tail = f"Coordinator log unavailable: {type(exc).__name__}"
-    return {"operation": operation, "response": value, "coordinator_log_tail": log_tail}
+    try:
+        with (workspace.runtime / "service.json").open(encoding="utf-8") as stream:
+            record = json.loads(stream.read(16 * 1024))
+        runtime = {
+            key: record.get(key)
+            for key in ("pid", "instance_id", "workspace_id", "url", "protocol_version")
+        }
+    except (OSError, ValueError, AttributeError) as exc:
+        runtime = {"unavailable": type(exc).__name__}
+    diagnostics = {
+        "operation": operation,
+        "response": value,
+        "runtime_identity": runtime,
+        "coordinator_log_tail": log_tail,
+    }
+    # Snapshot logs/runtime before a failure-only probe. Its success is diagnostic
+    # evidence, never a retry that can turn the original failure into a pass.
+    if expected is not None:
+        diagnostics["expected_identity"] = expected
+        diagnostics["process"] = process_alive_diagnostic(expected["pid"])
+        parts = urlsplit(expected["url"])
+        if (
+            parts.scheme != "http"
+            or parts.hostname != "127.0.0.1"
+            or not parts.port
+            or parts.username
+            or parts.password
+            or parts.path
+            or parts.query
+            or parts.fragment
+        ):
+            diagnostics["direct_health"] = {"error": "InvalidPreviouslyVerifiedURL"}
+            return diagnostics
+        started = time.monotonic()
+        health = {}
+        try:
+            with httpx.Client(trust_env=False, timeout=5) as client:
+                response = client.get(
+                    f"{expected['url']}/health",
+                    headers=LocalClient(workspace, allow_start=False).headers(),
+                )
+            health["status_code"] = response.status_code
+            reply = json.loads(response.content[: 16 * 1024])
+            result = reply.get("result") if isinstance(reply, dict) else None
+            if isinstance(result, dict):
+                health["result"] = {
+                    key: result.get(key)
+                    for key in (
+                        "pid",
+                        "instance_id",
+                        "workspace_id",
+                        "protocol_version",
+                        "application_version",
+                    )
+                }
+                health["same_identity"] = (
+                    result.get("pid") == expected["pid"]
+                    and result.get("instance_id") == expected["instance_id"]
+                    and result.get("workspace_id") == workspace.config().workspace_id
+                )
+            else:
+                health["error"] = "NoHealthResult"
+        except (httpx.HTTPError, OSError, ValueError, AppError) as error:
+            health["error"] = type(error).__name__
+        health["elapsed_seconds"] = round(time.monotonic() - started, 3)
+        diagnostics["direct_health"] = health
+    return diagnostics
 
 
-def live_identity(workspace, expected=None):
+def live_identity(workspace, expected=None, *, operation="coordinator identity"):
     """Health-check without a startup path; an exited coordinator must fail this test."""
     client = LocalClient(workspace, allow_start=False)
     url = client.discover()
-    assert url, coordinator_diagnostics(workspace, "discover existing coordinator", None)
-    record = json.loads((workspace.runtime / "service.json").read_text())
+    assert url, coordinator_diagnostics(
+        workspace, operation, {"discover": None, "expected_identity": expected}, expected=expected
+    )
+    try:
+        record = json.loads((workspace.runtime / "service.json").read_text())
+    except (OSError, ValueError) as error:
+        pytest.fail(
+            str(
+                coordinator_diagnostics(
+                    workspace,
+                    operation,
+                    {"runtime_read_error": type(error).__name__, "expected_identity": expected},
+                    expected=expected,
+                )
+            )
+        )
     identity = {key: record.get(key) for key in ("instance_id", "pid", "url")}
     assert isinstance(identity["pid"], int) and identity["pid"] > 0, identity
     assert identity["instance_id"] and identity["url"] == url, identity
@@ -49,16 +162,31 @@ def live_identity(workspace, expected=None):
         health = client.request("GET", "/health")["result"]
     except AppError as error:
         pytest.fail(
-            str(coordinator_diagnostics(workspace, "authenticated identity", error.as_dict()))
+            str(
+                coordinator_diagnostics(
+                    workspace,
+                    operation,
+                    {
+                        "health_error": error.as_dict(),
+                        "expected_identity": expected,
+                    },
+                    expected=expected,
+                )
+            )
         )
     assert (health["instance_id"], health["pid"]) == (identity["instance_id"], identity["pid"]), (
         coordinator_diagnostics(
-            workspace, "runtime identity must match authenticated health", identity
+            workspace, operation + ": runtime must match authenticated health", identity
         )
     )
     if expected is not None:
         assert identity == expected, coordinator_diagnostics(
-            workspace, "coordinator must survive without replacement", identity
+            workspace,
+            operation + ": coordinator must survive without replacement",
+            {
+                "observed_identity": identity,
+                "expected_identity": expected,
+            },
         )
     return identity
 
@@ -285,6 +413,26 @@ def test_forced_coordinator_exit_preserves_durable_review_and_accepted_job(
     path = audio_factory(artist="Original performer", title="Original tone")
     workspace.initialize([path.parent])
     assert cli(workspace, "service", "start")["ok"]
+    original = live_identity(workspace, operation="after initial external CLI startup")
+    context = {"original_identity": original}
+
+    def checked_client_call(operation, function, *args):
+        # These calls use allow_start=False. Preserve the failure, but attach
+        # enough bounded state to distinguish unavailable health from replacement.
+        try:
+            return function(*args)
+        except AppError as error:
+            pytest.fail(
+                str(
+                    coordinator_diagnostics(
+                        workspace,
+                        operation,
+                        {**context, "error": error.as_dict()},
+                        expected=context.get("recovered_identity", original),
+                    )
+                )
+            )
+
     request = tmp_path / "recovery-collection.json"
     request.write_text(
         json.dumps(
@@ -296,31 +444,49 @@ def test_forced_coordinator_exit_preserves_durable_review_and_accepted_job(
             }
         )
     )
+    live_identity(workspace, original, operation="before collection plan CLI")
     plan = cli(workspace, "plan", "--file", request)["result"]
+    live_identity(workspace, original, operation="after plan, before job submission CLI")
     started = cli(workspace, "start", plan["plan_id"], "--revision", 1, "--key", "forced-exit")[
         "result"
     ]
+    context["job_id"] = started["job_id"]
+    live_identity(workspace, original, operation="after submission, before initial job wait")
     client = LocalClient(workspace, allow_start=False)
-    attention = client.wait(started["job_id"], 30)["result"]
+    attention = checked_client_call(
+        "wait for initial review checkpoint", client.wait, started["job_id"], 30
+    )["result"]
     assert attention["state"] == "needs_attention", attention
+    live_identity(workspace, original, operation="after review checkpoint, before reviews CLI")
     review = cli(workspace, "reviews", "list", "--job-id", started["job_id"])["result"]["reviews"][
         0
     ]
-    original = live_identity(workspace)
+    context["review_id"] = review["review_id"]
+    live_identity(workspace, original, operation="after original reviews CLI")
     # The PID belongs to the authenticated, isolated fixture coordinator. Never
     # signal a stale runtime record or the test runner itself.
     assert original["pid"] != os.getpid()
-    live_identity(workspace, original)
+    live_identity(workspace, original, operation="immediately before intentional termination")
     os.kill(original["pid"], signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL)
     wait_for_coordinator_exit(workspace)
-    assert client.discover() is None
+    assert checked_client_call("discover after intentional termination", client.discover) is None
     assert cli(workspace, "service", "start")["ok"]
-    recovered = live_identity(workspace)
+    recovered = live_identity(workspace, operation="after explicit recovery CLI startup")
+    context["recovered_identity"] = recovered
     assert recovered["instance_id"] != original["instance_id"]
-    persisted = client.request("GET", f"/jobs/{started['job_id']}")["result"]
+    persisted = checked_client_call(
+        "read persisted job after explicit restart",
+        client.request,
+        "GET",
+        f"/jobs/{started['job_id']}",
+    )["result"]
     assert persisted["state"] == "needs_attention" and persisted["counts"] == attention["counts"]
+    live_identity(
+        workspace, recovered, operation="after persisted job, before restored reviews CLI"
+    )
     restored = cli(workspace, "reviews", "list", "--job-id", started["job_id"])["result"]["reviews"]
     assert restored == [review]
+    live_identity(workspace, recovered, operation="after restored reviews, before resolve CLI")
     cli(
         workspace,
         "reviews",
@@ -331,12 +497,18 @@ def test_forced_coordinator_exit_preserves_durable_review_and_accepted_job(
         "--choice",
         "use_file_metadata",
     )
-    completed = client.wait(started["job_id"], 30)["result"]
+    live_identity(
+        workspace, recovered, operation="after resolve CLI, before final nonstarting wait"
+    )
+    completed = checked_client_call(
+        "wait for resolved job on recovered coordinator", client.wait, started["job_id"], 30
+    )["result"]
     assert completed["state"] == "completed" and completed["outcome"] == "complete", completed
     assert completed["counts"] == {"succeeded": 1}
+    live_identity(workspace, recovered, operation="after final wait, before collection CLI")
     tracks = cli(workspace, "collection", completed["result"]["collection_id"])["result"]["tracks"]
     assert len(tracks) == 1 and tracks[0]["artist"] == "Original performer"
-    live_identity(workspace, recovered)
+    live_identity(workspace, recovered, operation="after recovered collection CLI")
 
 
 async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatch, tmp_path):
