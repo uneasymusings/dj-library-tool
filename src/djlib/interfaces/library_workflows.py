@@ -71,8 +71,13 @@ def register_http(app, application, envelope):
 
     @app.post("/analysis/rekordbox")
     async def analysis_import(body: AnalysisImport):
-        from djlib.application.native_analysis import import_rekordbox_analysis
+        from djlib.application.native_analysis import (
+            import_rekordbox_analysis,
+            sync_rekordbox_analysis,
+        )
 
+        if body.path is None:
+            return envelope(await asyncio.to_thread(sync_rekordbox_analysis, application))
         return envelope(await asyncio.to_thread(import_rekordbox_analysis, application, body.path))
 
     @app.get("/recordings/{recording_id}/metadata")
@@ -150,12 +155,13 @@ def register_mcp(server, request, read, write, intent):
         return await request("POST", f"/requests/{request_id}/collection", body)
 
     @server.tool(structured_output=True, annotations=write)
-    async def djlib_import_rekordbox_analysis(path: str) -> ResponseEnvelope:
-        """Read BPM/key from a rekordbox Collection XML export into catalog annotations.
+    async def djlib_import_rekordbox_analysis(path: str | None = None) -> ResponseEnvelope:
+        """Bring rekordbox's analysis into catalog annotations.
 
-        Tracks match by exact file location (originals or prepared working copies), values keep
-        source rekordbox_analysis and verified false, and operator-chosen values are kept.
-        The XML must be inside an allowed folder or the workspace.
+        Without a path, read rekordbox's own analysis files in the background (BPM and cue
+        counts, matched by unique file name; no key). With the path of a Collection XML export
+        inside an allowed folder, read BPM and key matched by exact file location. Values keep
+        source rekordbox_analysis and verified false; operator-chosen values are kept.
         """
         return await request("POST", "/analysis/rekordbox", {"path": path})
 
