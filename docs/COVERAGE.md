@@ -1,6 +1,6 @@
 # User workflow and public-release coverage
 
-Updated 2026-10-05 UTC for **a6**. Current local source validation passed 518 tests with five Windows-only skips in 60.81 seconds; Ruff passed 96 files and 71 focused delivery tests passed after the fidelity-wording correction. The [startup-fix branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273853767) passed all six jobs at `0e7e586`; a local a6 wheel passed actual 40-tool stdio MCP, three original tones, request/organization and bundled-skill checks. The final resource build repeated the installed-wheel check successfully; a6 tag and public-artifact checks remain pending. a4/a5 tags are immutable unpublished candidates; their historical results do not prove this version or completion of [PLAN.md](../PLAN.md). See [status](STATUS.md).
+Updated 2026-10-05 UTC for public **a6**. The six-job release matrix, anonymous public-wheel installation and installed a3-to-a6 demo-copy compatibility check passed. Actual MCP checks exposed all 40 tool schemas and exercised three original tones, requests, organization and bundled skills. One earlier Windows PR discovery failure remains unexplained despite later passing matrices. a4/a5 tags remain immutable unpublished candidates; these release checks do not complete [PLAN.md](../PLAN.md). See [status](STATUS.md) and the audit below.
 
 Version a6 retains the 40-tool catalog/delivery API and external Windows coordinator startup. It adds bounded startup readiness with distinct busy/failed/timeout recovery. The a4/a5 local, installed-wheel, upgrade and unsuccessful UI trials below remain historical only. No native automation, musical inference, historical identity repair or independently verified player-ready export is added.
 
@@ -15,9 +15,9 @@ Version a6 retains the 40-tool catalog/delivery API and external Windows coordin
 | R05 — Soulseek | Not implemented. | Still unresolved: no slskd search, peer browsing, transfer or recovery integration. |
 | R06 — Organize for both DJ apps | Manifest/M3U8/experimental XML; basic rekordbox tone import/analysis evidence. | a3 adds app-first plans without a player model, byte-bound annotations, ordered collections and native XML comparison. a6 makes organization and native working-file checks durable jobs and adds explicit catalog reconciliation; old annotations/memberships do not silently move to changed bytes. Native actions remain operator-assisted; snapshot matches do not prove analysis/loading. No inferred BPM/key/genre/energy or native cue editing. |
 | R07 — Prepare USB use | Read-only mount/capacity preflight; generic handoff artifacts. | a3 adds player-specific rekordbox and separate Serato-portable working-copy/evidence workflows. a6 permits unvalidated full local preparation without a physical pilot and adds bounded Windows partition metadata. Readiness still requires native export/copy, device checks and physical playback; pilot/full native cues are not reused automatically. |
-| R08 — Conversational use through an existing host | JSON CLI, 16 MCP tools, complete skill and separate Codex/Claude sessions, with actual host trials. | a3 has 34 tools; a6 retains 40 plus external Windows pre-start and bounded startup recovery. Final a6 validation is pending. Historical host/installed-wheel trials do not prove current Windows host behavior or general model reliability. |
+| R08 — Conversational use through an existing host | JSON CLI, 16 MCP tools, complete skill and separate Codex/Claude sessions, with actual host trials. | a3 has 34 tools; a6 retains 40 plus external Windows pre-start and bounded startup recovery. Actual 40-tool MCP/public-wheel and Windows lifecycle tests passed. Signed-in host trials remain historical; neither runner tests nor package installation establish general model reliability. |
 | R09 — Standalone conversational CLI | Not implemented; requires an existing assistant host. | Still unresolved: no independent model adapter/chat loop. |
-| R10 — Public, reusable GitHub toolkit | Installable wheel, source archive, standalone skill, checksums, MIT license, docs, CI and original-tone demo. | Public a3 passed artifact/install checks and six-job CI. a4/a5 remain unpublished after failed candidate checks. a6 local source, installed-wheel and startup-fix branch checks passed; the final resource rebuild, tag matrix and public checks are pending. Historical audits do not complete native/hardware or broader goals. |
+| R10 — Public, reusable GitHub toolkit | Installable wheel, source archive, standalone skill, checksums, MIT license, docs, CI and original-tone demo. | Public a3 passed artifact/install checks and six-job CI. a4/a5 remain unpublished after failed candidate checks. a6 is published; its six-job release matrix, anonymous artifact/installation audit and installed demo-copy compatibility checks passed. Historical audits do not complete native/hardware or broader goals. |
 | R11 — Public project website | Repository, release page and documentation are public. | The planned dedicated early-web project home is not implemented. |
 | R12 — Optional local browser operation | Not implemented. | Still subject to the product decision in PLAN.md; no local browser UI parity or browser security validation claim. |
 
@@ -37,7 +37,32 @@ Organization reads hash-matching embedded tags and stores explicit notes, catego
 
 App-only readiness never sets USB departure readiness. Hardware uncertainty blocks dependent standalone export, not library import and analysis. See [DJ delivery](DJ_DELIVERY.md) for the separate workflows and the distinction between operator reports and machine checks.
 
-## Independent public a3 distribution audit
+## Independent public a6 distribution audit
+
+The public wheel URL was installed with `[download]` into a new persistent uv tool environment outside the checkout. Downloads were anonymous; existing installations, configuration and music were preserved.
+
+| Check | Observed result |
+| --- | --- |
+| Public release | [v0.1.0a6](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6), published **2026-10-05 at 07:14:53 UTC**; prerelease, not draft. |
+| Source and CI | Tag [`282f92f9d75b36e7813ad3a9d93d215efbe7eacd`](https://github.com/uneasymusings/dj-library-tool/commit/282f92f9d75b36e7813ad3a9d93d215efbe7eacd) passed the [six-job release matrix and artifact packaging](https://github.com/uneasymusings/dj-library-tool/actions/runs/37275004527). Both Windows jobs: 521 passed, two skips. |
+| Artifact integrity | Exactly four assets: wheel, source archive, complete skill ZIP and SHA256SUMS. All three package hashes matched; wheel and ZIP skill resources matched byte for byte. |
+| Installed provenance | Version `0.1.0a6`; module resolved in isolated tool-environment site-packages, with installed bytes matching the public wheel. No developer checkout or editable installation. |
+| Actual MCP and workflows | The checksummed public source archive's smoke script passed three original tones, all 40 stdio MCP schemas, request/organization calls and bundled skill setup. |
+| Persistent demo/session | A separate three-tone demo completed generic export and created an assistant session. Doctor found FFmpeg/ffprobe, yt-dlp and supported Node; the coordinator stopped with `url: null`. |
+| Installed a3-to-a6 compatibility | A separate demo-library copy preserved three recordings/revisions/memberships, one collection, one nonempty annotation, all existing catalog tables and file locations, configuration/roots and media/export bytes. All 12 original files and seven copied immutable files were unchanged. Coordinators stopped; the original workspace remained untouched. Both versions used the same schema head, so this was binary compatibility, not a new migration. |
+| Evidence boundary | No new signed-in AI-host, live acquisition, native app import/analysis, physical USB export or player trial occurred. A small demo-copy upgrade does not validate every real-library history. |
+
+Verified public package SHA-256 values:
+
+| Public artifact | SHA-256 |
+| --- | --- |
+| `dj_library_tool-0.1.0a6-py3-none-any.whl` | `767367d37491fef8eb77826c02ed42e8c71b1cd8d04f41a0b9c0331cca839f28` |
+| `dj_library_tool-0.1.0a6.tar.gz` | `0ebe3f8b6b2601da06822b46c01123ee10e1d447625c4fb834b4b225043a25f7` |
+| `dj-library-skill-0.1.0a6.zip` | `522771a7507f6fda0c655517e02bdfc05ac7cadaa8360a00838bff0873be9a5b` |
+
+Later test-only diagnostics passed all six [push](https://github.com/uneasymusings/dj-library-tool/actions/runs/37275766324) and [PR](https://github.com/uneasymusings/dj-library-tool/actions/runs/37275770541) jobs, with production code and packaged skill resources identical to the release tag. An earlier Windows PR discovery failure remains unexplained; [validation](VALIDATION.md#a6-public-release-validation) records it without claiming a causal fix.
+
+## Historical independent public a3 distribution audit
 
 The ordinary published wheel URL was installed with its `[download]` extra into a new persistent uv tool environment outside the checkout. Downloads were anonymous, and existing installations, configuration and music were preserved.
 
@@ -84,10 +109,10 @@ This proves a public macOS/Python 3.13 installation and local core/MCP smoke pat
 
 - CI pins the checkout/setup-uv actions and uv version, installs locked dependencies, runs tests/lint/formatting, builds packages, checks an installed wheel, and builds the standalone skill/checksums across Python 3.12/3.13 on Linux/macOS/Windows. That matrix does not itself exercise native DJ software or hardware.
 - The skill ZIP uses fixed timestamps and an explicit file allowlist; its reproducibility is tested. The checksum builder selects the current version's wheel/source/skill rather than every old file in `dist/`. Whole-wheel/source bit-for-bit reproducibility is not established by that skill test.
-- The public a2 baseline has a quality workflow, without automated GitHub release creation. a3 adds a tag-triggered workflow that first runs the quality matrix, checks tag/package version agreement, checks the newly built wheel, and creates a **draft** prerelease with exactly the current four artifacts. Publishing the draft and verifying public URLs are separate steps; both completed for a3. Actual run results are recorded in [status](STATUS.md).
+- The public a2 baseline has a quality workflow, without automated GitHub release creation. a3 adds a tag-triggered workflow that first runs the quality matrix, checks tag/package version agreement, checks the newly built wheel, and creates a **draft** prerelease with exactly the current four artifacts. Publishing the draft and verifying public URLs are separate steps; both completed for a3 and a6. Actual run results are recorded in [status](STATUS.md).
 - Public wheel dependency ranges can resolve newer packages than `uv.lock`; normal installation is documented accordingly. Maintain both locked development tests and fresh public-wheel installation checks.
-- The installed-wheel smoke checks tool names against a shared manifest, exercises request/annotation/organization tools and prepares an app-only rekordbox pilot through MCP. It uses original tones and synthetic app-version evidence only; it cannot establish native app import or analysis. It passed against the release build and freshly published a3 artifacts.
-- The install guide, README and packaged skill target matching a6 artifact URLs. Publication and anonymous download/install verification remain pending. The preserved a4/a5 tags are unpublished; a3 URLs/checksums retain their independent audit evidence.
+- The installed-wheel smoke checks tool names against a shared manifest, exercises request/annotation/organization tools and prepares an app-only rekordbox pilot through MCP. It uses original tones and synthetic app-version evidence only; it cannot establish native app import or analysis. It passed against the release builds and freshly published a3/a6 artifacts.
+- The install guide, README and packaged skill target matching published a6 artifact URLs. Anonymous download/install verification passed. The preserved a4/a5 tags are unpublished; a3 URLs/checksums retain their independent audit evidence.
 
 ## Native app trial and remaining acceptance gate
 
