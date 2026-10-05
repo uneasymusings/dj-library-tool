@@ -17,6 +17,8 @@ from djlib import __version__
 from djlib.domain.errors import AppError
 from djlib.workspace import Workspace
 
+HEALTH_TIMEOUT = 5
+
 
 class LocalClient:
     def __init__(self, workspace: Workspace, *, allow_start: bool = True):
@@ -107,7 +109,10 @@ class LocalClient:
             ):
                 self._forget_coordinator()
                 return None
-            with httpx.Client(trust_env=False, timeout=1) as client:
+            # A stopped coordinator refuses the connection immediately. A live one can
+            # answer slowly while its worker decodes audio on a loaded machine, so a short
+            # read timeout would misreport it as absent (seen on Windows CI runners).
+            with httpx.Client(trust_env=False, timeout=HEALTH_TIMEOUT) as client:
                 reply = client.get(f"{url}/health", headers=self.headers()).json()
             result = reply.get("result", {}) if isinstance(reply, dict) else {}
             if (
