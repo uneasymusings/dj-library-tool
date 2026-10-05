@@ -303,3 +303,31 @@ def test_requests_collect_uses_the_current_revision(application, library_http, a
     collection_id = finish(library_http, job["job_id"])["result"]["collection_id"]
     crate = assert_envelope(library_http.get(f"/collections/{collection_id}").json())
     assert crate["name"] == "Tonight crate" and crate["track_count"] == 1
+
+
+def test_cli_keeps_checking_until_the_budget_is_no_longer_the_limit(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from djlib.application import requests as request_module
+
+    sources = [audio_factory(f"budget-{n}.wav", frequency=200 + 50 * n) for n in range(3)]
+    build(library_http, sources, [("Velvet Static", f"Tune {n}") for n in range(3)])
+    # Each refresh may hash about one file, so the CLI needs several bounded rounds.
+    monkeypatch.setattr(request_module, "MAX_VERIFY_BYTES", sources[0].stat().st_size + 1)
+    wanted = tmp_path / "wanted.txt"
+    wanted.write_text("\n".join(f"Velvet Static - Tune {n}" for n in range(3)), encoding="utf-8")
+    reply = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "requests",
+            "create",
+            "--text",
+            str(wanted),
+        ],
+    )
+    assert reply.exit_code == 0, reply.output
+    ledger = json.loads(reply.stdout)["result"]
+    assert ledger["counts"]["satisfied"] == 3
+    assert ledger["revision"] > 2

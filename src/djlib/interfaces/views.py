@@ -254,9 +254,12 @@ def page_hint(term: Terminal, result: dict, noun: str, shown: int) -> None:
         parts = command_parts()
         if options.get("query"):
             parts += ["--query", str(options["query"])]
-        if options.get("limit") not in (None, 20):
-            parts += ["--limit", str(options["limit"])]
-        parts += ["--after", str(cursor)]
+        if isinstance(total, int) and total <= 100 and not options.get("after"):
+            parts += ["--limit", str(total)]  # one short command instead of a long cursor
+        else:
+            if options.get("limit") not in (None, 20):
+                parts += ["--limit", str(options["limit"])]
+            parts += ["--after", str(cursor)]
         line.append(f"  {term.glyph('dot')}  more: ", style="muted")
         line.append(term.command(*parts), style="cmd")
     term.out.print()
@@ -1405,6 +1408,10 @@ def request_view(term: Terminal, result: dict) -> None:
         glyph, tone, label = REQUEST_STATES.get(
             item.get("state") or "", ("todo", "muted", item.get("state") or "")
         )
+        if item.get("state") == "unavailable" and any(
+            c.get("availability") == "verification_limit" for c in item.get("candidates") or []
+        ):
+            glyph, tone, label = "todo", "muted", "not checked"
         if source.get("kind") == "unknown":
             requested = Text(source.get("label") or "Unknown", style="muted")
             if source.get("timestamp"):

@@ -10,6 +10,46 @@ from djlib.domain.organization_contracts import AnnotationRequest, OrganizationR
 from djlib.domain.request_contracts import RequestCreate, RequestResolution
 
 
+def unchecked(items: list[dict]) -> list[str]:
+    return [
+        item["item_id"]
+        for item in items
+        if any(c.get("availability") == "verification_limit" for c in item.get("candidates") or [])
+    ]
+
+
+def finish_checks(local, reply: dict) -> dict:
+    """Keep hash-checking matches that hit the per-call budget, in bounded batches.
+
+    Each refresh reads at most 1 GiB for 30 seconds; a large FLAC library needs several.
+    Stops when everything is checked or a batch makes no progress (e.g. one huge file).
+    """
+    from djlib.interfaces import terminal
+
+    term, previous = terminal.current(), None
+    while True:
+        result = reply["result"]
+        items, offset = list(result.get("items") or []), result.get("next_offset")
+        while offset is not None:
+            page = local.request(
+                "GET", f"/requests/{result['request_id']}", params={"after": offset, "limit": 100}
+            )["result"]
+            items += page.get("items") or []
+            offset = page.get("next_offset")
+        pending = unchecked(items)
+        if not pending or (previous is not None and len(pending) >= previous):
+            return reply
+        previous = len(pending)
+        body = {"revision": result["revision"], "item_ids": pending[:1000]}
+        if term.json:
+            reply = local.request("POST", f"/requests/{result['request_id']}/refresh", data=body)
+            continue
+        with term.err.status(
+            f"[bold]Checking files[/]  {len(pending)} matches left", spinner_style="accent"
+        ):
+            reply = local.request("POST", f"/requests/{result['request_id']}/refresh", data=body)
+
+
 def register_commands(app, client, emit, handled, panel=None):
     requests = typer.Typer(
         help="Track wanted songs: what you own, what is missing, what is unknown.",
@@ -76,7 +116,10 @@ def register_commands(app, client, emit, handled, panel=None):
             title = name or (headings[0][:300] if headings else text.stem)
             digest = hashlib.sha256(f"{title}\n{source}\n{content}".encode()).hexdigest()[:16]
             body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
-        reply = client(ctx).request("POST", "/requests", data=body.model_dump(mode="json"))
+        local = client(ctx)
+        reply = finish_checks(
+            local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
+        )
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
 
@@ -127,7 +170,12 @@ def register_commands(app, client, emit, handled, panel=None):
         body = {"revision": revision}
         if item_id is not None:
             body["item_ids"] = item_id
-        emit(client(ctx).request("POST", f"/requests/{request_id}/refresh", data=body))
+        local = client(ctx)
+        emit(
+            finish_checks(
+                local, local.request("POST", f"/requests/{request_id}/refresh", data=body)
+            )
+        )
 
     @requests.command("resolve")
     @handled
