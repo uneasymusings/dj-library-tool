@@ -116,6 +116,14 @@ class Application:
             "stage": "experimental alpha; consult docs/STATUS.md for app/provider test evidence",
         }
 
+    def busy(self) -> bool:
+        """Whether any job is queued or running; idle shutdown waits for these."""
+        with self.db.transaction() as session:
+            return (
+                session.scalar(select(Job.id).where(Job.state.in_(("queued", "running"))).limit(1))
+                is not None
+            )
+
     def profile(self, name: str) -> Profile:
         profile = self.workspace.config().profiles.get(name)
         if profile is None:

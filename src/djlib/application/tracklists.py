@@ -27,6 +27,18 @@ UNKNOWN = re.compile(r"^(?:id|\?+|unknown|unreleased id|tba)$", re.IGNORECASE)
 
 
 HEADING = "looks like a heading"
+LEADING_NUMBER = re.compile(r"^\s*\d{1,3}(?:\s*[-.)_]\s*|\s+)(?=\S)")
+
+
+def file_name_labels(stem: str) -> tuple[str, str]:
+    """("Artist", "Title") from a file name like "03 - Artist - Title (Mix)", else ("", "")."""
+    stem = LEADING_NUMBER.sub("", stem.replace("_", " ").strip(), count=1)
+    parts = SEPARATOR.split(stem, maxsplit=1)
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        return "", ""
+    if any(ord(c) < 32 for c in stem):
+        return "", ""
+    return parts[0].strip()[:500], parts[1].strip()[:1000]
 
 
 def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[RequestItem], list]:

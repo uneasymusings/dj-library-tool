@@ -177,3 +177,39 @@ def test_usb_preflight_next_step_follows_the_check(tmp_path):
         full = device_preflight(str(anchor), required_bytes=10**18)
         assert full["has_requested_space"] is False
         assert "Free space" in full["next_step"]
+
+
+async def test_untagged_files_take_labels_from_their_names(application, audio_factory, tmp_path):
+    music = tmp_path / "music"
+    unnamed = audio_factory("track07.wav", frequency=812)
+    first = await scan(application, music, key="first")
+    assert first["outcome"] == "complete"
+    row = next(
+        t
+        for t in application.library(limit=100)["tracks"]
+        if t["sha256"] and "track07" in t["title"]
+    )
+    assert row["artist"] == "Unknown artist"
+
+    # Renaming the same bytes to "Artist - Title" relabels the provisional recording on rescan.
+    named = unnamed.rename(music / "03 - Velvet Static - Night Bus (Dub).wav")
+    second = await scan(application, music, key="second")
+    assert second["outcome"] == "complete"
+    rows = [t for t in application.library(limit=100)["tracks"] if t["sha256"] == row["sha256"]]
+    assert [(t["artist"], t["title"]) for t in rows] == [("Velvet Static", "Night Bus (Dub)")]
+    assert rows[0]["recording_id"] == row["recording_id"]  # same byte identity
+    assert rows[0]["identity_evidence"]["method"] == "provisional_bytes"
+    assert rows[0]["identity_evidence"]["labels_source"] == "file_name"
+
+    ledger = requests.create_request(
+        application,
+        RequestCreate(
+            name="Dub",
+            idempotency_key="dub",
+            items=[RequestItem(artist="Velvet Static", title="Night Bus", version="Dub")],
+        ),
+    )
+    item = ledger["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["identity_match"] == "file_name_labels"
+    assert item["accepted"]["path"] == str(named)

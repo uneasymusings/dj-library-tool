@@ -1,5 +1,9 @@
 # Implementation status
 
+## 0.1.0a8
+
+Moves work off the user's screen: rekordbox analysis is read from its analysis files in the background (BPM/cues; key still via a brief XML export), `rekordbox push` imports once per crate and can wait for idle time, scans decode each file once and skip known bytes, untagged files take labels from their names, and implicitly started coordinators exit when idle. Measured on the same 708-track real library: first scan 661 s → 189 s, rescan 15 s; analysis-file BPM matched rekordbox's XML for 959 of 959 comparable tracks; a request list became a rekordbox playlist in 9.5 s (8.8 s with rekordbox in front). Local validation: 622 tests passed with five Windows-only skips.
+
 ## 0.1.0a7
 
 Adds the tracklist → owned/missing → crate workflow (`requests create --text`, `requests collect`), rekordbox BPM/key import from a Collection XML export, flag-based `delivery plan`, the terminal experience (readable views, live progress, guided `delivery observe`), the local review page (`djlib ui`) and catalog fixes from a hands-on audit. MCP grows to 42 tools. Local validation: 606 tests passed with five Windows-only skips; the installed-wheel smoke check exposed all 42 tools. Release-matrix and public-installation evidence are recorded on the GitHub release. Real-music check on 2026-10-05: 708 owned tracks (mostly 24-bit FLAC) indexed in 11 minutes with no failures; 280 tracks received BPM/key from an existing rekordbox 7.2.19 export; `rekordbox push` created two playlists in the user's rekordbox 7.2.19 (28/28 and 55/55 tracks, 55/55 analyzed), verified from rekordbox's own XML export. Serato, USB export and hardware playback remain unverified; see the a6 limits below, which still apply.
