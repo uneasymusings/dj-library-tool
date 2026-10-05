@@ -146,8 +146,18 @@ async def check_library_workflows(client, collection_id: str) -> None:
         "djlib_collection", {"collection_id": organized["result"]["collection_id"]}
     )
     assert [track["recording_id"] for track in filtered["tracks"]] == [first["recording_id"]]
-    assert (await call("djlib_collection", {"collection_id": collection_id})) == original
+    # Annotations change only the live `dj` readout, never membership or file evidence.
+    current = await call("djlib_collection", {"collection_id": collection_id})
+    assert without_dj(current) == without_dj(original)
+    assert current["tracks"][0]["dj"]["energy"] == annotation["result"]["annotations"]["energy"]
     assert {path: checksum(Path(path)) for path in hashes} == hashes
+
+
+def without_dj(collection: dict) -> dict:
+    return {
+        **collection,
+        "tracks": [{k: v for k, v in t.items() if k != "dj"} for t in collection["tracks"]],
+    }
 
 
 async def check() -> None:
