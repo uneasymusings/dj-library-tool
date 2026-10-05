@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from djlib.application.service import Application, add_event, new_id, require
+from djlib.audio.catalog_inspection import inspect_catalog_audio
 from djlib.audio.inspection import SUPPORTED_EXTENSIONS, Inspection, checksum, inspect_audio, labels
 from djlib.audio.preparation import tag_download_copy
 from djlib.domain.contracts import Profile, TrackInput, normalize, recording_key, version_markers
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 class Worker:
     """One scheduling authority; slow audio/filesystem work runs outside transactions."""
 
-    HANDOFF_KINDS = frozenset({"collection", "delivery", "export"})
+    HANDOFF_KINDS = frozenset({"collection", "delivery", "delivery_check", "export", "organize"})
     HANDOFF_BURST = 3
     LOCAL_ITEM_QUANTUM = 8
 
@@ -160,6 +161,18 @@ class Worker:
                 from djlib.application.delivery import prepare_item
 
                 await prepare_item(self.app, job_id, generation, item_id)
+            elif kind == "reconcile":
+                from djlib.application.reconciliation import reconcile_item
+
+                await reconcile_item(self.app, job_id, generation, item_id)
+            elif kind == "organize":
+                from djlib.application.organization_jobs import prepare_organization_item
+
+                await prepare_organization_item(self.app, job_id, generation, item_id)
+            elif kind == "delivery_check":
+                from djlib.application.delivery_checks import prepare_delivery_check_item
+
+                await prepare_delivery_check_item(self.app, job_id, generation, item_id)
             else:
                 await self.ingest(job_id, generation, item_id)
             if processed % quantum == 0:
@@ -181,7 +194,7 @@ class Worker:
                     job.state, job.outcome = "queued", None
                     add_event(session, job, "requeued", {"counts": dict(counts)})
                     return
-                if kind != "delivery":
+                if kind not in {"delivery", "delivery_check", "organize"}:
                     job.state = "needs_attention" if counts["needs_input"] else "completed"
                     job.outcome = (
                         None
@@ -197,6 +210,14 @@ class Worker:
                 from djlib.application.delivery import finish_preparation
 
                 await finish_preparation(self.app, job_id, generation)
+            elif kind == "organize":
+                from djlib.application.organization_jobs import finish_organization
+
+                finish_organization(self.app, job_id, generation)
+            elif kind == "delivery_check":
+                from djlib.application.delivery_checks import finish_delivery_check
+
+                finish_delivery_check(self.app, job_id, generation)
 
     def discover(self, value: str) -> list[dict]:
         root = self.app.workspace.authorize(value, directory=True)
@@ -267,7 +288,9 @@ class Worker:
                     require(session, JobItem, item_id).request = item_request
             track = TrackInput.model_validate(item_request["track"])
             source = self.app.workspace.authorize(track.path)
-            inspection = await asyncio.to_thread(inspect_audio, source)
+            inspection, payload_identity, _ = await asyncio.to_thread(
+                inspect_catalog_audio, source, inspect_audio
+            )
             if not self.active(job_id, generation):
                 return
             if job.kind == "scan":
@@ -358,6 +381,7 @@ class Worker:
                 managed,
                 collection_id,
                 decision,
+                payload_identity,
             )
         except AppError as exc:
             if self.active(job_id, generation):
@@ -418,13 +442,30 @@ class Worker:
         managed: bool,
         collection_id: str | None,
         decision: str | None,
+        payload_identity: dict | None = None,
     ) -> None:
         with self.app.db.transaction() as session:
             job = require(session, Job, job_id)
             if job.generation != generation or job.state != "running":
                 return
-            key = recording_key(track.artist, track.title, track.version)
-            recording = session.scalar(select(Recording).where(Recording.identity_key == key))
+            provisional = job.kind == "scan" and not (
+                inspection.artist.strip() and inspection.title.strip()
+            )
+            key = (
+                f"provisional:sha256:{inspection.sha256}"
+                if provisional
+                else recording_key(track.artist, track.title, track.version)
+            )
+            revision = session.scalar(
+                select(AssetRevision).where(AssetRevision.sha256 == inspection.sha256)
+            )
+            # A rescan preserves earlier explicit identities, including historical
+            # provisional or incorrectly merged labels. It never rewrites them.
+            recording = (
+                require(session, Recording, require(session, Asset, revision.asset_id).recording_id)
+                if revision is not None and job.kind == "scan"
+                else session.scalar(select(Recording).where(Recording.identity_key == key))
+            )
             if not recording:
                 recording = Recording(
                     id=new_id("rec"),
@@ -433,7 +474,9 @@ class Worker:
                     title=track.title,
                     version=track.version,
                     evidence={
-                        "method": "user_override"
+                        "method": "provisional_bytes"
+                        if provisional
+                        else "user_override"
                         if decision
                         else (
                             "supplied_labels"
@@ -441,13 +484,11 @@ class Worker:
                             else ("embedded_tags" if inspection.title else "supplied_labels")
                         ),
                         "acoustic_identity_verified": False,
+                        "labels_are_identity": not provisional,
                     },
                 )
                 session.add(recording)
                 session.flush()
-            revision = session.scalar(
-                select(AssetRevision).where(AssetRevision.sha256 == inspection.sha256)
-            )
             reused = revision is not None
             if revision:
                 asset = require(session, Asset, revision.asset_id)
@@ -469,7 +510,12 @@ class Worker:
                     id=new_id("rev"),
                     asset_id=asset.id,
                     sha256=inspection.sha256,
-                    properties={**inspection.as_dict(), "provenance": asset.provenance},
+                    properties={
+                        **inspection.as_dict(),
+                        "provenance": asset.provenance,
+                        "audio_payload": payload_identity,
+                        "indexed_path": str(location),
+                    },
                 )
                 session.add(revision)
                 session.flush()

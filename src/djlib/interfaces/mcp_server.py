@@ -1,10 +1,13 @@
 """MCP is a thin client of the persistent coordinator, never a second worker."""
 
 import asyncio
+import json
 from typing import Literal
 
 from mcp.server import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import ValidationError
 
 from djlib import __version__
 from djlib.domain.contracts import (
@@ -15,13 +18,37 @@ from djlib.domain.contracts import (
     ResponseEnvelope,
 )
 from djlib.domain.errors import AppError
+from djlib.domain.reconciliation_contracts import ReconcileRequest
+from djlib.domain.workspace_contracts import RootsRequest
 from djlib.interfaces.client import LocalClient
 from djlib.interfaces.service import envelope
+from djlib.interfaces.validation import validation_message
 from djlib.workspace import Workspace
 
 
+class ValidatedMCPServer(MCPServer):
+    """Keep SDK argument errors in the same safe envelope as other transports."""
+
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except ToolError as exc:
+            if isinstance(exc, UnexpectedToolError) or not isinstance(
+                exc.__cause__, ValidationError
+            ):
+                raise
+            reply = envelope(
+                error=AppError("INPUT_INVALID", validation_message(exc.__cause__), 422).as_dict()
+            )
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(reply))],
+                structured_content=reply,
+                is_error=True,
+            )
+
+
 def build_server(workspace: Workspace) -> MCPServer:
-    server = MCPServer(
+    server = ValidatedMCPServer(
         "djlib",
         version=__version__,
         log_level="WARNING",
@@ -60,6 +87,21 @@ def build_server(workspace: Workspace) -> MCPServer:
         """Read implemented and planned capabilities for this workspace."""
         return await request("GET", "/capabilities")
 
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_roots() -> ResponseEnvelope:
+        """Read explicitly allowed music folders; no filesystem discovery."""
+        return await request("GET", "/roots")
+
+    @server.tool(structured_output=True, annotations=write)
+    async def djlib_add_roots(request_body: RootsRequest) -> ResponseEnvelope:
+        """Explicitly add existing allowed folders; preserve previous permissions and music."""
+        return await request("POST", "/roots", request_body.model_dump(mode="json"))
+
+    @server.tool(structured_output=True, annotations=write)
+    async def djlib_reconcile(request_body: ReconcileRequest) -> ResponseEnvelope:
+        """Queue explicit hash-pinned changed-file reconciliation; inspect durable item outcomes."""
+        return await request("POST", "/reconciliations", request_body.model_dump(mode="json"))
+
     @server.tool(structured_output=True, annotations=intent)
     async def djlib_plan_collection(request_body: CollectionRequest) -> ResponseEnvelope:
         """Persist a plan from supplied local paths/labels; no audio copy happens yet."""
@@ -97,9 +139,14 @@ def build_server(workspace: Workspace) -> MCPServer:
         return await request("GET", f"/jobs/{job_id}")
 
     @server.tool(structured_output=True, annotations=read)
-    async def djlib_jobs(limit: int = 20) -> ResponseEnvelope:
-        """List recent jobs; maximum limit is 100."""
-        return await request("GET", "/jobs", params={"limit": limit})
+    async def djlib_jobs(
+        limit: int = 20, query: str = "", after: str | None = None
+    ) -> ResponseEnvelope:
+        """Find and page saved jobs; pass next_cursor as after with the same query."""
+        params = {"limit": limit, "query": query}
+        if after is not None:
+            params["after"] = after
+        return await request("GET", "/jobs", params=params)
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_items(job_id: str, after: int = -1, limit: int = 20) -> ResponseEnvelope:
@@ -132,9 +179,44 @@ def build_server(workspace: Workspace) -> MCPServer:
         )
 
     @server.tool(structured_output=True, annotations=read)
-    async def djlib_library(query: str = "", limit: int = 20) -> ResponseEnvelope:
-        """Search owned catalog labels; maximum limit 100."""
-        return await request("GET", "/library", params={"query": query, "limit": limit})
+    async def djlib_library(
+        query: str = "", limit: int = 20, after: str | None = None
+    ) -> ResponseEnvelope:
+        """Page distinct recording/revision identities with grouped locations and a total."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        return await request("GET", "/library", params=params)
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_collections(
+        query: str = "", limit: int = 20, after: str | None = None
+    ) -> ResponseEnvelope:
+        """Find saved collections; native app/device membership is not tracked here."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        return await request("GET", "/collections", params=params)
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_requests(
+        query: str = "", limit: int = 20, after: str | None = None
+    ) -> ResponseEnvelope:
+        """Find durable song-request ledgers without remembered IDs."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        return await request("GET", "/requests", params=params)
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_deliveries(
+        query: str = "", limit: int = 20, after: str | None = None
+    ) -> ResponseEnvelope:
+        """Find saved deliveries and prior operator observations; never a fresh readiness check."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        return await request("GET", "/deliveries", params=params)
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_collection(
@@ -198,7 +280,7 @@ def build_server(workspace: Workspace) -> MCPServer:
     async def djlib_observe_delivery(
         delivery_id: str, observation: DeliveryObservation
     ) -> ResponseEnvelope:
-        """Record observed native stages; preparation and file copies are not native evidence."""
+        """Record native observations; passed analysis returns a durable verification job."""
         return await request(
             "POST", f"/deliveries/{delivery_id}/observations", observation.model_dump(mode="json")
         )
@@ -210,7 +292,7 @@ def build_server(workspace: Workspace) -> MCPServer:
 
     @server.tool(structured_output=True, annotations=intent)
     async def djlib_verify_delivery_app(delivery_id: str, revision: int) -> ResponseEnvelope:
-        """Verify app-import working files after observed native import/analysis; no USB needed."""
+        """Queue durable working-file verification after native import/analysis; no USB needed."""
         return await request(
             "POST", f"/deliveries/{delivery_id}/verify-app", {"revision": revision}
         )

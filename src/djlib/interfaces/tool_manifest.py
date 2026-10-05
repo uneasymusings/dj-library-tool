@@ -46,4 +46,14 @@ LIBRARY_WORKFLOW_TOOLS = frozenset(
         "djlib_organize",
     }
 )
-TOOL_NAMES = CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS
+DISCOVERY_TOOLS = frozenset(
+    {
+        "djlib_collections",
+        "djlib_requests",
+        "djlib_deliveries",
+        "djlib_roots",
+        "djlib_add_roots",
+        "djlib_reconcile",
+    }
+)
+TOOL_NAMES = CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS | DISCOVERY_TOOLS

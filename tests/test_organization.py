@@ -57,11 +57,22 @@ def annotate(app, ref, revision=0, idempotency_key="annotate", **fields):
     )
 
 
-def organize(app, refs, key="organize", **fields):
-    return org.organize_collection(
+async def organize(app, refs, key="organize", **fields):
+    return await organized_request(
         app,
         OrganizationRequest(name="Generated warm-up", tracks=refs, idempotency_key=key, **fields),
     )
+
+
+async def organized_request(app, request):
+    accepted = org.organize_collection(app, request)
+    completed = (
+        accepted if accepted["state"] == "completed" else await execute(app, accepted["job_id"])
+    )
+    if completed["state"] == "failed":
+        error = completed["result"]["error"]
+        raise AppError(error["code"], error["message"])
+    return completed
 
 
 async def test_tag_provenance_unknowns_and_durable_annotations_preserve_sources(
@@ -191,7 +202,7 @@ async def test_ordered_filtered_collections_keep_exact_versions_and_overlap(
     with application.db.transaction() as session:
         for model in (Recording, AssetRevision):
             before_counts.append(session.scalar(select(func.count()).select_from(model)))
-    first = organize(
+    first = await organize(
         application,
         refs + [refs[0]],
         filters={
@@ -214,7 +225,7 @@ async def test_ordered_filtered_collections_keep_exact_versions_and_overlap(
         refs[0]["asset_revision_id"],
     ]
     assert [t["version"] for t in tracks] == ["Extended", "Radio Edit"]
-    second = organize(application, refs, key="key-order", order_by="key")
+    second = await organize(application, refs, key="key-order", order_by="key")
     second_tracks = application.collection(second["result"]["collection_id"])["tracks"]
     keys = [
         org.inspect_metadata(application, t["recording_id"], t["asset_revision_id"])["effective"][
@@ -233,7 +244,7 @@ async def test_ordered_filtered_collections_keep_exact_versions_and_overlap(
 
 async def test_unknown_policy_and_missing_catalog_rows_are_reported(application, audio_factory):
     _, refs = await catalog(application, audio_factory, [{"bpm": "120"}, {}, {"bpm": "140"}])
-    included = organize(
+    included = await organize(
         application,
         refs,
         unknown="include",
@@ -249,13 +260,13 @@ async def test_unknown_policy_and_missing_catalog_rows_are_reported(application,
         for t in application.collection(included["result"]["collection_id"])["tracks"]
     ] == [r["recording_id"] for r in refs[:2]]
     with pytest.raises(AppError) as error:
-        organize(application, refs, key="error", unknown="error", filters={"bpm_max": 125})
+        await organize(application, refs, key="error", unknown="error", filters={"bpm_max": 125})
     assert error.value.code == "ORGANIZATION_UNKNOWN"
     missing = {"recording_id": "missing-recording", "asset_revision_id": "missing-bytes"}
-    result = organize(application, [missing], key="missing")["result"]
+    result = (await organize(application, [missing], key="missing"))["result"]
     assert result["selected_count"] == 0 and result["excluded_count"] == 1
     assert result["excluded"][0]["reasons"] == ["NOT_FOUND"]
-    unverified = organize(
+    unverified = await organize(
         application, refs[:1], key="unverified", filters={"bpm_min": 100, "require_verified": True}
     )
     assert unverified["result"]["exclusion_counts"] == {"bpm_unverified": 1}
@@ -268,7 +279,7 @@ async def test_collection_replay_freezes_decisions_and_rejects_revision_conflict
     request = OrganizationRequest(
         name="Frozen", tracks=refs, filters={"bpm_max": 115}, idempotency_key="frozen"
     )
-    first = org.organize_collection(application, request)
+    first = await organized_request(application, request)
     annotate(application, refs[1], bpm={"value": 110, "source": "operator", "verified": True})
     replay = org.organize_collection(application, request)
     assert replay["job_id"] == first["job_id"]
@@ -277,7 +288,7 @@ async def test_collection_replay_freezes_decisions_and_rejects_revision_conflict
         before = session.scalar(select(func.count()).select_from(Collection))
     wrong_revision = {**refs[0], "asset_revision_id": refs[1]["asset_revision_id"]}
     with pytest.raises(AppError) as conflict:
-        organize(application, [refs[0], wrong_revision], key="conflict")
+        await organize(application, [refs[0], wrong_revision], key="conflict")
     assert conflict.value.code == "ORGANIZATION_REVISION_CONFLICT"
     with application.db.transaction() as session:
         assert session.scalar(select(func.count()).select_from(Collection)) == before
@@ -377,7 +388,7 @@ async def test_changed_annotation_invalidates_collection_decisions(
     with application.db.transaction() as session:
         before = session.scalar(select(func.count()).select_from(Collection))
     with pytest.raises(AppError) as stale:
-        organize(application, refs, filters={"bpm_max": 120})
+        await organize(application, refs, filters={"bpm_max": 120})
     assert stale.value.code == "ANNOTATION_STALE"
     with application.db.transaction() as session:
         assert session.scalar(select(func.count()).select_from(Collection)) == before
@@ -388,7 +399,7 @@ async def test_completed_organization_jobs_cannot_be_requeued_or_cancelled(
 ):
     _, refs = await catalog(application, audio_factory, [{}])
     annotated = annotate(application, refs[0], notes="Durable note")
-    organized = organize(application, refs)
+    organized = await organize(application, refs)
     before_annotation = org.annotation_status(application, **refs[0])
     before_collection = application.collection(organized["result"]["collection_id"])
     for job in (annotated, organized):

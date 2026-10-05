@@ -14,6 +14,20 @@ def register_commands(app, client, emit, handled):
     app.add_typer(requests, name="requests")
     app.add_typer(organize, name="organize")
 
+    @requests.command("list")
+    @handled
+    def request_list(
+        ctx: typer.Context,
+        query: str = typer.Option(""),
+        limit: int = typer.Option(20, min=1, max=100),
+        after: str | None = typer.Option(None),
+    ):
+        """Find saved song requests without remembered IDs."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        emit(client(ctx).request("GET", "/requests", params=params))
+
     @requests.command("create")
     @handled
     def request_create(ctx: typer.Context, file: Path = typer.Option(...)):

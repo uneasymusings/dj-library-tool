@@ -278,9 +278,10 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
         )
         organized = await call("djlib_organize", {"request_body": organization_body(tracks)})
         repeated = await call("djlib_organize", {"request_body": organization_body(tracks)})
-        assert repeated == organized
+        assert repeated["job_id"] == organized["job_id"]
+        organized = finish(library_http, organized["job_id"])
         assert organized["result"]["source_modified"] is False
-        assert organized["result"]["app_state"] == "not_imported"
+        assert organized["result"]["app_state"] == "not_tracked_here"
         collection = assert_envelope(
             library_http.get(f"/collections/{organized['result']['collection_id']}").json()
         )
@@ -381,7 +382,8 @@ def test_library_cli_groups_emit_standard_json_and_preserve_patch_omissions(
         "organize", "collection", "--file", file("organization.json", organization_body(tracks))
     )
     repeated = cli("organize", "collection", "--file", tmp_path / "organization.json")
-    assert repeated == organized
+    assert repeated["job_id"] == organized["job_id"]
+    organized = finish(library_http, organized["job_id"])
     collection = assert_envelope(
         library_http.get(f"/collections/{organized['result']['collection_id']}").json()
     )

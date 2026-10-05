@@ -722,12 +722,17 @@ def observe_delivery(
             raise exc
     if observation.stage == "native_exported" and observation.outcome == "passed":
         try:
-            for t in evidence["analyzed"]["assets"]:
-                if checksum(app.workspace.authorize(t["path"])) != t["sha256"]:
-                    raise AppError(
-                        "ANALYSIS_CHANGED",
-                        "Working copies changed after analysis; record analysis again.",
-                    )
+            if reconciled is not None:
+                _validated_reconciliation(
+                    app, evidence["analyzed"]["assets"], reconciled, exact_hash=True
+                )
+            else:
+                for t in evidence["analyzed"]["assets"]:
+                    if checksum(app.workspace.authorize(t["path"])) != t["sha256"]:
+                        raise AppError(
+                            "ANALYSIS_CHANGED",
+                            "Working copies changed after analysis; record analysis again.",
+                        )
         except (AppError, OSError) as exc:
             exc = (
                 exc
