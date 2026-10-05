@@ -136,6 +136,8 @@ Velvet Static   Night Bus (Radio Edit)     3:43   MP3 320k   House/Velvet Static
 
 Submissions such as `scan`, `start`, `export` and `delivery prepare` follow their job with a live progress bar (Ctrl-C only stops watching) and end with copy-pasteable next steps. In a terminal `--key` is optional, `scan` defaults to your only music folder, and `delivery observe ID` asks what you saw in the app instead of requiring a JSON file. Search ignores case and accents and matches every word.
 
+`djlib ui` opens a local review page in your browser: search the library with BPM/key readouts, see which requested songs you own, pick between versions, build a crate from what you own, and follow each delivery's checklist. It is served by the same background service on `127.0.0.1` and opened with a private link; nothing leaves your computer.
+
 Output is the JSON envelope whenever it is piped or captured by an assistant, or with `--json` (`DJLIB_OUTPUT=json` also works); scripts must pass explicit `--key` values. Help and argument parsing follow Typer conventions. Accepted jobs belong to a detached local coordinator and are designed to continue when the CLI/MCP client exits. Commands never silently rewrite your original audio tags. [Quickstart](docs/QUICKSTART.md) covers request files, progress, conflict reviews, and exports.
 
 For an actual DJ destination, use the [native app delivery workflow](docs/DJ_DELIVERY.md). Start with a small app pilot; choose the separate target-specific USB route when device delivery is needed. An M3U or copied audio folder is prepared material; the native app must create its playlists, device library or portable crates.
