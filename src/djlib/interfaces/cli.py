@@ -51,7 +51,7 @@ ORDER = [
     *("init", "demo", "doctor", "ui", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
-    *("delivery", "import-rekordbox", "export", "usb-preflight"),
+    *("rekordbox", "delivery", "import-rekordbox", "export", "usb-preflight"),
     *("jobs", "service"),
     *("mcp", "schemas", "capabilities", "version"),
 ]
@@ -938,6 +938,10 @@ def mcp_serve(ctx: typer.Context) -> None:
 
 
 register_commands(app, client, emit, handled, panel=BUILD)
+
+from djlib.interfaces.rekordbox_cli import register_rekordbox  # noqa: E402
+
+register_rekordbox(app, client, emit, handled, panel=DELIVER)
 
 
 def main() -> None:

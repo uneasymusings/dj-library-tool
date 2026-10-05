@@ -1064,7 +1064,7 @@ def track_metadata(term: Terminal, result: dict) -> None:
     note(term, "Embedded tags are unverified; djlib does not analyze audio.")
 
 
-@view("import-rekordbox")
+@view("import-rekordbox", "rekordbox pull")
 def rekordbox_import(term: Terminal, result: dict) -> None:
     updated, matched = int(result.get("updated") or 0), int(result.get("matched") or 0)
     status_line(
@@ -1093,6 +1093,60 @@ def rekordbox_import(term: Terminal, result: dict) -> None:
     term.out.print()
     note(term, "Matched by exact file path. BPM/key come from rekordbox and stay unverified.")
     next_steps(term, [("See BPM and key in your library", ("library",))] if updated else [])
+
+
+@view("rekordbox push")
+def rekordbox_push(term: Terminal, result: dict) -> None:
+    matched, expected = int(result.get("matched") or 0), int(result.get("expected") or 0)
+    analyzed = int(result.get("analyzed") or 0)
+    complete = matched == expected
+    status_line(
+        term,
+        "ok" if complete else "warn",
+        f"In rekordbox: “{result.get('playlist', '')}”",
+        f"rekordbox {result.get('app_version') or ''}".strip(),
+    )
+    imported = result.get("analysis_import") or {}
+    fields(
+        term,
+        [
+            (
+                "Tracks",
+                Text(
+                    f"{matched} of {expected} in the playlist",
+                    style="ok" if complete else "warn",
+                ),
+            ),
+            (
+                "Analyzed",
+                Text(
+                    f"{analyzed} of {matched} have BPM/key",
+                    style="ok" if analyzed >= matched else "warn",
+                ),
+            ),
+            (
+                "Catalog",
+                f"BPM/key updated for {plural(int(imported.get('updated') or 0), 'track')}",
+            ),
+            (
+                "Duplicates",
+                Text(
+                    f"{result['playlists_with_this_name']} playlists share this name",
+                    style="warn",
+                )
+                if (result.get("playlists_with_this_name") or 0) > 1
+                else None,
+            ),
+        ],
+    )
+    for path in (result.get("missing_paths") or [])[:5]:
+        note(term, f"missing: {short_path(path)}")
+    term.out.print()
+    note(term, "Checked against rekordbox's own XML export; its database was not edited.")
+    steps: list[tuple[str, tuple | None]] = []
+    if analyzed < matched:
+        steps.append(("Pull analysis again once rekordbox finishes", ("rekordbox", "pull")))
+    next_steps(term, steps)
 
 
 @view("requests report")
