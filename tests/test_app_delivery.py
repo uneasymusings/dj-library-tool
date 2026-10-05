@@ -13,6 +13,7 @@ from djlib.application import delivery
 from djlib.audio.inspection import checksum, inspect_audio
 from djlib.domain.contracts import DeliveryObservation, DeliveryRequest
 from djlib.domain.errors import AppError
+from djlib.persistence.models import Job
 from tests.conftest import execute, submit_collection
 
 pytestmark = pytest.mark.skipif(
@@ -71,6 +72,156 @@ def add_analysis_tags(path, bpm="124", key="Am"):
     media.tags.add(TBPM(encoding=3, text=bpm))
     media.tags.add(TKEY(encoding=3, text=key))
     media.save()
+
+
+def analysis_observation(status, manifest):
+    return DeliveryObservation(
+        revision=status["revision"],
+        stage="analyzed",
+        app_version=status["request"]["app_version"],
+        track_count=manifest["unique_track_count"],
+        playlist_counts=manifest["playlist_counts"],
+        checked_recording_ids=[t["recording_id"] for t in manifest["tracks"]],
+        observer="Synthetic test operator",
+        notes="Original-tone fixture; no native application was operated.",
+        method="native_app_ui",
+        outcome="passed",
+    )
+
+
+def verification_job(app, *, state="running", generation=3):
+    with app.db.transaction() as session:
+        job = Job(
+            id="job-verification-fixture",
+            kind="delivery_check",
+            state=state,
+            generation=generation,
+            request={},
+        )
+        session.add(job)
+    return "job-verification-fixture", 3
+
+
+async def test_precomputed_analysis_checks_finalize_without_rehashing(
+    application, audio_factory, monkeypatch
+):
+    source, source_hash, status, manifest = await prepared(application, audio_factory)
+    status = observe(application, status, manifest)
+    add_analysis_tags(Path(manifest["tracks"][0]["path"]))
+    checked = json.loads(json.dumps(delivery._reconcile_analysis(application, manifest)))
+    guard = verification_job(application)
+
+    def unexpected_hash(*args, **kwargs):
+        pytest.fail("The atomic finalizer must use checked worker results and cheap signatures")
+
+    def manifest_hash_only(path):
+        if Path(path).name == "delivery-manifest.json":
+            return checksum(path)
+        return unexpected_hash(path)
+
+    monkeypatch.setattr(delivery, "checksum", manifest_hash_only)
+    monkeypatch.setattr(delivery, "inspect_audio", unexpected_hash)
+    monkeypatch.setattr(delivery, "pcm_hash", unexpected_hash)
+    status = delivery.observe_delivery(
+        application,
+        status["delivery_id"],
+        analysis_observation(status, manifest),
+        reconciled=checked,
+        job_guard=guard,
+    )
+    receipt = application.job(guard[0])
+    assert receipt["state"] == "completed"
+    assert receipt["result"]["evidence_committed"] is True
+    assert receipt["result"]["revision"] == status["revision"]
+    assert not status["ready_for_app_use"]
+    status = delivery.verify_app(
+        application, status["delivery_id"], status["revision"], reconciled=checked
+    )
+    assert status["ready_for_app_use"]
+    assert checksum(source) == source_hash
+
+
+@pytest.mark.parametrize("change", ["tags", "audio"])
+async def test_deferred_analysis_rejects_file_changes_and_atomically_fails_job(
+    application, audio_factory, change
+):
+    _, _, status, manifest = await prepared(application, audio_factory)
+    status = observe(application, status, manifest)
+    checked = delivery._reconcile_analysis(application, manifest)
+    working = Path(manifest["tracks"][0]["path"])
+    if change == "tags":
+        add_analysis_tags(working)
+    else:
+        shutil.copyfile(audio_factory("different.wav", frequency=660, frames=88200), working)
+    guard = verification_job(application)
+    with pytest.raises(AppError) as error:
+        delivery.observe_delivery(
+            application,
+            status["delivery_id"],
+            analysis_observation(status, manifest),
+            reconciled=checked,
+            job_guard=guard,
+        )
+    assert error.value.code == "RECONCILIATION_STALE"
+    current = delivery.delivery_status(application, status["delivery_id"])
+    assert current["evidence"]["analyzed"]["outcome"] == "failed"
+    receipt = application.job(guard[0])
+    assert receipt["state"] == "failed"
+    assert receipt["result"]["revision"] == current["revision"]
+    assert receipt["result"]["error"]["code"] == "RECONCILIATION_STALE"
+
+
+@pytest.mark.parametrize("state,generation", [("paused", 3), ("cancelled", 3), ("running", 4)])
+@pytest.mark.parametrize("operation", ["analyzed", "verify-app"])
+async def test_deferred_check_cannot_commit_after_pause_cancel_or_generation_change(
+    application, audio_factory, state, generation, operation
+):
+    _, _, status, manifest = await prepared(application, audio_factory)
+    status = observe(application, status, manifest)
+    checked = delivery._reconcile_analysis(application, manifest)
+    if operation == "verify-app":
+        status = observe(application, status, manifest, "analyzed")
+    guard = verification_job(application, state=state, generation=generation)
+    with pytest.raises(AppError) as error:
+        if operation == "analyzed":
+            delivery.observe_delivery(
+                application,
+                status["delivery_id"],
+                analysis_observation(status, manifest),
+                reconciled=checked,
+                job_guard=guard,
+            )
+        else:
+            delivery.verify_app(
+                application,
+                status["delivery_id"],
+                status["revision"],
+                reconciled=checked,
+                job_guard=guard,
+            )
+    assert error.value.code == "JOB_STALE"
+    current = delivery.delivery_status(application, status["delivery_id"])
+    assert current["revision"] == status["revision"]
+    assert current["evidence"] == status["evidence"]
+    assert application.job(guard[0])["state"] == state
+
+
+async def test_precomputed_app_check_cannot_accept_new_tags_as_old_analysis(
+    application, audio_factory
+):
+    _, _, status, manifest = await prepared(application, audio_factory)
+    for stage in ("imported", "analyzed"):
+        status = observe(application, status, manifest, stage)
+    add_analysis_tags(Path(manifest["tracks"][0]["path"]))
+    checked = delivery._reconcile_analysis(application, manifest)
+    with pytest.raises(AppError) as error:
+        delivery.verify_app(
+            application, status["delivery_id"], status["revision"], reconciled=checked
+        )
+    assert error.value.code == "ANALYSIS_CHANGED"
+    assert not delivery.delivery_status(application, status["delivery_id"])[
+        "app_requirements_met_at_last_check"
+    ]
 
 
 @pytest.mark.parametrize("workflow", ["rekordbox_import", "serato_import"])
