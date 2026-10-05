@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-This document describes **0.1.0a8**, adding catalog reconciliation/discovery and durable native checks. Earlier a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
+This document describes **0.1.0a9**, adding catalog reconciliation/discovery and durable native checks. Earlier a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
 
 ## Execution boundary
 

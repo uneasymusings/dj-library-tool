@@ -785,7 +785,9 @@ def version_view(term: Terminal, result: dict) -> None:
 def init_view(term: Terminal, result: dict) -> None:
     config = result.get("config") or {}
     allowed = config.get("allowed_roots") or []
-    header(term, "Workspace ready")
+    header(
+        term, "Workspace ready", "set as your default" if result.get("default_workspace") else ""
+    )
     fields(
         term,
         [
@@ -809,6 +811,111 @@ def review_page(term: Terminal, result: dict) -> None:
     term.out.print()
     note(term, "The link contains this workspace's access token. Keep it to yourself.")
     note(term, "It works while djlib's background service is running.")
+
+
+@view("status")
+def status_view(term: Terminal, result: dict) -> None:
+    tracks = int(result.get("tracks") or 0)
+    header(term, "djlib", short_path(result.get("workspace")))
+    service = result.get("service_url")
+    bpm, key = int(result.get("with_bpm") or 0), int(result.get("with_key") or 0)
+    fields(
+        term,
+        [
+            ("Library", f"{plural(tracks, 'track')}  ·  BPM for {bpm}  ·  key for {key}"),
+            (
+                "Service",
+                Text(f"{term.glyph('ok')} running", style="ok")
+                if service
+                else Text("stopped; starts when needed", style="muted"),
+            ),
+            (
+                "Analysis",
+                Text(f"rekordbox synced {ago(result['rekordbox_analysis_synced_at'])}", "muted")
+                if result.get("rekordbox_analysis_synced_at")
+                else None,
+            ),
+        ],
+    )
+    requests = result.get("recent_requests") or []
+    if requests:
+        term.out.print()
+        term.out.print(Text("Request lists", style="heading"))
+        for row in requests:
+            line = Text("  ")
+            done = not row.get("unresolved")
+            line.append(term.glyph("ok" if done else "todo"), style="ok" if done else "warn")
+            line.append(f" {row.get('name', '')}", style="heading")
+            line.append(f"  {row.get('owned', 0)}/{row.get('songs', 0)} owned", style="muted")
+            if row.get("missing"):
+                line.append(f"  {row['missing']} missing", style="warn")
+            term.out.print(line, soft_wrap=True)
+    collections = result.get("recent_collections") or []
+    if collections:
+        term.out.print()
+        term.out.print(Text("Crates", style="heading"))
+        for row in collections:
+            line = Text("  ")
+            line.append(f"{row.get('name', '')}", style="heading")
+            line.append(f"  {plural(int(row.get('tracks') or 0), 'track')}", style="muted")
+            if row.get("in_rekordbox") is True:
+                line.append(f"  {term.glyph('ok')} in rekordbox", style="ok")
+            elif row.get("in_rekordbox") is False:
+                line.append("  not in rekordbox yet", style="muted")
+            term.out.print(line, soft_wrap=True)
+    steps: list[tuple[str, tuple | None]] = []
+    if not tracks:
+        steps.append(("Index your music", ("scan",)))
+    for row in collections:
+        if row.get("in_rekordbox") is False:
+            steps.append(
+                (
+                    f"Put “{row['name']}” in rekordbox",
+                    ("rekordbox", "push", row["collection_id"], "--when-idle", "60"),
+                )
+            )
+            break
+    for row in requests:
+        if row.get("needs_check"):
+            steps.append(
+                (
+                    f"Re-check “{row['name']}”",
+                    ("requests", "refresh", row["request_id"], "--revision", str(row["revision"])),
+                )
+            )
+            break
+    for row in requests:
+        if (
+            row.get("owned")
+            and not row.get("needs_check")
+            and not any(c["name"] == row["name"] for c in collections)
+        ):
+            steps.append(
+                (f"Make a crate from “{row['name']}”", ("requests", "collect", row["request_id"]))
+            )
+            break
+    if bpm > key and result.get("rekordbox_checked"):
+        steps.append(("Bring in musical key", ("rekordbox", "pull", "--when-idle", "120")))
+    next_steps(term, steps)
+
+
+@view("use")
+def use_view(term: Terminal, result: dict) -> None:
+    label = {
+        "DJLIB_WORKSPACE": "from DJLIB_WORKSPACE",
+        "remembered": "remembered",
+        "built_in": "built-in default",
+    }.get(result.get("source"), "")
+    status_line(
+        term,
+        "ok" if result.get("initialized") else "warn",
+        f"Default workspace: {short_path(result.get('workspace'))}",
+        label,
+    )
+    if not result.get("initialized"):
+        next_steps(term, [("Create it", ("init", "--allow-root", "PATH"))])
+    elif result.get("changed"):
+        note(term, "Commands now use it without --workspace.")
 
 
 @view("doctor")

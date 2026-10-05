@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a8`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes **`0.1.0a9`**: 42 MCP tools plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -82,6 +82,8 @@ App-only workflows accept only `imported` and `analyzed` observations, followed 
 
 Scans label untagged files from their names (`03 - Artist - Title (Mix)` → artist and title) while keeping provisional byte identity (`identity_evidence.labels_source: file_name`); a rescan relabels an earlier `Unknown artist` provisional recording without changing its identity or memberships. Request matching also considers provisional recordings whose labels are equivalent, reported as `identity_match: file_name_labels`.
 
+The default workspace is `DJLIB_WORKSPACE`, else the path remembered by `djlib use PATH` (the first successful `init` remembers itself when nothing is set), else `~/.local/share/djlib/default`. `GET /summary` returns `tracks`, `with_bpm`, `with_key`, `rekordbox_analysis_synced_at`, `collections`, `request_lists`, `deliveries`, `active_jobs`, and the five most recent collections and request lists (`owned`, `missing`, `unresolved`, `needs_check`); `djlib status` adds `in_rekordbox` per collection when rekordbox can be read without focusing it, `rekordbox_checked`, and `service_url`.
+
 A coordinator started implicitly by a command is launched with `--idle-exit 1800` and exits after 30 minutes without requests or queued/running jobs; `service start` launches one without idle exit.
 
 `delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
@@ -132,6 +134,8 @@ Annotations bind exact recording/revision IDs. Revision `0` creates the first an
 | `requests collect ID [--name NAME] [--revision N]` | `djlib_collect_request` | `POST /requests/{id}/collection` |
 | `import-rekordbox XML` | `djlib_import_rekordbox_analysis` | `POST /analysis/rekordbox` |
 | `rekordbox push [ID...] [--request ID] [--verify] [--when-idle S]` | CLI only (macOS desktop session) | `POST /exports`, then `POST /analysis/rekordbox` |
+| `status` | CLI only | `GET /summary` (+ rekordbox playlist names read from its menu on macOS) |
+| `use [PATH]` | CLI only | local: `~/.config/djlib/workspace` |
 | `rekordbox sync` | `djlib_import_rekordbox_analysis` (no path) | `POST /analysis/rekordbox` with `{"path": null}` |
 | `rekordbox pull` | CLI only (macOS desktop session) | `POST /analysis/rekordbox` with an XML path |
 | `organize metadata ID --asset-revision-id REV_ID` | `djlib_track_metadata` | `GET /recordings/{id}/metadata` |

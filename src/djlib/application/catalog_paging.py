@@ -284,3 +284,70 @@ def saved(app, kind, query="", limit=20, after=None):
         if kind == "collections":
             row.update(app_state="not_tracked_here", device_state="not_tracked_here")
     return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
+
+
+def summary(app, recent: int = 5) -> dict:
+    """Counts for a home screen: catalog, analysis coverage, saved work and active jobs."""
+    import json as _json
+
+    from djlib.persistence.models import Collection, Delivery, Job
+
+    with app.db.transaction() as session:
+        tracks = session.scalar(select(func.count()).select_from(Recording)) or 0
+        annotations = list(session.scalars(select(RecordingAnnotation.annotations)))
+        collections = [
+            {"collection_id": c.id, "name": c.name, "created_at": c.created_at, "tracks": n}
+            for c, n in session.execute(
+                select(
+                    Collection,
+                    select(func.count())
+                    .select_from(Membership)
+                    .where(Membership.collection_id == Collection.id)
+                    .scalar_subquery(),
+                )
+                .order_by(Collection.created_at.desc())
+                .limit(recent)
+            )
+        ]
+        requests = []
+        for ledger in session.scalars(
+            select(RequestLedger).order_by(RequestLedger.updated_at.desc()).limit(recent)
+        ):
+            states = [item.get("state") for item in ledger.items or []]
+            requests.append(
+                {
+                    "request_id": ledger.id,
+                    "revision": ledger.revision,
+                    "name": ledger.name,
+                    "songs": len(states),
+                    "needs_check": sum(1 for s in states if s in {"unavailable", "ambiguous"}),
+                    "owned": states.count("satisfied"),
+                    "missing": states.count("missing"),
+                    "unresolved": sum(1 for s in states if s not in {"satisfied"}),
+                }
+            )
+        counts = {
+            "collections": session.scalar(select(func.count()).select_from(Collection)) or 0,
+            "request_lists": session.scalar(select(func.count()).select_from(RequestLedger)) or 0,
+            "deliveries": session.scalar(select(func.count()).select_from(Delivery)) or 0,
+            "active_jobs": session.scalar(
+                select(func.count()).select_from(Job).where(Job.state.in_(("queued", "running")))
+            )
+            or 0,
+        }
+    try:
+        synced = _json.loads(
+            (app.workspace.runtime / "rekordbox-anlz.json").read_text(encoding="utf-8")
+        ).get("synced_at")
+    except (OSError, ValueError):
+        synced = None
+    return {
+        "workspace": str(app.workspace.root),
+        "tracks": tracks,
+        "with_bpm": sum(1 for a in annotations if (a or {}).get("bpm")),
+        "with_key": sum(1 for a in annotations if (a or {}).get("key")),
+        "rekordbox_analysis_synced_at": synced,
+        **counts,
+        "recent_collections": collections,
+        "recent_requests": requests,
+    }

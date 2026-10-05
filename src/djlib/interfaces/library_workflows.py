@@ -61,6 +61,12 @@ def register_http(app, application, envelope):
             await asyncio.to_thread(export_missing_report, application, request_id, body.revision)
         )
 
+    @app.get("/summary")
+    async def summary_route():
+        from djlib.application.catalog_paging import summary
+
+        return envelope(await asyncio.to_thread(summary, application))
+
     @app.post("/requests/{request_id}/collection")
     async def request_collect(request_id: str, body: RequestCollect):
         return envelope(

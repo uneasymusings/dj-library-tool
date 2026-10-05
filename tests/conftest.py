@@ -20,6 +20,13 @@ from djlib.persistence.models import Job
 from djlib.workspace import Workspace
 
 
+@pytest.fixture(autouse=True)
+def isolated_user_config(tmp_path_factory, monkeypatch):
+    """Never read or write the developer's real ~/.config/djlib during tests."""
+    monkeypatch.setenv("DJLIB_CONFIG_DIR", str(tmp_path_factory.mktemp("djlib-config")))
+    monkeypatch.delenv("DJLIB_WORKSPACE", raising=False)
+
+
 @pytest.fixture
 def audio_factory(tmp_path):
     def create(name="tone.wav", frequency=220, artist="", title="", frames=4410):
