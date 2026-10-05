@@ -18,7 +18,7 @@ Updated 2026-10-05 UTC for **0.1.0a4**. Local tests and an installed-wheel smoke
 | Local suite | **498 passed in 60.88 seconds**, macOS/Python 3.13; four Windows-only tests skipped. |
 | Lint and formatting | Ruff checks passed for **95 files**. |
 | Installed wheel | Smoke check passed actual stdio MCP calls with **40 tools** and **three original tones**. |
-| Six-job release matrix | Pending; local macOS results do not establish Windows/Linux results. |
+| Production-change matrix | [All six OS/Python jobs passed](https://github.com/uneasymusings/dj-library-tool/actions/runs/37269882474) for commit `810b95f`; subsequent changes are documentation/skill only. The final tag matrix remains a separate release gate. |
 | Publication and public-artifact audit | Pending; no anonymous a4 download/install result is claimed yet. |
 | Installed a3-to-a4 upgrade | A separate original-tone catalog copy retained all IDs, hashes, collection order and roots; the original workspace was unchanged. No schema change was needed. |
 | Native app/device trial | Both three-tone app preparations passed; the UI attempt was blocked by disabled import controls/`noWindowsAvailable`. No new successful native import, analysis, loading, USB export or player validation. [Details](VALIDATION.md). |
