@@ -12,6 +12,8 @@ from djlib.jobs.worker import Worker
 from djlib.persistence.models import Job, JobItem
 from tests.conftest import execute, submit_collection
 
+WAIT_SECONDS = 60
+
 
 class Provider:
     """Controlled downloads of original test tones; no external provider or network."""
@@ -47,10 +49,51 @@ class Provider:
         return application.download(DownloadRequest(name=name, idempotency_key=name, tracks=tracks))
 
 
+def job_diagnostic(application, job_id):
+    job = application.job(job_id)
+    items = application.items(job_id, limit=10)
+    return {
+        **{key: job[key] for key in ("job_id", "kind", "state", "outcome", "counts")},
+        "error": job["result"].get("error"),
+        "items": [
+            {
+                "position": item["position"],
+                "state": item["state"],
+                "error": item["result"].get("error"),
+                "review_id": item["result"].get("review_id"),
+            }
+            for item in items["items"]
+        ],
+        "more_items": items["next_cursor"] is not None,
+    }
+
+
+async def wait_for_condition(application, job_id, predicate, description):
+    # These tests assert scheduling order, not disk throughput. Real SQLite
+    # commits/copies on hosted Windows runners can exceed ten seconds.
+    try:
+        async with asyncio.timeout(WAIT_SECONDS):
+            while True:
+                job = application.job(job_id)
+                if job["state"] == "completed":
+                    assert job["outcome"] == "complete", job_diagnostic(application, job_id)
+                if predicate(job):
+                    return job
+                assert job["state"] in {"queued", "running"}, (
+                    f"Expected {description}: {job_diagnostic(application, job_id)}"
+                )
+                await asyncio.sleep(0.05)
+    except TimeoutError as exc:
+        raise AssertionError(
+            f"Timed out after {WAIT_SECONDS}s waiting for {description}: "
+            f"{job_diagnostic(application, job_id)}"
+        ) from exc
+
+
 async def wait_for_state(application, job_id, state):
-    async with asyncio.timeout(10):
-        while application.job(job_id)["state"] != state:
-            await asyncio.sleep(0.01)
+    return await wait_for_condition(
+        application, job_id, lambda job: job["state"] == state, f"state {state}"
+    )
 
 
 async def stop(task):
@@ -133,17 +176,24 @@ async def test_handoff_burst_does_not_starve_waiting_downloads(
         for n in range(Worker.HANDOFF_BURST + 2)
     ]
     observed = []
+    first_started = asyncio.Event()
 
     async def on_start(url):
         observed.append(sum(application.job(j["job_id"])["state"] == "completed" for j in handoffs))
+        first_started.set()
 
     provider.on_start = on_start
     task = asyncio.create_task(Worker(application).run())
     try:
+        await wait_for_condition(
+            application, bulk["job_id"], lambda _: first_started.is_set(), "first download callback"
+        )
+        assert observed[0] == Worker.HANDOFF_BURST < len(handoffs)
         await wait_for_state(application, bulk["job_id"], "completed")
+        assert application.job(bulk["job_id"])["counts"] == {"succeeded": 2}
         for job in handoffs:
             await wait_for_state(application, job["job_id"], "completed")
-        assert observed[0] == Worker.HANDOFF_BURST < len(handoffs)
+            assert application.job(job["job_id"])["counts"] == {"succeeded": 1}
     finally:
         await stop(task)
 

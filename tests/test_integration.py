@@ -110,6 +110,30 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
     workspace = live_workspace
     path = audio_factory()
     workspace.initialize([path.parent])
+
+    def diagnostics(operation, value):
+        # These are isolated synthetic workspaces. Include only the response and
+        # a bounded log tail, never the coordinator token or HTTP headers.
+        try:
+            with (workspace.runtime / "service.log").open("rb") as stream:
+                stream.seek(0, 2)
+                stream.seek(max(0, stream.tell() - 16 * 1024))
+                log_tail = stream.read(16 * 1024).decode("utf-8", errors="replace")
+        except OSError as exc:
+            log_tail = f"Coordinator log unavailable: {type(exc).__name__}"
+        return {"operation": operation, "response": value, "coordinator_log_tail": log_tail}
+
+    def checked_envelope(value, operation):
+        assert isinstance(value, dict), diagnostics(operation, value)
+        assert value.get("ok") is True, diagnostics(operation, value)
+        assert value.get("error") is None, diagnostics(operation, value)
+        assert isinstance(value.get("result"), dict), diagnostics(operation, value)
+        return value["result"]
+
+    def checked_tool(reply, operation):
+        assert not reply.is_error, diagnostics(operation, reply.model_dump(mode="json"))
+        return checked_envelope(reply.structured_content, operation)
+
     transport = StdioServerParameters(
         command=sys.executable,
         args=["-m", "djlib.interfaces.cli", "--workspace", str(workspace.root), "mcp", "serve"],
@@ -130,18 +154,29 @@ async def test_actual_stdio_fresh_process(live_workspace, audio_factory):
                 }
             },
         )
-        assert not reply.is_error
-        plan = reply.structured_content["result"]
+        plan = checked_tool(reply, "djlib_plan_collection")
+        assert plan.get("plan_id"), diagnostics("djlib_plan_collection", reply.structured_content)
         reply = await client.call_tool(
             "djlib_start", {"plan_id": plan["plan_id"], "revision": 1, "idempotency_key": "stdio"}
         )
-        job_id = reply.structured_content["result"]["job_id"]
+        started = checked_tool(reply, "djlib_start")
+        assert started.get("job_id"), diagnostics("djlib_start", reply.structured_content)
+        job_id = started["job_id"]
     # The protocol client has exited. Accepted work still belongs to the coordinator.
-    result = await asyncio.to_thread(LocalClient(workspace).wait, job_id, 5)
-    assert result["result"]["outcome"] == "complete"
+    result = await asyncio.to_thread(LocalClient(workspace).wait, job_id, 30)
+    completed = checked_envelope(result, "wait for durable job")
+    assert not completed.get("timed_out"), diagnostics("wait for durable job", result)
+    assert completed.get("state") == "completed", diagnostics("wait for durable job", result)
+    assert completed.get("outcome") == "complete", diagnostics("wait for durable job", result)
     async with Client(transport) as fresh:
         reply = await fresh.call_tool("djlib_job", {"job_id": job_id})
-        assert reply.structured_content["result"]["state"] == "completed"
+        persisted = checked_tool(reply, "djlib_job from fresh client")
+        assert persisted.get("state") == "completed", diagnostics(
+            "djlib_job from fresh client", reply.structured_content
+        )
+        assert persisted.get("outcome") == "complete", diagnostics(
+            "djlib_job from fresh client", reply.structured_content
+        )
 
 
 async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatch, tmp_path):
