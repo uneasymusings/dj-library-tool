@@ -2,7 +2,7 @@
 
 ## 0.1.0a6
 
-Local source validation passed **518 tests in 60.81 seconds**, with five Windows-only skips, and Ruff passed 96 files. After a source-quality wording correction, 71 focused delivery tests passed. The [startup-fix branch matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273853767) passed all six OS/Python jobs at `0e7e586`. A local a6 installed-wheel smoke passed actual 40-tool stdio MCP, three original tones, requests, organization and bundled skill checks; `uv lock --check` passed with 64 packages. The final resource build repeated the installed-wheel check successfully, and the fidelity-wording commit passed its [six-job matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37273980856). The a6 tag matrix and public-artifact checks remain pending.
+Published [v0.1.0a6](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a6) on **2026-10-05 at 07:14:53 UTC**. The [release matrix](https://github.com/uneasymusings/dj-library-tool/actions/runs/37275004527) passed all six OS/Python jobs and artifact packaging. An independent anonymous public installation verified package hashes, installed bytes, complete skill resources, actual MCP calls with all 40 tool schemas exposed and three original tones. An installed a3-to-a6 demo-copy compatibility check preserved all existing data; no schema migration was needed. Local source validation passed 518 tests with five Windows-only skips; Ruff passed 96 files. See [validation](docs/VALIDATION.md) for exact evidence and the earlier unresolved Windows discovery failure; subsequent passing matrices do not establish its cause.
 
 - Startup waits for authenticated coordinator readiness for up to 30 seconds under a 45-second startup lock, instead of the earlier 12-second readiness window.
 - Startup reports `SERVICE_START_BUSY`, `SERVICE_START_FAILED` or `SERVICE_START_TIMEOUT` with distinct recovery guidance. It does not resubmit a music operation or repeatedly spawn children within one attempt.
@@ -12,7 +12,7 @@ The 40-tool API and external Windows coordinator-start workflow are retained. a4
 
 ## 0.1.0a5 — unpublished candidate
 
-Local validation passed 513 tests with five Windows-only skips; Ruff passed 96 files and the installed a5 wheel passed actual 40-tool MCP calls and three original tones. The release candidate failed Windows checks involving an incorrect SDK `is_error` assertion and the coordinator not becoming ready within the 12-second window. The underlying cause of the startup delays was not established. The tag is preserved and unpublished; no public artifact audit passed. The 40-tool API and catalog/delivery features below carry forward from the unpublished a4 candidate; its checks do not validate the Windows startup fix.
+Local validation passed 513 tests with five Windows-only skips; Ruff passed 96 files and the installed a5 wheel passed actual MCP calls with all 40 tool schemas exposed and three original tones. The release candidate failed Windows checks involving an incorrect SDK `is_error` assertion and the coordinator not becoming ready within the 12-second window. The underlying cause of the startup delays was not established. The tag is preserved and unpublished; no public artifact audit passed. The 40-tool API and catalog/delivery features below carry forward from the unpublished a4 candidate; its checks do not validate the Windows startup fix.
 
 - Generated Windows `launch.py` starts the workspace coordinator before launching the assistant host. Manual MCP registration requires an external `djlib --workspace PATH service start` first.
 - Windows MCP cold start returns `COORDINATOR_START_REQUIRED` rather than spawning a coordinator inside the host's Windows Job Object. The engine does not try to escape that job or its lifecycle controls.
@@ -22,7 +22,7 @@ The a4 tag is preserved but unpublished: its release was cancelled after confirm
 
 ## 0.1.0a4 — unpublished candidate
 
-Local validation passed 498 tests with four Windows-only skips; Ruff checks passed for 95 files. The installed-wheel smoke check passed actual 40-tool MCP calls and three original tones. The production-change matrix passed all six jobs, but the later release candidate was cancelled after the Windows coordinator-lifetime blocker. Tag `039f1ca` remains unchanged and unpublished; no public a4 artifact audit passed. Historical a3 evidence is a separate baseline.
+Local validation passed 498 tests with four Windows-only skips; Ruff checks passed for 95 files. The installed-wheel smoke check passed actual MCP calls with all 40 tool schemas exposed and three original tones. The production-change matrix passed all six jobs, but the later release candidate was cancelled after the Windows coordinator-lifetime blocker. Tag `039f1ca` remains unchanged and unpublished; no public a4 artifact audit passed. Historical a3 evidence is a separate baseline.
 
 - Added paginated catalog and saved collection/request/delivery discovery, explicit additive music-root configuration, and field-level CLI input errors. Collection native state is `not_tracked_here`, not an inferred import/export result.
 - Corrected new recording identity handling for symbol-only labels and untagged files. Existing incorrect merges are not automatically repaired.

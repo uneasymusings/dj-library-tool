@@ -6,7 +6,7 @@
 
 `djlib` is a local Python engine with a JSON CLI, MCP tools, and a portable skill for Codex and Claude Code. Your assistant handles conversation and discovery; the engine handles persistent work, file validation, collection membership, and app handoff artifacts.
 
-> **Experimental alpha, 0.1.0a6.** This version adds safer catalog reconciliation, saved-work discovery and background verification. Local source, installed-wheel and six-job startup-fix branch checks passed; final a6 tag and public-artifact checks remain pending. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a6.** This version adds safer catalog reconciliation, saved-work discovery and background verification. The public release passed all six OS/Python release jobs and an independent anonymous installation audit with actual MCP calls with all 40 tool schemas exposed and three original tones. Serato import and physical USB/player export remain unverified. See [publication status, evidence and limits](docs/STATUS.md).
 
 [DJ delivery](docs/DJ_DELIVERY.md) freezes selected collections, prepares separate app working copies, and records native-stage observations. App-only `rekordbox_import` and `serato_import` need no USB or player model; standalone USB delivery remains a separate target-specific workflow with read-only device checks. Native import/analysis/export still happen in rekordbox or Serato. The API exposes 40 MCP tools; older a3 exposes 34. See the [requirement and public-release audit](docs/COVERAGE.md).
 
