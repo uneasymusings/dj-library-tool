@@ -320,5 +320,31 @@ class LocalClient:
             time.sleep(min(0.2, max(0, deadline - time.monotonic())))
 
 
+def config_dir() -> Path:
+    """Per-user djlib settings (not music or catalog data)."""
+    if override := os.environ.get("DJLIB_CONFIG_DIR"):
+        return Path(override)
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "djlib"
+    return Path.home() / ".config" / "djlib"
+
+
+def remembered_workspace() -> Path | None:
+    try:
+        value = (config_dir() / "workspace").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return Path(value) if value else None
+
+
+def remember_workspace(path: Path) -> None:
+    folder = config_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "workspace").write_text(str(path) + "\n", encoding="utf-8")
+
+
 def default_workspace() -> Path:
-    return Path(os.environ.get("DJLIB_WORKSPACE", Path.home() / ".local/share/djlib/default"))
+    """DJLIB_WORKSPACE, else the workspace chosen with `djlib use`, else the built-in default."""
+    if value := os.environ.get("DJLIB_WORKSPACE"):
+        return Path(value)
+    return remembered_workspace() or Path.home() / ".local/share/djlib/default"

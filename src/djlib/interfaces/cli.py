@@ -5,6 +5,7 @@ A terminal gets readable views instead (see ``terminal.py``); ``--json`` or
 """
 
 import importlib.util
+import os
 import sys
 from datetime import datetime
 from functools import wraps
@@ -25,7 +26,12 @@ from djlib.domain.contracts import (
 )
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal, views
-from djlib.interfaces.client import LocalClient, default_workspace
+from djlib.interfaces.client import (
+    LocalClient,
+    default_workspace,
+    remember_workspace,
+    remembered_workspace,
+)
 from djlib.interfaces.library_cli import register_commands
 from djlib.interfaces.service import envelope
 from djlib.interfaces.validation import validation_message
@@ -48,7 +54,7 @@ EPILOG = (
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "demo", "doctor", "ui", "setup-agent"),
+    *("init", "use", "status", "demo", "doctor", "ui", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
     *("rekordbox", "delivery", "import-rekordbox", "export", "usb-preflight"),
@@ -196,7 +202,72 @@ def init(
     djlib only reads inside allowed folders and never moves or retags your originals.
     """
     config = ctx.obj.initialize(allow_root)
-    emit(envelope({"workspace": str(ctx.obj.root), "config": config.model_dump(mode="json")}))
+    # The first workspace becomes the default, so later commands need no --workspace.
+    remembered = False
+    if not os.environ.get("DJLIB_WORKSPACE") and remembered_workspace() is None:
+        remember_workspace(ctx.obj.root)
+        remembered = True
+    emit(
+        envelope(
+            {
+                "workspace": str(ctx.obj.root),
+                "config": config.model_dump(mode="json"),
+                "default_workspace": remembered
+                or ctx.obj.root == Workspace(default_workspace()).root,
+            }
+        )
+    )
+
+
+@app.command(rich_help_panel=START)
+@handled
+def status(ctx: typer.Context) -> None:
+    """Your library at a glance: tracks, BPM/key coverage, requests, crates, next steps."""
+    from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists
+
+    local = client(ctx)
+    summary = local.request("GET", "/summary")["result"]
+    playlists = rekordbox_playlists()
+    for row in summary["recent_collections"]:
+        row["in_rekordbox"] = (
+            None if playlists is None else playlist_file_name(row["name"]) in playlists
+        )
+    summary["rekordbox_checked"] = playlists is not None
+    summary["service_url"] = local.discover()
+    emit(envelope(summary))
+
+
+@app.command(rich_help_panel=START)
+@handled
+def use(
+    ctx: typer.Context,
+    path: Annotated[
+        Path | None, typer.Argument(help="Workspace to use by default; omit to show it.")
+    ] = None,
+) -> None:
+    """Choose the workspace commands use when --workspace is not given."""
+    if path is not None:
+        workspace = Workspace(path)
+        workspace.config()  # only initialized workspaces can become the default
+        remember_workspace(workspace.root)
+    source = (
+        "DJLIB_WORKSPACE"
+        if os.environ.get("DJLIB_WORKSPACE")
+        else "remembered"
+        if remembered_workspace()
+        else "built_in"
+    )
+    current = Workspace(default_workspace())
+    emit(
+        envelope(
+            {
+                "workspace": str(current.root),
+                "source": source,
+                "initialized": current.config_path.is_file(),
+                "changed": path is not None,
+            }
+        )
+    )
 
 
 @roots.command("list")
