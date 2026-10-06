@@ -21,7 +21,7 @@ from djlib.application.agent_setup import create_agent_session
 from djlib.application.demo import run_demo
 from djlib.audio.inspection import checksum
 from djlib.interfaces.client import LocalClient
-from djlib.interfaces.tool_manifest import TOOL_NAMES
+from djlib.interfaces.tool_manifest import CORE_PROFILE, TOOL_NAMES
 from djlib.workspace import Workspace
 
 
@@ -64,7 +64,8 @@ async def check_library_workflows(client, collection_id: str) -> None:
     requested = await call("djlib_create_request", {"request_body": body})
     assert requested["counts"]["satisfied"] == requested["counts"]["unknown"] == 1
     assert requested["items"][0]["accepted"]["asset_revision_id"] == first["asset_revision_id"]
-    assert (await call("djlib_create_request", {"request_body": body})) == requested
+    replay = await call("djlib_create_request", {"request_body": body})
+    assert replay.pop("reused") is True and replay == requested
     request_id = requested["request_id"]
     page = await call("djlib_request", {"request_id": request_id, "after": 1, "limit": 1})
     assert page["items"][0]["input"]["timestamp"] == "00:30"
@@ -172,17 +173,21 @@ async def check() -> None:
             session = create_agent_session(workspace, root / "assistant")
             assert session["personal_config_changed"] is False
             assert (root / "assistant/.agents/skills/dj-library/references/cli.md").is_file()
+            serve = [
+                "-m",
+                "djlib.interfaces.cli",
+                "--workspace",
+                str(workspace.root),
+                "mcp",
+                "serve",
+            ]
+            # The default profile is the core set; the rest of this check needs every tool.
+            default = StdioServerParameters(command=sys.executable, args=serve, cwd=root)
+            async with Client(default) as client:
+                core = {tool.name for tool in (await client.list_tools()).tools}
+                assert core == CORE_PROFILE, sorted(core ^ CORE_PROFILE)
             transport = StdioServerParameters(
-                command=sys.executable,
-                args=[
-                    "-m",
-                    "djlib.interfaces.cli",
-                    "--workspace",
-                    str(workspace.root),
-                    "mcp",
-                    "serve",
-                ],
-                cwd=root,
+                command=sys.executable, args=serve, cwd=root, env={"DJLIB_MCP_TOOLS": "full"}
             )
             async with Client(transport) as client:
                 tools = (await client.list_tools()).tools
@@ -250,6 +255,7 @@ async def check() -> None:
                         "ok": True,
                         "tracks": 3,
                         "mcp_tools": len(tools),
+                        "mcp_core_tools": len(core),
                         "skill_packaged": True,
                         "request_ledger_checked": True,
                         "organization_checked": True,

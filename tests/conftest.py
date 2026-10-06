@@ -25,6 +25,13 @@ def isolated_user_config(tmp_path_factory, monkeypatch):
     """Never read or write the developer's real ~/.config/djlib during tests."""
     monkeypatch.setenv("DJLIB_CONFIG_DIR", str(tmp_path_factory.mktemp("djlib-config")))
     monkeypatch.delenv("DJLIB_WORKSPACE", raising=False)
+    monkeypatch.delenv("DJLIB_MCP_TOOLS", raising=False)
+
+
+@pytest.fixture
+def full_mcp_tools(monkeypatch):
+    """Serve every MCP tool (DJLIB_MCP_TOOLS=full) instead of the default core profile."""
+    monkeypatch.setenv("DJLIB_MCP_TOOLS", "full")
 
 
 @pytest.fixture
