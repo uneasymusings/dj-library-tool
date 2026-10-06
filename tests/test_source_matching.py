@@ -589,3 +589,47 @@ def test_trailing_times_move_to_the_front_and_empty_sources_give_nothing():
     assert text.splitlines() == ["[02:41] Phoenix - Lasso", "[12:00] Bicep - Glue"]
     assert tracklist_from_source("", []) == ""
     assert tracklist_from_source("Thanks for listening! https://example.test", []) == ""
+
+
+def test_audio_uploads_rank_above_music_videos_of_the_same_song():
+    requested = {"artist": "Four Tet", "title": "Baby", "version": ""}
+    ranked = rank_sources(
+        requested,
+        [
+            {
+                "provider": "youtube",
+                "url": "https://youtu.be/video",
+                "uploader": "Four Tet",
+                "title": "Four Tet - Baby (Official Music Video)",
+                "duration": 284.0,
+                "view_count": 900_000,
+            },
+            {
+                "provider": "youtube",
+                "url": "https://youtu.be/audio",
+                "uploader": "Four Tet",
+                "title": "Four Tet - Baby",
+                "duration": 265.0,
+                "view_count": 400_000,
+            },
+            {
+                "provider": "soundcloud",
+                "url": "https://soundcloud.com/x/baby",
+                "uploader": "fan",
+                "title": "Four Tet - Baby",
+                "duration": 265.1,
+                "view_count": 20_000,
+            },
+            {
+                "provider": "youtube",
+                "url": "https://youtu.be/fan",
+                "uploader": "another fan",
+                "title": "Four Tet - Baby",
+                "duration": 265.0,
+                "view_count": 5_000,
+            },
+        ],
+    )
+    assert ranked[0]["url"] == "https://youtu.be/audio" and ranked[0]["confident"]
+    video = next(entry for entry in ranked if entry["url"] == "https://youtu.be/video")
+    assert "music video; may differ from the track" in video["reasons"]
