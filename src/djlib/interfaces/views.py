@@ -1309,6 +1309,7 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
                 if result.get("library_updated")
                 else Text("device library unchanged", "warn"),
             ),
+            ("Key/BPM", device_analysis(result)),
         ],
     )
     for label in (result.get("missing") or [])[:5]:
@@ -1320,6 +1321,17 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
 PLAYER_NOTE = (
     "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig."
 )
+
+
+def device_analysis(result: dict) -> Text | None:
+    """“Key/BPM 5 tracks read from the stick (2 new)” after a verified USB export."""
+    analysis = result.get("analysis_from_device") or {}
+    if not analysis.get("matched"):
+        return None
+    line = f"{plural(int(analysis['matched']), 'track')} read from the stick"
+    if analysis.get("updated"):
+        line += f" ({analysis['updated']} new in your catalog)"
+    return Text(line, "muted")
 
 
 @view("set")
@@ -1361,6 +1373,7 @@ def set_view(term: Terminal, result: dict) -> None:
                 ),
             )
         )
+        rows.append(("Key/BPM", device_analysis(usb)))
     fields(term, rows)
     missing = result.get("missing") or []
     if missing:
