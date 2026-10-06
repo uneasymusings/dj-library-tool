@@ -19,7 +19,7 @@ import typer
 
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
-from djlib.interfaces.service import envelope
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.terminal import plural
 
 

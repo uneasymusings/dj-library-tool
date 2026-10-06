@@ -41,23 +41,12 @@ from djlib.domain.contracts import (
 from djlib.domain.errors import AppError
 from djlib.domain.workspace_contracts import RootsRequest
 from djlib.exporting.handoff import device_preflight
+from djlib.interfaces.envelope import envelope  # noqa: E402  (re-exported)
 from djlib.interfaces.validation import validation_message
 from djlib.jobs.worker import Worker
 from djlib.persistence.database import Database
 from djlib.sources.web import inspect_source
 from djlib.workspace import Workspace, atomic_json
-
-
-def envelope(result: dict | None = None, error: dict | None = None) -> dict:
-    return {
-        "schema_version": "1",
-        "ok": error is None,
-        "request_id": new_id("req"),
-        "result": result,
-        "warnings": [],
-        "error": error,
-    }
-
 
 # The review page's static files carry no catalog data, so they load without the token;
 # the page then calls the JSON routes with it. Exact paths only.

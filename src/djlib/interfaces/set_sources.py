@@ -113,35 +113,44 @@ def label(item: dict) -> str:
     return f"{text} ({song['version']})" if song["version"] else text
 
 
+SEARCHES_AT_ONCE = 4
+
+
 def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Missing named songs → (confident downloads, songs that need a person's pick)."""
-    chosen, undecided = [], []
-    for item in items:
-        if item.get("state") != "missing" or (item.get("input") or {}).get("kind") != "named":
-            continue
-        song = wanted(item)
+    """Missing named songs → (confident downloads, songs that need a person's pick).
+
+    Songs are searched a few at a time; results keep the set's order.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    missing = [
+        item
+        for item in items
+        if item.get("state") == "missing" and (item.get("input") or {}).get("kind") == "named"
+    ]
+
+    def search(item):
         try:
-            found = local.request("POST", "/sources/search", data=song)["result"]
+            return local.request("POST", "/sources/search", data=wanted(item))["result"]
         except AppError as error:
-            undecided.append({**song, "label": label(item), "reason": error.code, "options": []})
+            return error
+
+    with ThreadPoolExecutor(max_workers=SEARCHES_AT_ONCE) as pool:
+        answers = list(pool.map(search, missing))
+    chosen, undecided = [], []
+    for item, found in zip(missing, answers, strict=True):
+        song = {**wanted(item), "label": label(item), "position": item.get("position")}
+        if isinstance(found, AppError):
+            undecided.append({**song, "reason": found.code, "options": []})
             continue
         candidates = found.get("candidates") or []
         best = candidates[0] if candidates else None
         if best and best.get("confident"):
-            chosen.append(
-                {
-                    **song,
-                    "label": label(item),
-                    "position": item.get("position"),
-                    "source": pick(best),
-                }
-            )
+            chosen.append({**song, "source": pick(best)})
         else:
             undecided.append(
                 {
                     **song,
-                    "label": label(item),
-                    "position": item.get("position"),
                     "reason": "no confident match" if candidates else "nothing found",
                     "options": [pick(candidate) for candidate in candidates[:3]],
                 }
