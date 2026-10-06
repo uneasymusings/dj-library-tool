@@ -485,3 +485,26 @@ def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) 
         f"“{target}” was not selected in rekordbox in time; nothing was exported.",
         retryable=True,
     )
+
+
+def installed() -> dict | None:
+    """The installed rekordbox app and its version, without launching it."""
+    import plistlib
+
+    for app in sorted(Path("/Applications").glob("rekordbox*/rekordbox.app"), reverse=True):
+        try:
+            info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
+        except (OSError, ValueError):
+            info = {}
+        return {"path": str(app), "version": info.get("CFBundleShortVersionString")}
+    return None
+
+
+def automation_allowed() -> bool | None:
+    """Whether macOS lets this terminal drive other apps (None off macOS)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        return _osascript('tell application "System Events" to get UI elements enabled') == "true"
+    except AppError:
+        return False
