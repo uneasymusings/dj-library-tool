@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The skill's CLI reference covers `set` (files and set links), `--fetch`, `--usb`, `rekordbox usb`, the new error codes and the MCP equivalents.
+
 ## 0.1.0a11
 
 - **Sets from a link.** `djlib set https://soundcloud.com/…` or a YouTube set reads the tracklist from the upload's description or chapters, and reads up to 1,000 listener comments: for each “ID” with a time, the screen shows what listeners named around that moment (SoundCloud timed comments; timestamps written in YouTube comments). Hints are evidence only and are never added by themselves.
