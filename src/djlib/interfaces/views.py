@@ -1270,10 +1270,96 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
     for label in (result.get("missing") or [])[:5]:
         note(term, f"not matched: {label}")
     term.out.print()
-    note(
+    note(term, PLAYER_NOTE)
+
+
+PLAYER_NOTE = (
+    "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig."
+)
+
+
+@view("set")
+def set_view(term: Terminal, result: dict) -> None:
+    owned, songs = int(result.get("owned") or 0), int(result.get("songs") or 0)
+    usb = result.get("usb") or {}
+    usb_ok = not usb or (usb.get("expected") and usb.get("found") == usb.get("expected"))
+    status_line(
         term,
-        "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig.",
+        "ok" if owned and usb_ok else "warn",
+        result.get("name") or "Set",
+        f"{owned} of {plural(songs, 'song')} owned",
     )
+    rekordbox = result.get("rekordbox") or {}
+    rows: list[tuple[str, object]] = []
+    if result.get("collection_id"):
+        rows.append(("Crate", Text(f"{plural(owned, 'track')}, in set order", "ok")))
+        there = "imported" if rekordbox.get("status") == "imported" else "already there"
+        rows.append(
+            (
+                "rekordbox",
+                Text(f"{term.glyph('ok')} playlist “{result.get('playlist')}” {there}", "ok"),
+            )
+        )
+    else:
+        rows.append(("Crate", Text("none of these songs are in your library yet", "warn")))
+    if usb:
+        found, expected = usb.get("found") or 0, usb.get("expected") or 0
+        place = "the player's library" if usb.get("playlist_on_device") else "the stick"
+        order = ", in order and" if usb.get("in_order") else ","
+        stick = Path(usb.get("device") or "").name
+        rows.append(
+            (
+                "USB",
+                Text(
+                    f"{term.glyph('ok' if usb_ok else 'warn')} {stick}: "
+                    f"{found} of {expected} in {place}{order} byte for byte",
+                    "ok" if usb_ok else "warn",
+                ),
+            )
+        )
+    fields(term, rows)
+    missing = result.get("missing") or []
+    if missing:
+        term.out.print()
+        term.out.print(Text(f"Not in the crate ({len(missing)})", style="heading"))
+        grid = table(
+            ("#", {"justify": "right", "style": "muted"}),
+            ("Status", {"min_width": 11}),
+            ("Requested", {"overflow": "ellipsis"}),
+            ("You own", {"overflow": "ellipsis", "drop": 1}),
+        )
+        for item in missing:
+            glyph, tone, label = REQUEST_STATES.get(
+                item.get("state") or "", ("todo", "muted", item.get("state") or "")
+            )
+            grid.add_row(
+                str(item.get("position") or ""),
+                Text(f"{term.glyph(glyph)} {label}", style=tone),
+                Text(item.get("label") or ""),
+                Text(", ".join(item.get("you_own") or []), style="warn"),
+            )
+        term.out.print(grid)
+    term.out.print()
+    note(term, "Matched by exact artist/title/version labels; other versions are never swapped in.")
+    if usb:
+        note(term, PLAYER_NOTE)
+    steps: list[tuple[str, tuple | None]] = []
+    if result.get("collection_id") and not usb:
+        steps.append(("Put it on your USB", ("rekordbox", "usb", result["collection_id"])))
+    if missing:
+        steps.append(
+            (
+                "Save the missing songs as a list",
+                (
+                    "requests",
+                    "report",
+                    result.get("request_id", ""),
+                    "--revision",
+                    str(result.get("revision", "")),
+                ),
+            )
+        )
+    next_steps(term, steps)
 
 
 @view("rekordbox sync")

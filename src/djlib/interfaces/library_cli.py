@@ -18,6 +18,44 @@ def unchecked(items: list[dict]) -> list[str]:
     ]
 
 
+def all_items(local, result: dict) -> list[dict]:
+    """Every item of a request list result, following its pages."""
+    items, offset = list(result.get("items") or []), result.get("next_offset")
+    while offset is not None:
+        page = local.request(
+            "GET", f"/requests/{result['request_id']}", params={"after": offset, "limit": 100}
+        )["result"]
+        items += page.get("items") or []
+        offset = page.get("next_offset")
+    return items
+
+
+def tracklist_request(
+    text: Path, name: str | None, source: str | None
+) -> tuple[RequestCreate, list[str]]:
+    """A request list from a plain tracklist file, plus warnings for skipped lines."""
+    from djlib.application.tracklists import HEADING, parse_tracklist
+
+    try:
+        content = text.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AppError("INPUT_INVALID", f"Could not read {text} as a UTF-8 text file.") from exc
+    items, skipped = parse_tracklist(content, source)
+    headings = [line for _, line, reason in skipped if reason == HEADING]
+    warnings = [
+        f"line {number} skipped ({reason}): {line}"
+        for number, line, reason in skipped
+        if reason != HEADING
+    ]
+    if not items:
+        raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
+    # A heading such as "Set Zero — Friday" names the list.
+    title = name or (headings[0][:300] if headings else text.stem)
+    digest = hashlib.sha256(f"{title}\n{source}\n{content}".encode()).hexdigest()[:16]
+    body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
+    return body, warnings
+
+
 def finish_checks(local, reply: dict) -> dict:
     """Keep hash-checking matches that hit the per-call budget, in bounded batches.
 
@@ -29,14 +67,7 @@ def finish_checks(local, reply: dict) -> dict:
     term, previous = terminal.current(), None
     while True:
         result = reply["result"]
-        items, offset = list(result.get("items") or []), result.get("next_offset")
-        while offset is not None:
-            page = local.request(
-                "GET", f"/requests/{result['request_id']}", params={"after": offset, "limit": 100}
-            )["result"]
-            items += page.get("items") or []
-            offset = page.get("next_offset")
-        pending = unchecked(items)
+        pending = unchecked(all_items(local, result))
         if not pending or (previous is not None and len(pending) >= previous):
             return reply
         previous = len(pending)
@@ -98,24 +129,7 @@ def register_commands(app, client, emit, handled, panel=None):
         if file is not None:
             body = RequestCreate.model_validate_json(file.read_text(encoding="utf-8"))
         else:
-            from djlib.application.tracklists import parse_tracklist
-
-            content = text.read_text(encoding="utf-8")
-            items, skipped = parse_tracklist(content, source)
-            from djlib.application.tracklists import HEADING
-
-            headings = [line for _, line, reason in skipped if reason == HEADING]
-            warnings = [
-                f"line {number} skipped ({reason}): {line}"
-                for number, line, reason in skipped
-                if reason != HEADING
-            ]
-            if not items:
-                raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
-            # A heading such as "Set Zero — Friday" names the list.
-            title = name or (headings[0][:300] if headings else text.stem)
-            digest = hashlib.sha256(f"{title}\n{source}\n{content}".encode()).hexdigest()[:16]
-            body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
+            body, warnings = tracklist_request(text, name, source)
         local = client(ctx)
         reply = finish_checks(
             local, local.request("POST", "/requests", data=body.model_dump(mode="json"))

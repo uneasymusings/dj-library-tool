@@ -294,3 +294,77 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     assert result["in_order"] is True and result["playlist_on_device"] is True
     assert result["verified_by"] == "device_library_and_file_hashes"
     assert result["library_updated"] is True and result["player_playback_verified"] is False
+
+
+def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    sources = [audio_factory(f"set-{n}.wav", frequency=500 + 60 * n) for n in range(3)]
+    build(
+        library_http,
+        sources,
+        [
+            ("Velvet Static", "Night Bus (Extended Mix)"),
+            ("Nia Okoro", "Slow Burn"),
+            ("Lumen", "Halo (Radio Edit)"),
+        ],
+    )
+    tracklist = tmp_path / "friday.txt"
+    tracklist.write_text(
+        "Friday — Warm-up\n"
+        "1. Nia Okoro - Slow Burn\n"
+        "2. Lumen - Halo (Dub)\n"
+        "3. Velvet Static - Night Bus (Extended Mix)\n"
+        "4. Someone - Not Owned\n",
+        encoding="utf-8",
+    )
+    fake = FakeRekordbox(monkeypatch)
+    volume = tmp_path / "RICARDO_AM"
+    (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
+    owned_in_order = [sources[1], sources[0]]
+
+    def wait_for_selection(device, target, timeout, on_wrong=None):
+        assert (device, target) == ("RICARDO_AM", "Friday — Warm-up")
+        files = [(source.name, source.read_bytes()) for source in owned_in_order]
+        pdb_fixture.stick(volume, target, files)
+
+    monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
+    monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
+    quick = functools.partial(usb_check.wait_for_copy, sleep=lambda seconds: None)
+    monkeypatch.setattr(usb_check, "wait_for_copy", quick)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    reply = CliRunner().invoke(
+        cli_app, [*workspace, "set", str(tracklist), "--usb", "--device", str(volume)]
+    )
+
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["name"] == "Friday — Warm-up"
+    assert (result["songs"], result["owned"]) == (4, 2)
+    assert [m["label"] for m in result["missing"]] == ["Lumen - Halo (Dub)", "Someone - Not Owned"]
+    assert result["missing"][0]["you_own"] == ["Radio Edit"]
+    assert result["rekordbox"]["status"] == "imported"
+    assert fake.imported[-1].name == "Friday — Warm-up.m3u8"
+    assert result["usb"]["found"] == result["usb"]["expected"] == 2
+    assert result["usb"]["in_order"] is True
+
+    # Running it again reuses the request list, crate and playlist; nothing is imported twice.
+    again = CliRunner().invoke(cli_app, [*workspace, "set", str(tracklist)])
+    assert again.exit_code == 0, again.output
+    second = json.loads(again.stdout)["result"]
+    assert second["rekordbox"]["status"] == "already_in_rekordbox" and second["usb"] is None
+    assert len(fake.imported) == 1
+
+
+def test_set_without_owned_songs_builds_nothing(application, monkeypatch, tmp_path):
+    tracklist = tmp_path / "nothing.txt"
+    tracklist.write_text("Someone - Not Owned\nOther - Missing Too\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    reply = CliRunner().invoke(
+        cli_app, ["--workspace", str(application.workspace.root), "set", str(tracklist)]
+    )
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["owned"] == 0 and result["collection_id"] is None and result["rekordbox"] is None
+    assert len(result["missing"]) == 2 and fake.imported == []

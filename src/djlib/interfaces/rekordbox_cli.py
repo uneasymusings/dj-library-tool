@@ -74,7 +74,31 @@ def find_usb() -> Path:
     return chosen[0]
 
 
-def register_rekordbox(app, client, emit, handled, panel=None):
+def set_item(item: dict) -> dict:
+    """A request item that did not make the crate, with any other versions you own."""
+    from djlib.interfaces.views import mix_name
+
+    source = item.get("input") or {}
+    if source.get("kind") == "unknown":
+        label = source.get("label") or "Unknown ID"
+    else:
+        label = f"{source.get('artist') or 'Unknown artist'} - {source.get('title') or 'Untitled'}"
+        if source.get("version"):
+            label += f" ({source['version']})"
+    others = [
+        mix_name(candidate)
+        for candidate in item.get("candidates") or []
+        if candidate.get("identity_match") == "different_version"
+    ]
+    return {
+        "position": item.get("position"),
+        "label": label,
+        "state": item.get("state"),
+        "you_own": list(dict.fromkeys(others)),
+    }
+
+
+def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None):
     rekordbox = typer.Typer(
         help="Put crates into rekordbox and read its BPM/cue analysis in the background.",
         no_args_is_help=True,
@@ -140,6 +164,117 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         with status("Exporting rekordbox's collection XML…"):
             return ui.export_collection(folder / f"collection-{stamp}.xml")
 
+    def build_crate(local, request_id: str, name: str | None = None) -> str:
+        """Queue `requests collect` for the current revision and return the collection ID."""
+        with status("Building a crate from the request list…"):
+            current = local.request("GET", f"/requests/{request_id}", params={"limit": 1})
+            body = {"revision": current["result"]["revision"]}
+            if name is not None:
+                body["name"] = name
+            job = finished(
+                local,
+                local.request("POST", f"/requests/{request_id}/collection", data=body)["result"],
+            )
+        if job["state"] != "completed":
+            raise AppError("COLLECTION_FAILED", "The crate could not be built.")
+        return job["result"]["collection_id"]
+
+    def into_rekordbox(local, workspace, ui, crates: list[dict], verify: bool = False) -> dict:
+        """Import the crates rekordbox lacks and confirm each playlist exists."""
+        started = time.monotonic()
+        existing = ui.playlists()
+        if existing is None:
+            from djlib.exporting.native_rekordbox import playlist_names
+
+            # Learn current playlists from one export so a crate is never imported twice.
+            existing = playlist_names(export_xml(workspace, ui))
+        for crate in crates:
+            if crate["playlist"] in existing:
+                crate["status"] = "already_in_rekordbox"
+                continue
+            with status(f"Importing “{crate['playlist']}” in rekordbox…"):
+                ui.import_playlist(Path(crate["playlist_file"]))
+            crate["status"] = "imported"
+        present = ui.playlists() if any(c["status"] == "imported" for c in crates) else existing
+        # rekordbox's playlist menu is only readable while a track is selected; without it,
+        # one XML export (File menu, always available) confirms the import instead.
+        verify = verify or present is None
+        for crate in crates:
+            crate["playlist_found"] = present is not None and crate["playlist"] in present
+        reports = {}
+        if verify:
+            from djlib.exporting.native_rekordbox import playlist_report
+
+            xml = export_xml(workspace, ui)
+            for crate in crates:
+                reports[crate["collection_id"]] = playlist_report(
+                    xml, crate["playlist"], crate["paths"]
+                )
+                crate["playlist_found"] = reports[crate["collection_id"]]["playlist_found"]
+            local.request("POST", "/analysis/rekordbox", data={"path": str(xml)})
+        ui_seconds = round(time.monotonic() - started, 1)
+        missing = [crate["playlist"] for crate in crates if not crate["playlist_found"]]
+        if missing:
+            raise AppError(
+                "APP_IMPORT_NOT_FOUND",
+                "rekordbox has no playlist named " + ", ".join(f"“{m}”" for m in missing) + ".",
+            )
+        for crate in crates:
+            if crate["collection_id"] in reports:
+                report = reports[crate["collection_id"]]
+                crate.update({k: report[k] for k in ("entries", "expected", "matched", "analyzed")})
+        return {
+            "rekordbox_ui_seconds": ui_seconds,
+            "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
+        }
+
+    def to_usb(ui, crate: dict, volume: Path, timeout: int) -> dict:
+        """Have rekordbox export one playlist to the stick, then check it as a player would."""
+        from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
+
+        tracks = crate["tracks"]
+        before = library_state(volume)
+        term = terminal.current()
+
+        def wrong(name):
+            if not term.json:
+                term.err.print(
+                    f"[warn]That's “{name or 'not a playlist'}”.[/] Click “{crate['playlist']}”."
+                )
+
+        if not term.json:
+            term.err.print(
+                f"[accent]→[/] In rekordbox, click the playlist [bold]{crate['playlist']}[/]. "
+                "djlib exports it as soon as it is selected."
+            )
+        with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
+            ui.wait_for_selection(volume.name, crate["playlist"], timeout, on_wrong=wrong)
+        started = time.monotonic()
+        message = f"rekordbox is exporting to {volume.name}…"
+        with status(message) as live:
+
+            def progress(count):
+                if live is not None:
+                    live.update(f"[bold]{message}[/] {count} of {len(tracks)} files")
+
+            wait_for_copy(volume, tracks, before, on_progress=progress)
+        with status("Checking the playlist on the USB…"):
+            check = check_playlist(volume, crate["playlist"], tracks)
+        keys = ("expected", "found", "missing", "playlist_on_device", "device_entries", "in_order")
+        return {
+            "device": str(volume),
+            "library_updated": library_state(volume) != before,
+            "export_seconds": round(time.monotonic() - started, 1),
+            **{key: check.get(key) for key in (*keys, "matched_by", "verified_by")},
+            "player_playback_verified": False,
+        }
+
+    def usb_target(device: Path | None) -> Path:
+        volume = device.expanduser().absolute() if device else find_usb()
+        if not volume.is_dir():
+            raise AppError("DEVICE_UNAVAILABLE", f"{volume} is not mounted.")
+        return volume
+
     @rekordbox.command("push")
     @handled
     def push(
@@ -173,19 +308,7 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         local, workspace = client(ctx), ctx.obj
         ids = list(collection_ids or [])
         if request:
-            with status("Building a crate from the request list…"):
-                current = local.request("GET", f"/requests/{request}", params={"limit": 1})
-                job = finished(
-                    local,
-                    local.request(
-                        "POST",
-                        f"/requests/{request}/collection",
-                        data={"revision": current["result"]["revision"]},
-                    )["result"],
-                )
-            if job["state"] != "completed":
-                raise AppError("COLLECTION_FAILED", "The crate could not be built.")
-            ids.append(job["result"]["collection_id"])
+            ids.append(build_crate(local, request))
         if not ids:
             raise AppError("INPUT_INVALID", "Name a collection ID, or pass --request ID.")
         with status("Checking the collections' files…"):
@@ -194,58 +317,17 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         if when_idle:
             with status(f"Waiting until you've been away for {when_idle} s…"):
                 ui.wait_until_idle(when_idle)
-        started = time.monotonic()
-        existing = ui.playlists()
-        if existing is None:
-            from djlib.exporting.native_rekordbox import playlist_names
-
-            # Learn current playlists from one export so a crate is never imported twice.
-            existing = playlist_names(export_xml(workspace, ui))
-        for crate in crates:
-            if crate["playlist"] in existing:
-                crate["status"] = "already_in_rekordbox"
-                continue
-            with status(f"Importing “{crate['playlist']}” in rekordbox…"):
-                ui.import_playlist(Path(crate["playlist_file"]))
-            crate["status"] = "imported"
-        present = ui.playlists()
-        # rekordbox's playlist menu is only readable while a track is selected; without it,
-        # one XML export (File menu, always available) confirms the import instead.
-        verify = verify or present is None
-        for crate in crates:
-            crate["playlist_found"] = present is not None and crate["playlist"] in present
-        reports = {}
-        if verify:
-            from djlib.exporting.native_rekordbox import playlist_report
-
-            xml = export_xml(workspace, ui)
-            for crate in crates:
-                reports[crate["collection_id"]] = playlist_report(
-                    xml, crate["playlist"], crate["paths"]
-                )
-                crate["playlist_found"] = reports[crate["collection_id"]]["playlist_found"]
-            local.request("POST", "/analysis/rekordbox", data={"path": str(xml)})
-        ui_seconds = round(time.monotonic() - started, 1)
-        missing = [crate["playlist"] for crate in crates if not crate["playlist_found"]]
-        if missing:
-            raise AppError(
-                "APP_IMPORT_NOT_FOUND",
-                "rekordbox has no playlist named " + ", ".join(f"“{m}”" for m in missing) + ".",
-            )
+        outcome = into_rekordbox(local, workspace, ui, crates, verify)
         analysis = sync(local)
         for crate in crates:
             crate.pop("paths")
-            crate.pop("tracks", None)
-            if crate["collection_id"] in reports:
-                report = reports[crate["collection_id"]]
-                crate.update({k: report[k] for k in ("entries", "expected", "matched", "analyzed")})
+            crate.pop("tracks")
         emit(
             envelope(
                 {
                     "crates": crates,
-                    "rekordbox_ui_seconds": ui_seconds,
+                    **outcome,
                     "analysis_sync": analysis,
-                    "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
                     "database_modified_directly": False,
                 }
             )
@@ -269,7 +351,6 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
         rekordbox to finish and confirms each track on the stick byte for byte.
         """
-        from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
         from djlib.native import rekordbox_mac as ui
 
         # This command waits for the user anyway, so a locked screen just means "not yet".
@@ -277,70 +358,99 @@ def register_rekordbox(app, client, emit, handled, panel=None):
             ui.wait_for_unlock(timeout)
         ui.ensure_supported()
         local, workspace = client(ctx), ctx.obj
-        volume = device.expanduser().absolute() if device else find_usb()
-        crate = prepare(local, workspace, collection_id)
-        manifest_tracks = crate.pop("tracks")
-        existing = ui.playlists()
-        if existing is None:
-            from djlib.exporting.native_rekordbox import playlist_names
-
-            existing = playlist_names(export_xml(workspace, ui))
-        if crate["playlist"] not in existing:
-            with status(f"Importing “{crate['playlist']}” in rekordbox…"):
-                ui.import_playlist(Path(crate["playlist_file"]))
-        before = library_state(volume)
-        term = terminal.current()
-
-        def wrong(name):
-            if not term.json:
-                term.err.print(
-                    f"[warn]That's “{name or 'not a playlist'}”.[/] Click “{crate['playlist']}”."
-                )
-
-        if not term.json:
-            term.err.print(
-                f"[accent]→[/] In rekordbox, click the playlist [bold]{crate['playlist']}[/]. "
-                "djlib exports it as soon as it is selected."
-            )
-        with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
-            ui.wait_for_selection(volume.name, crate["playlist"], timeout, on_wrong=wrong)
-        started = time.monotonic()
-        message = f"rekordbox is exporting to {volume.name}…"
-        with status(message) as live:
-
-            def progress(count):
-                if live is not None:
-                    live.update(f"[bold]{message}[/] {count} of {len(manifest_tracks)} files")
-
-            wait_for_copy(volume, manifest_tracks, before, on_progress=progress)
-        with status("Checking the playlist on the USB…"):
-            check = check_playlist(volume, crate["playlist"], manifest_tracks)
+        volume = usb_target(device)
+        with status("Checking the collection's files…"):
+            crate = prepare(local, workspace, collection_id)
+        into_rekordbox(local, workspace, ui, [crate])
+        result = to_usb(ui, crate, volume, timeout)
         emit(
             envelope(
                 {
                     "collection_id": collection_id,
                     "playlist": crate["playlist"],
-                    "device": str(volume),
-                    "library_updated": library_state(volume) != before,
-                    "export_seconds": round(time.monotonic() - started, 1),
-                    **{
-                        k: check.get(k)
-                        for k in (
-                            "expected",
-                            "found",
-                            "missing",
-                            "playlist_on_device",
-                            "device_entries",
-                            "in_order",
-                            "matched_by",
-                            "verified_by",
-                        )
-                    },
-                    "player_playback_verified": False,
+                    **result,
                     "database_modified_directly": False,
                 }
             )
         )
+
+    @app.command("set", rich_help_panel=start_panel)
+    @handled
+    def set_command(
+        ctx: typer.Context,
+        tracklist: Annotated[
+            Path,
+            typer.Argument(
+                help="Text file with one “Artist - Title (Mix)” per line, in set order."
+            ),
+        ],
+        name: str | None = typer.Option(
+            None, help="Set name; defaults to the file's first heading or its name."
+        ),
+        source: str | None = typer.Option(
+            None, help="HTTPS link to the set, kept as evidence for unknown IDs."
+        ),
+        usb: bool = typer.Option(
+            False, "--usb", help="Also put it on your USB stick through rekordbox (one click)."
+        ),
+        device: Path | None = typer.Option(
+            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+        ),
+        timeout: int = typer.Option(
+            600, min=10, help="With --usb: seconds to wait for you to click the playlist."
+        ),
+    ) -> None:
+        """Tracklist → the songs you own → a rekordbox playlist → your USB, in one command.
+
+        Checks which songs you own (exact artist/title/version), builds a crate in set order,
+        imports it into rekordbox and, with --usb, has rekordbox export it to your stick and
+        verifies it there. Missing songs are listed, never swapped for another version.
+        """
+        from djlib.interfaces.library_cli import all_items, finish_checks, tracklist_request
+        from djlib.native import rekordbox_mac as ui
+
+        if usb:
+            with status("Waiting for you to unlock your Mac…"):
+                ui.wait_for_unlock(timeout)
+        ui.ensure_supported()
+        volume = usb_target(device) if usb else None
+        local, workspace = client(ctx), ctx.obj
+        body, warnings = tracklist_request(tracklist, name, source)
+        with status("Checking which songs you own…"):
+            reply = finish_checks(
+                local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
+            )
+        request = reply["result"]
+        items = all_items(local, request)
+        owned = [item for item in items if item.get("state") == "satisfied"]
+        result = {
+            "name": request.get("name"),
+            "request_id": request["request_id"],
+            "revision": request.get("revision"),
+            "songs": len(items),
+            "owned": len(owned),
+            "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
+            "collection_id": None,
+            "playlist": None,
+            "rekordbox": None,
+            "usb": None,
+            "database_modified_directly": False,
+        }
+        if owned:
+            collection_id = build_crate(local, request["request_id"])
+            with status("Checking the crate's files…"):
+                crate = prepare(local, workspace, collection_id)
+            outcome = into_rekordbox(local, workspace, ui, [crate])
+            result.update(
+                collection_id=collection_id,
+                playlist=crate["playlist"],
+                rekordbox={"status": crate["status"], **outcome},
+            )
+            if volume is not None:
+                result["usb"] = to_usb(ui, crate, volume, timeout)
+        reply = envelope(result)
+        reply["warnings"] = [*reply.get("warnings", []), *warnings]
+        emit(reply)
 
     def sync(local) -> dict | None:
         try:

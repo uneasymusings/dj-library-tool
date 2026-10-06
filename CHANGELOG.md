@@ -2,6 +2,7 @@
 
 ## 0.1.0a10
 
+- **`djlib set tracklist.txt [--usb]`: the whole workflow in one command.** Checks which songs you own, builds the crate in set order, imports it into rekordbox and, with `--usb`, exports it to your stick and verifies it. One screen shows what made it, what is missing and which other versions you own. Rerunning reuses the list, crate and playlist.
 - **`rekordbox usb ID`: crate → USB stick (macOS).** Pushes the crate if rekordbox lacks it, asks you to click its playlist once (rekordbox's browser cannot be scripted), confirms the selection from rekordbox's own export dialog, runs Playlist > Export Playlist > your stick, waits until every file has arrived, then reads the playlist back from the stick's own device library (`export.pdb`, what CDJs load) and checks that each entry, in order, points to a file with your track's exact bytes. Nothing but the requested playlist is exported; djlib never writes the stick itself. The stick is found automatically, or pass `--device`.
 - **Locked screen.** rekordbox automation reports `APP_SCREEN_LOCKED` instead of a confusing focus failure, and `--when-idle` waits until the Mac is unlocked as well as idle.
 - **macOS download cleanup.** Stopping a finished download no longer fails with `PermissionError` when its process group has already exited (an intermittent macOS CI failure).
