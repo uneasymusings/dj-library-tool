@@ -4,6 +4,7 @@
 
 - **`rekordbox usb ID`: crate → USB stick (macOS).** Pushes the crate if rekordbox lacks it, asks you to click its playlist once (rekordbox's browser cannot be scripted), confirms the selection from rekordbox's own export dialog, runs Playlist > Export Playlist > your stick, waits for rekordbox's device library to settle and checks every track on the stick by size and SHA-256. Nothing but the requested playlist is exported; djlib never writes the stick itself. The stick is found automatically, or pass `--device`.
 - **Locked screen.** rekordbox automation reports `APP_SCREEN_LOCKED` instead of a confusing focus failure, and `--when-idle` waits until the Mac is unlocked as well as idle.
+- **macOS download cleanup.** Stopping a finished download no longer fails with `PermissionError` when its process group has already exited (an intermittent macOS CI failure).
 - **Unreadable menus.** When rekordbox's playlist menu cannot be read, `push` learns and confirms playlists from one XML export instead of importing again.
 
 ## 0.1.0a9

@@ -155,7 +155,9 @@ async def run(
     finally:
         if os.name == "posix":
             # The session belongs exclusively to this retrieval, including FFmpeg children.
-            with contextlib.suppress(ProcessLookupError):
+            # macOS reports EPERM instead of ESRCH when the group has only exited, unreaped
+            # members left, so both mean it is already gone.
+            with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(process.pid, signal.SIGKILL)
         elif process.returncode is None:
             # Windows has no POSIX process group signals. taskkill /T stops the decoder tree.
