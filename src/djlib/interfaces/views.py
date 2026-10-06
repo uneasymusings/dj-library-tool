@@ -1250,15 +1250,15 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
         f"“{result.get('playlist', '')}” on {Path(result.get('device') or '').name}",
         f"exported in {result.get('export_seconds', 0):g} s",
     )
+    if result.get("playlist_on_device"):
+        order = ", in order and" if result.get("in_order") else ","
+        tracks_line = f"{found} of {expected} in the player's library{order} byte for byte"
+    else:
+        tracks_line = f"{found} of {expected} files on the USB, byte for byte (playlist not read)"
     fields(
         term,
         [
-            (
-                "Tracks",
-                Text(
-                    f"{found} of {expected} on the USB, byte for byte", "ok" if complete else "warn"
-                ),
-            ),
+            ("Tracks", Text(tracks_line, "ok" if complete else "warn")),
             (
                 "Library",
                 Text(f"{term.glyph('ok')} rekordbox device library updated", "ok")
@@ -1268,7 +1268,7 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
         ],
     )
     for label in (result.get("missing") or [])[:5]:
-        note(term, f"missing: {label}")
+        note(term, f"not matched: {label}")
     term.out.print()
     note(
         term,

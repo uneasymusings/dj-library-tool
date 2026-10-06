@@ -33,7 +33,7 @@ The headline workflow, step by step:
 | Analyze | `djlib rekordbox sync` (automatic after the first run) | rekordbox's BPM and cues are read from its analysis files in the background, with no window; `rekordbox pull` or `import-rekordbox XML` adds key. |
 | Crate | `djlib requests collect ID` | Owned songs become an ordered collection; missing ones stay listed. |
 | Push | `djlib rekordbox push ID --when-idle 60` | On macOS, djlib uses rekordbox's own File menu to import the crate as a playlist of your original files, in a few seconds and, with `--when-idle`, only after you step away. |
-| USB | `djlib rekordbox usb ID` | Pushes the crate if needed, asks you to click its playlist once, checks it is the right one, runs rekordbox's Playlist > Export Playlist > your stick, then confirms each track on the stick byte for byte. |
+| USB | `djlib rekordbox usb ID` | Pushes the crate if needed, asks you to click its playlist once, checks it is the right one, runs rekordbox's Playlist > Export Playlist > your stick, then reads the playlist back from the stick's device library (what the player loads) and confirms each track, in order, byte for byte. |
 | Hand off | `djlib delivery plan …`, `delivery prepare`, `delivery observe` | Separate tagged working copies for rekordbox/Serato or USB delivery, with guided checks. |
 
 `rekordbox push` needs a one-time macOS permission (System Settings → Privacy & Security → Accessibility → your terminal app). It uses only rekordbox's menus (Import Playlist, Export Collection in xml format) and never reads or writes rekordbox's database; before any keystroke it checks that rekordbox and the expected dialog have focus.

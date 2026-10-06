@@ -269,7 +269,7 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
         rekordbox to finish and confirms each track on the stick byte for byte.
         """
-        from djlib.exporting.usb_check import check_tracks, library_state, wait_for_copy
+        from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
         from djlib.native import rekordbox_mac as ui
 
         # This command waits for the user anyway, so a locked screen just means "not yet".
@@ -313,8 +313,8 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                     live.update(f"[bold]{message}[/] {count} of {len(manifest_tracks)} files")
 
             wait_for_copy(volume, manifest_tracks, before, on_progress=progress)
-        with status("Checking the files on the USB…"):
-            check = check_tracks(volume, manifest_tracks)
+        with status("Checking the playlist on the USB…"):
+            check = check_playlist(volume, crate["playlist"], manifest_tracks)
         emit(
             envelope(
                 {
@@ -323,8 +323,19 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                     "device": str(volume),
                     "library_updated": library_state(volume) != before,
                     "export_seconds": round(time.monotonic() - started, 1),
-                    **{k: check[k] for k in ("expected", "found", "missing", "matched_by")},
-                    "verified_by": "usb_file_hashes",
+                    **{
+                        k: check.get(k)
+                        for k in (
+                            "expected",
+                            "found",
+                            "missing",
+                            "playlist_on_device",
+                            "device_entries",
+                            "in_order",
+                            "matched_by",
+                            "verified_by",
+                        )
+                    },
                     "player_playback_verified": False,
                     "database_modified_directly": False,
                 }
