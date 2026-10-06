@@ -2,7 +2,15 @@
 
 ## 0.1.0a10
 
-Adds `rekordbox usb`: a crate goes to a USB stick through rekordbox's own Playlist > Export Playlist, and djlib checks the stick byte for byte. Live on 2026-10-05 with rekordbox 7.2.19 and a FAT32 stick that already held a rekordbox library: the user clicked "Set 0" once; djlib confirmed the selection from rekordbox's export dialog, started the export, and all 28 tracks (24-bit FLAC) were on the stick after about 90 s, matching by size and SHA-256. That first run reported early (8/28) because rekordbox shows export progress inside its window rather than as a dialog; completion is now read from the stick (every file present and no change for one more check), and that wait, run against the same export, confirmed 28/28. Reading the stick's `export.pdb` back, "Set 0" lists 28 entries in crate order, each pointing at a file with the original's SHA-256; across all 318 comparable tracks on the stick, the device library's BPM matched rekordbox's XML export 318/318 and key 317/318. Not verified: playback on a CDJ/XDJ, or a stick without an existing rekordbox library. Local validation: 638 tests passed with five Windows-only skips.
+Adds `djlib set` (tracklist → owned/missing → crate → rekordbox playlist → USB in one command) and `rekordbox usb` (a crate goes to a USB stick through rekordbox's own Playlist > Export Playlist, then djlib reads the stick back), plus artist-order-insensitive request matching, key import from the stick, `doctor` rekordbox checks and a fresh-user pass.
+
+Live on 2026-10-05 with rekordbox 7.2.19 and a FAT32 stick that already held a rekordbox library:
+- **USB export.** The user clicked "Set 0" once; djlib confirmed the selection from rekordbox's export dialog, started the export, and all 28 tracks (24-bit FLAC) were on the stick after about 90 s. The first run reported early (8/28) because rekordbox shows export progress inside its window; completion is now read from the stick, and that wait, run against the same export, confirmed 28/28.
+- **Device library.** Reading the stick's `export.pdb` back, "Set 0" lists 28 entries in crate order, each pointing at a file with the original's SHA-256. Across all 318 comparable tracks on the stick, its BPM matched rekordbox's XML export 318/318 and key 317/318.
+- **`set` on the real library.** An 8-line test tracklist matched 5 owned songs exactly (including "Avalon Emerson & Moby" against tags "Avalon Emerson, Moby"), reported "Lasso (Original Mix)" as missing with the owned Two Door Cinema Club Remix as another version, kept one missing song and one unknown ID, and imported the crate into rekordbox as a playlist. Its USB step waited for a click that did not happen (the user was away) and exported nothing, as designed.
+- **Fresh install.** A clean wheel install with an isolated home walked through init, scan, status, requests, crates, doctor, setup-agent and MCP (42 tools) on six real tracks; the rough edges found were fixed in this release.
+
+Not verified: playback on a CDJ/XDJ, a stick without an existing rekordbox library, and key import from a real stick (covered by tests with a synthetic `export.pdb`). Local validation: 674 tests passed with five Windows-only skips.
 
 ## 0.1.0a9
 
