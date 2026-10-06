@@ -157,11 +157,35 @@ def _osascript(script: str, *args: str, timeout: float = 30) -> str:
     return done.stdout.strip()
 
 
+def screen_locked() -> bool:
+    """Whether the login session's screen is locked (no app can be driven then)."""
+    try:
+        output = subprocess.run(
+            ["ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    marker = output.find("CGSSessionScreenIsLocked")
+    return marker != -1 and "<true/>" in output[marker : marker + 80]
+
+
+def wait_for_unlock(timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while screen_locked() and time.monotonic() < deadline:
+        time.sleep(3)
+
+
 def ensure_supported() -> None:
     if sys.platform != "darwin":
         raise AppError(
             "APP_AUTOMATION_UNSUPPORTED",
             "Driving rekordbox is only implemented on macOS so far.",
+        )
+    if screen_locked():
+        raise AppError(
+            "APP_SCREEN_LOCKED",
+            "Unlock your Mac first; macOS does not let apps be controlled while it is locked.",
+            retryable=True,
         )
     if _osascript('tell application "System Events" to get UI elements enabled') != "true":
         raise AppError(
@@ -303,11 +327,18 @@ return names as text
 """
 
 
-def playlists() -> set[str]:
-    """Playlist names from rekordbox's Track menu; read without focusing rekordbox."""
+def playlists() -> set[str] | None:
+    """Playlist names from rekordbox's Track menu, read without focusing rekordbox.
+
+    None when rekordbox is not running or the menu is unavailable (it only exists while a
+    track is selected); callers must then confirm through an XML export instead.
+    """
     if not _running():
-        return set()
-    return {line for line in _osascript(PLAYLISTS).splitlines() if line}
+        return None
+    try:
+        return {line for line in _osascript(PLAYLISTS).splitlines() if line}
+    except AppError:
+        return None
 
 
 def idle_seconds() -> float:
@@ -328,9 +359,163 @@ def idle_seconds() -> float:
 
 
 def wait_until_idle(seconds: float, timeout: float = 4 * 3600) -> None:
-    """Block until nobody has touched the keyboard or mouse for ``seconds``."""
+    """Block until nobody has touched the keyboard or mouse for ``seconds`` while unlocked.
+
+    A locked screen counts as not ready: rekordbox cannot be driven until it is unlocked.
+    """
     deadline = time.monotonic() + timeout
-    while idle_seconds() < seconds:
+    while idle_seconds() < seconds or screen_locked():
         if time.monotonic() >= deadline:
             raise AppError("APP_IDLE_TIMEOUT", "The computer never became idle; nothing changed.")
         time.sleep(5)
+
+
+CLICK_PATH = """
+on run argv
+  tell application "System Events"
+    tell process "rekordbox"
+      set target to menu bar item (item 1 of argv) of menu bar 1
+      repeat with i from 2 to count of argv
+        set target to menu item (item i of argv) of menu 1 of target
+      end repeat
+      if enabled of target is false then return "disabled"
+      click target
+      return "clicked"
+    end tell
+  end tell
+end run
+"""
+
+MENU_ENABLED = """
+on run argv
+  tell application "System Events"
+    tell process "rekordbox"
+      set target to menu bar item (item 1 of argv) of menu bar 1
+      repeat with i from 2 to count of argv
+        set target to menu item (item i of argv) of menu 1 of target
+      end repeat
+      return enabled of target as text
+    end tell
+  end tell
+end run
+"""
+
+EXPORT_TO_FILE = (
+    "Playlist",
+    "Export a playlist to a file",
+    "Export a playlist to a file for music apps (*.m3u8)",
+)
+
+
+def click_menu_path(*path: str) -> None:
+    """Click one menu item by its full path, e.g. Playlist > Export Playlist > RICARDO_AM."""
+    try:
+        outcome = _osascript(CLICK_PATH, *path)
+    except AppError as exc:
+        raise AppError("APP_MENU_MISSING", f"rekordbox has no “{' > '.join(path)}”.") from exc
+    if outcome == "disabled":
+        raise AppError("APP_MENU_DISABLED", f"“{' > '.join(path)}” is unavailable right now.")
+
+
+def menu_enabled(*path: str) -> bool:
+    try:
+        return _osascript(MENU_ENABLED, *path) == "true"
+    except AppError:
+        return False
+
+
+def selected_playlist() -> str | None:
+    """Name of the playlist selected in rekordbox's browser, or None.
+
+    rekordbox's browser is not exposed to accessibility, but its “export a playlist to a
+    file” dialog is pre-filled with the selected playlist's name; it is read and cancelled.
+    """
+    if not menu_enabled(*EXPORT_TO_FILE):
+        return None
+    click_menu_path(*EXPORT_TO_FILE)
+    window = _dialog()
+    script = (
+        'tell application "System Events" to tell process "rekordbox" to get value of '
+        f'text field "Save As:" of splitter group 1 of window "{window}"'
+    )
+    try:
+        name = _osascript(script)
+    finally:
+        _cancel(window)
+    return name.removesuffix(".m3u8").removesuffix(".M3U8") or None
+
+
+FRONTMOST = 'tell application "System Events" to get frontmost of process "rekordbox"'
+
+
+def frontmost() -> bool:
+    try:
+        return _osascript(FRONTMOST) == "true"
+    except AppError:
+        return False
+
+
+MIN_REPROBE_SECONDS = 2.0
+
+
+def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) -> None:
+    """Wait until the user selects ``target`` in rekordbox, then export it to ``device``.
+
+    rekordbox's browser cannot be driven, so the user clicks the playlist. As soon as
+    rekordbox enables Playlist > Export Playlist > device while it is in front, the selected
+    playlist's name is read from the export-to-file dialog; only the requested playlist is
+    exported, through rekordbox's own menu.
+    """
+    deadline = time.monotonic() + timeout
+    last_wrong, probed_at = None, None
+    while time.monotonic() < deadline:
+        if screen_locked() or not frontmost():
+            time.sleep(0.4)
+            continue
+        if not menu_enabled("Playlist", "Export Playlist", device):
+            time.sleep(0.4)
+            continue
+        # Reading the selection briefly opens a dialog. After a wrong answer, look again only
+        # once the user has clicked or typed since (djlib's own menu actions are not input),
+        # so browsing other playlists is not interrupted.
+        if probed_at is not None:
+            since = time.monotonic() - probed_at
+            if since < MIN_REPROBE_SECONDS or idle_seconds() >= since:
+                time.sleep(0.4)
+                continue
+        chosen = selected_playlist()
+        probed_at = time.monotonic()
+        if chosen == target:
+            click_menu_path("Playlist", "Export Playlist", device)
+            return
+        if chosen != last_wrong and on_wrong is not None:
+            on_wrong(chosen)
+        last_wrong = chosen
+    raise AppError(
+        "APP_SELECTION_TIMEOUT",
+        f"“{target}” was not selected in rekordbox in time; nothing was exported.",
+        retryable=True,
+    )
+
+
+def installed() -> dict | None:
+    """The installed rekordbox app and its version, without launching it."""
+    import plistlib
+
+    for app in sorted(Path("/Applications").glob("rekordbox*/rekordbox.app"), reverse=True):
+        try:
+            info = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
+        except (OSError, ValueError):
+            info = {}
+        return {"path": str(app), "version": info.get("CFBundleShortVersionString")}
+    return None
+
+
+def automation_allowed() -> bool | None:
+    """Whether macOS lets this terminal drive other apps (None off macOS)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        return _osascript('tell application "System Events" to get UI elements enabled') == "true"
+    except AppError:
+        return False

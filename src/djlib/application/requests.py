@@ -20,9 +20,12 @@ from djlib.application.service import new_id, require
 from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.contracts import (
     base_form,
+    credit_base_form,
+    credit_form,
     label_form,
     normalize,
     related_prefixes,
+    title_lookup,
     version_prefixes,
 )
 from djlib.domain.errors import AppError
@@ -34,6 +37,8 @@ from djlib.sources.web import validate_url
 
 MAX_CANDIDATES = 20
 MAX_RELATED = 5
+# Catalog rows read when looking a song up by title for artists credited in another order.
+MAX_TITLE_ROWS = 200
 MAX_LOCATIONS = 10
 MAX_VERIFY_BYTES = 1024**3
 MAX_VERIFY_SECONDS = 30
@@ -106,6 +111,14 @@ def _identity(artist, title, version=""):
     )
 
 
+def _equivalent(labels, requested):
+    """Same song and version: labels as written, or the same credited names in any order."""
+    wanted = requested["artist"], requested["title"], requested["version"]
+    return label_form(*labels) == label_form(*wanted) or credit_form(*labels) == credit_form(
+        *wanted
+    )
+
+
 def _load(app, request_id):
     with app.db.transaction() as session:
         ledger = require(session, RequestLedger, request_id)
@@ -148,7 +161,16 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
         if requested["kind"] == "named"
         else None
     )
-    cache_key = prefixes, recording_id, asset_revision_id
+    # Credited names decide the title lookup below: "A & B" and "A B" share prefixes only.
+    credits = (
+        (
+            credit_base_form(requested["artist"], requested["title"]),
+            credit_form(requested["artist"], requested["title"], requested["version"]),
+        )
+        if prefixes
+        else None
+    )
+    cache_key = prefixes, credits, recording_id, asset_revision_id
     if cache_key in verification.catalog_cache:
         return deepcopy(verification.catalog_cache[cache_key])
     with app.db.transaction() as session:
@@ -197,6 +219,44 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                 if row[1].id not in seen
                 and label_form(row[0].artist, row[0].title, row[0].version) == wanted_form
             ][: max(0, MAX_CANDIDATES - len(rows))]
+        context = []
+        if prefixes and not recording_id:
+            # Tracklists credit the same artists in another order or with other separators
+            # ("Max Dean, Luke Dean, Jamie Jones" for tags "Jamie Jones, Max Dean, Luke Dean"),
+            # which the artist-first prefixes above cannot find. Look the song up by its base
+            # title in the identity key, then keep rows whose credited names and base title
+            # are equal; a subset of the names is a different song.
+            fragments, names = title_lookup(requested["artist"], requested["title"])
+            seen = {revision.id for _, revision in rows}
+            titled = session.execute(
+                select(Recording, AssetRevision)
+                .join(Asset, Asset.recording_id == Recording.id)
+                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                .where(
+                    or_(
+                        *(
+                            Recording.identity_key.contains(fragment, autoescape=True)
+                            for fragment in fragments
+                        )
+                    ),
+                    *(Recording.identity_key.contains(name, autoescape=True) for name in names),
+                )
+                .order_by(Recording.id, AssetRevision.id)
+                .limit(MAX_TITLE_ROWS)
+            ).all()
+            matching = []
+            for row in titled:
+                labels = row[0].artist, row[0].title, row[0].version
+                if row[1].id in seen:
+                    continue
+                if _equivalent(labels, requested):
+                    matching.append(row)
+                elif credit_base_form(row[0].artist, row[0].title) == credits[0]:
+                    context.append(row)  # another version of this song; shown, never owned
+            room = MAX_CANDIDATES - len(rows)
+            # Same truncation rule as above: unseen matches mean the choice is incomplete.
+            truncated = truncated or len(matching) > room
+            rows += matching[:room]
         if prefixes and not recording_id:
             # Other versions you own are shown for context; they never affect matching,
             # ambiguity or the candidate bound above.
@@ -216,13 +276,15 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                 .order_by(Recording.id, AssetRevision.id)
                 .limit(MAX_RELATED + len(seen))
             ).all()
-            rows += [
+            related = [
                 row
                 for row in related
                 if row[1].id not in seen
                 and base_form(row[0].artist, row[0].title)
                 == base_form(requested["artist"], requested["title"])
-            ][:MAX_RELATED]
+            ]
+            seen |= {revision.id for _, revision in related}
+            rows += (related + [row for row in context if row[1].id not in seen])[:MAX_RELATED]
         candidates = []
         for recording, revision in rows:
             locations = list(
@@ -271,16 +333,14 @@ def _refresh_item(app, item, verification):
         if requested["kind"] == "named"
         else None
     )
+    wanted_base = (
+        credit_base_form(requested["artist"], requested["title"]) if wanted is not None else None
+    )
     exact = []
     for candidate in candidates:
         labels = candidate["artist"], candidate["title"], candidate["version"]
         identical = wanted is not None and _identity(*labels) == wanted
-        equivalent = (
-            wanted is not None
-            and not identical
-            and label_form(*labels)
-            == label_form(requested["artist"], requested["title"], requested["version"])
-        )
+        equivalent = wanted is not None and not identical and _equivalent(labels, requested)
         matches = wanted is None or identical or equivalent
         from_file_name = candidate.pop("file_name_labels", False)
         candidate["identity_match"] = (
@@ -296,6 +356,7 @@ def _refresh_item(app, item, verification):
             if _identity(candidate["artist"], candidate["title"])[:2] == wanted[:2]
             or base_form(candidate["artist"], candidate["title"])
             == base_form(requested["artist"], requested["title"])
+            or credit_base_form(candidate["artist"], candidate["title"]) == wanted_base
             else "different_labels"
         )
         locations = candidate.pop("locations")
@@ -477,9 +538,9 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
         with app.db.transaction() as session:
             recording = require(session, Recording, request.recording_id)
             value = item["input"]
-            if value["kind"] == "named" and label_form(
-                recording.artist, recording.title, recording.version
-            ) != label_form(value["artist"], value["title"], value["version"]):
+            if value["kind"] == "named" and not _equivalent(
+                (recording.artist, recording.title, recording.version), value
+            ):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",
                     "The selected recording is a different artist, title, or version.",

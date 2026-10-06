@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0a10
+
+- **`djlib set tracklist.txt [--usb]`: the whole workflow in one command.** Checks which songs you own, builds the crate in set order, imports it into rekordbox and, with `--usb`, exports it to your stick and verifies it. One screen shows what made it, what is missing and which other versions you own. Rerunning reuses the list, crate and playlist.
+- **`rekordbox usb ID`: crate → USB stick (macOS).** Pushes the crate if rekordbox lacks it, asks you to click its playlist once (rekordbox's browser cannot be scripted), confirms the selection from rekordbox's own export dialog, runs Playlist > Export Playlist > your stick, waits until every file has arrived, then reads the playlist back from the stick's own device library (`export.pdb`, what CDJs load) and checks that each entry, in order, points to a file with your track's exact bytes. Nothing but the requested playlist is exported; djlib never writes the stick itself. The stick is found automatically, or pass `--device`.
+- **Clearer next steps.** `status` suggests `set` for a new library, `rekordbox sync` when BPM is missing, and USB export for crates already in rekordbox, and remembers when djlib pushed each crate and last checked it on a stick. Scans, crates and collection views now point to `set`, `rekordbox push` and `rekordbox usb` instead of the older delivery and XML steps.
+- **`doctor` checks rekordbox.** It shows the installed version, whether your terminal may control apps (with the setting to change if not), and whether rekordbox's analysis folder was found.
+- **Artists in any order.** Request lists match owned songs when a tracklist credits the same artists in another order or with other separators (`A, B` / `B & A` / `A x B` / `A feat. B`, including `Title (feat. B)`); a subset of the artists never matches. Other versions are found the same way, so “you own: Jamie Jones Remix” appears for a reordered credit. A trailing `[ft. X]` in a tracklist is kept as a featured artist rather than dropped as a label.
+- **Tracklists.** Lines numbered `03 Artist - Title` (no dot) parse when the numbers run in sequence, while artists like `2 Unlimited` stay intact. Rerunning a tracklist that a newer djlib parses differently creates a new list instead of an idempotency error.
+- **Upgrades.** When an older background service is still running after an update, the message names the exact `service stop` command for your workspace.
+- **Key from the stick.** A verified USB export also brings rekordbox's key and BPM for those tracks into your catalog, read from the stick's device library, so no XML export window is needed for them.
+- **Never the wrong playlist.** A rekordbox playlist with the crate's name is trusted only if djlib pushed that crate there; otherwise its tracks and order are checked against one XML export first. If it differs (an older version of the set, or your own playlist), djlib stops with `APP_PLAYLIST_NAME_TAKEN` before importing or exporting anything.
+- **Locked screen.** rekordbox automation reports `APP_SCREEN_LOCKED` instead of a confusing focus failure, and `--when-idle` waits until the Mac is unlocked as well as idle.
+- **macOS download cleanup.** Stopping a finished download no longer fails with `PermissionError` when its process group has already exited (an intermittent macOS CI failure).
+- **Unreadable menus.** When rekordbox's playlist menu cannot be read, `push` learns and confirms playlists from one XML export instead of importing again.
+
 ## 0.1.0a9
 
 - **No more `--workspace`.** The first `init` becomes your default workspace; `djlib use PATH` switches it and `djlib use` shows it (`DJLIB_WORKSPACE` still wins). Stored in `~/.config/djlib/workspace` (Windows: `%APPDATA%\djlib\workspace`).

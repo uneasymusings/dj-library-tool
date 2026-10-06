@@ -460,24 +460,13 @@ def job_next_steps(term: Terminal, job: dict) -> list[tuple[str, tuple | None]]:
     if state == "completed":
         if kind == "scan":
             steps.append(("Browse your library", ("library",)))
+            steps.append(("Check a set's tracklist against it", ("set", "TRACKLIST.txt")))
         elif result.get("collection_id"):
             steps.append(("Open the collection", ("collection", result["collection_id"])))
             if kind in {"collection", "organize"}:
-                steps.append(
-                    (
-                        "Prepare it for rekordbox",
-                        (
-                            "delivery",
-                            "plan",
-                            "--collection",
-                            result["collection_id"],
-                            "--workflow",
-                            "rekordbox_import",
-                            "--app-version",
-                            "VERSION",
-                        ),
-                    )
-                )
+                collection = result["collection_id"]
+                steps.append(("Put it in rekordbox", ("rekordbox", "push", collection)))
+                steps.append(("Or straight onto your USB", ("rekordbox", "usb", collection)))
         elif kind in {"delivery", "delivery_check"} and result.get("delivery_id"):
             steps.append(("Check delivery status", ("delivery", "get", result["delivery_id"])))
         elif kind == "export" and result.get("playlist_path"):
@@ -692,8 +681,8 @@ def collections(term: Terminal, result: dict) -> None:
     rows = result.get("collections") or []
     if not rows:
         status_line(term, "todo", "No collections yet")
-        note(term, "Ask your assistant to build one, or plan one from a JSON tracklist.")
-        next_steps(term, [("Plan a collection", ("plan", "--file", "collection.json"))])
+        note(term, "A collection (crate) is built from the songs of a tracklist you own.")
+        next_steps(term, [("Build one from a tracklist", ("set", "TRACKLIST.txt"))])
         return
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis"}),
@@ -738,9 +727,13 @@ def collection(term: Terminal, result: dict) -> None:
                 )
             ],
         )
+    collection = result.get("collection_id", "")
     next_steps(
         term,
-        [("Export M3U + rekordbox XML", ("export", result.get("collection_id", "")))]
+        [
+            ("Put it in rekordbox", ("rekordbox", "push", collection)),
+            ("Or straight onto your USB", ("rekordbox", "usb", collection)),
+        ]
         if tracks
         else [],
     )
@@ -837,7 +830,11 @@ def status_view(term: Terminal, result: dict) -> None:
             ),
         ],
     )
-    requests = result.get("recent_requests") or []
+    # A tracklist checked again after edits makes a new list; show the newest per name.
+    newest: dict[str, dict] = {}
+    for row in result.get("recent_requests") or []:
+        newest.setdefault(row.get("name") or row.get("request_id"), row)
+    requests = list(newest.values())
     if requests:
         term.out.print()
         term.out.print(Text("Request lists", style="heading"))
@@ -862,16 +859,31 @@ def status_view(term: Terminal, result: dict) -> None:
                 line.append(f"  {term.glyph('ok')} in rekordbox", style="ok")
             elif row.get("in_rekordbox") is False:
                 line.append("  not in rekordbox yet", style="muted")
+            elif row.get("pushed_at"):
+                line.append(f"  pushed to rekordbox {ago(row['pushed_at'])}", style="muted")
+            usb = row.get("usb") or {}
+            if usb:
+                complete = usb.get("expected") and usb.get("found") == usb.get("expected")
+                line.append(
+                    f"  {term.glyph('ok' if complete else 'warn')} on {usb.get('device')} "
+                    f"{usb.get('found')}/{usb.get('expected')} {ago(usb.get('checked_at'))}",
+                    style="ok" if complete else "warn",
+                )
             term.out.print(line, soft_wrap=True)
     steps: list[tuple[str, tuple | None]] = []
     if not tracks:
         steps.append(("Index your music", ("scan",)))
+    elif not requests and not collections:
+        steps.append(("Check a set's tracklist against your music", ("set", "TRACKLIST.txt")))
+    synced = result.get("rekordbox_analysis_synced_at")
+    if tracks and not bpm and not synced and result.get("rekordbox_installed"):
+        steps.append(("Read BPM and cues from rekordbox's analysis", ("rekordbox", "sync")))
     for row in collections:
         if row.get("in_rekordbox") is False:
             steps.append(
                 (
                     f"Put “{row['name']}” in rekordbox",
-                    ("rekordbox", "push", row["collection_id"], "--when-idle", "60"),
+                    ("rekordbox", "push", row["collection_id"]),
                 )
             )
             break
@@ -892,6 +904,15 @@ def status_view(term: Terminal, result: dict) -> None:
         ):
             steps.append(
                 (f"Make a crate from “{row['name']}”", ("requests", "collect", row["request_id"]))
+            )
+            break
+    for row in collections:
+        in_rekordbox = row.get("in_rekordbox") is True or (
+            row.get("in_rekordbox") is None and row.get("pushed_at")
+        )
+        if in_rekordbox and not row.get("usb"):
+            steps.append(
+                (f"Put “{row['name']}” on your USB", ("rekordbox", "usb", row["collection_id"]))
             )
             break
     if bpm > key and result.get("rekordbox_checked"):
@@ -958,6 +979,33 @@ def doctor(term: Terminal, result: dict) -> None:
             "" if runtimes.get("youtube_runtime_ready") else "optional; Deno 2.3+ or Node 22+",
         ),
     ]
+    if result.get("rekordbox_automation_allowed") is not None:
+        app = result.get("rekordbox") or {}
+        allowed = bool(result.get("rekordbox_automation_allowed"))
+        checks[2:2] = [
+            (
+                "rekordbox",
+                bool(app),
+                f"rekordbox {app.get('version') or ''}".strip() if app else "not found",
+                "" if app else "install it in /Applications to push crates and export USBs",
+            ),
+            (
+                "App control",
+                allowed,
+                "allowed" if allowed else "not allowed",
+                ""
+                if allowed
+                else "System Settings > Privacy & Security > Accessibility > your terminal",
+            ),
+            (
+                "rekordbox analysis",
+                bool(result.get("rekordbox_analysis_folder")),
+                "found" if result.get("rekordbox_analysis_folder") else "not found",
+                "BPM and cues are read from it in the background"
+                if result.get("rekordbox_analysis_folder")
+                else "optional; appears once rekordbox has analyzed tracks",
+            ),
+        ]
     grid = Table.grid(padding=(0, 2))
     grid.add_column(no_wrap=True, min_width=max(len(check[0]) for check in checks) + 2)
     grid.add_column(overflow="fold")
@@ -971,11 +1019,7 @@ def doctor(term: Terminal, result: dict) -> None:
         grid.add_row(Text(f"{term.glyph(tone)} ", style=style) + Text(name), detail)
     term.out.print(Padding(grid, (0, 0, 0, 2)))
     term.out.print()
-    note(
-        term,
-        "Native import, analysis and USB export happen in rekordbox or Serato; "
-        "djlib prepares files and records what you observe there.",
-    )
+    note(term, "djlib drives rekordbox through its own menus and never edits its database.")
 
 
 @view("capabilities")
@@ -1028,7 +1072,7 @@ def service_stop(term: Terminal, result: dict) -> None:
 @view("setup-agent")
 def setup_agent(term: Terminal, result: dict) -> None:
     header(term, "Assistant session ready")
-    output = result.get("output") or result.get("session") or result.get("path")
+    output = result.get("session_directory") or result.get("output")
     fields(
         term, [("Session", path_text(output)), ("Workspace", path_text(result.get("workspace")))]
     )
@@ -1238,6 +1282,128 @@ def rekordbox_push(term: Terminal, result: dict) -> None:
         "rekordbox keeps analyzing in the background; djlib picks up BPM and cues on its own. "
         "Its database was not edited.",
     )
+
+
+@view("rekordbox usb")
+def rekordbox_usb(term: Terminal, result: dict) -> None:
+    found, expected = int(result.get("found") or 0), int(result.get("expected") or 0)
+    complete = expected and found == expected
+    status_line(
+        term,
+        "ok" if complete else "warn",
+        f"“{result.get('playlist', '')}” on {Path(result.get('device') or '').name}",
+        f"exported in {result.get('export_seconds', 0):g} s",
+    )
+    if result.get("playlist_on_device"):
+        order = ", in order and" if result.get("in_order") else ","
+        tracks_line = f"{found} of {expected} in the player's library{order} byte for byte"
+    else:
+        tracks_line = f"{found} of {expected} files on the USB, byte for byte (playlist not read)"
+    fields(
+        term,
+        [
+            ("Tracks", Text(tracks_line, "ok" if complete else "warn")),
+            (
+                "Library",
+                Text(f"{term.glyph('ok')} rekordbox device library updated", "ok")
+                if result.get("library_updated")
+                else Text("device library unchanged", "warn"),
+            ),
+        ],
+    )
+    for label in (result.get("missing") or [])[:5]:
+        note(term, f"not matched: {label}")
+    term.out.print()
+    note(term, PLAYER_NOTE)
+
+
+PLAYER_NOTE = (
+    "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig."
+)
+
+
+@view("set")
+def set_view(term: Terminal, result: dict) -> None:
+    owned, songs = int(result.get("owned") or 0), int(result.get("songs") or 0)
+    usb = result.get("usb") or {}
+    usb_ok = not usb or (usb.get("expected") and usb.get("found") == usb.get("expected"))
+    status_line(
+        term,
+        "ok" if owned and usb_ok else "warn",
+        result.get("name") or "Set",
+        f"{owned} of {plural(songs, 'song')} owned",
+    )
+    rekordbox = result.get("rekordbox") or {}
+    rows: list[tuple[str, object]] = []
+    if result.get("collection_id"):
+        rows.append(("Crate", Text(f"{plural(owned, 'track')}, in set order", "ok")))
+        there = "imported" if rekordbox.get("status") == "imported" else "already there"
+        rows.append(
+            (
+                "rekordbox",
+                Text(f"{term.glyph('ok')} playlist “{result.get('playlist')}” {there}", "ok"),
+            )
+        )
+    else:
+        rows.append(("Crate", Text("none of these songs are in your library yet", "warn")))
+    if usb:
+        found, expected = usb.get("found") or 0, usb.get("expected") or 0
+        place = "the player's library" if usb.get("playlist_on_device") else "the stick"
+        order = ", in order and" if usb.get("in_order") else ","
+        stick = Path(usb.get("device") or "").name
+        rows.append(
+            (
+                "USB",
+                Text(
+                    f"{term.glyph('ok' if usb_ok else 'warn')} {stick}: "
+                    f"{found} of {expected} in {place}{order} byte for byte",
+                    "ok" if usb_ok else "warn",
+                ),
+            )
+        )
+    fields(term, rows)
+    missing = result.get("missing") or []
+    if missing:
+        term.out.print()
+        term.out.print(Text(f"Not in the crate ({len(missing)})", style="heading"))
+        grid = table(
+            ("#", {"justify": "right", "style": "muted"}),
+            ("Status", {"min_width": 11}),
+            ("Requested", {"overflow": "ellipsis"}),
+            ("You own", {"overflow": "ellipsis", "drop": 1}),
+        )
+        for item in missing:
+            glyph, tone, label = REQUEST_STATES.get(
+                item.get("state") or "", ("todo", "muted", item.get("state") or "")
+            )
+            grid.add_row(
+                str(item.get("position") or ""),
+                Text(f"{term.glyph(glyph)} {label}", style=tone),
+                Text(item.get("label") or ""),
+                Text(", ".join(item.get("you_own") or []), style="warn"),
+            )
+        term.out.print(grid)
+    term.out.print()
+    note(term, "Matched by exact artist/title/version labels; other versions are never swapped in.")
+    if usb:
+        note(term, PLAYER_NOTE)
+    steps: list[tuple[str, tuple | None]] = []
+    if result.get("collection_id") and not usb:
+        steps.append(("Put it on your USB", ("rekordbox", "usb", result["collection_id"])))
+    if missing:
+        steps.append(
+            (
+                "Save the missing songs as a list",
+                (
+                    "requests",
+                    "report",
+                    result.get("request_id", ""),
+                    "--revision",
+                    str(result.get("revision", "")),
+                ),
+            )
+        )
+    next_steps(term, steps)
 
 
 @view("rekordbox sync")
