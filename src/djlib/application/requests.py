@@ -460,7 +460,8 @@ def create_request(app, request: RequestCreate) -> dict:
         else:
             existing = None
     if existing:
-        return get_request(app, existing)
+        # The same list again: the stored report, marked so callers can re-check it.
+        return {**get_request(app, existing), "reused": True}
     verification, seen, items = _Verification(app), {}, []
     for position, value in enumerate(payload["items"], 1):
         item_id = new_id("requested")
