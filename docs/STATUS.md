@@ -1,5 +1,15 @@
 # Implementation status
 
+## 0.1.0a12
+
+A UX and product pass driven by three audits (a sandboxed first-time install, the CLI surface and output at 80/120 columns, and use from Claude Code/Codex). Measured on 2026-10-06:
+- **Speed.** `djlib version` 0.85 s → 0.20 s (the CLI no longer imports server code; every command saves about 0.4 s); a 13-track `set --fetch` plan 31 s → 11.5 s (four searches at a time).
+- **Assistants.** MCP `tools/list` 66,135 → 27,537 characters (19 core tools by default; 43 with `DJLIB_MCP_TOOLS=full`); the server starts in 1.3 s with no workspace and answers with the `djlib init` command; SKILL.md 3,013 → about 1,120 words. The plugin manifest passes `claude plugin validate --strict`, and Codex 0.160 reads it (MCP server and skill listed) in an isolated `CODEX_HOME`; neither host's real install was exercised.
+- **First run** (clean sandbox home): `doctor` before `init` shows a "not set up yet" row with the command; `init` → `scan` → `set FILE --no-rekordbox` reported 3 of 5 owned, matching “(Original Mix)” to a bare-titled file and “Max Dean, Luke Dean, Jamie Jones” to reordered tags, kept `ID - ID @ 41:20` as an unknown with its time, and named the set from its heading; next steps print 8-character handles that the commands accept. The one-line installer installed the newest release with bytecode in a sandbox.
+- **Reruns.** An unchanged `set` reuses its crate and playlist; a set that gained a song gets a new crate imported as “Name (2)” (tests with a simulated rekordbox).
+
+Not verified here: a real `claude plugin install` / `codex plugin add` from GitHub (needs this on the default branch), Windows/Linux installs of the new installer, and a 100,000-file scan end to end (discovery of 50,000 files measured at about 19 s and 175 MB with ingestion stubbed). Local validation: 849 tests passed with five Windows-only skips.
+
 ## 0.1.0a11
 
 Adds sets from a YouTube or SoundCloud link (tracklist from the description or chapters, listener comments as hints for IDs), `--fetch` for missing songs (YouTube/SoundCloud search, ranked; clear matches downloaded as MP3 after confirmation, the library copy tagged with the requested labels), MP3 downloads, artist country tags such as “(BR)” ignored in matching, and 1001Tracklists through the browser (its tracklist pages answer scripts with a captcha, which djlib does not get around).

@@ -21,7 +21,7 @@ Not in the crate (3)
 13   ○ unknown ID   ID - ID @ 41:20
 ```
 
-> **Experimental alpha, 0.1.0a11.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a12.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
 
 ## Quick start
 
@@ -39,7 +39,7 @@ djlib set tracklist.txt --usb        # … and onto your USB stick, verified
 djlib status                         # library, request lists, crates, next steps
 ```
 
-Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'`.
+Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a12/dj_library_tool-0.1.0a12-py3-none-any.whl'`.
 
 A tracklist is plain text with one `Artist - Title (Mix)` per line. Numbering, timestamps and `[Label]` suffixes are ignored, and a heading line names the set. Start without `--usb` to see what you own; add it when the stick is plugged in.
 

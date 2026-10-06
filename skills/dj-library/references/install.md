@@ -7,7 +7,7 @@ The skill needs the local `djlib` engine: Python runs on the user's computer to 
 With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed (macOS: also `brew install ffmpeg`):
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a12/dj_library_tool-0.1.0a12-py3-none-any.whl'
 djlib version
 djlib init --allow-root ~/Music
 djlib scan
