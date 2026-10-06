@@ -90,7 +90,7 @@ def rekordbox_xml(path: Path, tracks: list[tuple[Path, str, str]]) -> Path:
     return path
 
 
-def build(http, sources, labels):
+def build(http, sources, labels, key="own"):
     plan = assert_envelope(
         http.post(
             "/plans",
@@ -105,7 +105,7 @@ def build(http, sources, labels):
     )
     job = assert_envelope(
         http.post(
-            "/jobs", json={"plan_id": plan["plan_id"], "revision": 1, "idempotency_key": "own"}
+            "/jobs", json={"plan_id": plan["plan_id"], "revision": 1, "idempotency_key": key}
         ).json()
     )
     return finish(http, job["job_id"])
@@ -353,3 +353,24 @@ def test_cli_keeps_checking_until_the_budget_is_no_longer_the_limit(
     ledger = json.loads(reply.stdout)["result"]
     assert ledger["counts"]["satisfied"] == 3
     assert ledger["revision"] > 2
+
+
+def test_rerunning_a_tracklist_rechecks_it_against_new_music(
+    application, library_http, audio_factory, tmp_path
+):
+    build(library_http, [audio_factory("first.wav", frequency=310)], [("Lumen", "Halo")])
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nLumen - Rain\n", encoding="utf-8")
+    workspace = ["--workspace", str(application.workspace.root)]
+    first = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", str(tracklist)]
+    )
+    assert json.loads(first.stdout)["result"]["counts"]["satisfied"] == 1
+    # The DJ adds the missing song and runs the same tracklist again.
+    build(library_http, [audio_factory("second.wav", frequency=620)], [("Lumen", "Rain")], "own-2")
+    again = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", str(tracklist)]
+    )
+    result = json.loads(again.stdout)["result"]
+    assert result["request_id"] == json.loads(first.stdout)["result"]["request_id"]
+    assert result["counts"]["satisfied"] == 2

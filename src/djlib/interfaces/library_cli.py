@@ -67,6 +67,22 @@ def text_request(
     return body, warnings
 
 
+def created(local, body) -> dict:
+    """POST a request list; when the same list already exists, re-check it against the library.
+
+    Rerunning an unchanged tracklist after adding music must report the new songs as owned.
+    """
+    reply = local.request("POST", "/requests", data=body.model_dump(mode="json"))
+    result = reply["result"]
+    if result.get("reused"):
+        reply = local.request(
+            "POST",
+            f"/requests/{result['request_id']}/refresh",
+            data={"revision": result["revision"]},
+        )
+    return finish_checks(local, reply)
+
+
 def finish_checks(local, reply: dict) -> dict:
     """Keep hash-checking matches that hit the per-call budget, in bounded batches.
 
@@ -142,9 +158,7 @@ def register_commands(app, client, emit, handled, panel=None):
         else:
             body, warnings = tracklist_request(text, name, source)
         local = client(ctx)
-        reply = finish_checks(
-            local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
-        )
+        reply = created(local, body)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
 

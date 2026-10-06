@@ -504,6 +504,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         from djlib.interfaces import set_sources
         from djlib.interfaces.library_cli import (
             all_items,
+            created,
             finish_checks,
             text_request,
             tracklist_request,
@@ -541,9 +542,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         else:
             body, warnings = tracklist_request(Path(tracklist).expanduser(), name, source)
         with status("Checking which songs you own…"):
-            reply = finish_checks(
-                local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
-            )
+            reply = created(local, body)
         request = reply["result"]
         items = all_items(local, request)
         fetched = None
