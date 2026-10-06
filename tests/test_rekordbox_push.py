@@ -245,3 +245,48 @@ def test_push_without_a_readable_menu_checks_through_xml(
     assert second.exit_code == 0, second.output
     assert json.loads(second.stdout)["result"]["crates"][0]["status"] == "already_in_rekordbox"
     assert len(fake.imported) == 1
+
+
+def test_usb_export_waits_for_the_right_selection_then_verifies(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    sources = [audio_factory(f"usb-{n}.wav", frequency=700 + 30 * n) for n in range(2)]
+    collection_id = build(library_http, sources, [("Velvet Static", f"USB {n}") for n in range(2)])[
+        "result"
+    ]["collection_id"]
+    fake = FakeRekordbox(monkeypatch)
+    volume = tmp_path / "RICARDO_AM"
+    (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
+    (volume / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"old")
+    exported = []
+
+    def wait_for_selection(device, target, timeout, on_wrong=None):
+        on_wrong("Some other playlist")
+        exported.append((device, target))
+        # rekordbox copies the files and rewrites its device library.
+        (volume / "Contents" / "Velvet Static").mkdir(parents=True)
+        for source in sources:
+            (volume / "Contents" / "Velvet Static" / source.name).write_bytes(source.read_bytes())
+        (volume / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"new library")
+
+    monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
+    monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
+    monkeypatch.setattr(rekordbox_mac, "busy_dialogs", lambda: [])
+    reply = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "rekordbox",
+            "usb",
+            collection_id,
+            "--device",
+            str(volume),
+        ],
+    )
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert exported == [("RICARDO_AM", "Owned")]
+    assert fake.imported[0].name == "Owned.m3u8"  # pushed first because it was missing
+    assert result["found"] == result["expected"] == 2 and result["missing"] == []
+    assert result["library_updated"] is True and result["player_playback_verified"] is False
