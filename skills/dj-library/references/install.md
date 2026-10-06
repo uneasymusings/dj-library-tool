@@ -1,13 +1,13 @@
 # Install the engine and tools from GitHub
 
-The installation command targets the [v0.1.0a9 GitHub release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a9), including the engine, complete matching skill and 40 MCP tools. Check the release page and [validation status](https://github.com/uneasymusings/dj-library-tool/blob/main/docs/STATUS.md) for publication and public-installation evidence. Use the skill packaged with the installed version and check capabilities; older a3 lacks discovery/reconciliation and queued native checks. No checkout or PyPI release is required. Python runs locally to access music and mounted storage.
+The installation command targets the [v0.1.0a10 GitHub release assets](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a10), including the engine, complete matching skill and 40 MCP tools. Check the release page and [validation status](https://github.com/uneasymusings/dj-library-tool/blob/main/docs/STATUS.md) for publication and public-installation evidence. Use the skill packaged with the installed version and check capabilities; older a3 lacks discovery/reconciliation and queued native checks. No checkout or PyPI release is required. Python runs locally to access music and mounted storage.
 
 The earlier `0.1.0a2` engine does not include the `delivery`, `requests` or `organize` commands in this skill. Check `version`, `capabilities` and the connected schemas for a3's `targeted_delivery_workflow`, `app_import_workflow`, `owned_request_matching`, `missing_track_ledger`, `catalog_annotations`, `organization_filters` and native XML inspection. Preserve existing installations/configuration; use a separate persistent environment for isolated trials. Before an intentional upgrade, stop each workspace coordinator and regenerate the session if its interpreter path changes.
 
 With [uv](https://docs.astral.sh/uv/getting-started/installation/) installed:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a9/dj_library_tool-0.1.0a9-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a10/dj_library_tool-0.1.0a10-py3-none-any.whl'
 djlib version
 ```
 

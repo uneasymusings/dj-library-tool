@@ -14,6 +14,7 @@ One command per intent. Use `djlib --workspace PATH --json …` (or the matching
 | Which of these songs do I own? | `requests create --text tracklist.txt` (one “Artist - Title (Mix)” per line) | `djlib_create_request` |
 | Owned songs → crate, in order | `requests collect REQUEST_ID` | `djlib_collect_request` |
 | Crate → rekordbox playlist (macOS) | `rekordbox push COLLECTION_ID [--when-idle 60]`, or `rekordbox push --request REQUEST_ID` | CLI only |
+| Crate → USB stick via rekordbox (macOS) | `rekordbox usb COLLECTION_ID` (the user clicks the playlist once when asked) | CLI only |
 | rekordbox BPM/cues → catalog | `rekordbox sync` (background, no window) | `djlib_import_rekordbox_analysis` without a path |
 | rekordbox key → catalog | `rekordbox pull` (one brief XML export) | same tool with an XML path |
 | Find tracks | `library --query "words"` (every word, case/accent-insensitive) | `djlib_library` |
@@ -61,7 +62,9 @@ Committed annotation/organization mutations and delivery-check evidence are term
 
 For a set or request list, prefer the composed path: `djlib_create_request` with structured items (or CLI `requests create --text FILE` for a pasted tracklist), then `djlib_collect_request` with the current revision to queue an ordered collection of the satisfied songs. Wait for its job and use the `collection_id`. Report missing songs, `different_version` candidates ("you own the Radio Edit, not the Dub") and unknown IDs separately; never substitute a different mix.
 
-On macOS with rekordbox installed, prefer `djlib --workspace PATH --json rekordbox push COLLECTION_ID` to put a crate into rekordbox: it drives rekordbox's own menus, waits for its analysis and verifies the playlist from rekordbox's XML export. If it returns `APP_AUTOMATION_NOT_ALLOWED`, ask the user to enable their terminal app under System Settings > Privacy & Security > Accessibility once. Report `matched/expected` and `analyzed`; do not claim cues, grids or USB export. `rekordbox pull` refreshes BPM/key later.
+On macOS with rekordbox installed, prefer `djlib --workspace PATH --json rekordbox push COLLECTION_ID` to put a crate into rekordbox: it drives rekordbox's own menus, waits for its analysis and verifies the playlist from rekordbox's XML export. If it returns `APP_AUTOMATION_NOT_ALLOWED`, ask the user to enable their terminal app under System Settings > Privacy & Security > Accessibility once. Report `matched/expected` and `analyzed`; do not claim cues, grids or USB export from a push.
+
+For a USB stick, run `rekordbox usb COLLECTION_ID` only while the user is at the computer and tell them first: “In rekordbox, click the playlist NAME.” It pushes the crate if missing, waits for that exact playlist to be selected (anything else is never exported), runs rekordbox's Playlist > Export Playlist > device, and returns `found/expected` from a byte-for-byte check of the stick. Report those numbers and `player_playback_verified: false`; suggest testing on the player. `APP_SELECTION_TIMEOUT` means nothing was exported; `DEVICE_REQUIRED` means zero or several sticks are mounted (pass `--device /Volumes/NAME`). `rekordbox pull` refreshes BPM/key later.
 
 When the user has analyzed tracks in rekordbox, ask them to export the collection (File > Export Collection in xml format) into an allowed folder, then call `djlib_import_rekordbox_analysis`. It matches exact file paths, stores BPM/key with `source: rekordbox_analysis` and `verified: false`, and keeps values someone set explicitly. After that, `djlib_organize` BPM/key filters and ordering work from rekordbox's values. Describe them as rekordbox's analysis, not as verified facts.
 
