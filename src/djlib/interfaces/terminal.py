@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.padding import Padding
 from rich.progress import (
     BarColumn,
     Progress,
@@ -25,6 +26,7 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -32,7 +34,7 @@ OUTPUT_ENV = "DJLIB_OUTPUT"
 META_KEY = "djlib.terminal"
 
 # Named ANSI colors follow the user's terminal theme on light and dark backgrounds;
-# only the brand amber is fixed, and Rich downgrades it on 256/16-color terminals.
+# only the brand amber is fixed, and Rich downgrades it on 256-color terminals.
 THEME = Theme(
     {
         "brand": "bold #f59f00",
@@ -48,6 +50,17 @@ THEME = Theme(
         "heading": "bold",
     }
 )
+
+# Rich's nearest 16-color match for the amber is bright red, which reads as an error.
+LOW_COLOR = Theme({"brand": "bold yellow", "accent": "yellow"})
+
+
+def fit_colors(console: Console) -> Console:
+    """Use the terminal's own yellow for the accent where only 16 colors exist."""
+    if console.color_system in {"standard", "windows"}:
+        console.push_theme(LOW_COLOR)
+    return console
+
 
 _GLYPHS = {
     "ok": ("✓", "+"),
@@ -99,10 +112,12 @@ class Terminal:
     workspace: Path | None = None
     out: Console = field(init=False, repr=False)
     err: Console = field(init=False, repr=False)
+    # Envelope warnings, printed under the first headline of the view.
+    pending: list[str] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
-        self.out = Console(theme=THEME, highlight=False)
-        self.err = Console(theme=THEME, highlight=False, stderr=True)
+        self.out = fit_colors(Console(theme=THEME, highlight=False))
+        self.err = fit_colors(Console(theme=THEME, highlight=False, stderr=True))
 
     @property
     def unicode(self) -> bool:
@@ -112,12 +127,18 @@ class Terminal:
         fancy, plain = _GLYPHS[name]
         return fancy if self.unicode else plain
 
-    def command(self, *parts: str) -> str:
-        """A copy-pasteable command, including the workspace when it is not the default."""
+    def command(self, *parts: str | Path) -> str:
+        """A copy-pasteable command, including the workspace when it is not the default.
+
+        ``Path`` parts are written as ``~/…`` when that stays unquoted.
+        """
         words = ["djlib"]
         if self.workspace is not None:
             words += ["--workspace", shell_path(self.workspace)]
-        return " ".join(words + [quote(str(part)) for part in parts])
+        return " ".join(
+            words
+            + [shell_path(part) if isinstance(part, Path) else quote(str(part)) for part in parts]
+        )
 
     def print_json(self, value: dict) -> None:
         typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
@@ -199,6 +220,26 @@ def path_text(value: str | None) -> Text:
     return Text(short_path(value), style="path") if value else Text("—", style="muted")
 
 
+def short_id(value: str | None) -> str:
+    """``b3dbc172`` for ``collection_b3dbc172…``; commands accept unique prefixes."""
+    prefix, _, rest = str(value or "").rpartition("_")
+    return rest[:8] if prefix and rest else str(value or "")
+
+
+def indented(renderable, indent: int = 2) -> Padding:
+    """Shift right; wrapped lines keep the indent (and no full-width trailing spaces)."""
+    return Padding(renderable, (0, 0, 0, indent), expand=False)
+
+
+def hanging(console: Console, lead: Text, body: Text, indent: int = 0) -> None:
+    """``lead body`` where a long body wraps under its own first column, not column 0."""
+    grid = Table.grid(padding=(0, 1))
+    grid.add_column(no_wrap=True)
+    grid.add_column(overflow="fold")
+    grid.add_row(lead, body)
+    console.print(indented(grid, indent) if indent else grid)
+
+
 WORDS = {
     "bpm": "BPM",
     "cli": "CLI",
@@ -275,7 +316,70 @@ def plural(count: int, word: str, many: str | None = None) -> str:
 
 # -- errors ------------------------------------------------------------------------------------
 
-ERROR_HINTS = {
+# Plain titles for the codes people meet most; others are humanized from the code.
+ERROR_TITLES = {
+    "WORKSPACE_REQUIRED": "djlib isn't set up yet",
+    "WORKSPACE_NOT_EMPTY": "That folder isn't empty",
+    "INPUT_INVALID": "That input didn't work",
+    "NOT_FOUND": "Not found",
+    "TRANSPORT_UNCERTAIN": "Lost contact with djlib's background service",
+    "SERVICE_UNREACHABLE": "Can't reach djlib's background service",
+    "SERVICE_START_BUSY": "djlib's background service is still starting",
+    "SERVICE_START_FAILED": "djlib's background service didn't start",
+    "SERVICE_START_TIMEOUT": "djlib's background service didn't start",
+    "COORDINATOR_START_REQUIRED": "djlib's background service isn't running",
+    "COORDINATOR_VERSION_MISMATCH": "djlib was updated",
+    "AUTH_REQUIRED": "djlib's background service didn't accept this request",
+    "TOKEN_MISSING": "djlib's access token is missing",
+    "APP_SELECTION_TIMEOUT": "You didn't pick the playlist in time",
+    "APP_AUTOMATION_NOT_ALLOWED": "macOS hasn't allowed djlib to control apps yet",
+    "APP_AUTOMATION_UNSUPPORTED": "Driving rekordbox needs a Mac",
+    "APP_AUTOMATION_FAILED": "rekordbox didn't respond",
+    "APP_SCREEN_LOCKED": "Your Mac is locked",
+    "APP_NOT_INSTALLED": "rekordbox isn't installed",
+    "APP_NOT_READY": "rekordbox didn't finish starting",
+    "APP_IDLE_TIMEOUT": "Your Mac never went idle",
+    "APP_EXPORT_TIMEOUT": "rekordbox took too long to export",
+    "APP_IMPORT_NOT_FOUND": "The playlist didn't show up in rekordbox",
+    "APP_PLAYLIST_NAME_TAKEN": "rekordbox already has a different playlist with that name",
+    "APP_MENU_DISABLED": "rekordbox's menu isn't available right now",
+    "APP_MENU_MISSING": "rekordbox's menu looks different",
+    "APP_DIALOG_MISSING": "rekordbox didn't open its dialog",
+    "APP_DIALOG_FAILED": "rekordbox's dialog didn't finish",
+    "DEVICE_REQUIRED": "Which USB?",
+    "DEVICE_UNAVAILABLE": "That USB isn't available",
+    "DEVICE_CHANGED": "The USB changed",
+    "SOURCE_BROWSER_ONLY": "Open this one in your browser",
+    "SOURCE_UNSUPPORTED": "That link isn't supported",
+    "SOURCE_NOT_ALLOWED": "djlib isn't allowed to read that folder",
+    "SOURCE_ROOT_INVALID": "That folder doesn't work",
+    "SOURCE_TIMEOUT": "The site took too long",
+    "SOURCE_RATE_LIMITED": "The site is limiting requests",
+    "SOURCE_AUTH_REQUIRED": "That page needs a login",
+    "SOURCE_UNAVAILABLE": "That recording isn't available",
+    "SOURCE_FAILED": "Couldn't read that page",
+    "TRACKLIST_NOT_FOUND": "No tracklist on that page",
+    "DEPENDENCY_REQUIRED": "Something needs installing",
+    "JAVASCRIPT_RUNTIME_REQUIRED": "Something needs installing",
+    "COLLECTION_EMPTY": "Nothing to put in the crate",
+    "ITEM_LIMIT": "Too many files at once",
+    "SCAN_SCOPE": "Scan a music folder instead",
+    "DISK_SPACE": "Not enough disk space",
+    "DISK_RESERVE_REACHED": "Not enough disk space",
+    "FILE_CHANGED": "A file changed",
+    "FILE_UNAVAILABLE": "A file is missing",
+    "FORMAT_UNSUPPORTED": "That file format isn't supported",
+    "IDEMPOTENCY_CONFLICT": "That --key was already used",
+    "REQUEST_STALE": "The list changed since you last looked",
+    "DELIVERY_STALE": "The delivery changed since you last looked",
+    "REVIEW_STALE": "The review changed since you last looked",
+    "PLAN_STALE": "The plan is out of date",
+}
+ACCESSIBILITY_SETTINGS = (
+    'open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"'
+)
+# (label, command): a tuple is a djlib command, a string a plain shell command.
+ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     "WORKSPACE_REQUIRED": ("Create a workspace first", ("init", "--allow-root", "PATH")),
     "WORKSPACE_NOT_EMPTY": ("Pick a new, empty folder for --workspace", None),
     "ROOTS_NOT_UPDATED": ("Add folders to an existing workspace", ("roots", "add", "PATH")),
@@ -297,33 +401,54 @@ ERROR_HINTS = {
     "TRANSPORT_UNCERTAIN": ("Retry with the same --key; it will not run twice", None),
     "IDEMPOTENCY_CONFLICT": ("That --key was used for different input; choose a new key", None),
     "DEPENDENCY_REQUIRED": ("See what is missing", ("doctor",)),
+    "JAVASCRIPT_RUNTIME_REQUIRED": ("See what is missing", ("doctor",)),
+    "APP_AUTOMATION_NOT_ALLOWED": (
+        "Allow your terminal app under Accessibility, then retry",
+        ACCESSIBILITY_SETTINGS,
+    ),
+    "APP_SCREEN_LOCKED": ("Unlock your Mac, then run the same command again", None),
+    "APP_SELECTION_TIMEOUT": (
+        "Run it again, then click the playlist in rekordbox when asked",
+        None,
+    ),
+    "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
+    "SOURCE_BROWSER_ONLY": ("Paste the tracklist into a text file, then", ("set", "FILE")),
 }
+
+
+def ffmpeg_install() -> str | None:
+    """The one-line FFmpeg install where it is unambiguous (Homebrew on macOS)."""
+    return "brew install ffmpeg" if sys.platform == "darwin" else None
+
+
+def needs_ffmpeg(error: dict) -> bool:
+    message = str(error.get("message") or "").lower()
+    return error.get("code") == "DEPENDENCY_REQUIRED" and (
+        "ffmpeg" in message or "ffprobe" in message
+    )
 
 
 def render_error(term: Terminal, error: dict) -> None:
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
-    title = Text.assemble(
-        (f"{term.glyph('bad')} ", "bad"),
-        (humanize(code.lower()), "bold bad"),
-        ("  ", ""),
-        (code, "muted"),
-    )
-    term.err.print(title)
-    term.err.print(Text("  " + message), soft_wrap=True)
+    title = Text.assemble((ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
+    title.append(f"  ({code})", style="muted")
+    hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
+    term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
+    if needs_ffmpeg(error) and ffmpeg_install():
+        hint = ("Install FFmpeg, then retry", ffmpeg_install())
     if hint:
         label, parts = hint
         line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), (label, ""))
         if parts:
-            command = term.command(*parts)
+            command = parts if isinstance(parts, str) else term.command(*parts)
             line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
             line.append(command, style="cmd")
         term.err.print(line, soft_wrap=True)
     elif error.get("retryable"):
         term.err.print(
-            Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry."),
-            soft_wrap=True,
+            Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")
         )
 
 
