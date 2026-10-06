@@ -349,6 +349,13 @@ def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
     assert result["usb"]["found"] == result["usb"]["expected"] == 2
     assert result["usb"]["in_order"] is True
 
+    status = CliRunner().invoke(cli_app, [*workspace, "status"])
+    assert status.exit_code == 0, status.output
+    crates = json.loads(status.stdout)["result"]["recent_collections"]
+    [crate] = [row for row in crates if row["name"] == "Friday — Warm-up"]
+    assert crate["pushed_at"] and crate["usb"]["device"] == "RICARDO_AM"
+    assert (crate["usb"]["found"], crate["usb"]["expected"]) == (2, 2)
+
     # Running it again reuses the request list, crate and playlist; nothing is imported twice.
     again = CliRunner().invoke(cli_app, [*workspace, "set", str(tracklist)])
     assert again.exit_code == 0, again.output

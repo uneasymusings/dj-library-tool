@@ -1,6 +1,7 @@
 """CLI commands for catalog requests, annotations, and ordered collections."""
 
 import hashlib
+import json
 from pathlib import Path
 
 import typer
@@ -51,7 +52,10 @@ def tracklist_request(
         raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
     # A heading such as "Set Zero — Friday" names the list.
     title = name or (headings[0][:300] if headings else text.stem)
-    digest = hashlib.sha256(f"{title}\n{source}\n{content}".encode()).hexdigest()[:16]
+    # Keyed by what was parsed, so rerunning a file reuses its list, and a file parsed
+    # differently (edited, or by a newer djlib) becomes a new list instead of a conflict.
+    parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
+    digest = hashlib.sha256(f"{title}\n{source}\n{parsed}".encode()).hexdigest()[:16]
     body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
     return body, warnings
 

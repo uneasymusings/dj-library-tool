@@ -46,6 +46,17 @@ def test_tracklist_lines_become_requests_without_guessing():
     headed, skipped = parse_tracklist("Set Zero — Friday\n1. A - One\nB - Two\n2. C - Three")
     assert [(i.artist, i.title) for i in headed] == [("A", "One"), ("B", "Two"), ("C", "Three")]
     assert skipped == [(1, "Set Zero — Friday", "looks like a heading")]
+    bare, skipped = parse_tracklist("Fresh\n01 A - One\n2 B - Two\n03. 2 Unlimited - No Limit")
+    assert [(i.artist, i.title) for i in bare] == [
+        ("A", "One"),
+        ("B", "Two"),
+        ("2 Unlimited", "No Limit"),
+    ]
+    assert skipped == [(1, "Fresh", "looks like a heading")]
+    gap, _ = parse_tracklist("01. A - One\n02 B - Two\n[12:30] C - Three\n04 D - Four")
+    assert [i.artist for i in gap] == ["A", "B", "C", "D"]
+    plain, _ = parse_tracklist("2 Unlimited - No Limit\n808 State - Pacific\nOvermono - Gem Lingo")
+    assert [i.artist for i in plain] == ["2 Unlimited", "808 State", "Overmono"]
     with_source, _ = parse_tracklist("ID - ID", "https://example.com/set")
     assert with_source[0].source_url == "https://example.com/set"
 
