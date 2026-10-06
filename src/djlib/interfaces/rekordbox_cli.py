@@ -214,6 +214,30 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
             # Learn current playlists from one export so a crate is never imported twice.
             existing = playlist_names(export_xml(workspace, ui))
+        history = remembered(workspace)
+        # Trust a same-named playlist only if djlib pushed this very crate there; otherwise
+        # it may be an older version of the set or the user's own list, so check it first.
+        unconfirmed = [
+            crate
+            for crate in crates
+            if crate["playlist"] in existing
+            and history.get(crate["collection_id"], {}).get("playlist") != crate["playlist"]
+        ]
+        if unconfirmed:
+            from djlib.exporting.native_rekordbox import playlist_report
+
+            xml = export_xml(workspace, ui)
+            for crate in unconfirmed:
+                report = playlist_report(xml, crate["playlist"], crate["paths"])
+                same = report["entries"] == report["matched"] == report["expected"]
+                if not (same and report["in_order"]):
+                    raise AppError(
+                        "APP_PLAYLIST_NAME_TAKEN",
+                        f"rekordbox already has a different playlist named “{crate['playlist']}” "
+                        f"({report['entries']} tracks, {report['matched']} of this crate's "
+                        f"{report['expected']}). Rename or delete it in rekordbox, or give this "
+                        "crate another name, then retry. Nothing was imported or exported.",
+                    )
         for crate in crates:
             if crate["playlist"] in existing:
                 crate["status"] = "already_in_rekordbox"
