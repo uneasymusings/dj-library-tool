@@ -54,7 +54,7 @@ EPILOG = (
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "use", "status", "demo", "doctor", "ui", "setup-agent"),
+    *("init", "use", "status", "set", "demo", "doctor", "ui", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
     *("rekordbox", "delivery", "import-rekordbox", "export", "usb-preflight"),
@@ -1012,7 +1012,7 @@ register_commands(app, client, emit, handled, panel=BUILD)
 
 from djlib.interfaces.rekordbox_cli import register_rekordbox  # noqa: E402
 
-register_rekordbox(app, client, emit, handled, panel=DELIVER)
+register_rekordbox(app, client, emit, handled, panel=DELIVER, start_panel=START)
 
 
 def main() -> None:
