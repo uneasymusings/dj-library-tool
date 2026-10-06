@@ -375,3 +375,34 @@ def test_set_without_owned_songs_builds_nothing(application, monkeypatch, tmp_pa
     result = json.loads(reply.stdout)["result"]
     assert result["owned"] == 0 and result["collection_id"] is None and result["rekordbox"] is None
     assert len(result["missing"]) == 2 and fake.imported == []
+
+
+def test_a_same_named_playlist_is_checked_before_it_is_trusted(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    sources = [audio_factory(f"name-{n}.wav", frequency=620 + 25 * n) for n in range(2)]
+    collection_id = build(
+        library_http, sources, [("Velvet Static", f"Name {n}") for n in range(2)]
+    )["result"]["collection_id"]
+    fake = FakeRekordbox(monkeypatch)
+    fake.present.add("Owned")  # the user already has a playlist with this name
+    exported = {"tracks": [(str(tmp_path / "someone-else.mp3"), "120.00")]}
+    monkeypatch.setattr(
+        rekordbox_mac,
+        "export_collection",
+        lambda destination: write_export(destination, "Owned", exported["tracks"]),
+    )
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    taken = CliRunner().invoke(cli_app, [*workspace, "rekordbox", "push", collection_id])
+    assert taken.exit_code == 2
+    error = json.loads(taken.stdout)["error"]
+    assert error["code"] == "APP_PLAYLIST_NAME_TAKEN" and "Nothing was imported" in error["message"]
+    assert fake.imported == []
+
+    # The same tracks in the same order (e.g. pushed by an older djlib) are accepted.
+    exported["tracks"] = [(str(source), "124.00") for source in sources]
+    same = CliRunner().invoke(cli_app, [*workspace, "rekordbox", "push", collection_id])
+    assert same.exit_code == 0, same.output
+    assert json.loads(same.stdout)["result"]["crates"][0]["status"] == "already_in_rekordbox"
+    assert fake.imported == []

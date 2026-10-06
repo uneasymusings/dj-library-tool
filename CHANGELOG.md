@@ -8,6 +8,7 @@
 - **`doctor` checks rekordbox.** It shows the installed version, whether your terminal may control apps (with the setting to change if not), and whether rekordbox's analysis folder was found.
 - **Tracklists.** Lines numbered `03 Artist - Title` (no dot) parse when the numbers run in sequence, while artists like `2 Unlimited` stay intact. Rerunning a tracklist that a newer djlib parses differently creates a new list instead of an idempotency error.
 - **Upgrades.** When an older background service is still running after an update, the message names the exact `service stop` command for your workspace.
+- **Never the wrong playlist.** A rekordbox playlist with the crate's name is trusted only if djlib pushed that crate there; otherwise its tracks and order are checked against one XML export first. If it differs (an older version of the set, or your own playlist), djlib stops with `APP_PLAYLIST_NAME_TAKEN` before importing or exporting anything.
 - **Locked screen.** rekordbox automation reports `APP_SCREEN_LOCKED` instead of a confusing focus failure, and `--when-idle` waits until the Mac is unlocked as well as idle.
 - **macOS download cleanup.** Stopping a finished download no longer fails with `PermissionError` when its process group has already exited (an intermittent macOS CI failure).
 - **Unreadable menus.** When rekordbox's playlist menu cannot be read, `push` learns and confirms playlists from one XML export instead of importing again.

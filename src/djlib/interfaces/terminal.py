@@ -290,6 +290,10 @@ ERROR_HINTS = {
     "REVIEW_STALE": ("List open reviews for their current revision", ("reviews", "list")),
     "REQUEST_STALE": ("Read the current revision, then retry with it", None),
     "PLAN_STALE": ("Plan the collection again", None),
+    "APP_PLAYLIST_NAME_TAKEN": (
+        "Rename the old playlist in rekordbox, or rerun djlib set with --name",
+        None,
+    ),
     "TRANSPORT_UNCERTAIN": ("Retry with the same --key; it will not run twice", None),
     "IDEMPOTENCY_CONFLICT": ("That --key was used for different input; choose a new key", None),
     "DEPENDENCY_REQUIRED": ("See what is missing", ("doctor",)),
