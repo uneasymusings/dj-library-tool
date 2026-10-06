@@ -47,7 +47,7 @@ AGENTS = "For assistants and scripts"
 EPILOG = (
     "[bold]New here?[/]  "
     "[bold]djlib init --allow-root ~/Music[/]  then  [bold]djlib scan[/]  then  "
-    "[bold]djlib library[/]\n\n"
+    "[bold]djlib set tracklist.txt[/]\n\n"
     "Output is JSON when piped or with [bold]--json[/]. "
     "Docs: https://github.com/uneasymusings/dj-library-tool"
 )
@@ -72,8 +72,8 @@ class JourneyGroup(typer.core.TyperGroup):
 app = typer.Typer(
     cls=JourneyGroup,
     help=(
-        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  Build DJ collections from the music you own, "
-        "then hand them to rekordbox or Serato."
+        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  From a tracklist to rekordbox and a verified USB, "
+        "using the music you own."
     ),
     epilog=EPILOG,
     no_args_is_help=True,
@@ -174,7 +174,8 @@ def configure(
         None,
         "--workspace",
         "-w",
-        help="Workspace folder. Defaults to DJLIB_WORKSPACE or ~/.local/share/djlib/default.",
+        help="Workspace folder. Defaults to DJLIB_WORKSPACE, else the one chosen with "
+        "'djlib use' (the first init), else ~/.local/share/djlib/default.",
     ),
     json_output: bool = typer.Option(
         False,
