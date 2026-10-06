@@ -21,14 +21,14 @@ Not in the crate (3)
 13   ○ unknown ID   ID - ID @ 41:20
 ```
 
-> **Experimental alpha, 0.1.0a10.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a11.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
 
 ## Quick start
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a10/dj_library_tool-0.1.0a10-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'
 djlib init --allow-root ~/Music      # creates and remembers your workspace
 djlib scan                           # indexes your music in place
 djlib set tracklist.txt --usb        # tracklist → crate → rekordbox → USB
