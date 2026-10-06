@@ -1,5 +1,17 @@
 # Implementation status
 
+## 0.1.0a11
+
+Adds sets from a YouTube or SoundCloud link (tracklist from the description or chapters, listener comments as hints for IDs), `--fetch` for missing songs (YouTube/SoundCloud search, ranked; clear matches downloaded as MP3 after confirmation, the library copy tagged with the requested labels), MP3 downloads, artist country tags such as “(BR)” ignored in matching, and 1001Tracklists through the browser (its tracklist pages answer scripts with a captcha, which djlib does not get around).
+
+Live on 2026-10-06:
+- **Search and ranking.** For 7 well-known songs searched on both sites, the official upload ranked first in 6 and was marked clear in 5; 30-second SoundCloud previews, live recordings, extended edits and unrequested remixes were dropped or ranked down. Both searches together take about 1.5 s.
+- **Set from a link.** A 62-minute YouTube radio show's description gave 13 tracks (2 IDs) in 31 s; for its 11 named songs, 5 had clear matches (3 before the country-tag fix), 2 are not on either site and 4 have competing edits, left for the user to pick.
+- **Fetch end to end** (isolated workspace): a 3-line tracklist with one owned song downloaded the other 2 from YouTube as MP3 (about 270 kbps VBR), built the 3-track crate in order and imported it into rekordbox 7.2.19, in 44 s. A refused YouTube stream (seen once) succeeds when retried, which `--fetch` now does once; the managed MP3 copy carries the requested artist/title tags.
+- **Comments.** On a Boiler Room upload with no tracklist, 300 YouTube comments yield the fan's timestamped tracklist (8 titles) and one credited remix, with no reactions or sentences; on a 2-hour SoundCloud mix, 67 timed comments named nothing usable and none were invented.
+
+Not verified: download quality beyond the provider's stream (web audio is labelled unverified), and comment hints against a set whose IDs are known. Local validation: 752 tests passed with five Windows-only skips.
+
 ## 0.1.0a10
 
 Adds `djlib set` (tracklist → owned/missing → crate → rekordbox playlist → USB in one command) and `rekordbox usb` (a crate goes to a USB stick through rekordbox's own Playlist > Export Playlist, then djlib reads the stick back), plus artist-order-insensitive request matching, key import from the stick, `doctor` rekordbox checks and a fresh-user pass.

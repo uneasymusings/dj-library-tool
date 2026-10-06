@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a11
 
 - **Sets from a link.** `djlib set https://soundcloud.com/…` or a YouTube set reads the tracklist from the upload's description or chapters, and reads up to 1,000 listener comments: for each “ID” with a time, the screen shows what listeners named around that moment (SoundCloud timed comments; timestamps written in YouTube comments). Hints are evidence only and are never added by themselves.
 - **Uploads without a tracklist** (most Boiler Room videos) say so and list what listeners named in the comments, e.g. a fan's timestamped tracklist, as a pointer. Comment mining ignores reactions with a single timestamp, time ranges and sentences that merely contain a dash.
