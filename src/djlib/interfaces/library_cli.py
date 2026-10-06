@@ -35,12 +35,19 @@ def tracklist_request(
     text: Path, name: str | None, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from a plain tracklist file, plus warnings for skipped lines."""
-    from djlib.application.tracklists import HEADING, parse_tracklist
-
     try:
         content = text.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise AppError("INPUT_INVALID", f"Could not read {text} as a UTF-8 text file.") from exc
+    return text_request(content, name, text.stem, source)
+
+
+def text_request(
+    content: str, name: str | None, fallback: str, source: str | None
+) -> tuple[RequestCreate, list[str]]:
+    """A request list from tracklist text; ``fallback`` names it when it has no heading."""
+    from djlib.application.tracklists import HEADING, parse_tracklist
+
     items, skipped = parse_tracklist(content, source)
     headings = [line for _, line, reason in skipped if reason == HEADING]
     warnings = [
@@ -51,7 +58,7 @@ def tracklist_request(
     if not items:
         raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
     # A heading such as "Set Zero — Friday" names the list.
-    title = name or (headings[0][:300] if headings else text.stem)
+    title = name or (headings[0][:300] if headings else fallback[:300])
     # Keyed by what was parsed, so rerunning a file reuses its list, and a file parsed
     # differently (edited, or by a newer djlib) becomes a new list instead of a conflict.
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
