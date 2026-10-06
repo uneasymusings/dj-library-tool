@@ -117,7 +117,8 @@ async def test_owned_exact_reuse_and_duplicate_rows_are_persistent_without_jobs(
     same = create(
         ledger_app, [named(), named(artist=" ORIGINAL artist "), named(title="Missing tone")]
     )
-    assert same == result
+    # The same list again returns the stored report, marked as reused so callers can re-check it.
+    assert same.pop("reused") is True and same == result
     assert checked == [track["path"]]
     with ledger_app.db.transaction() as session:
         assert session.scalar(select(func.count()).select_from(RequestLedger)) == 1

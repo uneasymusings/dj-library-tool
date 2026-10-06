@@ -187,7 +187,7 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
         assert selected["items"][2]["state"] == "source_selected"
         assert selected["items"][2]["accepted"] is None
         replay = await call("djlib_create_request", {"request_body": request_body()})
-        assert replay == selected
+        assert replay.pop("reused") is True and replay == selected
         report = await call("djlib_request_report", {"request_id": request_id, "revision": 3})
         missing = json.loads(Path(report["report_path"]).read_text())
         assert missing["unresolved_items"] == 2
