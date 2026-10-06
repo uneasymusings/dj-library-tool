@@ -14,7 +14,8 @@ jobs:
   quality:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # Windows runners take 7-14 minutes for the suite; leave headroom for slow hosts.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +48,7 @@ jobs:
       - name: Formatting
         run: uv run --locked ruff format --check src scripts tests
       - name: Runtime, CLI, and MCP tests
-        run: uv run --locked pytest -q
+        run: uv run --locked pytest -q --durations=10
       - name: Build distributable artifacts
         run: uv build
       - name: Exercise installed wheel in a fresh environment
