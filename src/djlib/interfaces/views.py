@@ -1698,6 +1698,9 @@ def set_view(term: Terminal, result: dict) -> None:
         else:
             there = "imported" if rekordbox.get("status") == "imported" else "already there"
             playlist = f"playlist “{result.get('playlist')}” {there}"
+            if rekordbox.get("replaces"):
+                # The set changed: a new version beside the playlist djlib made earlier.
+                playlist += f"; the older “{rekordbox['replaces']}” is still there to delete"
             rows.append(("rekordbox", marked(term, "ok", playlist)))
     else:
         rows.append(("Crate", Text("none of these songs are in your library yet", "warn")))

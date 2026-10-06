@@ -57,7 +57,7 @@ ORDER = [
     *("init", "scan", "set", "status", "doctor"),
     *("library", "crates", "crate", "requests", "ui"),
     "rekordbox",
-    *("use", "roots"),
+    *("use", "roots", "upgrade"),
     *("setup-agent", "mcp"),
     *("jobs", "service", "reviews"),
     # Hidden from help but still working; docs/ADVANCED.md lists them.
@@ -318,10 +318,10 @@ def status(ctx: typer.Context) -> None:
         playlists = reading.result()
     history = remembered(ctx.obj)
     for row in summary["recent_collections"]:
-        row["in_rekordbox"] = (
-            None if playlists is None else playlist_file_name(row["name"]) in playlists
-        )
         done = history.get(row["collection_id"], {})
+        # A set that changed may live in rekordbox as "Name (2)"; history knows which.
+        name = done.get("playlist") or playlist_file_name(row["name"])
+        row["in_rekordbox"] = None if playlists is None else name in playlists
         row["pushed_at"] = done.get("pushed_at")
         row["usb"] = done.get("usb")
     summary["rekordbox_checked"] = playlists is not None
@@ -1222,7 +1222,9 @@ def mcp_serve(ctx: typer.Context) -> None:
     from djlib.interfaces.mcp_server import build_server
 
     try:
-        ctx.obj.config()
+        # No config() check: without a workspace the server still starts and every tool
+        # answers WORKSPACE_REQUIRED with the `djlib init` command, so a plugin installed
+        # before setup isn't a dead server.
         build_server(ctx.obj).run(transport="stdio")
     except (AppError, OSError, ValueError) as exc:
         # A CLI JSON error on stdout would corrupt the MCP transport before initialization.
@@ -1236,6 +1238,10 @@ register_commands(app, client, emit, handled, panel=LIBRARY)
 from djlib.interfaces.rekordbox_cli import register_rekordbox  # noqa: E402
 
 register_rekordbox(app, client, emit, handled, panel=DELIVER, start_panel=START)
+
+from djlib.interfaces.upgrade_cli import register_upgrade  # noqa: E402
+
+register_upgrade(app, client, emit, handled, panel=SETTINGS)
 
 
 def hoisted(arguments: list[str]) -> list[str]:
