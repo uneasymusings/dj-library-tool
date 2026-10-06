@@ -223,16 +223,22 @@ def init(
 @handled
 def status(ctx: typer.Context) -> None:
     """Your library at a glance: tracks, BPM/key coverage, requests, crates, next steps."""
-    from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists
+    from djlib.exporting.rekordbox_anlz import default_root
+    from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists, remembered
 
     local = client(ctx)
     summary = local.request("GET", "/summary")["result"]
     playlists = rekordbox_playlists()
+    history = remembered(ctx.obj)
     for row in summary["recent_collections"]:
         row["in_rekordbox"] = (
             None if playlists is None else playlist_file_name(row["name"]) in playlists
         )
+        done = history.get(row["collection_id"], {})
+        row["pushed_at"] = done.get("pushed_at")
+        row["usb"] = done.get("usb")
     summary["rekordbox_checked"] = playlists is not None
+    summary["rekordbox_installed"] = default_root() is not None
     summary["service_url"] = local.discover()
     emit(envelope(summary))
 

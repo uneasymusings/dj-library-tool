@@ -862,10 +862,25 @@ def status_view(term: Terminal, result: dict) -> None:
                 line.append(f"  {term.glyph('ok')} in rekordbox", style="ok")
             elif row.get("in_rekordbox") is False:
                 line.append("  not in rekordbox yet", style="muted")
+            elif row.get("pushed_at"):
+                line.append(f"  pushed to rekordbox {ago(row['pushed_at'])}", style="muted")
+            usb = row.get("usb") or {}
+            if usb:
+                complete = usb.get("expected") and usb.get("found") == usb.get("expected")
+                line.append(
+                    f"  {term.glyph('ok' if complete else 'warn')} on {usb.get('device')} "
+                    f"{usb.get('found')}/{usb.get('expected')} {ago(usb.get('checked_at'))}",
+                    style="ok" if complete else "warn",
+                )
             term.out.print(line, soft_wrap=True)
     steps: list[tuple[str, tuple | None]] = []
     if not tracks:
         steps.append(("Index your music", ("scan",)))
+    elif not requests and not collections:
+        steps.append(("Check a set's tracklist against your music", ("set", "TRACKLIST.txt")))
+    synced = result.get("rekordbox_analysis_synced_at")
+    if tracks and not bpm and not synced and result.get("rekordbox_installed"):
+        steps.append(("Read BPM and cues from rekordbox's analysis", ("rekordbox", "sync")))
     for row in collections:
         if row.get("in_rekordbox") is False:
             steps.append(
@@ -892,6 +907,15 @@ def status_view(term: Terminal, result: dict) -> None:
         ):
             steps.append(
                 (f"Make a crate from “{row['name']}”", ("requests", "collect", row["request_id"]))
+            )
+            break
+    for row in collections:
+        in_rekordbox = row.get("in_rekordbox") is True or (
+            row.get("in_rekordbox") is None and row.get("pushed_at")
+        )
+        if in_rekordbox and not row.get("usb"):
+            steps.append(
+                (f"Put “{row['name']}” on your USB", ("rekordbox", "usb", row["collection_id"]))
             )
             break
     if bpm > key and result.get("rekordbox_checked"):

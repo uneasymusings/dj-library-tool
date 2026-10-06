@@ -11,7 +11,7 @@ import re
 import shutil
 import time
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -41,6 +41,32 @@ def rekordbox_playlists() -> set[str] | None:
         return ui.playlists()
     except AppError:
         return None
+
+
+def history_file(workspace) -> Path:
+    return workspace.exports / "rekordbox" / "history.json"
+
+
+def remembered(workspace) -> dict:
+    """What djlib last did with each collection in rekordbox and on USB, by collection ID."""
+    try:
+        return json.loads(history_file(workspace).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def remember(workspace, collection_id: str, **fields) -> None:
+    history = remembered(workspace)
+    history.setdefault(collection_id, {}).update(fields)
+    path = history_file(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+def now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def find_usb() -> Path:
@@ -223,12 +249,13 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if crate["collection_id"] in reports:
                 report = reports[crate["collection_id"]]
                 crate.update({k: report[k] for k in ("entries", "expected", "matched", "analyzed")})
+            remember(workspace, crate["collection_id"], playlist=crate["playlist"], pushed_at=now())
         return {
             "rekordbox_ui_seconds": ui_seconds,
             "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
         }
 
-    def to_usb(ui, crate: dict, volume: Path, timeout: int) -> dict:
+    def to_usb(workspace, ui, crate: dict, volume: Path, timeout: int) -> dict:
         """Have rekordbox export one playlist to the stick, then check it as a player would."""
         from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
 
@@ -261,6 +288,17 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking the playlist on the USB…"):
             check = check_playlist(volume, crate["playlist"], tracks)
         keys = ("expected", "found", "missing", "playlist_on_device", "device_entries", "in_order")
+        remember(
+            workspace,
+            crate["collection_id"],
+            usb={
+                "device": volume.name,
+                "found": check.get("found"),
+                "expected": check.get("expected"),
+                "in_order": check.get("in_order"),
+                "checked_at": now(),
+            },
+        )
         return {
             "device": str(volume),
             "library_updated": library_state(volume) != before,
@@ -362,7 +400,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking the collection's files…"):
             crate = prepare(local, workspace, collection_id)
         into_rekordbox(local, workspace, ui, [crate])
-        result = to_usb(ui, crate, volume, timeout)
+        result = to_usb(workspace, ui, crate, volume, timeout)
         emit(
             envelope(
                 {
@@ -447,7 +485,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 rekordbox={"status": crate["status"], **outcome},
             )
             if volume is not None:
-                result["usb"] = to_usb(ui, crate, volume, timeout)
+                result["usb"] = to_usb(workspace, ui, crate, volume, timeout)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
