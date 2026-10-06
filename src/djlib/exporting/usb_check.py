@@ -39,7 +39,9 @@ def _sha256(path: Path) -> str:
 def check_tracks(volume: Path, tracks: list[dict]) -> dict:
     """``tracks`` carry ``sha256`` and ``size_bytes``; returns found/missing counts and paths."""
     contents = volume / "Contents"
-    if not volume.is_dir() or not contents.is_dir():
+    if not volume.is_dir():
+        raise AppError("DEVICE_UNAVAILABLE", f"{volume.name} is not mounted; plug the USB back in.")
+    if not contents.is_dir():
         raise AppError("DEVICE_UNAVAILABLE", "The USB has no rekordbox Contents folder yet.")
     by_size: dict[int, list[Path]] = defaultdict(list)
     for root, _, files in os.walk(contents):
@@ -156,7 +158,7 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
             "verified_by": "usb_file_hashes",
         }
     entries = listed["tracks"]
-    found, missing = 0, []
+    found, missing, analysis = 0, [], []
     for position, track in enumerate(tracks):
         entry = entries[position] if position < len(entries) else {}
         path = volume / (entry.get("file_path") or "").lstrip("/")
@@ -171,6 +173,10 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
                 matches = False
         if matches:
             found += 1
+            if entry.get("bpm") or entry.get("key"):
+                analysis.append(
+                    {"position": position, "bpm": entry.get("bpm"), "key": entry.get("key")}
+                )
         else:
             missing.append(track.get("label") or track["sha256"][:12])
     return {
@@ -184,5 +190,32 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
         "same_name_playlists": listed["same_name_playlists"],
         "matched_by": "device_library_path_and_sha256",
         "verified_by": "device_library_and_file_hashes",
+        "device_analysis": analysis,
         "device_written": False,
     }
+
+
+def analysis_xml(destination: Path, analysis: list[dict], originals: list[str]) -> Path:
+    """rekordbox's BPM/key for verified tracks as a Collection XML keyed by the originals.
+
+    The device library holds rekordbox's own analysis of each exported track; writing it in
+    rekordbox's interchange format lets the normal importer match it to catalog files.
+    """
+    from xml.etree import ElementTree
+
+    root = ElementTree.Element("DJ_PLAYLISTS", Version="1.0.0")
+    ElementTree.SubElement(root, "PRODUCT", Name="rekordbox", Version="device library")
+    collection = ElementTree.SubElement(root, "COLLECTION", Entries=str(len(analysis)))
+    for number, item in enumerate(analysis, 1):
+        attributes = {
+            "TrackID": str(number),
+            "Location": Path(originals[item["position"]]).as_uri(),
+        }
+        if item.get("bpm"):
+            attributes["AverageBpm"] = f"{item['bpm']:.2f}"
+        if item.get("key"):
+            attributes["Tonality"] = item["key"]
+        ElementTree.SubElement(collection, "TRACK", attributes)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ElementTree.ElementTree(root).write(destination, encoding="UTF-8", xml_declaration=True)
+    return destination

@@ -293,6 +293,11 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     assert result["found"] == result["expected"] == 2 and result["missing"] == []
     assert result["in_order"] is True and result["playlist_on_device"] is True
     assert result["verified_by"] == "device_library_and_file_hashes"
+    # rekordbox's key and BPM on the stick come back into the catalog for those tracks.
+    assert result["analysis_from_device"]["matched"] == 2
+    rows = library_http.get("/library").json()["result"]["tracks"]
+    exported = [row for row in rows if row["title"].startswith("USB")]
+    assert {(row["dj"]["key"], row["dj"]["bpm"]) for row in exported} == {("Am", 124.0)}
     assert result["library_updated"] is True and result["player_playback_verified"] is False
 
 
