@@ -126,7 +126,7 @@ def set_item(item: dict) -> dict:
 
 def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None):
     rekordbox = typer.Typer(
-        help="Put crates into rekordbox and read its BPM/cue analysis in the background.",
+        help="Put crates into rekordbox and onto USB; read its analysis in the background.",
         no_args_is_help=True,
     )
     app.add_typer(rekordbox, name="rekordbox", rich_help_panel=panel)
