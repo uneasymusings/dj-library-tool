@@ -32,6 +32,8 @@ MAX_COMMENTS = 2000
 MAX_COMMENT_CHARS = 5000
 MAX_MENTIONS = 20_000
 MAX_HINTS = 20
+FAN_TRACKLIST_TIMES = 2
+RANGE = re.compile(r"\s*(?:to|till|until|-|–|—|~)\s*", re.IGNORECASE)
 MAX_EVIDENCE = 3
 MAX_LINES = 2000
 
@@ -419,22 +421,28 @@ def _segments(text: str, start_time: float | None) -> list[tuple[str, float | No
     1:02:30" (text first, nothing after the last time) gives it the time after it. Text before
     the first time of a time-first list ("Tracklist:") is a heading, not an entry.
     """
-    clocks = list(CLOCK.finditer(text))
+    # (start, end, seconds) per moment; "12:00 to 14:00" and "12:00-14:00" are one moment.
+    clocks: list[tuple[int, int, float]] = []
+    for match in CLOCK.finditer(text):
+        if clocks and RANGE.fullmatch(text[clocks[-1][1] : match.start()]):
+            clocks[-1] = (clocks[-1][0], match.end(), clocks[-1][2])
+            continue
+        clocks.append((match.start(), match.end(), _clock_seconds(match.group(1))))
     if not clocks:
         return [(text, start_time, False)]
-    times = [_clock_seconds(match.group(1)) for match in clocks]
-    head, tail = text[: clocks[0].start()], text[clocks[-1].end() :]
-    listing = len(clocks) >= 2 or not head.strip()
+    times = [seconds for _, _, seconds in clocks]
+    head, tail = text[: clocks[0][0]], text[clocks[-1][1] :]
+    # A fan tracklist names several moments; "33:33 best drop ever" is a reaction, not a title.
+    listing = len(clocks) >= FAN_TRACKLIST_TIMES
     if LETTER.search(head) and not LETTER.search(tail):
-        starts = [0] + [match.end() for match in clocks[:-1]]
+        starts = [0] + [clock[1] for clock in clocks[:-1]]
         return [
-            (text[start : match.start()], seconds, listing)
-            for start, match, seconds in zip(starts, clocks, times, strict=True)
+            (text[start : clock[0]], clock[2], listing)
+            for start, clock in zip(starts, clocks, strict=True)
         ]
-    ends = [match.start() for match in clocks[1:]] + [len(text)]
+    ends = [clock[0] for clock in clocks[1:]] + [len(text)]
     pieces = [
-        (text[match.end() : end], seconds, listing)
-        for match, end, seconds in zip(clocks, ends, times, strict=True)
+        (text[clock[1] : end], clock[2], listing) for clock, end in zip(clocks, ends, strict=True)
     ]
     return ([(head, times[0], False)] if head.strip() else []) + pieces
 
@@ -466,6 +474,28 @@ def _clean_artist(value: str) -> str:
     return value.strip(" \t'\"“”‘’*~-–—,:;([").lstrip(".").strip()
 
 
+# Outside a fan tracklist, "Big love from Tokyo - Overmono rules" is a sentence with a dash.
+PROSE = _terms(
+    "i im i'm my me we our you your he she they this that it its is was are be been so just "
+    "from in at of for with to on about what how when where who set sets times time day night "
+    "evening morning weekend music performance crowd love boys girls guys everyone cheers "
+    "respect thanks thank watching listening here there"
+)
+LOOSE_ENDS = _terms("the a an to of and or but he she it in on at for with my your")
+
+
+def _sentence(artist: str, title: str) -> bool:
+    """Whether a dash-separated pair from free text reads as prose rather than a credit."""
+    names, words = _words(artist), _words(title)
+    return (
+        len(names) > 4
+        or bool(set(names) & PROSE)
+        or not words
+        or words[-1] in LOOSE_ENDS
+        or bool(set(words) & {"rules", "rule", "wait", "respect", "cheers", "thanks"})
+    )
+
+
 def _praise(value: str) -> bool:
     """ "what a tune", "absolute banger": praise words with small talk and nothing else."""
     words = set(_words(value))
@@ -491,6 +521,7 @@ def _mentions(clause: str, listing: bool) -> tuple[str, str] | None:
             and _plausible(title, 12)
             and not _praise(title)
             and fold(artist) not in {"track id", "song id"}
+            and (listing or not _sentence(artist, title))
         ):
             return artist, title
         return None

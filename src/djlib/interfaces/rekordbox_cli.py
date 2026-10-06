@@ -518,8 +518,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if not text.strip():
                 raise AppError(
                     "TRACKLIST_NOT_FOUND",
-                    "This upload has no tracklist in its description or chapters. Paste one "
-                    f"into a text file and run: djlib set FILE --source {tracklist}",
+                    "This upload has no tracklist in its description or chapters."
+                    + set_sources.named_in_comments(page.get("comments") or [])
+                    + " Copy its tracklist (for example from 1001Tracklists) into a text file, "
+                    f"then run: djlib set FILE --source {tracklist}",
                 )
             body, warnings = text_request(
                 text, name, page.get("title") or "Set", page.get("url") or tracklist

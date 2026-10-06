@@ -85,3 +85,14 @@ def test_fetch_plans_only_confident_matches_for_missing_songs():
         body["idempotency_key"]
         == set_sources.download_body("Friday", "request_1", chosen)["idempotency_key"]
     )
+
+
+def test_named_in_comments_points_to_credited_mentions_first():
+    comments = [
+        {"text": "2:41 - gunk / 12:00 - freedom 2 / 38:00 - hackney parrot"},
+        {"text": "this is The Streets - Turn the page (Overmono remix)"},
+    ]
+    message = set_sources.named_in_comments(comments)
+    assert message.startswith(" Listeners named 4 tracks in the comments, e.g. The Streets")
+    assert set_sources.named_in_comments([]) == ""
+    assert set_sources.named_in_comments([{"text": "ID?"}]) == ""

@@ -83,6 +83,25 @@ def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:
     return hints
 
 
+def named_in_comments(comments: list[dict]) -> str:
+    """“ Listeners named 9 tracks in the comments, e.g. …” or an empty string."""
+    if not comments:
+        return ""
+    from djlib.application.source_matching import comment_hints
+
+    hints = comment_hints(comments, None)
+    if not hints:
+        return ""
+    # Credited mentions first: they are the most useful pointers.
+    examples = sorted(hints, key=lambda hint: not hint["artist"])[:4]
+    count = f"{len(hints)} track{'s' if len(hints) != 1 else ''}"
+    return (
+        f" Listeners named {count} in the comments, e.g. "
+        + "; ".join(hint["label"] for hint in examples)
+        + "."
+    )
+
+
 def wanted(item: dict) -> dict:
     source = item.get("input") or {}
     return {key: source.get(key) or "" for key in ("artist", "title", "version")}
