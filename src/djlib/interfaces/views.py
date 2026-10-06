@@ -1,5 +1,6 @@
 """Readable terminal views for djlib results, keyed by CLI command path."""
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -177,6 +178,16 @@ def fields(term: Terminal, rows: list[tuple[str, object]]) -> None:
     term.out.print(indented(grid))
 
 
+# Crate and request-list arguments accept the first characters of an ID (djlib.handles).
+LONG_ID = re.compile(r"^(?:collection|request)_(?P<hex>[0-9a-f]{32})$")
+
+
+def short_handle(part: str) -> str:
+    """`collection_083659cb…` → `083659cb` in printed commands; full IDs elsewhere."""
+    match = LONG_ID.match(part)
+    return match["hex"][:8] if match else part
+
+
 def next_steps(term: Terminal, steps: list[Step], *, title: str = "Next") -> None:
     """Copy-pasteable follow-ups; long commands move under their label, unbroken."""
     steps = list(dict.fromkeys(step for step in steps if step))
@@ -185,7 +196,13 @@ def next_steps(term: Terminal, steps: list[Step], *, title: str = "Next") -> Non
     term.out.print()
     term.out.print(Text(title, style="heading"))
     commands = [
-        "" if not parts else parts if isinstance(parts, str) else term.command(*parts)
+        ""
+        if not parts
+        else parts
+        if isinstance(parts, str)
+        else term.command(
+            *(short_handle(part) if isinstance(part, str) else part for part in parts)
+        )
         for _, parts in steps
     ]
     # Align the commands of the steps that fit on one line; the rest move under their label.

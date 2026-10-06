@@ -418,6 +418,8 @@ def test_usb_and_set_views_show_what_came_back_from_the_stick(capsys):
 
 COLLECTION = "collection_b3dbc1726d094e3cbb85f208a04b50b7"
 REQUEST = "request_83978f59196a4656ad61f846e0e8645c"
+# Printed commands use the first 8 hex characters (djlib.interfaces.handles accepts them).
+SHORT_COLLECTION, SHORT_REQUEST = COLLECTION[11:19], REQUEST[8:16]
 JOB = "job_ee06f031562d4276b630af8f9466ef12"
 
 
@@ -591,9 +593,9 @@ def test_request_lists_lead_with_building_the_crate(capsys):
     out = render("requests create", request, width=160, capsys=capsys)
     steps = out.split("Next\n", 1)[1]
     assert steps.index("Build the crate from the 1 song you own") < steps.index("report")
-    assert f"djlib requests collect {REQUEST}" in steps
-    assert f"djlib requests report {REQUEST}" in steps
-    assert f"djlib requests refresh {REQUEST}" in steps
+    assert f"djlib requests collect {SHORT_REQUEST}" in steps
+    assert f"djlib requests report {SHORT_REQUEST}" in steps
+    assert f"djlib requests refresh {SHORT_REQUEST}" in steps
     assert "--revision" not in out
 
 
@@ -611,9 +613,11 @@ def test_crate_job_card_is_short_and_points_at_rekordbox(capsys):
     assert out.startswith("✓ Crate built: 8 tracks")
     assert "Job" not in out and "Updated" not in out and "succeeded" not in out
     steps = [" ".join(line.split()[1:]) for line in out.split("Next\n", 1)[1].splitlines()]
-    assert steps[0] == f"Put it in rekordbox djlib rekordbox push {COLLECTION}"
-    assert steps[1] == f"Or straight onto your USB djlib rekordbox usb {COLLECTION}"
-    assert steps[2] == f"See its tracks djlib crate {COLLECTION}"  # `crate` is the command name
+    assert steps[0] == f"Put it in rekordbox djlib rekordbox push {SHORT_COLLECTION}"
+    assert steps[1] == f"Or straight onto your USB djlib rekordbox usb {SHORT_COLLECTION}"
+    assert (
+        steps[2] == f"See its tracks djlib crate {SHORT_COLLECTION}"
+    )  # `crate` is the command name
 
 
 def failed_scan(failed: int = 12) -> dict:
@@ -684,7 +688,7 @@ def test_push_warns_about_missing_tracks_and_points_at_the_usb(capsys):
     out = render("rekordbox push", push_result(21), width=160, capsys=capsys)
     assert "rekordbox needed the screen for 7 s" in out
     assert "✓ Friday [/] [bold]Warm-up" in out
-    assert f"Put it on your USB  djlib rekordbox usb {COLLECTION}" in out
+    assert f"Put it on your USB  djlib rekordbox usb {SHORT_COLLECTION}" in out
     short = render("rekordbox push", push_result(20), width=160, capsys=capsys)
     assert short.startswith("! In rekordbox: 1 playlist, 1 incomplete")
     assert "! Friday [/] [bold]Warm-up" in short and "20 of 21 tracks" in short
@@ -710,7 +714,7 @@ def test_a_short_usb_export_is_a_failure(capsys):
         "✗ USB check failed: 1 of 8 missing on RICARDO_AM — don't take this stick yet"
     )
     assert "Âme - Rej (Original Mix)" in out
-    assert f"djlib rekordbox usb {COLLECTION}" in out
+    assert f"djlib rekordbox usb {SHORT_COLLECTION}" in out
     shuffled = render(
         "rekordbox usb", {**USB, "found": 8, "missing": [], "in_order": False}, capsys=capsys
     )
@@ -733,7 +737,7 @@ def test_set_with_a_failed_usb_check_leads_with_it(capsys):
     out = render("set", result, width=160, capsys=capsys)
     assert out.startswith("✗ USB check failed: 1 of 8 missing on RICARDO_AM")
     assert "Friday  8 of 9 songs owned" in out and "Âme - Rej (Original Mix)" in out
-    assert f"Export it to the stick again  djlib rekordbox usb {COLLECTION}" in out
+    assert f"Export it to the stick again  djlib rekordbox usb {SHORT_COLLECTION}" in out
 
 
 def test_set_and_push_views_print_markup_like_titles_literally(capsys):
@@ -814,7 +818,7 @@ def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
     )
     steps = out.split("Next\n", 1)[1]
     assert "Rebuild “Saturday” with the 21 songs you own" in steps
-    assert f"djlib requests collect {REQUEST}" in steps
+    assert f"djlib requests collect {SHORT_REQUEST}" in steps
     assert "rekordbox push" not in steps  # the outdated crate is not pushed
     assert "21 of 24 owned" in out
 
