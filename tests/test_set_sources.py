@@ -64,8 +64,9 @@ def test_fetch_plans_only_confident_matches_for_missing_songs():
 
     chosen, undecided = set_sources.plan_fetch(local, items)
 
-    assert [entry["title"] for entry in local.searched] == ["Halo", "Rain", "Snow", "Hail"]
-    assert local.searched[0] == {"artist": "Lumen", "title": "Halo", "version": "Dub"}
+    # Searches run a few at a time; only missing named songs are searched.
+    assert sorted(entry["title"] for entry in local.searched) == ["Hail", "Halo", "Rain", "Snow"]
+    assert {"artist": "Lumen", "title": "Halo", "version": "Dub"} in local.searched
     assert [(c["label"], c["title"], c["source"]["url"]) for c in chosen] == [
         ("Lumen - Halo (Dub)", "Halo", "https://youtu.be/a")
     ]

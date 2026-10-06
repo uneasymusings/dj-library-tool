@@ -22,7 +22,7 @@ from djlib.domain.errors import AppError
 from djlib.domain.reconciliation_contracts import ReconcileRequest
 from djlib.domain.workspace_contracts import RootsRequest
 from djlib.interfaces.client import LocalClient
-from djlib.interfaces.service import envelope
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.validation import validation_message
 from djlib.workspace import Workspace
 

@@ -32,8 +32,8 @@ from djlib.interfaces.client import (
     remember_workspace,
     remembered_workspace,
 )
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.library_cli import register_commands
-from djlib.interfaces.service import envelope
 from djlib.interfaces.validation import validation_message
 from djlib.workspace import Workspace
 
@@ -224,12 +224,17 @@ def init(
 @handled
 def status(ctx: typer.Context) -> None:
     """Your library at a glance: tracks, BPM/key coverage, requests, crates, next steps."""
+    from concurrent.futures import ThreadPoolExecutor
+
     from djlib.exporting.rekordbox_anlz import default_root
     from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists, remembered
 
     local = client(ctx)
-    summary = local.request("GET", "/summary")["result"]
-    playlists = rekordbox_playlists()
+    # Reading rekordbox's menu takes about half a second; do it while the summary loads.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        reading = pool.submit(rekordbox_playlists)
+        summary = local.request("GET", "/summary")["result"]
+        playlists = reading.result()
     history = remembered(ctx.obj)
     for row in summary["recent_collections"]:
         row["in_rekordbox"] = (
