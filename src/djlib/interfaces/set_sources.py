@@ -60,6 +60,8 @@ def tracklist_from_url(local, url: str) -> tuple[str, dict]:
 
 def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:
     """For each unknown ID with a time, what listeners named around that point of the set."""
+    if not comments:
+        return []
     from djlib.application.source_matching import comment_hints
 
     hints = []
