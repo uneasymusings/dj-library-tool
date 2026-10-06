@@ -455,6 +455,9 @@ def frontmost() -> bool:
         return False
 
 
+MIN_REPROBE_SECONDS = 2.0
+
+
 def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) -> None:
     """Wait until the user selects ``target`` in rekordbox, then export it to ``device``.
 
@@ -464,7 +467,7 @@ def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) 
     exported, through rekordbox's own menu.
     """
     deadline = time.monotonic() + timeout
-    last_wrong = None
+    last_wrong, probed_at = None, None
     while time.monotonic() < deadline:
         if screen_locked() or not frontmost():
             time.sleep(0.4)
@@ -472,14 +475,22 @@ def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) 
         if not menu_enabled("Playlist", "Export Playlist", device):
             time.sleep(0.4)
             continue
+        # Reading the selection briefly opens a dialog. After a wrong answer, look again only
+        # once the user has clicked or typed since (djlib's own menu actions are not input),
+        # so browsing other playlists is not interrupted.
+        if probed_at is not None:
+            since = time.monotonic() - probed_at
+            if since < MIN_REPROBE_SECONDS or idle_seconds() >= since:
+                time.sleep(0.4)
+                continue
         chosen = selected_playlist()
+        probed_at = time.monotonic()
         if chosen == target:
             click_menu_path("Playlist", "Export Playlist", device)
             return
         if chosen != last_wrong and on_wrong is not None:
             on_wrong(chosen)
         last_wrong = chosen
-        time.sleep(1.0)
     raise AppError(
         "APP_SELECTION_TIMEOUT",
         f"“{target}” was not selected in rekordbox in time; nothing was exported.",
