@@ -25,17 +25,21 @@ Not in the crate (3)
 
 ## Quick start
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
+```bash
+curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
+```
+
+The installer sets up [uv](https://docs.astral.sh/uv/) if needed, installs the newest djlib release and FFmpeg (through Homebrew when available), and runs `djlib doctor`. Later, `djlib upgrade` updates it. Then:
 
 ```bash
-brew install ffmpeg                  # macOS; needed for MP3/AAC/FLAC and downloads
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'
 djlib init --allow-root ~/Music      # creates and remembers your workspace
 djlib scan                           # indexes your music in place
 djlib set tracklist.txt              # owned/missing → crate → rekordbox playlist
 djlib set tracklist.txt --usb        # … and onto your USB stick, verified
 djlib status                         # library, request lists, crates, next steps
 ```
+
+Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'`.
 
 A tracklist is plain text with one `Artist - Title (Mix)` per line. Numbering, timestamps and `[Label]` suffixes are ignored, and a heading line names the set. Start without `--usb` to see what you own; add it when the stick is plugged in.
 

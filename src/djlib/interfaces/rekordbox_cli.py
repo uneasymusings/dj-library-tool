@@ -399,7 +399,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def push(
         ctx: typer.Context,
         collection_ids: Annotated[
-            list[str] | None, typer.Argument(help="Collections to push.")
+            list[str] | None,
+            typer.Argument(help="Crates to push: name, ID or its first characters, or 'last'."),
         ] = None,
         request: str | None = typer.Option(
             None, "--request", help="Build a crate from this request list's owned songs first."
@@ -424,10 +425,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         from djlib.native import rekordbox_mac as ui
 
         ui.ensure_supported()
+        from djlib.interfaces.handles import resolve
+
         local, workspace = client(ctx), ctx.obj
-        ids = list(collection_ids or [])
+        ids = [resolve(local, "collection", value) for value in collection_ids or []]
         if request:
-            ids.append(build_crate(local, request))
+            ids.append(build_crate(local, resolve(local, "request", request)))
         if not ids:
             raise AppError("INPUT_INVALID", "Name a collection ID, or pass --request ID.")
         with status("Checking the collections' files…"):
@@ -456,7 +459,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     @handled
     def usb(
         ctx: typer.Context,
-        collection_id: str,
+        collection_id: Annotated[
+            str, typer.Argument(help="The crate: name, ID or its first characters, or 'last'.")
+        ],
         device: Path | None = typer.Option(
             None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
         ),
@@ -476,7 +481,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Waiting for you to unlock your Mac…"):
             ui.wait_for_unlock(timeout)
         ui.ensure_supported()
+        from djlib.interfaces.handles import resolve
+
         local, workspace = client(ctx), ctx.obj
+        collection_id = resolve(local, "collection", collection_id)
         volume = usb_target(device)
         with status("Checking the collection's files…"):
             crate = prepare(local, workspace, collection_id)

@@ -64,7 +64,7 @@ def register_upgrade(app, client, emit, handled, panel=None):
         ctx: typer.Context,
         check: bool = typer.Option(False, "--check", help="Only say whether a newer djlib exists."),
     ) -> None:
-        """Install the newest djlib release and restart its background service."""
+        """Install the newest djlib release (and restart the service)."""
         latest = latest_release()
         newer = version_key(latest["version"]) > version_key(__version__)
         result = {"current": __version__, "latest": latest["version"], "notes": latest["notes"]}

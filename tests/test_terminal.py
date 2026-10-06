@@ -172,7 +172,7 @@ def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_pat
 
     pretty = invoke("scan", pretty=True, workspace=local_http.root)
     assert pretty.exit_code == 0, pretty.output
-    assert pretty.stdout.count("Music indexed") == 2
+    assert pretty.stdout.count("track indexed") == 2
     assert "unplugged drive?" in pretty.stderr
 
 

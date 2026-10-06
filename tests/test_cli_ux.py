@@ -23,7 +23,7 @@ PANELS = {
     "Start here": ["init", "scan", "set", "status", "doctor"],
     "Your library": ["library", "crates", "crate", "requests", "ui"],
     "rekordbox and USB": ["rekordbox"],
-    "Settings": ["use", "roots"],
+    "Settings": ["use", "roots", "upgrade"],
     "Assistants": ["setup-agent", "mcp"],
     "More": ["jobs", "service", "reviews"],
 }
@@ -314,7 +314,8 @@ def test_doctor_works_before_init_and_says_how_to_start(tmp_path, monkeypatch, n
     assert result["fixes"] == {"workspace": "djlib init --allow-root ~/Music"}
     assert envelope["warnings"] == ["Workspace: not set up yet → djlib init --allow-root ~/Music"]
     pretty = run("doctor", pretty=True, workspace=tmp_path / "nothing-yet")
-    assert "Workspace: not set up yet → djlib init --allow-root ~/Music" in pretty.stderr
+    # The doctor view shows a "not set up yet" row with the init command under it.
+    assert "not set up yet" in pretty.stdout and "djlib init" in pretty.stdout
     assert not (tmp_path / "nothing-yet").exists()  # doctor changes nothing
 
 
