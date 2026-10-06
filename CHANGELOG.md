@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`set` works without rekordbox.** Owned/missing, the crate and `--fetch` no longer need rekordbox: when it can't be driven (Linux/Windows, not installed, no Accessibility permission) the rekordbox step is skipped with the reason shown; `--no-rekordbox` skips it on purpose.
+- **Faster.** Every command starts about 0.4 s sooner (`djlib version` 0.85 s → 0.2 s) because the CLI no longer loads server code; `--fetch` searches four songs at a time (a 13-track set: 31 s → 11.5 s).
 - The skill's CLI reference covers `set` (files and set links), `--fetch`, `--usb`, `rekordbox usb`, the new error codes and the MCP equivalents.
 
 ## 0.1.0a11

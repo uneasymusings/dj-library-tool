@@ -72,6 +72,11 @@ class FakeRekordbox:
         self.imported: list[Path] = []
         self.present: set[str] = set()
         monkeypatch.setattr(rekordbox_mac, "ensure_supported", lambda: None)
+        monkeypatch.setattr(
+            rekordbox_mac,
+            "installed",
+            lambda: {"path": "/Applications/rekordbox 7", "version": "7"},
+        )
         monkeypatch.setattr(rekordbox_mac, "import_playlist", self.import_playlist)
         monkeypatch.setattr(rekordbox_mac, "playlists", lambda: set(self.present))
         monkeypatch.setattr(rekordbox_mac, "export_collection", self.export_collection)
@@ -573,3 +578,28 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
     assert error["code"] == "SOURCE_BROWSER_ONLY" and "text file" in error["message"]
+
+
+@pytest.mark.parametrize("flag", ["--no-rekordbox", None])
+def test_set_builds_the_crate_without_rekordbox(
+    application, library_http, audio_factory, monkeypatch, tmp_path, flag
+):
+    build(library_http, [audio_factory("solo.wav", frequency=430)], [("Lumen", "Solo")])
+    tracklist = tmp_path / "solo.txt"
+    tracklist.write_text("Lumen - Solo\nSomeone - Missing\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    if flag is None:  # automatic: rekordbox can't be driven here
+
+        def unsupported():
+            raise AppError("APP_AUTOMATION_UNSUPPORTED", "Driving rekordbox is only on macOS.")
+
+        monkeypatch.setattr(rekordbox_mac, "ensure_supported", unsupported)
+    args = ["--workspace", str(application.workspace.root), "set", str(tracklist)]
+    reply = CliRunner().invoke(cli_app, [*args, *([flag] if flag else [])])
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["owned"] == 1 and result["collection_id"]
+    assert result["rekordbox"]["status"] == "skipped" and result["rekordbox"]["reason"]
+    assert fake.imported == []
+    usb = CliRunner().invoke(cli_app, [*args, "--usb", "--no-rekordbox"])
+    assert json.loads(usb.stdout)["error"]["code"] == "INPUT_INVALID"

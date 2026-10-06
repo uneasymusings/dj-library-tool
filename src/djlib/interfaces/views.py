@@ -1371,13 +1371,16 @@ def set_view(term: Terminal, result: dict) -> None:
         rows.append(("Fetched", fetched_line(term, fetched)))
     if result.get("collection_id"):
         rows.append(("Crate", Text(f"{plural(owned, 'track')}, in set order", "ok")))
-        there = "imported" if rekordbox.get("status") == "imported" else "already there"
-        rows.append(
-            (
-                "rekordbox",
-                Text(f"{term.glyph('ok')} playlist “{result.get('playlist')}” {there}", "ok"),
+        if rekordbox.get("status") == "skipped":
+            rows.append(("rekordbox", Text(f"skipped: {rekordbox.get('reason')}", "muted")))
+        else:
+            there = "imported" if rekordbox.get("status") == "imported" else "already there"
+            rows.append(
+                (
+                    "rekordbox",
+                    Text(f"{term.glyph('ok')} playlist “{result.get('playlist')}” {there}", "ok"),
+                )
             )
-        )
     else:
         rows.append(("Crate", Text("none of these songs are in your library yet", "warn")))
     if usb:
@@ -1452,7 +1455,9 @@ def set_view(term: Terminal, result: dict) -> None:
     if usb:
         note(term, PLAYER_NOTE)
     steps: list[tuple[str, tuple | None]] = []
-    if result.get("collection_id") and not usb:
+    if result.get("collection_id") and rekordbox.get("status") == "skipped":
+        steps.append(("See the crate", ("collection", result["collection_id"])))
+    elif result.get("collection_id") and not usb:
         steps.append(("Put it on your USB", ("rekordbox", "usb", result["collection_id"])))
     if missing:
         steps.append(

@@ -480,6 +480,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         usb: bool = typer.Option(
             False, "--usb", help="Also put it on your USB stick through rekordbox (one click)."
         ),
+        use_rekordbox: bool = typer.Option(
+            True,
+            "--rekordbox/--no-rekordbox",
+            help="Import the crate into rekordbox when it can be driven (macOS); "
+            "--no-rekordbox only builds the crate.",
+        ),
         device: Path | None = typer.Option(
             None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
         ),
@@ -504,10 +510,16 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         )
         from djlib.native import rekordbox_mac as ui
 
+        if usb and not use_rekordbox:
+            raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
         if usb:
             with status("Waiting for you to unlock your Mac…"):
                 ui.wait_for_unlock(timeout)
-        ui.ensure_supported()
+            ui.ensure_supported()
+        # Owned/missing, the crate and downloads need no DJ app; rekordbox is used when it can be.
+        skipped = None if use_rekordbox else "not requested (--no-rekordbox)"
+        if use_rekordbox and not usb:
+            skipped = rekordbox_unavailable(ui)
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
@@ -591,17 +603,27 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             collection_id = build_crate(local, request["request_id"])
             with status("Checking the crate's files…"):
                 crate = prepare(local, workspace, collection_id)
-            outcome = into_rekordbox(local, workspace, ui, [crate])
-            result.update(
-                collection_id=collection_id,
-                playlist=crate["playlist"],
-                rekordbox={"status": crate["status"], **outcome},
-            )
+            result.update(collection_id=collection_id, playlist=crate["playlist"])
+            if skipped:
+                result["rekordbox"] = {"status": "skipped", "reason": skipped}
+            else:
+                outcome = into_rekordbox(local, workspace, ui, [crate])
+                result["rekordbox"] = {"status": crate["status"], **outcome}
             if volume is not None:
                 result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
+
+    def rekordbox_unavailable(ui) -> str | None:
+        """Why rekordbox can't be driven right now, or None when it can."""
+        try:
+            ui.ensure_supported()  # macOS only; also checks the Accessibility permission
+        except AppError as error:
+            return error.message
+        if ui.installed() is None:
+            return "rekordbox is not installed in /Applications"
+        return None
 
     def confirm_fetch(term, chosen: list[dict]) -> bool:
         """Show what would be downloaded and ask; scripts and assistants pass --yes instead."""
