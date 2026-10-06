@@ -460,24 +460,13 @@ def job_next_steps(term: Terminal, job: dict) -> list[tuple[str, tuple | None]]:
     if state == "completed":
         if kind == "scan":
             steps.append(("Browse your library", ("library",)))
+            steps.append(("Check a set's tracklist against it", ("set", "TRACKLIST.txt")))
         elif result.get("collection_id"):
             steps.append(("Open the collection", ("collection", result["collection_id"])))
             if kind in {"collection", "organize"}:
-                steps.append(
-                    (
-                        "Prepare it for rekordbox",
-                        (
-                            "delivery",
-                            "plan",
-                            "--collection",
-                            result["collection_id"],
-                            "--workflow",
-                            "rekordbox_import",
-                            "--app-version",
-                            "VERSION",
-                        ),
-                    )
-                )
+                collection = result["collection_id"]
+                steps.append(("Put it in rekordbox", ("rekordbox", "push", collection)))
+                steps.append(("Or straight onto your USB", ("rekordbox", "usb", collection)))
         elif kind in {"delivery", "delivery_check"} and result.get("delivery_id"):
             steps.append(("Check delivery status", ("delivery", "get", result["delivery_id"])))
         elif kind == "export" and result.get("playlist_path"):
@@ -692,8 +681,8 @@ def collections(term: Terminal, result: dict) -> None:
     rows = result.get("collections") or []
     if not rows:
         status_line(term, "todo", "No collections yet")
-        note(term, "Ask your assistant to build one, or plan one from a JSON tracklist.")
-        next_steps(term, [("Plan a collection", ("plan", "--file", "collection.json"))])
+        note(term, "A collection (crate) is built from the songs of a tracklist you own.")
+        next_steps(term, [("Build one from a tracklist", ("set", "TRACKLIST.txt"))])
         return
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis"}),
@@ -738,9 +727,13 @@ def collection(term: Terminal, result: dict) -> None:
                 )
             ],
         )
+    collection = result.get("collection_id", "")
     next_steps(
         term,
-        [("Export M3U + rekordbox XML", ("export", result.get("collection_id", "")))]
+        [
+            ("Put it in rekordbox", ("rekordbox", "push", collection)),
+            ("Or straight onto your USB", ("rekordbox", "usb", collection)),
+        ]
         if tracks
         else [],
     )
@@ -837,7 +830,11 @@ def status_view(term: Terminal, result: dict) -> None:
             ),
         ],
     )
-    requests = result.get("recent_requests") or []
+    # A tracklist checked again after edits makes a new list; show the newest per name.
+    newest: dict[str, dict] = {}
+    for row in result.get("recent_requests") or []:
+        newest.setdefault(row.get("name") or row.get("request_id"), row)
+    requests = list(newest.values())
     if requests:
         term.out.print()
         term.out.print(Text("Request lists", style="heading"))
@@ -886,7 +883,7 @@ def status_view(term: Terminal, result: dict) -> None:
             steps.append(
                 (
                     f"Put “{row['name']}” in rekordbox",
-                    ("rekordbox", "push", row["collection_id"], "--when-idle", "60"),
+                    ("rekordbox", "push", row["collection_id"]),
                 )
             )
             break
@@ -982,6 +979,33 @@ def doctor(term: Terminal, result: dict) -> None:
             "" if runtimes.get("youtube_runtime_ready") else "optional; Deno 2.3+ or Node 22+",
         ),
     ]
+    if result.get("rekordbox_automation_allowed") is not None:
+        app = result.get("rekordbox") or {}
+        allowed = bool(result.get("rekordbox_automation_allowed"))
+        checks[2:2] = [
+            (
+                "rekordbox",
+                bool(app),
+                f"rekordbox {app.get('version') or ''}".strip() if app else "not found",
+                "" if app else "install it in /Applications to push crates and export USBs",
+            ),
+            (
+                "App control",
+                allowed,
+                "allowed" if allowed else "not allowed",
+                ""
+                if allowed
+                else "System Settings > Privacy & Security > Accessibility > your terminal",
+            ),
+            (
+                "rekordbox analysis",
+                bool(result.get("rekordbox_analysis_folder")),
+                "found" if result.get("rekordbox_analysis_folder") else "not found",
+                "BPM and cues are read from it in the background"
+                if result.get("rekordbox_analysis_folder")
+                else "optional; appears once rekordbox has analyzed tracks",
+            ),
+        ]
     grid = Table.grid(padding=(0, 2))
     grid.add_column(no_wrap=True, min_width=max(len(check[0]) for check in checks) + 2)
     grid.add_column(overflow="fold")
@@ -995,11 +1019,7 @@ def doctor(term: Terminal, result: dict) -> None:
         grid.add_row(Text(f"{term.glyph(tone)} ", style=style) + Text(name), detail)
     term.out.print(Padding(grid, (0, 0, 0, 2)))
     term.out.print()
-    note(
-        term,
-        "Native import, analysis and USB export happen in rekordbox or Serato; "
-        "djlib prepares files and records what you observe there.",
-    )
+    note(term, "djlib drives rekordbox through its own menus and never edits its database.")
 
 
 @view("capabilities")
@@ -1052,7 +1072,7 @@ def service_stop(term: Terminal, result: dict) -> None:
 @view("setup-agent")
 def setup_agent(term: Terminal, result: dict) -> None:
     header(term, "Assistant session ready")
-    output = result.get("output") or result.get("session") or result.get("path")
+    output = result.get("session_directory") or result.get("output")
     fields(
         term, [("Session", path_text(output)), ("Workspace", path_text(result.get("workspace")))]
     )

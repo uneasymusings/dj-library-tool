@@ -400,14 +400,19 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, download support and the background service.
+    """Check FFmpeg, rekordbox automation, download support and the background service.
 
     Changes nothing in DJ apps or on devices.
     """
     import shutil
 
-    config = ctx.obj.config()
+    from djlib.exporting.rekordbox_anlz import default_root
+    from djlib.native import rekordbox_mac
     from djlib.sources.runtimes import javascript_runtimes
+
+    config = ctx.obj.config()
+    on_mac = sys.platform == "darwin"
+    analysis = default_root()
 
     emit(
         envelope(
@@ -421,6 +426,9 @@ def doctor(ctx: typer.Context) -> None:
                 "node": shutil.which("node"),
                 "javascript_runtimes": javascript_runtimes(),
                 "coordinator_url": client(ctx).discover(),
+                "rekordbox": rekordbox_mac.installed() if on_mac else None,
+                "rekordbox_automation_allowed": rekordbox_mac.automation_allowed(),
+                "rekordbox_analysis_folder": str(analysis) if analysis else None,
                 "native_app_compatibility": "not_verified",
             }
         )

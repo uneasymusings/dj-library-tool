@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -92,9 +93,11 @@ class LocalClient:
             observed = self._coordinator_version or "an unknown application version"
             raise AppError(
                 "COORDINATOR_VERSION_MISMATCH",
-                f"The running coordinator reports {observed}; this client requires {__version__}. "
-                "Run 'djlib --workspace WORKSPACE service stop' for this workspace, then retry. "
-                "Accepted jobs remain stored. No requested operation was sent or resubmitted.",
+                f"The running coordinator reports {observed}; this client requires {__version__} "
+                "(djlib was probably updated while its background service kept running). Run "
+                f"'djlib --workspace {shlex.quote(str(self.workspace.root))} service stop', "
+                "then retry. Accepted jobs remain stored. "
+                "No requested operation was sent or resubmitted.",
                 409,
             )
 
