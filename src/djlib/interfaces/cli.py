@@ -565,10 +565,7 @@ def doctor(ctx: typer.Context) -> None:
             "fixes": fixes,
         }
     )
-    if not initialized:
-        reply["warnings"].append(f"Workspace: not set up yet → {FIRST_STEP}")
-    if not required:
-        reply["warnings"].append(f"FFmpeg: not installed → {install_hint('ffmpeg')}")
+    # The doctor view shows each failed check with its fix; JSON readers get `fixes`.
     emit(reply)
     if not required:
         raise typer.Exit(1)

@@ -124,6 +124,8 @@ def set_item(item: dict) -> dict:
     source = item.get("input") or {}
     if source.get("kind") == "unknown":
         label = source.get("label") or "Unknown ID"
+        if source.get("timestamp"):
+            label += f" @ {source['timestamp']}"
     else:
         label = f"{source.get('artist') or 'Unknown artist'} - {source.get('title') or 'Untitled'}"
         if source.get("version"):

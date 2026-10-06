@@ -312,7 +312,8 @@ def test_doctor_works_before_init_and_says_how_to_start(tmp_path, monkeypatch, n
     assert result["coordinator_url"] is None and result["rekordbox"] is None
     assert result["required_checks_passed"] is True
     assert result["fixes"] == {"workspace": "djlib init --allow-root ~/Music"}
-    assert envelope["warnings"] == ["Workspace: not set up yet → djlib init --allow-root ~/Music"]
+    assert envelope["warnings"] == []  # the view renders the row; JSON readers get the fields
+    assert envelope["result"]["fixes"]["workspace"] == "djlib init --allow-root ~/Music"
     pretty = run("doctor", pretty=True, workspace=tmp_path / "nothing-yet")
     # The doctor view shows a "not set up yet" row with the init command under it.
     assert "not set up yet" in pretty.stdout and "djlib init" in pretty.stdout
@@ -347,7 +348,7 @@ def test_doctor_fails_without_ffmpeg_and_names_the_fix(
     assert result["workspace_initialized"] is True and result["workspace_id"]
     assert result["required_checks_passed"] is False
     assert result["fixes"]["ffmpeg"] == result["fixes"]["ffprobe"] == fix
-    assert envelope["warnings"] == [f"FFmpeg: not installed → {fix}"]
+    assert envelope["result"]["fixes"]["ffmpeg"] == fix
 
 
 # -- messages ---------------------------------------------------------------------------------
