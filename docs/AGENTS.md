@@ -2,7 +2,7 @@
 
 The engine is model-independent. Conversation, online search, and interpretation belong to your chosen assistant; durable side effects belong to `djlib`. A skill supplies workflow guidance, and MCP exposes typed tools. Either can be used independently.
 
-This guide describes a6. Use the matching packaged skill and check the installed version and connected capabilities before using discovery/reconciliation or queued native checks. See [status](STATUS.md) for validation and publication evidence.
+This guide describes 0.1.0a10. Use the matching packaged skill and check the installed version and connected capabilities first. rekordbox steps (`set`, `rekordbox push`, `rekordbox usb`) are CLI commands on the user's Mac; the assistant runs them with `--json` and tells the user when to click the playlist for a USB export. See [status](STATUS.md) for validation and publication evidence.
 
 ## Prerequisites
 
@@ -70,6 +70,8 @@ CLI-only use is also supported: make the installed `djlib` executable available 
 
 ## Example requests
 
+- “Here's tonight's tracklist. Check what I own, tell me what's missing and which other versions I have, and put the set on my USB through rekordbox.”
+- “Put my Friday crate into rekordbox once I've stepped away from the computer.”
 - “Build a collection from these local paths. Reuse the files in place and show me metadata conflicts.”
 - “Read this set's published tracklist. Find individual sources with your search tools, keep unknown IDs in a missing-track report, and queue the recordings I select.”
 - “Prepare a small owned-track collection for rekordbox or Serato, help me import and analyze it, and verify the working files. I do not know my player model yet.”

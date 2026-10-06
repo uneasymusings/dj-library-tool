@@ -47,14 +47,14 @@ AGENTS = "For assistants and scripts"
 EPILOG = (
     "[bold]New here?[/]  "
     "[bold]djlib init --allow-root ~/Music[/]  then  [bold]djlib scan[/]  then  "
-    "[bold]djlib library[/]\n\n"
+    "[bold]djlib set tracklist.txt[/]\n\n"
     "Output is JSON when piped or with [bold]--json[/]. "
     "Docs: https://github.com/uneasymusings/dj-library-tool"
 )
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "use", "status", "demo", "doctor", "ui", "setup-agent"),
+    *("init", "use", "status", "set", "demo", "doctor", "ui", "setup-agent"),
     *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
     *("requests", "organize", "plan", "start", "download", "source-inspect"),
     *("rekordbox", "delivery", "import-rekordbox", "export", "usb-preflight"),
@@ -72,8 +72,8 @@ class JourneyGroup(typer.core.TyperGroup):
 app = typer.Typer(
     cls=JourneyGroup,
     help=(
-        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  Build DJ collections from the music you own, "
-        "then hand them to rekordbox or Serato."
+        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  From a tracklist to rekordbox and a verified USB, "
+        "using the music you own."
     ),
     epilog=EPILOG,
     no_args_is_help=True,
@@ -174,7 +174,8 @@ def configure(
         None,
         "--workspace",
         "-w",
-        help="Workspace folder. Defaults to DJLIB_WORKSPACE or ~/.local/share/djlib/default.",
+        help="Workspace folder. Defaults to DJLIB_WORKSPACE, else the one chosen with "
+        "'djlib use' (the first init), else ~/.local/share/djlib/default.",
     ),
     json_output: bool = typer.Option(
         False,
@@ -223,16 +224,22 @@ def init(
 @handled
 def status(ctx: typer.Context) -> None:
     """Your library at a glance: tracks, BPM/key coverage, requests, crates, next steps."""
-    from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists
+    from djlib.exporting.rekordbox_anlz import default_root
+    from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists, remembered
 
     local = client(ctx)
     summary = local.request("GET", "/summary")["result"]
     playlists = rekordbox_playlists()
+    history = remembered(ctx.obj)
     for row in summary["recent_collections"]:
         row["in_rekordbox"] = (
             None if playlists is None else playlist_file_name(row["name"]) in playlists
         )
+        done = history.get(row["collection_id"], {})
+        row["pushed_at"] = done.get("pushed_at")
+        row["usb"] = done.get("usb")
     summary["rekordbox_checked"] = playlists is not None
+    summary["rekordbox_installed"] = default_root() is not None
     summary["service_url"] = local.discover()
     emit(envelope(summary))
 
@@ -394,14 +401,19 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, download support and the background service.
+    """Check FFmpeg, rekordbox automation, download support and the background service.
 
     Changes nothing in DJ apps or on devices.
     """
     import shutil
 
-    config = ctx.obj.config()
+    from djlib.exporting.rekordbox_anlz import default_root
+    from djlib.native import rekordbox_mac
     from djlib.sources.runtimes import javascript_runtimes
+
+    config = ctx.obj.config()
+    on_mac = sys.platform == "darwin"
+    analysis = default_root()
 
     emit(
         envelope(
@@ -415,6 +427,9 @@ def doctor(ctx: typer.Context) -> None:
                 "node": shutil.which("node"),
                 "javascript_runtimes": javascript_runtimes(),
                 "coordinator_url": client(ctx).discover(),
+                "rekordbox": rekordbox_mac.installed() if on_mac else None,
+                "rekordbox_automation_allowed": rekordbox_mac.automation_allowed(),
+                "rekordbox_analysis_folder": str(analysis) if analysis else None,
                 "native_app_compatibility": "not_verified",
             }
         )
@@ -1012,7 +1027,7 @@ register_commands(app, client, emit, handled, panel=BUILD)
 
 from djlib.interfaces.rekordbox_cli import register_rekordbox  # noqa: E402
 
-register_rekordbox(app, client, emit, handled, panel=DELIVER)
+register_rekordbox(app, client, emit, handled, panel=DELIVER, start_panel=START)
 
 
 def main() -> None:

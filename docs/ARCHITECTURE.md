@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-This document describes **0.1.0a9**, adding catalog reconciliation/discovery and durable native checks. Earlier a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
+This document describes **0.1.0a10**. a7–a10 added the tracklist-to-crate workflow, rekordbox automation on macOS (push, background analysis, USB export with device-library read-back) and the terminal and review-page interfaces; a6 added catalog reconciliation/discovery and durable native checks; a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
 
 ## Execution boundary
 
@@ -86,6 +86,14 @@ Workspaces have explicit allowed source roots. Additive root updates validate ex
 
 Audio inspection streams complete WAV payloads, or uses ffprobe plus bounded full FFmpeg decoding for other supported formats. Source size/mtime is checked around inspection. Copies are hashed before atomic promotion. Export hashes are checked again before artifact generation. These measures detect changed bytes, but do not prove authenticity, lossless origin, or acoustic identity.
 
+## rekordbox automation (macOS)
+
+rekordbox steps run in the CLI process, never in the coordinator: macOS grants UI control to the user's terminal (Accessibility), and the coordinator stays a headless service. `src/djlib/native/rekordbox_mac.py` drives rekordbox only through its menus and dialogs with AppleScript/System Events: File > Import > Import Playlist (an M3U8 of original files, so existing analysis and cues are reused), File > Export Collection in xml format, and Playlist > Export Playlist > *device*. Dialogs are filled through accessibility values and named buttons; the few keystrokes are sent only after checking that rekordbox is frontmost and the expected dialog has focus, otherwise the dialog is cancelled. A locked screen is detected and waited out. rekordbox's database is never opened.
+
+rekordbox's browser is a custom canvas with no accessibility tree, so playlist selection cannot be scripted. For USB export the user clicks the playlist; djlib reads the selection from the prefilled name in Playlist > Export a playlist to a file (then cancels) and only exports when it matches. Completion is read from the stick (every expected file present and nothing changing), not from rekordbox's in-window progress.
+
+Read-back is the evidence. Pushes are confirmed from rekordbox's playlist menu or one XML export. USB exports are confirmed by parsing the stick's `PIONEER/rekordbox/export.pdb` read-only (`src/djlib/exporting/rekordbox_pdb.py`, DeviceSQL pages and row groups for tracks, keys, artists, playlist tree and entries) and hashing each entry's file against the frozen manifest, in order. BPM and cue counts come from rekordbox's `ANLZ0000.DAT` files (`rekordbox_anlz.py`), synced incrementally by the coordinator every two minutes once enabled. The CLI records what it pushed and verified per collection in `exports/rekordbox/history.json` for `status`.
+
 ## Target delivery and the native app boundary
 
 `Delivery` persists a request, collection/recording snapshot, preparation job, revision and evidence. `rekordbox_import` and `serato_import` need no hardware or USB. Separate `rekordbox_usb` and `serato_portable` track device delivery; only standalone rekordbox USB requires a documented player profile. The app version and audio mode are part of the request. Pilots sample collections round-robin. Full local preparation may omit a pilot with explicit unvalidated status; a supplied pilot must match and pass. All readiness gates remain. Pilot/full copies use separate paths with no native cue/history reuse. See [DJ delivery](DJ_DELIVERY.md).
@@ -118,7 +126,9 @@ Hardware profiles carry primary-document references, exact known format limits, 
 | Byte hashes and versioned identity | Distinguishes duplicate files from requested recording versions; acoustic fingerprints are a separate later capability. |
 | yt-dlp as optional subprocess | Keeps provider churn and dependencies away from core installation. Public-source extraction can still break or be unavailable. |
 | App-owned native delivery | Isolated artifacts and explicit evidence support supervised native app work. Device hashes cannot prove playlist references or physical playback; native actions remain outside the engine. |
-| No frontend initially | Product effort goes to reusable tooling and actual DJ workflow reliability. The requested public home is scheduled later. |
+| Drive rekordbox through its menus | Works with every rekordbox 6/7 library without reverse-engineering its encrypted database or risking it. Costs a few seconds of screen time per push and one user click per USB export; `--when-idle` and background analysis keep the rest off screen. |
+| Verify by reading back | Pushes and USB exports are checked from rekordbox's own outputs (menu, XML, the stick's `export.pdb` and file hashes) rather than assumed from having clicked. Player playback still needs a human. |
+| Terminal views and a local review page, no hosted frontend | Product effort goes to the CLI, MCP tools and actual DJ workflow reliability; `djlib ui` serves a private page from the same coordinator. |
 
 The XML writer follows [AlphaTheta's published interchange format](https://cdn.rekordbox.com/files/20200410160904/xml_format_list.pdf), including its explicit `file://localhost/` location convention. Remote/UNC locations must first be copied into local managed storage. Format conformance is not app compatibility evidence.
 
