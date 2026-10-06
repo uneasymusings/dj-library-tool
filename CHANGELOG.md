@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a10
+
+- **`rekordbox usb ID`: crate → USB stick (macOS).** Pushes the crate if rekordbox lacks it, asks you to click its playlist once (rekordbox's browser cannot be scripted), confirms the selection from rekordbox's own export dialog, runs Playlist > Export Playlist > your stick, waits for rekordbox's device library to settle and checks every track on the stick by size and SHA-256. Nothing but the requested playlist is exported; djlib never writes the stick itself. The stick is found automatically, or pass `--device`.
+- **Locked screen.** rekordbox automation reports `APP_SCREEN_LOCKED` instead of a confusing focus failure, and `--when-idle` waits until the Mac is unlocked as well as idle.
+- **Unreadable menus.** When rekordbox's playlist menu cannot be read, `push` learns and confirms playlists from one XML export instead of importing again.
+
 ## 0.1.0a9
 
 - **No more `--workspace`.** The first `init` becomes your default workspace; `djlib use PATH` switches it and `djlib use` shows it (`DJLIB_WORKSPACE` still wins). Stored in `~/.config/djlib/workspace` (Windows: `%APPDATA%\djlib\workspace`).
