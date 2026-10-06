@@ -262,6 +262,76 @@ def related_prefixes(artist: str, title: str) -> list[str]:
     return [base, base.removesuffix("|") + " "]
 
 
+# Credit separators between artist names: "A, B", "A & B", "A x B", "A feat. B", "A vs B".
+# A lowercase "x" only, so a capital X inside a name is left alone.
+CREDIT_SEPARATOR = re.compile(
+    r"\s*[,;/]\s*|\s+&\s+|\s+x\s+|\s+(?i:featuring|feat\.?|ft\.?|vs\.?)\s+"
+)
+_FEATURING = r"(?i:featuring\s+|feat(?:\.\s*|\s+)|ft(?:\.\s*|\s+))"
+# "Title (feat. X)" / "Title [ft. X]" anywhere in the title, or a bare "Title feat. X" that
+# runs to the end or to the next bracketed part ("Title feat. X (Extended Mix)").
+FEATURED = re.compile(
+    rf"\s*[\(\[]\s*{_FEATURING}(?P<bracketed>[^\(\)\[\]]+?)\s*[\)\]]"
+    rf"|\s+{_FEATURING}(?P<bare>[^\(\)\[\]]+?)(?=\s*(?:[\(\[]|$))"
+)
+
+
+def split_featured(title: str) -> tuple[str, tuple[str, ...]]:
+    """The title without featuring credits, plus those credits as written.
+
+    "Rain (feat. Ana) (Dub)" becomes ("Rain (Dub)", ("Ana",)).
+    """
+    featured = tuple(match["bracketed"] or match["bare"] for match in FEATURED.finditer(title))
+    rest = FEATURED.sub("", title).strip()
+    return (rest, featured) if rest else (title, ())
+
+
+def artist_names(artist: str, *featured: str) -> tuple[str, ...]:
+    """Credited names as a sorted set: "Max Dean, Luke Dean & Jamie Jones" has three names.
+
+    Featured credits written in a title are passed as ``featured``. This is label matching
+    only; identity keys keep the artist string as written.
+    """
+    rest, inline = split_featured(artist)
+    names = {
+        normalize(name)
+        for part in (rest, *inline, *featured)
+        for name in CREDIT_SEPARATOR.split(part)
+    }
+    names.discard("")
+    # Symbol-only credits such as "/" split into nothing; keep the whole label instead.
+    return tuple(sorted(names)) or (normalize(artist),)
+
+
+def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, ...], str]:
+    """``label_form`` with the artist as a set of names, featured credits moved out of the title.
+
+    "Max Dean, Luke Dean, Jamie Jones" equals "Jamie Jones & Max Dean & Luke Dean", and
+    "A feat. B" + "T" equals "A" + "T (feat. B)". A subset of the names is not equal.
+    """
+    title, featured = split_featured(title)
+    return artist_names(artist, *featured), label_form("", title, version)[1]
+
+
+def credit_base_form(artist: str, title: str) -> tuple[tuple[str, ...], str]:
+    """``base_form`` with credited names as a set: same song, same artists, any version."""
+    title, featured = split_featured(title)
+    return artist_names(artist, *featured), normalize(base_title(title))
+
+
+def title_lookup(artist: str, title: str) -> tuple[list[str], list[str]]:
+    """Identity-key fragments shared by tagged recordings of this song in any artist order.
+
+    Returns the title-segment fragments (the base title alone, or followed by more words
+    such as a mix name or a featuring credit) and each credited name that must appear
+    somewhere in the key. Callers still compare ``credit_base_form`` exactly.
+    """
+    rest, featured = split_featured(title)
+    segment = recording_key("", base_title(rest)).split("|")[1]
+    names = [name for name in artist_names(artist, *featured) if re.search(r"\w", name)]
+    return [f"|{segment}|", f"|{segment} "], names
+
+
 def version_markers(value: str) -> frozenset[str]:
     """Detect obvious incompatible edits; this is not acoustic identification."""
     text = normalize(value)
