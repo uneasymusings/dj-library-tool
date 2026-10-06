@@ -273,6 +273,9 @@ class LocalClient:
             self._require_matching_version(url)
         timeout = 15
         if path == "/sources/inspect":
+            # Fetching listener comments takes up to the adapter's 240-second budget.
+            timeout = 260 if (data or {}).get("comments") else 100
+        elif path == "/sources/search":
             timeout = 100
         elif path.startswith("/deliveries/"):
             # Readback has a 120-second scan budget plus volume probes. Tag-only

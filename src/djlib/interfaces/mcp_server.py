@@ -130,9 +130,24 @@ def build_server(workspace: Workspace) -> MCPServer:
     @server.tool(
         structured_output=True, annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True)
     )
-    async def djlib_source_inspect(url: str) -> ResponseEnvelope:
-        """Read publisher description/chapters from a set URL; does not identify audio."""
-        return await request("POST", "/sources/inspect", {"url": url})
+    async def djlib_source_inspect(url: str, comments: int = 0) -> ResponseEnvelope:
+        """Read a set's description/chapters and, with comments > 0, listener comments.
+
+        SoundCloud comments carry start_time (seconds into the set); YouTube comments may write
+        timestamps in their text. Use them as evidence for unknown IDs; they identify nothing.
+        """
+        return await request("POST", "/sources/inspect", {"url": url, "comments": comments})
+
+    @server.tool(structured_output=True, annotations=read)
+    async def djlib_find_sources(artist: str, title: str, version: str = "") -> ResponseEnvelope:
+        """Search YouTube and SoundCloud for one recording; best uploads first with reasons.
+
+        Previews, live recordings, sets and unrequested remixes are dropped or ranked down.
+        Pass a chosen url to djlib_download with the same artist/title/version.
+        """
+        return await request(
+            "POST", "/sources/search", {"artist": artist, "title": title, "version": version}
+        )
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_job(job_id: str) -> ResponseEnvelope:
