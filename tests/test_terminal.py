@@ -343,3 +343,22 @@ def test_status_summarizes_library_requests_and_crates(local_http, audio_factory
     assert summary["rekordbox_checked"] is True
     pretty = invoke("status", pretty=True, workspace=local_http.root)
     assert "2 tracks" in pretty.stdout and "BPM for 0" in pretty.stdout
+
+
+def test_usb_and_set_views_show_what_came_back_from_the_stick(capsys):
+    term = terminal.Terminal(json=False)
+    usb = {
+        "playlist": "Friday",
+        "device": "/Volumes/RICARDO_AM",
+        "expected": 5,
+        "found": 5,
+        "in_order": True,
+        "playlist_on_device": True,
+        "library_updated": True,
+        "analysis_from_device": {"matched": 5, "updated": 2},
+    }
+    views.VIEWS["rekordbox usb"](term, usb)
+    views.VIEWS["set"](term, {"name": "Friday", "songs": 6, "owned": 5, "usb": usb})
+    out = capsys.readouterr().out
+    assert out.count("5 of 5 in the player's library, in order and byte for byte") == 2
+    assert out.count("5 tracks read from the stick (2 new in your catalog)") == 2

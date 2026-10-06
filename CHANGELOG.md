@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `rekordbox usb` and `set --usb` show how many tracks' key/BPM were read back from the stick.
+
 ## 0.1.0a10
 
 - **`djlib set tracklist.txt [--usb]`: the whole workflow in one command.** Checks which songs you own, builds the crate in set order, imports it into rekordbox and, with `--usb`, exports it to your stick and verifies it. One screen shows what made it, what is missing and which other versions you own. Rerunning reuses the list, crate and playlist.
