@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a12
 
 - **Rerunning a set is safe and current.** The same tracklist is re-checked against your library (songs you added since count as owned); an unchanged set reuses its crate and playlist, and a set that gained or lost songs goes into rekordbox as “Name (2)” instead of clashing with the playlist djlib made before.
 - **“(Original Mix)” means no special version**: it matches files tagged with the bare title and vice versa; a Radio Edit or remix is still another version.

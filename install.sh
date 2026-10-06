@@ -1,7 +1,7 @@
 #!/bin/sh
 # djlib installer: curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 # Installs uv if needed, the newest djlib release, FFmpeg through Homebrew when available,
-# then runs `djlib doctor`. Set DJLIB_VERSION=0.1.0a11 to pin a release.
+# then runs `djlib doctor`. Set DJLIB_VERSION=0.1.0a12 to pin a release.
 set -eu
 
 repo="uneasymusings/dj-library-tool"

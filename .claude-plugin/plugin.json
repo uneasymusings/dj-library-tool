@@ -1,7 +1,7 @@
 {
   "name": "djlib",
   "displayName": "DJ Library Tool",
-  "version": "0.1.0a11",
+  "version": "0.1.0a12",
   "description": "Check a DJ set's tracklist against the music you own, build the crate, push it to rekordbox and verify the USB stick. Needs the djlib engine on PATH.",
   "author": {
     "name": "uneasymusings",
