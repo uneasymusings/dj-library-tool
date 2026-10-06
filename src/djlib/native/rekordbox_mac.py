@@ -485,15 +485,3 @@ def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) 
         f"“{target}” was not selected in rekordbox in time; nothing was exported.",
         retryable=True,
     )
-
-
-def busy_dialogs() -> list[str]:
-    """Names of rekordbox windows other than its main window (progress or prompts)."""
-    script = (
-        'tell application "System Events" to tell process "rekordbox" to get name of every window'
-    )
-    try:
-        names = [n.strip() for n in _osascript(script).split(",") if n.strip()]
-    except AppError:
-        return []
-    return [name for name in names if name != "rekordbox"]

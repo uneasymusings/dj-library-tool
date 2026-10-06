@@ -76,3 +76,59 @@ def check_tracks(volume: Path, tracks: list[dict]) -> dict:
         "matched_by": "size_and_sha256",
         "device_written": False,
     }
+
+
+def copy_progress(volume: Path, tracks: list[dict]) -> tuple[int, tuple]:
+    """How many expected file sizes are present under ``Contents/`` (cheap, no hashing),
+    plus a signature of the stick that changes while rekordbox is still writing."""
+    sizes = []
+    for root, _, files in os.walk(volume / "Contents"):
+        for name in files:
+            if name.startswith("._"):
+                continue
+            try:
+                sizes.append((Path(root) / name).stat().st_size)
+            except OSError:
+                continue
+    present = set(sizes)
+    count = sum(1 for track in tracks if int(track.get("size_bytes") or -1) in present)
+    return count, (len(sizes), sum(sizes), sorted(library_state(volume).items()))
+
+
+def wait_for_copy(
+    volume: Path,
+    tracks: list[dict],
+    before: dict,
+    on_progress=None,
+    interval: float = 3.0,
+    stall: float = 90.0,
+    timeout: float = 3600.0,
+    clock=None,
+    sleep=None,
+) -> bool:
+    """Wait until rekordbox has finished writing the export; True if every file arrived.
+
+    rekordbox shows its progress inside its own window, so completion is read from the
+    stick: the device library changed, every expected file is present and nothing changed
+    for one more check. If nothing changes for ``stall`` seconds the export is over anyway
+    (for example a file was skipped) and False is returned.
+    """
+    import time
+
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
+    started = changed_at = clock()
+    last = None
+    while clock() - started < timeout:
+        sleep(interval)
+        count, signature = copy_progress(volume, tracks)
+        if on_progress is not None:
+            on_progress(count)
+        updated = library_state(volume) != before
+        if signature != last:
+            last, changed_at = signature, clock()
+            continue
+        if updated and count == len(tracks):
+            return True
+        if updated and clock() - changed_at >= stall:
+            return False
+    return False
