@@ -633,3 +633,25 @@ def test_audio_uploads_rank_above_music_videos_of_the_same_song():
     assert ranked[0]["url"] == "https://youtu.be/audio" and ranked[0]["confident"]
     video = next(entry for entry in ranked if entry["url"] == "https://youtu.be/video")
     assert "music video; may differ from the track" in video["reasons"]
+
+
+def test_country_tags_after_artist_names_do_not_have_to_appear():
+    from djlib.domain.contracts import artist_names, without_artist_tags
+
+    assert without_artist_tags("Antdot & Maz (BR) Remix") == "Antdot & Maz Remix"
+    assert without_artist_tags("Lasso (Live)") == "Lasso (Live)"
+    assert artist_names("Antdot & Maz (BR)") == artist_names("Maz, Antdot")
+    ranked = rank_sources(
+        {"artist": "Fahlberg", "title": "Bad Love", "version": "Antdot & Maz (BR) Remix"},
+        [
+            {
+                "provider": "youtube",
+                "url": "https://youtu.be/topic",
+                "uploader": "Fahlberg - Topic",
+                "title": "Bad Love (Antdot & Maz Remix)",
+                "duration": 353.0,
+                "view_count": 50_000,
+            },
+        ],
+    )
+    assert [entry["url"] for entry in ranked] == ["https://youtu.be/topic"]

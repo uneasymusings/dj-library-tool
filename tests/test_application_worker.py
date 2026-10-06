@@ -234,8 +234,9 @@ async def test_large_batch_reuse_and_cursor_completeness(application, audio_fact
     assert positions == list(range(200))
 
 
+@pytest.mark.parametrize("suffix", [".flac", ".mp3"])
 async def test_download_tags_only_managed_copy_and_records_final_hash(
-    application, audio_factory, monkeypatch
+    application, audio_factory, monkeypatch, suffix
 ):
     import subprocess
 
@@ -244,7 +245,7 @@ async def test_download_tags_only_managed_copy_and_records_final_hash(
 
     if not shutil.which("ffmpeg"):
         pytest.skip("FFmpeg not installed")
-    source = audio_factory().with_suffix(".flac")
+    source = audio_factory().with_suffix(suffix)
     subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source.with_suffix(".wav")), str(source)],
         check=True,
@@ -254,7 +255,7 @@ async def test_download_tags_only_managed_copy_and_records_final_hash(
 
     async def fake_download(url, destination):
         destination.mkdir(parents=True)
-        path = destination / "audio.flac"
+        path = destination / f"audio{suffix}"
         shutil.copyfile(source, path)
         acquired.update(path=path, sha256=checksum(path))
         return path, {"kind": "test_download", "source_url": url, "source_quality": "unverified"}
