@@ -269,7 +269,7 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
         rekordbox to finish and confirms each track on the stick byte for byte.
         """
-        from djlib.exporting.usb_check import check_tracks, library_state
+        from djlib.exporting.usb_check import check_tracks, library_state, wait_for_copy
         from djlib.native import rekordbox_mac as ui
 
         # This command waits for the user anyway, so a locked screen just means "not yet".
@@ -305,15 +305,14 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
             ui.wait_for_selection(volume.name, crate["playlist"], timeout, on_wrong=wrong)
         started = time.monotonic()
-        with status(f"rekordbox is exporting to {volume.name}…"):
-            settled = None
-            while time.monotonic() - started < 3600:
-                time.sleep(2)
-                current = library_state(volume)
-                if current != before and not ui.busy_dialogs():
-                    if current == settled:
-                        break  # unchanged for one more check: export finished
-                    settled = current
+        message = f"rekordbox is exporting to {volume.name}…"
+        with status(message) as live:
+
+            def progress(count):
+                if live is not None:
+                    live.update(f"[bold]{message}[/] {count} of {len(manifest_tracks)} files")
+
+            wait_for_copy(volume, manifest_tracks, before, on_progress=progress)
         with status("Checking the files on the USB…"):
             check = check_tracks(volume, manifest_tracks)
         emit(

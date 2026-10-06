@@ -1,5 +1,6 @@
 """rekordbox automation against a simulated UI, plus its analysis files and XML format."""
 
+import functools
 import json
 import struct
 import time
@@ -13,6 +14,7 @@ from typer.testing import CliRunner
 
 from djlib.application.native_analysis import sync_rekordbox_analysis
 from djlib.domain.errors import AppError
+from djlib.exporting import usb_check
 from djlib.exporting.native_rekordbox import playlist_report
 from djlib.exporting.rekordbox_anlz import parse
 from djlib.interfaces import service
@@ -271,7 +273,8 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
 
     monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
     monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
-    monkeypatch.setattr(rekordbox_mac, "busy_dialogs", lambda: [])
+    quick = functools.partial(usb_check.wait_for_copy, sleep=lambda seconds: None)
+    monkeypatch.setattr(usb_check, "wait_for_copy", quick)
     reply = CliRunner().invoke(
         cli_app,
         [
