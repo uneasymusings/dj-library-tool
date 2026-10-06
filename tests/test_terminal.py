@@ -136,13 +136,53 @@ def test_terminal_scan_defaults_to_the_only_root_and_follows_the_job(local_http,
     assert "done" in jobs.stdout and "Scan" in jobs.stdout
 
 
-def test_scan_without_path_needs_exactly_one_root(local_http, tmp_path):
-    other = tmp_path / "other"
+def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_path, monkeypatch):
+    import shutil
+
+    other, unplugged = tmp_path / "other", tmp_path / "unplugged"
     other.mkdir()
-    local_http.add_roots([other])
+    unplugged.mkdir()
+    audio_factory("../other/b.wav", frequency=330, artist="Lumen", title="Halo")
+    local_http.add_roots([other, unplugged])
+    unplugged.rmdir()
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     reply = invoke("scan", "--key", "k", workspace=local_http.root)
-    assert reply.exit_code == 2
-    assert "Choose a folder to scan" in json.loads(reply.stdout)["error"]["message"]
+    assert reply.exit_code == 0, reply.output
+    envelope = json.loads(reply.stdout)
+    scans = envelope["result"]["scans"]
+    assert len({scan["job_id"] for scan in scans}) == len(scans) == 2
+    assert envelope["warnings"] == [f"Skipped {unplugged}: it isn't there (unplugged drive?)."]
+    # The same retry token gives the same jobs back, one per folder, even after the
+    # missing drive returns.
+    unplugged.mkdir()
+    again = json.loads(invoke("scan", "--key", "k", workspace=local_http.root).stdout)
+    assert [s["job_id"] for s in again["result"]["scans"]][:2] == [s["job_id"] for s in scans]
+    assert len(again["result"]["scans"]) == 3 and again["warnings"] == []
+    unplugged.rmdir()
+
+    pretty = invoke("scan", pretty=True, workspace=local_http.root)
+    assert pretty.exit_code == 0, pretty.output
+    assert pretty.stdout.count("Music indexed") == 2
+    assert "unplugged drive?" in pretty.stderr
+
+
+def test_scan_and_init_warn_when_ffmpeg_is_missing(local_http, tmp_path, monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(sys, "platform", "linux")
+    reply = json.loads(invoke("scan", "--key", "w", workspace=local_http.root).stdout)
+    assert reply["ok"] is True and reply["result"]["job_id"]
+    assert reply["result"]["idempotency_key"] == "w"  # one folder keeps the token as given
+    assert reply["warnings"] == [
+        "ffmpeg and ffprobe not found, so only WAV files can be read. "
+        "Install FFmpeg: sudo apt install ffmpeg"
+    ]
+    (tmp_path / "crate").mkdir()
+    created = invoke("init", "--allow-root", str(tmp_path / "crate"), workspace=tmp_path / "new")
+    assert "Install FFmpeg" in json.loads(created.stdout)["warnings"][0]
+    pretty = invoke("scan", pretty=True, workspace=local_http.root)
+    assert "Install FFmpeg: sudo apt install ffmpeg" in pretty.stderr
 
 
 @pytest.mark.parametrize("name", sorted(views.VIEWS))
