@@ -35,7 +35,16 @@ HIDDEN = [
 
 
 def run(*arguments, workspace=None, pretty=False, columns=120):
-    env = {"DJLIB_OUTPUT": "pretty" if pretty else None, "COLUMNS": str(columns)}
+    # CI runners (GITHUB_ACTIONS, FORCE_COLOR) make Rich colour help text; tests read plain text.
+    env = {
+        "DJLIB_OUTPUT": "pretty" if pretty else None,
+        "COLUMNS": str(columns),
+        "NO_COLOR": "1",
+        "FORCE_COLOR": None,
+        "GITHUB_ACTIONS": None,
+        "TTY_COMPATIBLE": None,
+        "TTY_INTERACTIVE": None,
+    }
     prefix = ["--workspace", str(workspace)] if workspace is not None else []
     return CliRunner(env=env).invoke(cli_app, [*prefix, *map(str, arguments)])
 
