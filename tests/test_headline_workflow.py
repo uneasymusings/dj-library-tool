@@ -53,6 +53,8 @@ def test_tracklist_lines_become_requests_without_guessing():
         ("2 Unlimited", "No Limit"),
     ]
     assert skipped == [(1, "Fresh", "looks like a heading")]
+    featured, _ = parse_tracklist("Lumen - Halo [ft. Ana]\nLumen - Rain [Defected]")
+    assert [i.title for i in featured] == ["Halo [ft. Ana]", "Rain"]
     gap, _ = parse_tracklist("01. A - One\n02 B - Two\n[12:30] C - Three\n04 D - Four")
     assert [i.artist for i in gap] == ["A", "B", "C", "D"]
     plain, _ = parse_tracklist("2 Unlimited - No Limit\n808 State - Pacific\nOvermono - Gem Lingo")
