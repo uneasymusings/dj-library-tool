@@ -2,7 +2,31 @@
 
 All application commands emit an envelope with `schema_version`, `ok`, `result`, `warnings`, and `error`. No `--json` option is needed. Supply an initialized workspace explicitly. Do not pass private user paths into public repository examples or commits.
 
-These recipes describe a6. Earlier a3 has requests, organization and delivery but lacks a6 discovery/reconciliation tools and runs organization/analysis/app checks synchronously. Check `version`, `capabilities` and connected schemas; use the installed version's behavior.
+These recipes describe 0.1.0a11. Check `version`, `capabilities` and connected schemas; use the installed version's behavior. Since a9 the workspace given to `init` (or `djlib use PATH`) is the default, so `--workspace` can be omitted on the user's own machine; scripts and assistants should still pass `--json`.
+
+## One command for a set (macOS + rekordbox)
+
+```bash
+djlib --json set /path/to/tracklist.txt                       # owned/missing → crate → rekordbox playlist
+djlib --json set 'https://soundcloud.com/USER/SET'            # tracklist from a YouTube/SoundCloud set's description or chapters
+djlib --json set /path/to/tracklist.txt --fetch --yes         # also download clear matches for missing songs as MP3
+djlib --json set /path/to/tracklist.txt --usb                 # also export to the USB stick (the user clicks the playlist once)
+djlib --json rekordbox usb COLLECTION_ID                      # an existing crate → USB, verified from the stick
+```
+
+A tracklist file has one `Artist - Title (Mix)` per line; numbering, timestamps, `[Label]` suffixes and 1001Tracklists' copied `w/` and number-only lines are handled, and a heading line names the set. Read from the result: `owned`/`songs`, `missing[]` (`label`, `state`, `you_own` other versions), `id_hints[]` (what listeners named near each ID's time: `label`, `mentions`, `evidence`), `fetched` (`chosen[].source`, `needs_your_pick[]` with `options`, `downloaded`, `failed`), `playlist`, `rekordbox.status`, and `usb` (`found`/`expected`, `in_order`, `analysis_from_device`).
+
+- Ask before `--fetch --yes`: downloads are web audio of unverified quality and the user's responsibility. Only `confident` matches are downloaded; show `needs_your_pick` with the best guess and let the user choose (then `download --file` with that URL and the requested labels).
+- Before `--usb`, tell the user: “In rekordbox, click the playlist NAME.” A wrong selection prints the name it saw and keeps waiting; nothing else is exported.
+- `SOURCE_BROWSER_ONLY`: a 1001Tracklists link. Read the page in the user's browser if you can, or ask them to copy the tracklist into a file; never try to get around its captcha.
+- `TRACKLIST_NOT_FOUND`: the upload has no tracklist (common for Boiler Room); the message lists what listeners named. `APP_PLAYLIST_NAME_TAKEN`: rekordbox has a different playlist with that name; rename one (`set --name`).
+
+```bash
+djlib --json source-inspect 'https://www.youtube.com/watch?v=VIDEO'     # description and chapters
+djlib --json schemas                                                     # strict JSON inputs
+```
+
+MCP equivalents: `djlib_source_inspect` (`comments: 500` adds listener comments), `djlib_find_sources` (ranked YouTube/SoundCloud uploads for one song), `djlib_download`, `djlib_create_request`, `djlib_collect_request`. The rekordbox and USB steps are CLI only.
 
 Windows MCP requires a coordinator started outside the assistant host. Generated `launch.py` starts it before the host; manual configurations require `djlib --workspace PATH service start` from an external terminal. `COORDINATOR_START_REQUIRED` is the recovery signal, not an accepted background job. The engine does not escape Windows Job Object cleanup. `service status` inspects the service and `service stop` explicitly checkpoints/stops it.
 
@@ -171,7 +195,7 @@ djlib --workspace /path/to/workspace start PLAN_ID --revision 1 --key friday-v1
 djlib --workspace /path/to/workspace download --file /path/to/downloads.json
 ```
 
-URLs are placeholders. These commands do not search the web or identify set audio. The optional download dependency and FFmpeg must be installed. Acquisition is limited to 1,000 selections per request and 30-minute non-live recordings. Failed selections remain inspectable in the durable job.
+URLs are placeholders; `djlib_find_sources` (or `set --fetch`) finds and ranks real ones. Nothing identifies set audio. Downloads are saved as MP3 and the catalog copy is tagged with the supplied artist/title/version. The optional download dependency and FFmpeg must be installed. Acquisition is limited to 1,000 selections per request and 30-minute non-live recordings. Failed selections remain inspectable in the durable job.
 
 ## Follow progress and export
 
