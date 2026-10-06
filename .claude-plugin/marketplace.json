@@ -1,0 +1,17 @@
+{
+  "name": "dj-library-tool",
+  "description": "djlib for Claude Code and Codex: tracklist to owned/missing songs, crate, rekordbox playlist and verified USB.",
+  "owner": {
+    "name": "uneasymusings",
+    "url": "https://github.com/uneasymusings"
+  },
+  "plugins": [
+    {
+      "name": "djlib",
+      "source": "./",
+      "description": "MCP tools and the dj-library skill for the djlib engine (install the engine with uv first).",
+      "category": "music",
+      "tags": ["dj", "rekordbox", "usb", "tracklist"]
+    }
+  ]
+}

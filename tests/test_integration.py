@@ -198,11 +198,12 @@ def live_identity(workspace, expected=None, *, operation="coordinator identity")
     return identity
 
 
-def stdio_transport(workspace):
+def stdio_transport(workspace, tools="full"):
     return StdioServerParameters(
         command=sys.executable,
         args=["-m", "djlib.interfaces.cli", "--workspace", str(workspace.root), "mcp", "serve"],
         cwd=ROOT,
+        env={"DJLIB_MCP_TOOLS": tools},
     )
 
 
@@ -518,6 +519,7 @@ def test_forced_coordinator_exit_preserves_durable_review_and_accepted_job(
     live_identity(workspace, recovered, operation="after recovered collection CLI")
 
 
+@pytest.mark.usefixtures("full_mcp_tools")
 async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatch, tmp_path):
     """Network-independent provider doubles; real MCP/ASGI/worker/catalog contracts."""
     import djlib.interfaces.service as service_module

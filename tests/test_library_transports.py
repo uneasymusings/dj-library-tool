@@ -14,6 +14,9 @@ from djlib.interfaces.mcp_server import build_server
 from djlib.interfaces.tool_manifest import LIBRARY_WORKFLOW_TOOLS
 from tests.test_delivery_transports import assert_envelope, finish
 
+# Organization tools are outside the default core MCP profile.
+pytestmark = pytest.mark.usefixtures("full_mcp_tools")
+
 
 def catalog(http, audio_factory):
     sources = [

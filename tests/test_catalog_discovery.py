@@ -285,6 +285,7 @@ def test_validation_reports_fields_and_safe_reasons_without_private_input(
     assert "PRIVATE_INPUT_DO_NOT_ECHO" not in reply.output
 
 
+@pytest.mark.usefixtures("full_mcp_tools")
 async def test_mcp_validation_preserves_safe_structured_errors(application, discovery_http):
     secret = "PRIVATE_INPUT_DO_NOT_ECHO\nPRIVATE_SUFFIX"
     async with Client(build_server(application.workspace)) as client:
@@ -306,6 +307,7 @@ async def test_mcp_validation_preserves_safe_structured_errors(application, disc
         assert "PRIVATE_INPUT_DO_NOT_ECHO" not in reply.model_dump_json()
 
 
+@pytest.mark.usefixtures("full_mcp_tools")
 async def test_new_mcp_tools_and_reconciliation_use_real_http_worker(
     application, discovery_http, audio_factory, tmp_path
 ):
