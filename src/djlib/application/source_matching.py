@@ -44,6 +44,7 @@ VERSION_PENALTY = 0.4
 EXTENDED_PENALTY = 0.1
 MISSING_PENALTY = 0.05
 LYRICS_PENALTY = 0.03
+VIDEO_PENALTY = 0.08
 
 
 def _terms(text: str, separator: str = " ") -> frozenset[str]:
@@ -105,6 +106,8 @@ NAME_SPLIT = re.compile(
     r"\s+[x×]\s+|\s*[,;&]\s*|\s+(?:and|feat\.?|ft\.?|featuring|vs\.?)\s+", re.IGNORECASE
 )
 LETTER = re.compile(r"[^\W\d_]")
+# Music videos often carry intros, skits or a different edit than the released track.
+VIDEO = re.compile(r"\b(?:official\s+)?(?:music\s+)?video\b", re.IGNORECASE)
 
 
 @functools.lru_cache(maxsize=8192)
@@ -266,6 +269,9 @@ def _assess(want: Wanted, entry: dict, index: int) -> Assessed | None:
     if AUDIO.search(title):
         score += AUDIO_BONUS
         reasons.append("official audio")
+    elif VIDEO.search(title):
+        score -= VIDEO_PENALTY
+        reasons.append("music video; may differ from the track")
 
     featured = {fold(name) for part in split_featured(title)[1] for name in artist_names(part)}
     extra = _markers(title, want.credited | featured) - want.markers
