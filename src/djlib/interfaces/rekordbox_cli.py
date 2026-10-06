@@ -43,6 +43,37 @@ def rekordbox_playlists() -> set[str] | None:
         return None
 
 
+def find_usb() -> Path:
+    """The one external, writable USB volume, preferring one with a rekordbox library."""
+    import plistlib
+    import subprocess
+
+    candidates = []
+    for volume in Path("/Volumes").iterdir():
+        try:
+            info = plistlib.loads(
+                subprocess.run(
+                    ["diskutil", "info", "-plist", str(volume)], capture_output=True, timeout=10
+                ).stdout
+            )
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+        if info.get("Internal", True) or info.get("BusProtocol") == "Disk Image":
+            continue
+        if not info.get("WritableVolume", False):
+            continue
+        candidates.append(volume)
+    with_library = [v for v in candidates if (v / "PIONEER").is_dir()]
+    chosen = with_library or candidates
+    if len(chosen) != 1:
+        names = ", ".join(v.name for v in candidates) or "none"
+        raise AppError(
+            "DEVICE_REQUIRED",
+            f"Plug in one USB stick or pass --device (found: {names}).",
+        )
+    return chosen[0]
+
+
 def register_rekordbox(app, client, emit, handled, panel=None):
     rekordbox = typer.Typer(
         help="Put crates into rekordbox and read its BPM/cue analysis in the background.",
@@ -85,11 +116,20 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         playlist = workspace.exports / "rekordbox" / f"{playlist_file_name(name)}.m3u8"
         playlist.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(job["result"]["playlist_path"], playlist)
+        tracks = manifest["collection"]["tracks"]
         return {
             "collection_id": collection_id,
             "playlist": playlist.stem,
             "playlist_file": str(playlist),
-            "paths": [track["path"] for track in manifest["collection"]["tracks"]],
+            "paths": [track["path"] for track in tracks],
+            "tracks": [
+                {
+                    "sha256": track["sha256"],
+                    "size_bytes": (track.get("properties") or {}).get("size_bytes"),
+                    "label": f"{track['artist']} - {track['title']}",
+                }
+                for track in tracks
+            ],
         }
 
     def export_xml(workspace, ui) -> Path:
@@ -195,6 +235,7 @@ def register_rekordbox(app, client, emit, handled, panel=None):
         analysis = sync(local)
         for crate in crates:
             crate.pop("paths")
+            crate.pop("tracks", None)
             if crate["collection_id"] in reports:
                 report = reports[crate["collection_id"]]
                 crate.update({k: report[k] for k in ("entries", "expected", "matched", "analyzed")})
@@ -205,6 +246,87 @@ def register_rekordbox(app, client, emit, handled, panel=None):
                     "rekordbox_ui_seconds": ui_seconds,
                     "analysis_sync": analysis,
                     "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
+                    "database_modified_directly": False,
+                }
+            )
+        )
+
+    @rekordbox.command("usb")
+    @handled
+    def usb(
+        ctx: typer.Context,
+        collection_id: str,
+        device: Path | None = typer.Option(
+            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+        ),
+        timeout: int = typer.Option(
+            600, min=10, help="Seconds to wait for you to select the playlist in rekordbox."
+        ),
+    ) -> None:
+        """Export a crate to a USB stick through rekordbox, then verify every file on it.
+
+        rekordbox's browser cannot be scripted, so you click the playlist once when asked;
+        djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
+        rekordbox to finish and confirms each track on the stick byte for byte.
+        """
+        from djlib.exporting.usb_check import check_tracks, library_state
+        from djlib.native import rekordbox_mac as ui
+
+        # This command waits for the user anyway, so a locked screen just means "not yet".
+        with status("Waiting for you to unlock your Mac…"):
+            ui.wait_for_unlock(timeout)
+        ui.ensure_supported()
+        local, workspace = client(ctx), ctx.obj
+        volume = device.expanduser().absolute() if device else find_usb()
+        crate = prepare(local, workspace, collection_id)
+        manifest_tracks = crate.pop("tracks")
+        existing = ui.playlists()
+        if existing is None:
+            from djlib.exporting.native_rekordbox import playlist_names
+
+            existing = playlist_names(export_xml(workspace, ui))
+        if crate["playlist"] not in existing:
+            with status(f"Importing “{crate['playlist']}” in rekordbox…"):
+                ui.import_playlist(Path(crate["playlist_file"]))
+        before = library_state(volume)
+        term = terminal.current()
+
+        def wrong(name):
+            if not term.json:
+                term.err.print(
+                    f"[warn]That's “{name or 'not a playlist'}”.[/] Click “{crate['playlist']}”."
+                )
+
+        if not term.json:
+            term.err.print(
+                f"[accent]→[/] In rekordbox, click the playlist [bold]{crate['playlist']}[/]. "
+                "djlib exports it as soon as it is selected."
+            )
+        with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
+            ui.wait_for_selection(volume.name, crate["playlist"], timeout, on_wrong=wrong)
+        started = time.monotonic()
+        with status(f"rekordbox is exporting to {volume.name}…"):
+            settled = None
+            while time.monotonic() - started < 3600:
+                time.sleep(2)
+                current = library_state(volume)
+                if current != before and not ui.busy_dialogs():
+                    if current == settled:
+                        break  # unchanged for one more check: export finished
+                    settled = current
+        with status("Checking the files on the USB…"):
+            check = check_tracks(volume, manifest_tracks)
+        emit(
+            envelope(
+                {
+                    "collection_id": collection_id,
+                    "playlist": crate["playlist"],
+                    "device": str(volume),
+                    "library_updated": library_state(volume) != before,
+                    "export_seconds": round(time.monotonic() - started, 1),
+                    **{k: check[k] for k in ("expected", "found", "missing", "matched_by")},
+                    "verified_by": "usb_file_hashes",
+                    "player_playback_verified": False,
                     "database_modified_directly": False,
                 }
             )

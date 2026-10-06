@@ -1240,6 +1240,42 @@ def rekordbox_push(term: Terminal, result: dict) -> None:
     )
 
 
+@view("rekordbox usb")
+def rekordbox_usb(term: Terminal, result: dict) -> None:
+    found, expected = int(result.get("found") or 0), int(result.get("expected") or 0)
+    complete = expected and found == expected
+    status_line(
+        term,
+        "ok" if complete else "warn",
+        f"“{result.get('playlist', '')}” on {Path(result.get('device') or '').name}",
+        f"exported in {result.get('export_seconds', 0):g} s",
+    )
+    fields(
+        term,
+        [
+            (
+                "Tracks",
+                Text(
+                    f"{found} of {expected} on the USB, byte for byte", "ok" if complete else "warn"
+                ),
+            ),
+            (
+                "Library",
+                Text(f"{term.glyph('ok')} rekordbox device library updated", "ok")
+                if result.get("library_updated")
+                else Text("device library unchanged", "warn"),
+            ),
+        ],
+    )
+    for label in (result.get("missing") or [])[:5]:
+        note(term, f"missing: {label}")
+    term.out.print()
+    note(
+        term,
+        "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig.",
+    )
+
+
 @view("rekordbox sync")
 def rekordbox_sync(term: Terminal, result: dict) -> None:
     updated = int(result.get("updated") or 0)
