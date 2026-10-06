@@ -12,6 +12,8 @@ One command per intent. Use `djlib --workspace PATH --json …` (or the matching
 | Intent | Command | MCP |
 | --- | --- | --- |
 | Tracklist → crate → rekordbox playlist (→ USB), all at once (macOS) | `set tracklist.txt [--usb]` (with `--usb` the user clicks the playlist once when asked) | CLI only |
+| A set's link → tracklist + what listeners said about its IDs | `set https://soundcloud.com/… ` (or a YouTube set) | `djlib_source_inspect` with `comments: 500` |
+| Get missing songs as MP3 | `set FILE_OR_URL --fetch --yes` (ask the user first) | `djlib_find_sources`, then `djlib_download` |
 | Which of these songs do I own? | `requests create --text tracklist.txt` (one “Artist - Title (Mix)” per line) | `djlib_create_request` |
 | Owned songs → crate, in order | `requests collect REQUEST_ID` | `djlib_collect_request` |
 | Crate → rekordbox playlist (macOS) | `rekordbox push COLLECTION_ID [--when-idle 60]`, or `rekordbox push --request REQUEST_ID` | CLI only |
@@ -22,6 +24,10 @@ One command per intent. Use `djlib --workspace PATH --json …` (or the matching
 | Where are we? | `status` (counts, lists needing re-check, crates already in rekordbox, next commands) | `djlib_capabilities` + list tools |
 
 For a set the user wants to play, `set FILE` is the default: write the tracklist they gave you to a text file, run it, and report `owned/songs`, each entry of `missing` with its `you_own` versions, and the playlist name. Add `--usb` only when they want the stick now and are at the computer; tell them first to click the playlist in rekordbox when asked, then report `usb.found/usb.expected` and `in_order`, and that player playback is not verified.
+
+For 1001Tracklists: djlib cannot fetch it (its tracklist pages are only served to browsers, behind a captcha for scripts). If you can browse, read the page the user opened in their browser and write the tracks to a text file as “Artist - Title (Mix)” lines; otherwise ask the user to copy the tracklist into a file. Never try to get around the captcha.
+
+For IDs, report `id_hints` as listeners' guesses with their evidence, and only add one to a request when the user agrees (`djlib_resolve_request`). For missing songs, `--fetch` downloads only clear matches; tell the user they are web audio of unverified quality and list `needs_your_pick` with the best guess for them to choose.
 
 Respect the user's computer: when you start a rekordbox push yourself, pass `--when-idle 60` so rekordbox only comes to the front once they have stepped away; push several collections in one command; never poll rekordbox's UI, because the background coordinator picks up its analysis files every two minutes. If a push returns `APP_AUTOMATION_NOT_ALLOWED`, ask the user once to enable their terminal under System Settings > Privacy & Security > Accessibility.
 
