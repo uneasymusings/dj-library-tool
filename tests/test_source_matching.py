@@ -655,3 +655,32 @@ def test_country_tags_after_artist_names_do_not_have_to_appear():
         ],
     )
     assert [entry["url"] for entry in ranked] == ["https://youtu.be/topic"]
+
+
+def test_a_single_timestamped_reaction_is_not_a_track_title():
+    comments = [
+        {"text": "33:33 surely one of the best drops there", "start_time": None, "like_count": 71},
+        {"text": "16:04 This", "start_time": None, "like_count": 15},
+        {"text": "2:41 - gunk / 12:00 - freedom 2 / 38:00 - hackney parrot", "start_time": None},
+    ]
+    labels = [hint["label"] for hint in comment_hints(comments, None)]
+    assert labels == ["gunk", "freedom 2", "hackney parrot"]
+
+
+def test_sentences_with_a_dash_are_not_artist_and_title():
+    comments = [
+        {"text": "Big love from Tokyo - Overmono rules", "start_time": None},
+        {"text": "listened to this set about 30 times - it keeps getting better"},
+        {"text": "what an evening in Belfast - CAN NOT WAIT"},
+        {"text": "the track at 1:02:30 is Bicep - Glue (Hammer edit)"},
+        {"text": "this is The Streets - Turn the page (Overmono remix)"},
+    ]
+    labels = [hint["label"] for hint in comment_hints(comments, None)]
+    assert labels == ["Bicep - Glue (Hammer edit)", "The Streets - Turn the page (Overmono remix)"]
+
+
+def test_a_time_range_is_one_moment():
+    comments = [{"text": "12:00 to 14:00 throught make my heart melt everytime"}]
+    assert comment_hints(comments, None) == []
+    ranged = [{"text": "12:00-14:00 Bicep - Glue"}]
+    assert [hint["label"] for hint in comment_hints(ranged, None)] == ["Bicep - Glue"]
