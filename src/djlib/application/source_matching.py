@@ -19,6 +19,7 @@ from djlib.domain.contracts import (
     normalize,
     split_featured,
     version_markers,
+    without_artist_tags,
 )
 
 MIN_SECONDS = 60  # SoundCloud Go+ previews arrive as 30-second entries.
@@ -181,9 +182,9 @@ class Wanted:
 
 def _wanted(requested: dict) -> Wanted:
     """The requested identity in matching form; a trailing "(... Remix)" counts as the version."""
-    artist = str(requested.get("artist") or "")
-    title, title_featured = split_featured(str(requested.get("title") or ""))
-    version = str(requested.get("version") or "").strip()
+    artist = without_artist_tags(str(requested.get("artist") or ""))
+    title, title_featured = split_featured(without_artist_tags(str(requested.get("title") or "")))
+    version = without_artist_tags(str(requested.get("version") or ""))
     base = base_title(title)
     if not version and base != title:
         trailing = title[len(base) :].strip(" ()[]")

@@ -434,12 +434,13 @@ class Worker:
                 copied_hash = await asyncio.to_thread(checksum, staging)
                 if copied_hash != inspection.sha256:
                     raise AppError("FILE_CHANGED", "The source changed before copying completed.")
-                if job.kind == "download" and source.suffix.lower() == ".flac":
+                suffix = source.suffix.lower()
+                if job.kind == "download" and suffix in {".flac", ".mp3"}:
                     # Original acquisition bytes remain in incoming/. Only the managed
                     # derivative gets chosen labels; its *final* bytes are cataloged.
                     original_hash = inspection.sha256
-                    await asyncio.to_thread(tag_download_copy, staging, track)
-                    tagged = staging.with_suffix(".flac")
+                    await asyncio.to_thread(tag_download_copy, staging, track, suffix)
+                    tagged = staging.with_suffix(suffix)
                     os.replace(staging, tagged)
                     staging = tagged
                     inspection = await asyncio.to_thread(inspect_audio, staging)

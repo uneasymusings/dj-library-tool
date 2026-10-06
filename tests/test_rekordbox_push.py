@@ -527,6 +527,8 @@ def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
 
     async def download(link, destination):
         downloaded.append(link)
+        if len(downloaded) == 1:  # providers refuse a stream now and then
+            raise AppError("SOURCE_FAILED", "The provider could not retrieve it.", 502, True)
         destination.mkdir(parents=True, exist_ok=True)
         path = destination / "audio.wav"
         shutil.copyfile(fetched_audio, path)
@@ -543,7 +545,7 @@ def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
     assert reply.exit_code == 0, reply.output
     result = json.loads(reply.stdout)["result"]
     assert result["name"] == "Friday Set" and result["source"]["url"] == url
-    assert downloaded == ["https://youtu.be/halo"]
+    assert downloaded == ["https://youtu.be/halo", "https://youtu.be/halo"]
     assert result["fetched"]["downloaded"] == 1
     assert [entry["label"] for entry in result["fetched"]["needs_your_pick"]] == [
         "Velvet Static - Night Bus"
