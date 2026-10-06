@@ -20,6 +20,7 @@ import typer
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
 from djlib.interfaces.service import envelope
+from djlib.interfaces.terminal import plural
 
 
 def playlist_file_name(name: str) -> str:
@@ -457,17 +458,25 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def set_command(
         ctx: typer.Context,
         tracklist: Annotated[
-            Path,
+            str,
             typer.Argument(
-                help="Text file with one “Artist - Title (Mix)” per line, in set order."
+                help="Text file with one “Artist - Title (Mix)” per line, or a YouTube or "
+                "SoundCloud set whose description lists its tracks."
             ),
         ],
         name: str | None = typer.Option(
-            None, help="Set name; defaults to the file's first heading or its name."
+            None, help="Set name; defaults to the tracklist's heading, file name or upload title."
         ),
         source: str | None = typer.Option(
-            None, help="HTTPS link to the set, kept as evidence for unknown IDs."
+            None, help="With a file: HTTPS link to the set, kept as evidence for unknown IDs."
         ),
+        fetch: bool = typer.Option(
+            False,
+            "--fetch",
+            help="Download missing songs as MP3 from YouTube or SoundCloud when the match is "
+            "clear (asks first; --yes to skip).",
+        ),
+        yes: bool = typer.Option(False, "--yes", "-y", help="With --fetch: don't ask first."),
         usb: bool = typer.Option(
             False, "--usb", help="Also put it on your USB stick through rekordbox (one click)."
         ),
@@ -480,11 +489,19 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     ) -> None:
         """Tracklist → the songs you own → a rekordbox playlist → your USB, in one command.
 
-        Checks which songs you own (exact artist/title/version), builds a crate in set order,
-        imports it into rekordbox and, with --usb, has rekordbox export it to your stick and
-        verifies it there. Missing songs are listed, never swapped for another version.
+        Takes a text file or a YouTube/SoundCloud set (its description, chapters and listener
+        comments). Checks which songs you own (exact artist/title/version), with --fetch
+        downloads clear matches for missing ones as MP3, builds a crate in set order, imports
+        it into rekordbox and, with --usb, exports it to your stick and verifies it there.
+        Missing songs are never swapped for another version.
         """
-        from djlib.interfaces.library_cli import all_items, finish_checks, tracklist_request
+        from djlib.interfaces import set_sources
+        from djlib.interfaces.library_cli import (
+            all_items,
+            finish_checks,
+            text_request,
+            tracklist_request,
+        )
         from djlib.native import rekordbox_mac as ui
 
         if usb:
@@ -493,21 +510,67 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         ui.ensure_supported()
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
-        body, warnings = tracklist_request(tracklist, name, source)
+        term = terminal.current()
+        page = None
+        if set_sources.is_url(tracklist):
+            with status("Reading the set's description and listener comments…"):
+                text, page = set_sources.tracklist_from_url(local, tracklist)
+            if not text.strip():
+                raise AppError(
+                    "TRACKLIST_NOT_FOUND",
+                    "This upload has no tracklist in its description or chapters. Paste one "
+                    f"into a text file and run: djlib set FILE --source {tracklist}",
+                )
+            body, warnings = text_request(
+                text, name, page.get("title") or "Set", page.get("url") or tracklist
+            )
+        else:
+            body, warnings = tracklist_request(Path(tracklist).expanduser(), name, source)
         with status("Checking which songs you own…"):
             reply = finish_checks(
                 local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
             )
         request = reply["result"]
         items = all_items(local, request)
+        fetched = None
+        if fetch:
+            with status("Searching YouTube and SoundCloud for the missing songs…"):
+                chosen, undecided = set_sources.plan_fetch(local, items)
+            fetched = {"downloaded": 0, "chosen": chosen, "needs_your_pick": undecided}
+            go = bool(chosen) and (yes or confirm_fetch(term, chosen))
+            if chosen and not go:
+                fetched["skipped"] = "not confirmed; rerun with --yes to download"
+            if go:
+                body = set_sources.download_body(request["name"], request["request_id"], chosen)
+                with status(f"Downloading {plural(len(chosen), 'song')} as MP3…"):
+                    job = finished(local, local.request("POST", "/downloads", data=body)["result"])
+                counts = job.get("counts") or {}
+                fetched.update(
+                    downloaded=int(counts.get("succeeded") or 0),
+                    failed=int(counts.get("failed") or 0),
+                    job_id=job["job_id"],
+                )
+                with status("Checking the set again…"):
+                    refreshed = local.request(
+                        "POST",
+                        f"/requests/{request['request_id']}/refresh",
+                        data={"revision": request["revision"]},
+                    )
+                    request = finish_checks(local, refreshed)["result"]
+                    items = all_items(local, request)
         owned = [item for item in items if item.get("state") == "satisfied"]
         result = {
             "name": request.get("name"),
             "request_id": request["request_id"],
             "revision": request.get("revision"),
+            "source": None
+            if page is None
+            else {key: page.get(key) for key in ("url", "provider", "title", "uploader")},
             "songs": len(items),
             "owned": len(owned),
             "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
+            "id_hints": set_sources.id_hints(items, (page or {}).get("comments") or []),
+            "fetched": fetched,
             "collection_id": None,
             "playlist": None,
             "rekordbox": None,
@@ -529,6 +592,23 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
+
+    def confirm_fetch(term, chosen: list[dict]) -> bool:
+        """Show what would be downloaded and ask; scripts and assistants pass --yes instead."""
+        import sys
+
+        if term.json or not sys.stdin.isatty():
+            return False
+        term.err.print(f"[bold]Found {plural(len(chosen), 'missing song')} to download:[/]")
+        for entry in chosen:
+            upload = entry["source"]
+            length = upload.get("duration")
+            minutes = f"{int(length // 60)}:{int(length % 60):02d}" if length else "?"
+            term.err.print(
+                f"  {entry['label']}  [muted]← {upload['provider']}: “{upload['title']}” "
+                f"by {upload['uploader'] or '?'} ({minutes})[/]"
+            )
+        return typer.confirm("Download these as MP3?", default=True, err=True)
 
     def sync(local) -> dict | None:
         try:

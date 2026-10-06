@@ -1334,6 +1334,19 @@ def device_analysis(result: dict) -> Text | None:
     return Text(line, "muted")
 
 
+def fetched_line(term: Terminal, fetched: dict) -> Text:
+    chosen = len(fetched.get("chosen") or [])
+    downloaded, failed = int(fetched.get("downloaded") or 0), int(fetched.get("failed") or 0)
+    if downloaded:
+        line = Text(f"{term.glyph('ok')} {plural(downloaded, 'song')} downloaded as MP3", "ok")
+        if failed:
+            line.append(f", {failed} failed", style="warn")
+        return line
+    if chosen:
+        return Text(f"{plural(chosen, 'song')} found; not downloaded (rerun with --yes)", "warn")
+    return Text("no missing song had a clear match", "muted")
+
+
 @view("set")
 def set_view(term: Terminal, result: dict) -> None:
     owned, songs = int(result.get("owned") or 0), int(result.get("songs") or 0)
@@ -1347,6 +1360,15 @@ def set_view(term: Terminal, result: dict) -> None:
     )
     rekordbox = result.get("rekordbox") or {}
     rows: list[tuple[str, object]] = []
+    page = result.get("source") or {}
+    if page:
+        provider = (page.get("provider") or "").removesuffix("Tab").replace("Youtube", "YouTube")
+        rows.append(
+            ("Source", Text(f"{provider}: {page.get('title') or page.get('url')}", "muted"))
+        )
+    fetched = result.get("fetched") or {}
+    if fetched:
+        rows.append(("Fetched", fetched_line(term, fetched)))
     if result.get("collection_id"):
         rows.append(("Crate", Text(f"{plural(owned, 'track')}, in set order", "ok")))
         there = "imported" if rekordbox.get("status") == "imported" else "already there"
@@ -1396,8 +1418,37 @@ def set_view(term: Terminal, result: dict) -> None:
                 Text(", ".join(item.get("you_own") or []), style="warn"),
             )
         term.out.print(grid)
+    pick = fetched.get("needs_your_pick") or []
+    if pick:
+        term.out.print()
+        term.out.print(Text(f"Not downloaded: no clear match ({len(pick)})", style="heading"))
+        for entry in pick[:10]:
+            line = Text(f"  {entry.get('label', '')}", style="heading")
+            options = entry.get("options") or []
+            if options:
+                line.append(f"  best guess: {options[0].get('url')}", style="path")
+            else:
+                line.append(f"  {entry.get('reason') or 'nothing found'}", style="muted")
+            term.out.print(line, soft_wrap=True)
+    hints = result.get("id_hints") or []
+    if hints:
+        term.out.print()
+        term.out.print(Text("IDs: what listeners named around that moment", style="heading"))
+        for hint in hints:
+            best = hint["hints"][0]
+            line = Text(f"  #{hint.get('position')} @ {hint.get('timestamp')}  ", style="muted")
+            line.append(best.get("label") or "", style="heading")
+            line.append(f"  {plural(int(best.get('mentions') or 1), 'mention')}", style="muted")
+            others = [h.get("label") for h in hint["hints"][1:]]
+            if others:
+                line.append(f"  · also: {', '.join(others)}", style="muted")
+            term.out.print(line, soft_wrap=True)
     term.out.print()
     note(term, "Matched by exact artist/title/version labels; other versions are never swapped in.")
+    if fetched.get("downloaded"):
+        note(term, "Downloads are web audio of unverified quality, labelled as you requested.")
+    if hints:
+        note(term, "Comment hints are listeners' guesses; nothing was added for them.")
     if usb:
         note(term, PLAYER_NOTE)
     steps: list[tuple[str, tuple | None]] = []
