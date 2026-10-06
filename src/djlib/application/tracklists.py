@@ -5,10 +5,12 @@ Accepted line shapes, one track per line::
     Artist - Title (Extended Mix)
     03. Artist – Title [Label]
     [47:12] Artist - Title
+    Artist - Title @ 41:20   /   Artist - Title (41:20)   /   Artist - Title [41:20]
     ID - ID   /   ??? - ???   (kept as an unknown with its timestamp or source)
 
 Numbering, bullets and timestamps are stripped. Lines without an "Artist - Title" separator
-are reported back instead of being turned into a guessed request.
+are reported back instead of being turned into a guessed request, except a first line such
+as "Friday at Fabric", which names the set.
 """
 
 import itertools
@@ -19,6 +21,12 @@ from djlib.domain.request_contracts import RequestItem
 SEPARATOR = re.compile(r"\s+[-–—]\s+")
 NUMBERING = re.compile(r"^\s*(?:[-*•·]\s*|\d{1,3}\s*[.)]\s*|#\d{1,3}\s+)")
 TIMESTAMP = re.compile(r"^\s*[\[(]?\s*(\d{1,2}(?::\d{2}){1,2})\s*[\])]?\s*[-–—]?\s*")
+# "Artist - Title @ 41:20", "… (41:20)" or "… [41:20]": when the track plays in the set.
+TRAILING_TIMESTAMP = re.compile(
+    r"\s*(?:@\s*(?P<at>\d{1,2}(?::\d{2}){1,2})"
+    r"|\(\s*(?P<round>\d{1,2}(?::\d{2}){1,2})\s*\)"
+    r"|\[\s*(?P<square>\d{1,2}(?::\d{2}){1,2})\s*\])\s*$"
+)
 TRAILING_LABEL = re.compile(r"\s*\[([^\]]*)\]\s*$")
 VERSION_WORDS = re.compile(
     r"\b(?:mix|edit|remix|dub|version|vip|rework|bootleg|instrumental|remaster(?:ed)?|live)\b",
@@ -38,6 +46,7 @@ LEADING_DIGITS = re.compile(r"^\s*#?(\d{1,3})")
 
 
 HEADING = "looks like a heading"
+LIST_LABEL = re.compile(r"^(?:full\s+)?(?:track\s*list|set\s*list|tracks)\s*:?$", re.IGNORECASE)
 LEADING_NUMBER = re.compile(r"^\s*\d{1,3}(?:\s*[-.)_]\s*|\s+)(?=\S)")
 
 
@@ -56,13 +65,16 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     """Return request items plus ``(line_number, text, reason)`` for lines left out.
 
     When most lines are numbered or timestamped, unmarked lines above the first numbered
-    one are headings (a set name, a date) rather than tracks.
+    one are headings (a set name, a date) rather than tracks. In an unnumbered list, a
+    first line without an "Artist - Title" separator is the heading.
     """
     parsed = []
     for number, raw in enumerate(text.splitlines(), 1):
         line = PLAYED_WITH.sub("", raw.strip(), count=1)
         if not line or line.startswith(("#", "//")) or NUMBER_ONLY.match(line):
             continue
+        if LIST_LABEL.match(line):
+            continue  # "Tracklist:" says what follows; it does not name the set
         stripped = NUMBERING.sub("", line, count=1)
         marked = stripped != line
         lead = LEADING_DIGITS.match(line) if marked or BARE_NUMBER.match(line) else None
@@ -70,6 +82,10 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
         if match := TIMESTAMP.match(stripped):
             timestamp, stripped, marked = match.group(1), stripped[match.end() :], True
         stripped = NUMBERING.sub("", stripped, count=1).strip()
+        if (match := TRAILING_TIMESTAMP.search(stripped)) and match.start() > 0:
+            # A time at the end is not numbering, so it does not make this a numbered list.
+            timestamp = timestamp or next(filter(None, match.groups()))
+            stripped = stripped[: match.start()].strip()
         bare = not marked and bool(BARE_NUMBER.match(stripped))
         position = int(lead.group(1)) if lead else None
         parsed.append([number, raw.strip(), stripped, timestamp, marked, bare, position])
@@ -91,7 +107,7 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     items: list[RequestItem] = []
     skipped: list[tuple[int, str, str]] = []
     started = False
-    for number, raw, line, timestamp, marked, *_ in parsed:
+    for index, (number, raw, line, timestamp, marked, *_) in enumerate(parsed):
         started = started or marked
         if numbered_list and not started:
             skipped.append((number, raw, HEADING))
@@ -100,6 +116,10 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
         if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
             if UNKNOWN.match(line):
                 parts = [line, line]
+            elif index == 0 and not numbered_list:
+                # "Friday at Fabric" above an unnumbered list names the set.
+                skipped.append((number, raw, HEADING))
+                continue
             else:
                 skipped.append((number, raw, "no “Artist - Title” separator"))
                 continue

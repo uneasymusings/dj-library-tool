@@ -25,7 +25,7 @@ from djlib.domain.contracts import (
     DownloadRequest,
 )
 from djlib.domain.errors import AppError
-from djlib.interfaces import terminal, views
+from djlib.interfaces import handles, terminal, views
 from djlib.interfaces.client import (
     LocalClient,
     default_workspace,
@@ -39,34 +39,62 @@ from djlib.workspace import Workspace
 
 START = "Start here"
 LIBRARY = "Your library"
-BUILD = "Requests and collections"
-DELIVER = "DJ app and USB"
-RUNTIME = "Jobs and service"
-AGENTS = "For assistants and scripts"
+DELIVER = "rekordbox and USB"
+SETTINGS = "Settings"
+AGENTS = "Assistants"
+MORE = "More"
 
 EPILOG = (
-    "[bold]New here?[/]  "
-    "[bold]djlib init --allow-root ~/Music[/]  then  [bold]djlib scan[/]  then  "
+    "[bold]New here?[/]\n"
+    "[bold]djlib init --allow-root ~/Music[/] → [bold]djlib scan[/] → "
     "[bold]djlib set tracklist.txt[/]\n\n"
-    "Output is JSON when piped or with [bold]--json[/]. "
-    "Docs: https://github.com/uneasymusings/dj-library-tool"
+    "Advanced commands (delivery, organize, plan, export…) still work and are listed in "
+    "docs/ADVANCED.md. Output is JSON when piped or with [bold]--json[/]."
 )
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "use", "status", "set", "demo", "doctor", "ui", "setup-agent"),
-    *("scan", "library", "collections", "collection", "roots", "reviews", "reconcile"),
-    *("requests", "organize", "plan", "start", "download", "source-inspect"),
-    *("rekordbox", "delivery", "import-rekordbox", "export", "usb-preflight"),
-    *("jobs", "service"),
-    *("mcp", "schemas", "capabilities", "version"),
+    *("init", "scan", "set", "status", "doctor"),
+    *("library", "crates", "crate", "requests", "ui"),
+    "rekordbox",
+    *("use", "roots"),
+    *("setup-agent", "mcp"),
+    *("jobs", "service", "reviews"),
+    # Hidden from help but still working; docs/ADVANCED.md lists them.
+    *("demo", "collections", "collection", "plan", "start", "download", "source-inspect"),
+    *("reconcile", "organize", "delivery", "export", "import-rekordbox", "usb-preflight"),
+    *("schemas", "capabilities", "version", "completion"),
 ]
+
+# Commands that render with a view registered under another name.
+VIEW_NAMES = {"crates": "collections", "crate": "collection"}
+
+# Usual install commands for a missing tool, by platform.
+INSTALL = {
+    "ffmpeg": {
+        "darwin": "brew install ffmpeg",
+        "linux": "sudo apt install ffmpeg",
+        "win32": "winget install ffmpeg",
+    },
+    "deno": {
+        "darwin": "brew install deno",
+        "linux": "curl -fsSL https://deno.land/install.sh | sh",
+        "win32": "winget install DenoLand.Deno",
+    },
+}
+FIRST_STEP = "djlib init --allow-root ~/Music"
 
 
 class JourneyGroup(typer.core.TyperGroup):
     def list_commands(self, ctx):
         names = super().list_commands(ctx)
         return sorted(names, key=lambda name: ORDER.index(name) if name in ORDER else len(ORDER))
+
+
+def print_version(value: bool) -> None:
+    if value:
+        typer.echo(f"djlib {__version__}")
+        raise typer.Exit()
 
 
 app = typer.Typer(
@@ -77,29 +105,62 @@ app = typer.Typer(
     ),
     epilog=EPILOG,
     no_args_is_help=True,
+    add_completion=False,
     rich_markup_mode="rich",
     pretty_exceptions_show_locals=False,
 )
 jobs = typer.Typer(help="Watch and control background jobs.", no_args_is_help=True)
 reviews = typer.Typer(help="Resolve metadata conflicts found while indexing.", no_args_is_help=True)
 service = typer.Typer(help="Start, stop or check the background service.", no_args_is_help=True)
-mcp = typer.Typer(help="Serve the same tools to an assistant over MCP stdio.", no_args_is_help=True)
+mcp = typer.Typer(help="Serve djlib's tools to an assistant over MCP.", no_args_is_help=True)
 delivery = typer.Typer(
     help="Prepare, record and verify rekordbox/Serato imports and USB delivery.",
     no_args_is_help=True,
 )
 roots = typer.Typer(help="Show or add the music folders djlib may read.", no_args_is_help=True)
-app.add_typer(jobs, name="jobs", rich_help_panel=RUNTIME)
-app.add_typer(reviews, name="reviews", rich_help_panel=LIBRARY)
-app.add_typer(service, name="service", rich_help_panel=RUNTIME)
+app.add_typer(jobs, name="jobs", rich_help_panel=MORE)
+app.add_typer(reviews, name="reviews", rich_help_panel=MORE)
+app.add_typer(service, name="service", rich_help_panel=MORE)
 app.add_typer(mcp, name="mcp", rich_help_panel=AGENTS)
-app.add_typer(delivery, name="delivery", rich_help_panel=DELIVER)
-app.add_typer(roots, name="roots", rich_help_panel=LIBRARY)
+app.add_typer(delivery, name="delivery", hidden=True)
+app.add_typer(roots, name="roots", rich_help_panel=SETTINGS)
 
-KEY_HELP = (
-    "Idempotency key; resending the same key recovers the same job. "
-    "Required with --json; a terminal generates one."
-)
+KEY_HELP = "Retry token for scripts: reusing it never runs the job twice."
+CRATE_HELP = "Crate name, ID start (6+ characters) or last."
+
+
+def install_hint(tool: str) -> str:
+    """The usual install command for ``tool`` on this platform."""
+    platform = sys.platform if sys.platform in {"darwin", "win32"} else "linux"
+    return INSTALL[tool][platform]
+
+
+def media_tool_warnings() -> list[str]:
+    """Warn before indexing when MP3, FLAC, M4A and AIFF files can't be read yet."""
+    import shutil
+
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if not missing:
+        return []
+    return [
+        f"{' and '.join(missing)} not found, so only WAV files can be read. "
+        f"Install FFmpeg: {install_hint('ffmpeg')}"
+    ]
+
+
+def input_message(exc: Exception) -> str:
+    """Why a named file can't be opened, without echoing what it contains."""
+    if isinstance(exc, OSError) and exc.filename:
+        if isinstance(exc, FileNotFoundError):
+            reason = "no such file"
+        elif isinstance(exc, IsADirectoryError):
+            reason = "it is a folder, not a file"
+        elif isinstance(exc, PermissionError):
+            reason = "permission denied"
+        else:
+            reason = (exc.strerror or "it can't be read").lower()
+        return f"Can't open {exc.filename}: {reason}."
+    return "Check input JSON, paths, and the command schema."
 
 
 def handled(function):
@@ -116,7 +177,7 @@ def handled(function):
                 if isinstance(exc, AppError)
                 else AppError("INPUT_INVALID", validation_message(exc))
                 if isinstance(exc, ValidationError)
-                else AppError("INPUT_INVALID", "Check input JSON, paths, and the command schema.")
+                else AppError("INPUT_INVALID", input_message(exc))
             )
             emit(envelope(error=error.as_dict()))
             raise typer.Exit(code=2) from exc
@@ -131,13 +192,27 @@ def emit(value: dict) -> None:
     if term.json:
         term.print_json(value)
         return
+    name = terminal.command_name()
+    if name in views.FOLLOW and value.get("warnings"):
+        # Following a job ends with its card and exit code, so say the warnings first.
+        print_warnings(term, value["warnings"])
+        value = {**value, "warnings": []}
     workspace = _workspace()
     views.show(
         term,
-        terminal.command_name(),
+        VIEW_NAMES.get(name, name),
         value,
         client_factory=(lambda: LocalClient(workspace)) if workspace else None,
     )
+
+
+def print_warnings(term: terminal.Terminal, warnings: list[str]) -> None:
+    from rich.text import Text
+
+    for warning in warnings:
+        term.err.print(
+            Text.assemble((f"{term.glyph('warn')} ", "warn"), str(warning)), soft_wrap=True
+        )
 
 
 def _workspace() -> Workspace | None:
@@ -162,7 +237,7 @@ def submission_key(key: str | None, kind: str) -> str:
     if terminal.current().json:
         raise AppError(
             "INPUT_INVALID",
-            "Pass --key KEY. A stable idempotency key makes retrying this submission safe.",
+            "Pass --key TOKEN, a retry token you choose: reusing it never runs the job twice.",
         )
     return f"{kind}-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
 
@@ -180,7 +255,14 @@ def configure(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Print the JSON envelope. This is the default when output is piped.",
+        help="Print JSON (the default when piped).",
+    ),
+    show_version: bool = typer.Option(
+        False,
+        "--version",
+        is_eager=True,
+        callback=print_version,
+        help="Print the version and exit.",
     ),
 ) -> None:
     ctx.obj = Workspace(workspace or default_workspace())
@@ -195,12 +277,12 @@ def configure(
 def init(
     ctx: typer.Context,
     allow_root: list[Path] = typer.Option(
-        None, "--allow-root", help="A music folder djlib may read. Repeat for several."
+        None, "--allow-root", help="A music folder djlib may read; repeatable."
     ),
 ) -> None:
     """Create a workspace and allow your music folders.
 
-    djlib only reads inside allowed folders and never moves or retags your originals.
+    djlib only reads inside these folders and never moves or retags your music.
     """
     config = ctx.obj.initialize(allow_root)
     # The first workspace becomes the default, so later commands need no --workspace.
@@ -208,22 +290,21 @@ def init(
     if not os.environ.get("DJLIB_WORKSPACE") and remembered_workspace() is None:
         remember_workspace(ctx.obj.root)
         remembered = True
-    emit(
-        envelope(
-            {
-                "workspace": str(ctx.obj.root),
-                "config": config.model_dump(mode="json"),
-                "default_workspace": remembered
-                or ctx.obj.root == Workspace(default_workspace()).root,
-            }
-        )
+    reply = envelope(
+        {
+            "workspace": str(ctx.obj.root),
+            "config": config.model_dump(mode="json"),
+            "default_workspace": remembered or ctx.obj.root == Workspace(default_workspace()).root,
+        }
     )
+    reply["warnings"] = media_tool_warnings()
+    emit(reply)
 
 
 @app.command(rich_help_panel=START)
 @handled
 def status(ctx: typer.Context) -> None:
-    """Your library at a glance: tracks, BPM/key coverage, requests, crates, next steps."""
+    """Your library at a glance: tracks, BPM/key, requests and crates."""
     from concurrent.futures import ThreadPoolExecutor
 
     from djlib.exporting.rekordbox_anlz import default_root
@@ -249,7 +330,7 @@ def status(ctx: typer.Context) -> None:
     emit(envelope(summary))
 
 
-@app.command(rich_help_panel=START)
+@app.command(rich_help_panel=SETTINGS)
 @handled
 def use(
     ctx: typer.Context,
@@ -257,7 +338,7 @@ def use(
         Path | None, typer.Argument(help="Workspace to use by default; omit to show it.")
     ] = None,
 ) -> None:
-    """Choose the workspace commands use when --workspace is not given."""
+    """Choose the default workspace (when --workspace is not given)."""
     if path is not None:
         workspace = Workspace(path)
         workspace.config()  # only initialized workspaces can become the default
@@ -292,21 +373,47 @@ def roots_list(ctx: typer.Context):
 @roots.command("add")
 @handled
 def roots_add(ctx: typer.Context, paths: Annotated[list[Path], typer.Argument()]):
-    """Allow more music folders, keeping existing permissions and music unchanged."""
+    """Allow more music folders.
+
+    Folders you already allowed stay allowed, and your music is never changed.
+    """
     from djlib.domain.workspace_contracts import RootsRequest
 
     body = RootsRequest(paths=[local_path(path) for path in paths])
     emit(client(ctx).request("POST", "/roots", data=body.model_dump(mode="json")))
 
 
-@app.command(rich_help_panel=AGENTS)
+@app.command(hidden=True)
 @handled
 def version(ctx: typer.Context) -> None:
     """Print the version without starting the background service."""
     emit(envelope({"version": __version__}))
 
 
-@app.command(rich_help_panel=START)
+@app.command(hidden=True)
+def completion(
+    shell: Annotated[
+        str | None, typer.Argument(help="bash, zsh, fish or pwsh; defaults to your shell.")
+    ] = None,
+    install: bool = typer.Option(False, "--install", help="Add it to your shell's startup file."),
+) -> None:
+    """Print the shell completion script, or install it with --install."""
+    from typer._completion_shared import _get_shell_name, get_completion_script
+    from typer._completion_shared import install as install_script
+
+    shell = shell or _get_shell_name()
+    if not shell:
+        typer.echo("Name your shell: djlib completion zsh (or bash, fish, pwsh).", err=True)
+        raise typer.Exit(2)
+    if install:
+        shell, path = install_script(shell=shell, prog_name="djlib", complete_var="_DJLIB_COMPLETE")
+        typer.echo(f"Completion for {shell} added to {path}. Open a new terminal to use it.")
+        return
+    script = get_completion_script(prog_name="djlib", complete_var="_DJLIB_COMPLETE", shell=shell)
+    typer.echo(script)
+
+
+@app.command(rich_help_panel=AGENTS)
 @handled
 def setup_agent(
     ctx: typer.Context,
@@ -314,14 +421,14 @@ def setup_agent(
 ) -> None:
     """Create a Claude Code or Codex session wired to this workspace.
 
-    The session folder gets the djlib skill, explicit MCP configuration and launch.py.
+    The session folder gets the djlib skill, its MCP configuration and launch.py.
     """
     from djlib.application.agent_setup import create_agent_session
 
     emit(envelope(create_agent_session(ctx.obj, output)))
 
 
-@app.command(rich_help_panel=START)
+@app.command(hidden=True)
 @handled
 def demo(ctx: typer.Context) -> None:
     """Try the whole workflow on three generated tones.
@@ -339,7 +446,7 @@ def demo(ctx: typer.Context) -> None:
     emit(envelope(result))
 
 
-@app.command(rich_help_panel=AGENTS)
+@app.command(hidden=True)
 @handled
 def schemas(ctx: typer.Context) -> None:
     """Print the strict JSON input schemas without starting the service."""
@@ -396,7 +503,7 @@ def schemas(ctx: typer.Context) -> None:
     )
 
 
-@app.command(rich_help_panel=AGENTS)
+@app.command(hidden=True)
 @handled
 def capabilities(ctx: typer.Context) -> None:
     """List implemented and planned capabilities."""
@@ -406,42 +513,68 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, rekordbox automation, download support and the background service.
+    """Check FFmpeg, rekordbox, downloads and the background service.
 
-    Changes nothing in DJ apps or on devices.
+    Works before init too. Changes nothing in DJ apps or on devices. Exits 1 when FFmpeg is missing.
     """
     import shutil
 
     from djlib.exporting.rekordbox_anlz import default_root
-    from djlib.native import rekordbox_mac
     from djlib.sources.runtimes import javascript_runtimes
 
-    config = ctx.obj.config()
-    on_mac = sys.platform == "darwin"
+    initialized = ctx.obj.config_path.is_file()
+    config = ctx.obj.config() if initialized else None
+    rekordbox = automation = None
+    if sys.platform == "darwin":
+        # Only macOS can drive rekordbox; elsewhere nothing here touches it.
+        from djlib.native import rekordbox_mac
+
+        rekordbox = rekordbox_mac.installed()
+        automation = rekordbox_mac.automation_allowed()
     analysis = default_root()
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    runtimes = javascript_runtimes()
 
-    emit(
-        envelope(
-            {
-                "workspace_id": config.workspace_id,
-                "workspace": str(ctx.obj.root),
-                "ffmpeg": shutil.which("ffmpeg"),
-                "ffprobe": shutil.which("ffprobe"),
-                "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,
-                "deno": shutil.which("deno"),
-                "node": shutil.which("node"),
-                "javascript_runtimes": javascript_runtimes(),
-                "coordinator_url": client(ctx).discover(),
-                "rekordbox": rekordbox_mac.installed() if on_mac else None,
-                "rekordbox_automation_allowed": rekordbox_mac.automation_allowed(),
-                "rekordbox_analysis_folder": str(analysis) if analysis else None,
-                "native_app_compatibility": "not_verified",
-            }
-        )
+    fixes = {}
+    if not initialized:
+        fixes["workspace"] = FIRST_STEP
+    if not ffmpeg:
+        fixes["ffmpeg"] = install_hint("ffmpeg")
+    if not ffprobe:
+        fixes["ffprobe"] = install_hint("ffmpeg")  # ffprobe ships with FFmpeg
+    if not runtimes.get("youtube_runtime_ready"):
+        fixes["javascript_runtime"] = install_hint("deno")
+    required = bool(ffmpeg and ffprobe)
+    reply = envelope(
+        {
+            "workspace_id": config.workspace_id if config else None,
+            "workspace": str(ctx.obj.root),
+            "workspace_initialized": initialized,
+            "ffmpeg": ffmpeg,
+            "ffprobe": ffprobe,
+            "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,
+            "deno": shutil.which("deno"),
+            "node": shutil.which("node"),
+            "javascript_runtimes": runtimes,
+            "coordinator_url": client(ctx).discover() if initialized else None,
+            "rekordbox": rekordbox,
+            "rekordbox_automation_allowed": automation,
+            "rekordbox_analysis_folder": str(analysis) if analysis else None,
+            "native_app_compatibility": "not_verified",
+            "required_checks_passed": required,
+            "fixes": fixes,
+        }
     )
+    if not initialized:
+        reply["warnings"].append(f"Workspace: not set up yet → {FIRST_STEP}")
+    if not required:
+        reply["warnings"].append(f"FFmpeg: not installed → {install_hint('ffmpeg')}")
+    emit(reply)
+    if not required:
+        raise typer.Exit(1)
 
 
-@app.command(rich_help_panel=START)
+@app.command(rich_help_panel=LIBRARY)
 @handled
 def ui(
     ctx: typer.Context,
@@ -449,7 +582,7 @@ def ui(
         True, "--open/--no-open", help="Open the page in your browser (terminal only)."
     ),
 ) -> None:
-    """Open the review page: library, requests, collections and deliveries in a browser.
+    """Open the review page: library, requests, crates, deliveries.
 
     The link includes this workspace's local access token; keep it to yourself.
     """
@@ -468,7 +601,7 @@ def ui(
     emit(envelope({"url": page}))
 
 
-@app.command(rich_help_panel=BUILD)
+@app.command(hidden=True)
 @handled
 def plan(
     ctx: typer.Context,
@@ -479,15 +612,15 @@ def plan(
     emit(client(ctx).request("POST", "/plans", data=request.model_dump(mode="json")))
 
 
-@app.command(rich_help_panel=BUILD)
+@app.command(hidden=True)
 @handled
 def start(
     ctx: typer.Context,
     plan_id: str,
     revision: int = typer.Option(1, "--revision"),
-    key: str | None = typer.Option(None, "--key", help=KEY_HELP),
+    key: str | None = typer.Option(None, "--key", help=KEY_HELP, hidden=True),
 ) -> None:
-    """Build a planned collection. Reuse the same --key to recover an uncertain reply."""
+    """Build a planned collection."""
     emit(
         client(ctx).request(
             "POST",
@@ -501,40 +634,85 @@ def start(
     )
 
 
-@app.command(rich_help_panel=LIBRARY)
+def folder_key(key: str, folder: Path) -> str:
+    """One retry token per music folder, so an unplugged drive never shifts the others'."""
+    import hashlib
+
+    digest = hashlib.sha256(local_path(folder).encode()).hexdigest()[:16]
+    return f"{key[:180]}:{digest}"
+
+
+@app.command(rich_help_panel=START)
 @handled
 def scan(
     ctx: typer.Context,
     path: Annotated[
         Path | None,
-        typer.Argument(help="Folder to index. Optional when exactly one folder is allowed."),
+        typer.Argument(help="Folder to index; defaults to all your music folders."),
     ] = None,
-    key: str | None = typer.Option(None, "--key", help=KEY_HELP),
+    key: str | None = typer.Option(None, "--key", help=KEY_HELP, hidden=True),
 ) -> None:
-    """Index a music folder in place.
+    """Index your music in place, so djlib knows which songs you own.
 
-    Files are never renamed, moved or retagged. Identity comes from tags, not audio analysis.
+    Files are never renamed, moved or retagged; songs are known by their tags.
     """
-    if path is None:
+    term = terminal.current()
+    warnings = media_tool_warnings()
+    if path is not None:
+        folders, allowed = [path], [path]
+    else:
         allowed = ctx.obj.config().allowed_roots
-        if len(allowed) != 1:
+        if not allowed:
             raise AppError(
-                "INPUT_INVALID",
-                "Choose a folder to scan: "
-                + (", ".join(allowed) if allowed else "no music folders are allowed yet")
-                + ".",
+                "INPUT_INVALID", "No music folders are allowed yet. Add one: djlib roots add PATH"
             )
-        path = Path(allowed[0])
-    emit(
-        client(ctx).request(
+        # An unplugged drive should not stop the other folders from being indexed.
+        folders = [Path(root) for root in allowed if Path(root).is_dir()]
+        warnings += [
+            f"Skipped {root}: it isn't there (unplugged drive?)."
+            for root in allowed
+            if not Path(root).is_dir()
+        ]
+        if not folders:
+            raise AppError(
+                "FILE_UNAVAILABLE",
+                "None of your music folders can be found. Plug the drive back in, "
+                "or add another folder: djlib roots add PATH",
+            )
+    key = submission_key(key, "scan")
+    local = client(ctx)
+    replies = [
+        local.request(
             "POST",
             "/scans",
-            data={"path": local_path(path), "idempotency_key": submission_key(key, "scan")},
+            data={
+                "path": local_path(folder),
+                # A single folder keeps the token as given, as before several were scanned.
+                "idempotency_key": key if len(allowed) == 1 else folder_key(key, folder),
+            },
         )
-    )
+        for folder in folders
+    ]
+    if len(replies) > 1 and term.json:
+        replies = [envelope({"scans": [scanned["result"] for scanned in replies]})]
+    replies[0]["warnings"] = [*replies[0].get("warnings", []), *warnings]
+    if len(replies) == 1:
+        emit(replies[0])
+        return
+    # In a terminal, follow each folder's scan in turn and exit with the worst outcome.
+    code = 0
+    for reply in replies:
+        try:
+            emit(reply)
+        except typer.Exit as exited:
+            if exited.exit_code == 130:
+                raise
+            code = max(code, exited.exit_code)
+    if code:
+        raise typer.Exit(code)
 
 
-@app.command(rich_help_panel=BUILD)
+@app.command(hidden=True)
 @handled
 def download(
     ctx: typer.Context,
@@ -542,13 +720,13 @@ def download(
 ) -> None:
     """Download selected public YouTube, SoundCloud or Bandcamp recordings.
 
-    The JSON input names each recording's identity and an idempotency key.
+    The JSON file names each recording and a retry token (idempotency_key).
     """
     request = DownloadRequest.model_validate_json(file.read_text(encoding="utf-8"))
     emit(client(ctx).request("POST", "/downloads", data=request.model_dump(mode="json")))
 
 
-@app.command("source-inspect", rich_help_panel=BUILD)
+@app.command("source-inspect", hidden=True)
 @handled
 def source_inspect(ctx: typer.Context, url: str) -> None:
     """Read a set's published description and chapters (this does not identify its audio)."""
@@ -570,7 +748,6 @@ def library(
     emit(client(ctx).request("GET", "/library", params=params))
 
 
-@app.command("collections", rich_help_panel=LIBRARY)
 @handled
 def collections(
     ctx: typer.Context,
@@ -578,60 +755,70 @@ def collections(
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
-    """List saved collections."""
+    """List your crates (saved collections), newest first."""
     params = {"query": query, "limit": limit}
     if after is not None:
         params["after"] = after
     emit(client(ctx).request("GET", "/collections", params=params))
 
 
-@app.command("reconcile", rich_help_panel=LIBRARY)
+app.command("crates", rich_help_panel=LIBRARY)(collections)
+app.command("collections", hidden=True)(collections)
+
+
+@app.command("reconcile", hidden=True)
 @handled
 def reconcile(
     ctx: typer.Context,
     file: Path = typer.Option(..., "--file", help="JSON reconcile request (see: djlib schemas)."),
 ):
-    """Update the catalog after files changed on disk (hash-pinned, explicit)."""
+    """Update the catalog after files moved or changed on disk; the file lists each change."""
     from djlib.domain.reconciliation_contracts import ReconcileRequest
 
     request = ReconcileRequest.model_validate_json(file.read_text(encoding="utf-8"))
     emit(client(ctx).request("POST", "/reconciliations", data=request.model_dump(mode="json")))
 
 
-@app.command(rich_help_panel=LIBRARY)
 @handled
 def collection(
     ctx: typer.Context,
-    collection_id: str,
+    collection_id: Annotated[str, typer.Argument(metavar="CRATE", help=CRATE_HELP)],
     after: int = typer.Option(0, min=0, help="Offset from the previous page."),
     limit: int = typer.Option(50, min=1, max=100),
 ) -> None:
-    """Show the tracks in a collection."""
+    """Show the tracks in a crate."""
+    local = client(ctx)
+    collection_id = handles.resolve(local, "collection", collection_id)
     emit(
-        client(ctx).request(
+        local.request(
             "GET", f"/collections/{collection_id}", params={"after": after, "limit": limit}
         )
     )
 
 
-@app.command(rich_help_panel=DELIVER)
+app.command("crate", rich_help_panel=LIBRARY)(collection)
+app.command("collection", hidden=True)(collection)
+
+
+@app.command(hidden=True)
 @handled
 def export(
     ctx: typer.Context,
-    collection_id: str,
-    key: str | None = typer.Option(None, "--key", help=KEY_HELP),
+    collection_id: Annotated[str, typer.Argument(metavar="CRATE", help=CRATE_HELP)],
+    key: str | None = typer.Option(None, "--key", help=KEY_HELP, hidden=True),
 ) -> None:
     """Write a hash-checked manifest, M3U playlist and experimental rekordbox XML."""
+    key = submission_key(key, "export")
+    local = client(ctx)
+    collection_id = handles.resolve(local, "collection", collection_id)
     emit(
-        client(ctx).request(
-            "POST",
-            "/exports",
-            data={"collection_id": collection_id, "idempotency_key": submission_key(key, "export")},
+        local.request(
+            "POST", "/exports", data={"collection_id": collection_id, "idempotency_key": key}
         )
     )
 
 
-@app.command("import-rekordbox", rich_help_panel=DELIVER)
+@app.command("import-rekordbox", hidden=True)
 @handled
 def import_rekordbox(
     ctx: typer.Context,
@@ -657,7 +844,7 @@ def import_rekordbox(
     emit(client(ctx).request("POST", "/analysis/rekordbox", data={"path": str(target)}))
 
 
-@app.command("usb-preflight", rich_help_panel=DELIVER)
+@app.command("usb-preflight", hidden=True)
 @handled
 def usb_preflight(
     ctx: typer.Context,
@@ -717,7 +904,7 @@ def delivery_plan(
     ctx: typer.Context,
     file: Path | None = typer.Option(None, "--file", help="JSON delivery request."),
     collection: list[str] = typer.Option(
-        None, "--collection", help="Collection ID to deliver; repeat for several."
+        None, "--collection", help="Crate to deliver (name, ID or last); repeat for several."
     ),
     workflow: str | None = typer.Option(
         None, help="rekordbox_import, serato_import, rekordbox_usb or serato_portable."
@@ -729,14 +916,15 @@ def delivery_plan(
 ) -> None:
     """Freeze collections for a pilot (default) or full delivery to one target.
 
-    Use flags, e.g. --collection ID --workflow rekordbox_import --app-version 7.2.3,
-    or --file with a JSON request.
+    Use flags (--collection CRATE --workflow rekordbox_import --app-version 7.2.3) or --file.
     """
     if file is not None:
         body = DeliveryRequest.model_validate_json(file.read_text(encoding="utf-8"))
     elif collection and workflow and app_version:
+        local = client(ctx)
+        collection = [handles.resolve(local, "collection", value) for value in collection]
         if name is None:
-            first = client(ctx).request("GET", f"/collections/{collection[0]}", params={"limit": 1})
+            first = local.request("GET", f"/collections/{collection[0]}", params={"limit": 1})
             name = f"{first['result']['name']} ({workflow.replace('_', ' ')})"
         body = DeliveryRequest(
             name=name,
@@ -767,7 +955,7 @@ def delivery_prepare(
     ctx: typer.Context,
     delivery_id: str,
     revision: int = typer.Option(..., help="Current delivery revision."),
-    key: str | None = typer.Option(None, "--key", help=KEY_HELP),
+    key: str | None = typer.Option(None, "--key", help=KEY_HELP, hidden=True),
 ) -> None:
     """Make separate tagged working copies and import playlists. Never writes to USB."""
     emit(
@@ -890,7 +1078,10 @@ def job_wait(
     job_id: str,
     timeout: float = typer.Option(30, min=0, max=60, help="Seconds to wait."),
 ) -> None:
-    """Wait briefly; a timeout leaves the job running and exits with code 3."""
+    """Wait briefly for a job to finish.
+
+    A timeout leaves the job running and exits with code 3.
+    """
     term = terminal.current()
     if term.json:
         reply = client(ctx).wait(job_id, timeout)
@@ -904,7 +1095,10 @@ def job_wait(
 @jobs.command("watch")
 @handled
 def job_watch(ctx: typer.Context, job_id: str) -> None:
-    """Follow a job until it finishes. Ctrl-C stops watching; the job keeps running."""
+    """Follow a job until it finishes.
+
+    Ctrl-C stops watching; the job keeps running.
+    """
     term = terminal.current()
     if term.json:
         local = client(ctx)
@@ -934,7 +1128,7 @@ def job_items(
     job_id: str,
     after: int = typer.Option(-1, help="Position from the previous page."),
     limit: int = typer.Option(20, min=1, max=100),
-    state: str | None = typer.Option(None, help="succeeded, failed, skipped, needs_input…"),
+    state: str | None = typer.Option(None, help="Only this state, e.g. failed."),
 ) -> None:
     """List a job's items, e.g. which files failed and why."""
     params = {"after": after, "limit": limit}
@@ -957,7 +1151,10 @@ def job_control(
     job_id: str,
     action: Annotated[str, typer.Argument(help="pause, resume, cancel or retry")],
 ) -> None:
-    """Pause, resume, cancel or retry a job. Retries keep items that already succeeded."""
+    """Pause, resume, cancel or retry a job.
+
+    A retry keeps the items that already succeeded.
+    """
     emit(client(ctx).request("POST", f"/jobs/{job_id}/control", data={"action": action}))
 
 
@@ -996,7 +1193,10 @@ def service_status(ctx: typer.Context) -> None:
 @service.command("start")
 @handled
 def service_start(ctx: typer.Context) -> None:
-    """Start or reuse the background service, e.g. before an assistant connects over MCP."""
+    """Start the background service, or reuse the running one.
+
+    Useful before an assistant connects over MCP.
+    """
     local = client(ctx)
     url = local.start()
     emit(envelope({"url": url, "application_version": __version__}))
@@ -1005,7 +1205,10 @@ def service_start(ctx: typer.Context) -> None:
 @service.command("stop")
 @handled
 def service_stop(ctx: typer.Context) -> None:
-    """Checkpoint work and stop the background service. Accepted jobs stay saved."""
+    """Stop the background service.
+
+    Running work is checkpointed first; accepted jobs stay saved.
+    """
     local = client(ctx)
     if local.discover():
         emit(local.request("POST", "/shutdown"))
@@ -1028,21 +1231,41 @@ def mcp_serve(ctx: typer.Context) -> None:
         raise typer.Exit(code=2) from exc
 
 
-register_commands(app, client, emit, handled, panel=BUILD)
+register_commands(app, client, emit, handled, panel=LIBRARY)
 
 from djlib.interfaces.rekordbox_cli import register_rekordbox  # noqa: E402
 
 register_rekordbox(app, client, emit, handled, panel=DELIVER, start_panel=START)
 
 
-def main() -> None:
-    """Console entry point; also accepts ``--json`` after the subcommand."""
-    arguments = sys.argv[1:]
+def hoisted(arguments: list[str]) -> list[str]:
+    """Move ``--json`` and ``-w/--workspace PATH`` given after the subcommand to the front.
+
+    They belong to ``djlib`` itself, so ``djlib scan -w ~/lib`` means ``djlib -w ~/lib scan``.
+    Nothing after ``--`` moves.
+    """
     boundary = arguments.index("--") if "--" in arguments else len(arguments)
-    if "--json" in arguments[:boundary] and arguments[0] != "--json":
-        arguments = ["--json", *[a for a in arguments[:boundary] if a != "--json"]] + arguments[
-            boundary:
-        ]
+    head, front, rest = arguments[:boundary], [], []
+    index = 0
+    while index < len(head):
+        argument = head[index]
+        if argument == "--json":
+            if argument not in front:
+                front.append(argument)
+        elif argument in {"-w", "--workspace"} and index + 1 < len(head):
+            front += [argument, head[index + 1]]
+            index += 1
+        elif argument.startswith("--workspace="):
+            front.append(argument)
+        else:
+            rest.append(argument)
+        index += 1
+    return [*front, *rest, *arguments[boundary:]]
+
+
+def main() -> None:
+    """Console entry point; also accepts ``--json`` and ``-w PATH`` after the subcommand."""
+    arguments = hoisted(sys.argv[1:])
     try:
         app(args=arguments, prog_name="djlib")
     except KeyboardInterrupt:

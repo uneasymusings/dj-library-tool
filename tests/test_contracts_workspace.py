@@ -39,11 +39,24 @@ def test_unicode_normalization_preserves_versions():
 
 def test_invalid_root_does_not_leave_half_workspace(tmp_path):
     workspace = Workspace(tmp_path / "library")
-    with pytest.raises(AppError, match="existing directory"):
+    with pytest.raises(AppError) as error:
         workspace.initialize([tmp_path / "absent"])
+    # The message names the folder that is wrong.
+    assert error.value.code == "SOURCE_ROOT_INVALID"
+    assert f"{tmp_path / 'absent'} isn't an existing folder" in error.value.message
     assert not workspace.root.exists()
+    with pytest.raises(AppError) as error:
+        workspace.config()
+    assert error.value.code == "WORKSPACE_REQUIRED"
+    assert error.value.message.startswith("djlib isn't set up yet")
     workspace.initialize()
     assert workspace.token()
+    (tmp_path / "music").mkdir()
+    with pytest.raises(AppError) as error:
+        workspace.add_roots([tmp_path / "music", tmp_path / "gone"])
+    assert error.value.code == "SOURCE_ROOT_INVALID"
+    assert error.value.message.startswith(f"{tmp_path / 'gone'} isn't an existing folder")
+    assert workspace.config().allowed_roots == []  # all or nothing
 
 
 def test_nonempty_workspace_refused(tmp_path):
@@ -71,6 +84,7 @@ def test_outside_path_and_symlink_denied(application, tmp_path):
     with pytest.raises(AppError) as error:
         application.workspace.authorize(str(outside))
     assert error.value.code == "SOURCE_NOT_ALLOWED"
+    assert error.value.message == f"djlib isn't allowed to read {outside.resolve()} yet."
     link = tmp_path / "music" / "linked.wav"
     try:
         link.symlink_to(outside)
@@ -85,6 +99,9 @@ def test_unavailable_and_wrong_path_type(application, tmp_path):
     with pytest.raises(AppError) as error:
         application.workspace.authorize(str(tmp_path / "missing"))
     assert error.value.code == "FILE_UNAVAILABLE"
+    assert error.value.message == (
+        f"Can't find {tmp_path / 'missing'}. Check the path, or plug the drive back in."
+    )
     with pytest.raises(AppError) as error:
         application.workspace.authorize(str(application.workspace.root))
     assert error.value.code == "FILE_REQUIRED"

@@ -49,6 +49,11 @@ class Worker:
     HANDOFF_KINDS = frozenset({"collection", "delivery", "delivery_check", "export", "organize"})
     HANDOFF_BURST = 3
     LOCAL_ITEM_QUANTUM = 8
+    # A scan lists every file before indexing, about 2 KB of memory a file at its peak;
+    # 50,000 files take about 100 MB, so this bounds a scan to about 200 MB.
+    SCAN_FILE_LIMIT = 100_000
+    # Scan items are written and read in batches so memory and SQL stay bounded.
+    SCAN_BATCH = 2_000
 
     # Decoding dominates catalog work; overlap a few files on separate cores.
     PREFETCH_WORKERS = max(1, min(4, (os.cpu_count() or 2) - 1))
@@ -182,6 +187,10 @@ class Worker:
                                 request={"track": track, "identity_decision": None},
                             )
                         )
+                        if (position + 1) % self.SCAN_BATCH == 0:
+                            # Still one transaction, so an interrupted scan lists nothing.
+                            session.flush()
+                del tracks  # a large library's file list need not live as long as the scan
         with self.app.db.transaction() as session:
             item_ids = list(
                 session.scalars(
@@ -267,13 +276,18 @@ class Worker:
         """Item → local file for jobs whose first step is inspecting an existing file."""
         if kind not in {"scan", "collection"} or not item_ids:
             return {}
+        paths = {}
         with self.app.db.transaction() as session:
-            rows = session.scalars(select(JobItem).where(JobItem.id.in_(item_ids)))
-            return {
-                row.id: row.request["track"]["path"]
-                for row in rows
-                if isinstance(row.request.get("track"), dict) and row.request["track"].get("path")
-            }
+            # Batched: SQLite limits how many IDs one query may name.
+            for start in range(0, len(item_ids), self.SCAN_BATCH):
+                batch = item_ids[start : start + self.SCAN_BATCH]
+                for item_id, request in session.execute(
+                    select(JobItem.id, JobItem.request).where(JobItem.id.in_(batch))
+                ):
+                    track = request.get("track")
+                    if isinstance(track, dict) and track.get("path"):
+                        paths[item_id] = track["path"]
+        return paths
 
     def _drop_prefetch(self, item_ids: list[str]) -> None:
         for item_id in item_ids:
@@ -321,9 +335,11 @@ class Worker:
                 path=str(authorized), artist=artist or "Unknown artist", title=title or path.stem
             )
             tracks.append(track.model_dump(mode="json"))
-            if len(tracks) > 10_000:
+            if len(tracks) > self.SCAN_FILE_LIMIT:
                 raise AppError(
-                    "ITEM_LIMIT", "A scan is limited to 10,000 media files; choose a subfolder."
+                    "ITEM_LIMIT",
+                    f"A scan is limited to {self.SCAN_FILE_LIMIT:,} music files; "
+                    "scan its subfolders one at a time.",
                 )
         return tracks, skipped
 
