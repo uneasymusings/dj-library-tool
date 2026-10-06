@@ -279,7 +279,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
         }
 
-    def to_usb(workspace, ui, crate: dict, volume: Path, timeout: int) -> dict:
+    def to_usb(local, workspace, ui, crate: dict, volume: Path, timeout: int) -> dict:
         """Have rekordbox export one playlist to the stick, then check it as a player would."""
         from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
 
@@ -312,6 +312,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking the playlist on the USB…"):
             check = check_playlist(volume, crate["playlist"], tracks)
         keys = ("expected", "found", "missing", "playlist_on_device", "device_entries", "in_order")
+        analysis = None
+        if check.get("device_analysis"):
+            from djlib.exporting.usb_check import analysis_xml
+
+            # The stick carries rekordbox's key for each track: bring it into the catalog.
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            xml = analysis_xml(
+                workspace.incoming / "rekordbox" / f"device-{stamp}.xml",
+                check["device_analysis"],
+                crate["paths"],
+            )
+            reply = local.request("POST", "/analysis/rekordbox", data={"path": str(xml)})
+            analysis = {
+                key: reply["result"].get(key) for key in ("matched", "updated", "kept_your_values")
+            }
         remember(
             workspace,
             crate["collection_id"],
@@ -328,6 +343,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "library_updated": library_state(volume) != before,
             "export_seconds": round(time.monotonic() - started, 1),
             **{key: check.get(key) for key in (*keys, "matched_by", "verified_by")},
+            "analysis_from_device": analysis,
             "player_playback_verified": False,
         }
 
@@ -424,7 +440,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking the collection's files…"):
             crate = prepare(local, workspace, collection_id)
         into_rekordbox(local, workspace, ui, [crate])
-        result = to_usb(workspace, ui, crate, volume, timeout)
+        result = to_usb(local, workspace, ui, crate, volume, timeout)
         emit(
             envelope(
                 {
@@ -509,7 +525,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 rekordbox={"status": crate["status"], **outcome},
             )
             if volume is not None:
-                result["usb"] = to_usb(workspace, ui, crate, volume, timeout)
+                result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
