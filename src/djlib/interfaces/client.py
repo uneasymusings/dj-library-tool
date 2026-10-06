@@ -91,15 +91,48 @@ class LocalClient:
                 self._version_checked = True
         if self._coordinator_version != __version__:
             observed = self._coordinator_version or "an unknown application version"
+            stop = "djlib service stop"
+            if self.workspace.root != default_workspace():
+                stop = f"djlib --workspace {shlex.quote(str(self.workspace.root))} service stop"
             raise AppError(
                 "COORDINATOR_VERSION_MISMATCH",
-                f"The running coordinator reports {observed}; this client requires {__version__} "
-                "(djlib was probably updated while its background service kept running). Run "
-                f"'djlib --workspace {shlex.quote(str(self.workspace.root))} service stop', "
-                "then retry. Accepted jobs remain stored. "
-                "No requested operation was sent or resubmitted.",
+                f"An older djlib ({observed}) is still running in the background and is busy "
+                f"or owned by another app, so it wasn't restarted. This is {__version__}. When "
+                f"it's done, run `{stop}` and try again; saved jobs are kept and nothing was "
+                "sent.",
                 409,
             )
+
+    def _restart_outdated(self, url: str) -> bool:
+        """Stop an older, idle background service so this version starts its own.
+
+        Returns False (and leaves it running) when this client may not start a service, or
+        when the old one is running jobs or can't be asked; the caller then explains.
+        """
+        if not self.allow_start:
+            return False
+        try:
+            with httpx.Client(trust_env=False, timeout=5) as client:
+                reply = client.get(f"{url}/jobs", params={"limit": 50}, headers=self.headers())
+                reply.raise_for_status()
+                jobs = (reply.json().get("result") or {}).get("jobs") or []
+                if any(job.get("state") in {"queued", "running"} for job in jobs):
+                    return False
+                client.post(f"{url}/shutdown", headers=self.headers()).raise_for_status()
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return False
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            self._forget_coordinator()
+            current = self._discover_once()
+            if current is None:
+                return True  # gone: the caller starts this version's service
+            try:
+                self._require_matching_version(current)
+                return True  # already replaced by a matching service
+            except AppError:
+                time.sleep(0.2)
+        return False
 
     def discover(self) -> str | None:
         """The live coordinator's URL, or None. Transient failures are retried briefly.
@@ -270,7 +303,14 @@ class LocalClient:
             ("POST", "/shutdown"),
         }
         if not administrative:
-            self._require_matching_version(url)
+            try:
+                self._require_matching_version(url)
+            except AppError as error:
+                # After an update the old background service is usually idle: replace it.
+                if error.code != "COORDINATOR_VERSION_MISMATCH" or not self._restart_outdated(url):
+                    raise
+                url = self.ensure()
+                self._require_matching_version(url)
         timeout = 15
         if path == "/sources/inspect":
             # Fetching listener comments takes up to the adapter's 240-second budget.
