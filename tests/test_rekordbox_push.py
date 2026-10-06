@@ -603,3 +603,85 @@ def test_set_builds_the_crate_without_rekordbox(
     assert fake.imported == []
     usb = CliRunner().invoke(cli_app, [*args, "--usb", "--no-rekordbox"])
     assert json.loads(usb.stdout)["error"]["code"] == "INPUT_INVALID"
+
+
+def test_set_option_mistakes_are_explained(application, monkeypatch, tmp_path):
+    FakeRekordbox(monkeypatch)
+    tracklist = tmp_path / "x.txt"
+    tracklist.write_text("Lumen - Halo\n", encoding="utf-8")
+    base = ["--workspace", str(application.workspace.root), "set", str(tracklist)]
+    for extra, words in (
+        (["--yes"], "--fetch"),
+        (["--usb", "--when-idle", "60"], "click"),
+        (["--usb", "--no-rekordbox"], "rekordbox"),
+    ):
+        reply = CliRunner().invoke(cli_app, [*base, *extra])
+        error = json.loads(reply.stdout)["error"]
+        assert error["code"] == "INPUT_INVALID" and words in error["message"], extra
+
+
+def test_usb_prompt_is_a_json_event_and_a_failed_check_exits_nonzero(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    sources = [audio_factory(f"fail-{n}.wav", frequency=650 + 20 * n) for n in range(2)]
+    collection_id = build(library_http, sources, [("Lumen", f"Fail {n}") for n in range(2)])[
+        "result"
+    ]["collection_id"]
+    FakeRekordbox(monkeypatch)
+    volume = tmp_path / "STICK"
+    (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
+
+    def wait_for_selection(device, target, timeout, on_wrong=None):
+        on_wrong("Some other playlist")
+        # rekordbox only manages to copy one of the two files.
+        pdb_fixture.stick(volume, target, [(sources[0].name, sources[0].read_bytes())])
+
+    monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
+    monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
+    quick = functools.partial(usb_check.wait_for_copy, sleep=lambda seconds: None, stall=0)
+    monkeypatch.setattr(usb_check, "wait_for_copy", quick)
+    reply = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "rekordbox",
+            "usb",
+            collection_id,
+            "--device",
+            str(volume),
+        ],
+    )
+    assert reply.exit_code == 4
+    assert json.loads(reply.stdout)["result"]["found"] == 1
+    events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
+    assert [e["event"] for e in events] == ["select_playlist", "wrong_playlist"]
+    assert events[0]["playlist"] == "Owned" and events[0]["device"] == "STICK"
+
+
+def test_a_set_that_gained_songs_becomes_a_new_playlist_version(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_headline_workflow import build as build_keyed
+
+    build_keyed(library_http, [audio_factory("v1.wav", frequency=330)], [("Lumen", "Halo")], "v-1")
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nLumen - Rain\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    def run():
+        reply = CliRunner().invoke(cli_app, [*workspace, "set", str(tracklist)])
+        assert reply.exit_code == 0, reply.output
+        return json.loads(reply.stdout)["result"]
+
+    first, again = run(), run()
+    assert first["playlist"] == "Friday" and first["rekordbox"]["status"] == "imported"
+    assert again["collection_id"] == first["collection_id"]  # unchanged: same crate, no import
+    assert again["rekordbox"]["status"] == "already_in_rekordbox" and len(fake.imported) == 1
+
+    build_keyed(library_http, [audio_factory("v2.wav", frequency=660)], [("Lumen", "Rain")], "v-2")
+    grown = run()
+    assert grown["owned"] == 2 and grown["collection_id"] != first["collection_id"]
+    assert grown["playlist"] == "Friday (2)" and grown["rekordbox"]["status"] == "imported"
+    assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]

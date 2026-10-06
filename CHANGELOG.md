@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Rerunning a set is safe and current.** The same tracklist is re-checked against your library (songs you added since count as owned); an unchanged set reuses its crate and playlist, and a set that gained or lost songs goes into rekordbox as “Name (2)” instead of clashing with the playlist djlib made before.
+- **“(Original Mix)” means no special version**: it matches files tagged with the bare title and vice versa; a Radio Edit or remix is still another version.
+- **USB failures are failures.** `rekordbox usb` and `set --usb` exit with code 4 when files are missing or out of order. In JSON mode, the click prompt is written to stderr as `{"event": "select_playlist", …}` so an assistant running djlib in the background can tell you which playlist to click.
+- `set --when-idle SECONDS` defers the rekordbox import until you are away; `--yes` without `--fetch` and `--usb` with `--when-idle` or `--no-rekordbox` are explained instead of ignored. Titles containing `[` or `]` no longer break the terminal output.
 - **`set` works without rekordbox.** Owned/missing, the crate and `--fetch` no longer need rekordbox: when it can't be driven (Linux/Windows, not installed, no Accessibility permission) the rekordbox step is skipped with the reason shown; `--no-rekordbox` skips it on purpose.
 - **Faster.** Every command starts about 0.4 s sooner (`djlib version` 0.85 s → 0.2 s) because the CLI no longer loads server code; `--fetch` searches four songs at a time (a 13-track set: 31 s → 11.5 s).
 - The skill's CLI reference covers `set` (files and set links), `--fetch`, `--usb`, `rekordbox usb`, the new error codes and the MCP equivalents.

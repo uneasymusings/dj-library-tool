@@ -618,13 +618,16 @@ def collect_request(app, request_id: str, revision: int, name: str | None = None
             "None of these songs are owned yet. Add music, then refresh the request list.",
         )
     title = (name or ledger["name"]).strip()
-    digest = hashlib.sha256(title.encode()).hexdigest()[:12]
+    # Keyed by name and owned tracks, not revision: re-checking an unchanged list reuses its
+    # crate, while a list that gained or lost songs gets a new one.
+    owned = "\n".join(f"{ref.recording_id}:{ref.asset_revision_id}" for ref in references)
+    digest = hashlib.sha256(f"{title}\n{owned}".encode()).hexdigest()[:16]
     return organize_collection(
         app,
         OrganizationRequest(
             name=title,
             tracks=references,
             unknown="include",
-            idempotency_key=f"request-collection:{request_id}:{revision}:{digest}",
+            idempotency_key=f"request-collection:{request_id}:{digest}",
         ),
     )
