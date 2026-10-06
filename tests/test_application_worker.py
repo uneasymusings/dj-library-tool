@@ -189,6 +189,32 @@ async def test_scan_ignores_non_audio_and_pages_items(application, audio_factory
     assert application.events(job["job_id"], limit=2)["next_cursor"] is not None
 
 
+async def test_scan_writes_and_reads_items_in_batches(application, audio_factory, monkeypatch):
+    """Large libraries: no 10,000-file cap, and item rows are handled a batch at a time."""
+    paths = [audio_factory(f"batch-{n}.wav", frequency=200 + n * 10) for n in range(6)]
+    monkeypatch.setattr(Worker, "SCAN_BATCH", 2)
+    job = application.scan(str(paths[0].parent), "batched")
+    result = await execute(application, job["job_id"])
+    assert result["counts"] == {"succeeded": 7}  # fixture tone + six
+    assert result["result"]["discovered_files"] == 7
+    with application.db.transaction() as session:
+        ids = list(session.scalars(select(JobItem.id).where(JobItem.job_id == job["job_id"])))
+    paths_by_item = Worker(application)._local_paths("scan", ids)
+    assert len(paths_by_item) == 7 and set(paths_by_item.values()) >= {str(p) for p in paths}
+
+
+def test_scan_cap_bounds_memory_with_a_clear_message(application, audio_factory, monkeypatch):
+    paths = [audio_factory(f"cap-{n}.wav", frequency=200 + n * 10) for n in range(3)]
+    assert Worker.SCAN_FILE_LIMIT >= 50_000
+    monkeypatch.setattr(Worker, "SCAN_FILE_LIMIT", 2)
+    with pytest.raises(AppError) as error:
+        Worker(application).discover(str(paths[0].parent))
+    assert error.value.code == "ITEM_LIMIT"
+    assert error.value.message == (
+        "A scan is limited to 2 music files; scan its subfolders one at a time."
+    )
+
+
 async def test_resolving_review_while_other_item_runs(application, audio_factory, monkeypatch):
     """A resolved item must not be stranded by the worker's original pending snapshot."""
     paths = [
