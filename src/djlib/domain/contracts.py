@@ -106,6 +106,14 @@ class DownloadRequest(Contract):
 
 class SourceRequest(Contract):
     url: str = Field(min_length=1, max_length=4096)
+    comments: int = Field(default=0, ge=0, le=2000)
+
+
+class SourceSearch(Contract):
+    artist: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=1000)
+    version: str = Field(default="", max_length=300)
+    limit: int = Field(default=8, ge=1, le=20)
 
 
 class DeviceRequest(Contract):

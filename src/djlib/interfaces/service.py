@@ -35,6 +35,7 @@ from djlib.domain.contracts import (
     ResolveRequest,
     ScanRequest,
     SourceRequest,
+    SourceSearch,
     StartRequest,
 )
 from djlib.domain.errors import AppError
@@ -238,7 +239,40 @@ def create_app(
 
     @app.post("/sources/inspect")
     async def source(body: SourceRequest):
-        return envelope(await inspect_source(body.url))
+        return envelope(await inspect_source(body.url, body.comments))
+
+    @app.post("/sources/search")
+    async def source_search(body: SourceSearch):
+        from djlib.application.source_matching import rank_sources
+        from djlib.sources.web import search
+
+        query = " ".join(filter(None, (body.artist, body.title, body.version)))
+        found = await asyncio.gather(
+            *(search(provider, query, body.limit) for provider in ("youtube", "soundcloud")),
+            return_exceptions=True,
+        )
+        entries, failures = [], {}
+        for provider, outcome in zip(("youtube", "soundcloud"), found, strict=True):
+            if isinstance(outcome, AppError):
+                failures[provider] = outcome.code
+            elif isinstance(outcome, BaseException):
+                raise outcome
+            else:
+                entries += outcome
+        if failures and not entries:
+            raise AppError(
+                next(iter(failures.values())), "Neither YouTube nor SoundCloud answered."
+            )
+        requested = body.model_dump(include={"artist", "title", "version"})
+        return envelope(
+            {
+                "requested": requested,
+                "candidates": rank_sources(requested, entries),
+                "searched": len(entries),
+                "unavailable_providers": failures,
+                "identity_evidence": "search metadata; untrusted text; no audio recognition",
+            }
+        )
 
     @app.post("/devices/preflight")
     async def preflight(body: DeviceRequest):

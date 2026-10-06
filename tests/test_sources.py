@@ -139,13 +139,23 @@ async def test_download_receipt_resumes_without_network(tmp_path, monkeypatch):
     assert path.name == "audio.flac" and observed == receipt
 
 
+async def test_download_receipt_resumes_an_mp3(tmp_path, monkeypatch):
+    monkeypatch.setattr(web.shutil, "which", lambda _: "/tools/ffmpeg")
+    (tmp_path / "audio.mp3").write_bytes(b"placeholder")
+    receipt = {"source_url": "https://youtu.be/test", "format": "mp3"}
+    (tmp_path / "receipt.json").write_text(json.dumps(receipt))
+    path, observed = await web.download("https://youtu.be/test", tmp_path)
+    assert path.name == "audio.mp3" and observed == receipt
+
+
 async def test_download_materializes_selected_track(tmp_path, monkeypatch):
     monkeypatch.setattr(web.shutil, "which", lambda _: "/tools/ffmpeg")
     monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
 
     async def fake(args, **_):
         assert "--no-overwrites" in args and args[-1] == "https://youtu.be/test"
-        (tmp_path / "audio.flac").write_bytes(b"placeholder")
+        assert args[args.index("--audio-format") + 1] == "mp3"
+        (tmp_path / "audio.mp3").write_bytes(b"placeholder")
         return b""
 
     monkeypatch.setattr(web, "run", fake)
@@ -229,3 +239,66 @@ async def test_cancellation_stops_descendant_process(tmp_path):
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_search_keeps_public_youtube_and_soundcloud_results(monkeypatch):
+    seen = {}
+
+    async def fake(args, **_):
+        seen["query"] = args[-1]
+        return json.dumps(
+            {
+                "entries": [
+                    {
+                        "url": "https://api.soundcloud.com/tracks/1",
+                        "webpage_url": "https://soundcloud.com/a/lasso",
+                        "title": "Lasso",
+                        "uploader": "Phoenix",
+                        "duration": 167.9,
+                        "view_count": 10,
+                    },
+                    {"url": "https://example.com/elsewhere", "title": "Lasso"},
+                    "not an entry",
+                ]
+            }
+        ).encode()
+
+    monkeypatch.setattr(web, "run", fake)
+    monkeypatch.setattr(web, "command", lambda: [])
+    results = await web.search("soundcloud", "  Phoenix   Lasso ", 50)
+    assert seen["query"] == "scsearch20:Phoenix Lasso"
+    assert results == [
+        {
+            "provider": "soundcloud",
+            "url": "https://soundcloud.com/a/lasso",
+            "title": "Lasso",
+            "uploader": "Phoenix",
+            "duration": 167.9,
+            "view_count": 10,
+        }
+    ]
+    with pytest.raises(AppError):
+        await web.search("bandcamp", "Phoenix Lasso")
+
+
+async def test_inspect_can_include_listener_comments(monkeypatch):
+    async def fake(args, **_):
+        assert "--write-comments" in args
+        return json.dumps(
+            {
+                "id": "set",
+                "title": "Set",
+                "comments": [
+                    {"text": "ID?", "start_time": 483.2, "author": "a"},
+                    {"text": "Bicep - Glue", "like_count": 4},
+                    {"text": ""},
+                ],
+            }
+        ).encode()
+
+    monkeypatch.setattr(web, "run", fake)
+    monkeypatch.setattr(web, "command", lambda: [])
+    result = await web.inspect_source("https://soundcloud.com/a/set", comments=50)
+    assert [c["text"] for c in result["comments"]] == ["ID?", "Bicep - Glue"]
+    assert result["comments"][0]["start_time"] == 483.2
+    assert result["comments"][1]["like_count"] == 4
