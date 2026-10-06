@@ -11,7 +11,14 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from djlib.application import requests
-from djlib.domain.contracts import CollectionRequest, StartRequest, TrackInput
+from djlib.domain.contracts import (
+    CollectionRequest,
+    StartRequest,
+    TrackInput,
+    artist_names,
+    credit_form,
+    split_featured,
+)
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import (
     RequestCreate,
@@ -19,6 +26,7 @@ from djlib.domain.request_contracts import (
     RequestRefresh,
     RequestResolution,
 )
+from djlib.interfaces.rekordbox_cli import set_item
 from djlib.persistence.models import Job
 from djlib.persistence.request_models import RequestLedger
 from tests.conftest import execute
@@ -30,19 +38,21 @@ def ledger_app(application):
     return application
 
 
-async def owned(app, factory, *, name="owned", artist="Original Artist", version="", frequency=440):
+async def owned(
+    app,
+    factory,
+    *,
+    name="owned",
+    artist="Original Artist",
+    title="Original Tone",
+    version="",
+    frequency=440,
+):
     source = factory(f"{name}.wav", frequency=frequency)
     plan = app.plan(
         CollectionRequest(
             name=name,
-            tracks=[
-                TrackInput(
-                    path=str(source),
-                    artist=artist,
-                    title="Original Tone",
-                    version=version,
-                )
-            ],
+            tracks=[TrackInput(path=str(source), artist=artist, title=title, version=version)],
         )
     )
     job = app.start(StartRequest(plan_id=plan["plan_id"], revision=1, idempotency_key=name))
@@ -160,6 +170,163 @@ async def test_different_version_is_only_a_candidate_and_cannot_be_selected(
         )
     assert error.value.code == "REQUEST_IDENTITY_CONFLICT"
     assert requests.get_request(ledger_app, result["request_id"])["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    ("artist", "names"),
+    [
+        ("Jamie Jones, Max Dean, Luke Dean", ("jamie jones", "luke dean", "max dean")),
+        ("Max Dean, Luke Dean & Jamie Jones", ("jamie jones", "luke dean", "max dean")),
+        ("A; B / C", ("a", "b", "c")),
+        ("A x B", ("a", "b")),
+        ("A X B", ("a x b",)),  # only a lowercase "x" separates credits
+        ("A feat. B", ("a", "b")),
+        ("A Ft B", ("a", "b")),
+        ("A featuring B", ("a", "b")),
+        ("A vs. B", ("a", "b")),
+        ("A (feat. B)", ("a", "b")),
+        ("A, A", ("a",)),
+        ("/", ("/",)),  # symbol-only credits never collapse to an empty set
+    ],
+)
+def test_artist_credits_split_into_a_sorted_set_of_names(artist, names):
+    assert artist_names(artist) == names
+
+
+@pytest.mark.parametrize(
+    ("title", "split"),
+    [
+        ("Rain (feat. Ana)", ("Rain", ("Ana",))),
+        ("Rain [ft. Ana]", ("Rain", ("Ana",))),
+        ("Rain feat. Ana", ("Rain", ("Ana",))),
+        ("Rain feat. Ana (Extended Mix)", ("Rain (Extended Mix)", ("Ana",))),
+        ("Rain (feat. Ana & Bo) (Dub)", ("Rain (Dub)", ("Ana & Bo",))),
+        ("Rain (Ana feat. Bo Remix)", ("Rain (Ana feat. Bo Remix)", ())),
+        ("No Mean Feat", ("No Mean Feat", ())),
+    ],
+)
+def test_featured_artists_written_in_the_title_move_to_the_credits(title, split):
+    assert split_featured(title) == split
+    assert credit_form("Cy", title) == credit_form(", ".join(("Cy", *split[1])), split[0])
+
+
+async def test_tracklist_artist_order_does_not_hide_an_owned_mix(ledger_app, audio_factory):
+    # The real case: tags credit "Jamie Jones, Max Dean, Luke Dean"; the tracklist lists the
+    # same three artists in another order.
+    source = audio_factory(
+        "gets.wav",
+        frequency=523,
+        artist="Jamie Jones, Max Dean, Luke Dean",
+        title="Gets Like That (Jamie Jones Remix)",
+    )
+    job = ledger_app.scan(str(source.parent), "scan")
+    assert (await execute(ledger_app, job["job_id"]))["outcome"] == "complete"
+    track = next(t for t in ledger_app.library(limit=100)["tracks"] if t["path"] == str(source))
+    tracklist = "Max Dean, Luke Dean, Jamie Jones"
+    result = create(
+        ledger_app,
+        [
+            named(artist=tracklist, title="Gets Like That (Jamie Jones Remix)"),
+            named(artist=tracklist, title="Gets Like That (Original Mix)"),
+        ],
+    )
+    remix, original = result["items"]
+    assert remix["state"] == "satisfied"
+    assert remix["accepted"]["recording_id"] == track["recording_id"]
+    assert remix["accepted"]["identity_match"] == "equivalent_labels"
+    assert remix["accepted"]["availability"] == "verified"
+    # Another mix is never owned, but it is reported: "you own: Jamie Jones Remix".
+    assert original["state"] == "missing"
+    assert original["accepted"] is None
+    assert [(c["recording_id"], c["identity_match"]) for c in original["candidates"]] == [
+        (track["recording_id"], "different_version")
+    ]
+    assert original["candidates"][0]["availability"] == "not_checked"
+    assert set_item(original)["you_own"] == ["Jamie Jones Remix"]
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested", "match"),
+    [
+        (("B, A", "Original Tone"), ("A, B", "Original Tone"), "equivalent_labels"),
+        # Punctuation-only separators already normalize alike ("a b").
+        (("A & B", "Original Tone"), ("A, B", "Original Tone"), "exact_labels"),
+        (("B & A", "Original Tone"), ("A, B", "Original Tone"), "equivalent_labels"),
+        (("A feat. B", "Original Tone"), ("A", "Original Tone (feat. B)"), "equivalent_labels"),
+        (("A", "Original Tone (feat. B)"), ("A feat. B", "Original Tone"), "equivalent_labels"),
+        (
+            ("B x A", "Original Tone [ft. C] (Dub)"),
+            ("C; A & B", "Original Tone (Dub)"),
+            "equivalent_labels",
+        ),
+    ],
+)
+async def test_same_credits_in_any_order_or_separator_are_owned(
+    ledger_app, audio_factory, catalog, requested, match
+):
+    track = await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["recording_id"] == track["recording_id"]
+    assert item["accepted"]["identity_match"] == match
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested", "hints"),
+    [
+        (("A, B", "Original Tone"), ("A", "Original Tone"), []),
+        (("A feat. B", "Original Tone"), ("A", "Original Tone"), []),
+        (("A", "Original Tone"), ("A & B", "Original Tone"), []),
+        # Already shown as another version before credits were compared; still not owned.
+        (("A", "Original Tone (feat. B)"), ("A", "Original Tone"), ["different_version"]),
+    ],
+)
+async def test_a_subset_of_the_credited_artists_is_not_owned(
+    ledger_app, audio_factory, catalog, requested, hints
+):
+    await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "missing"
+    assert item["accepted"] is None
+    assert [c["identity_match"] for c in item["candidates"]] == hints
+
+
+async def test_reordered_credits_on_two_recordings_need_an_explicit_choice(
+    ledger_app, audio_factory
+):
+    await owned(ledger_app, audio_factory, name="first", artist="A, B", frequency=220)
+    second = await owned(ledger_app, audio_factory, name="second", artist="B & A", frequency=330)
+    result = create(ledger_app, [named(artist="A, B")])
+    item = result["items"][0]
+    assert item["state"] == "ambiguous"
+    assert sorted(c["identity_match"] for c in item["candidates"]) == [
+        "equivalent_labels",
+        "exact_labels",
+    ]
+    selected = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=second["recording_id"],
+        asset_revision_id=second["asset_revision_id"],
+        notes="Same artists credited in another order",
+    )
+    assert selected["items"][0]["state"] == "satisfied"
+    assert selected["items"][0]["accepted"]["recording_id"] == second["recording_id"]
+    assert selected["items"][0]["accepted"]["basis"] == "operator_selection"
+
+
+async def test_title_lookup_matches_count_toward_the_candidate_bound(
+    ledger_app, audio_factory, monkeypatch
+):
+    await owned(ledger_app, audio_factory, name="first", artist="A, B", frequency=220)
+    await owned(ledger_app, audio_factory, name="second", artist="B, A", frequency=330)
+    monkeypatch.setattr(requests, "MAX_CANDIDATES", 1)
+    item = create(ledger_app, [named(artist="A, B")])["items"][0]
+    # The reordered match did not fit; it must make the item ambiguous, not hide silently.
+    assert item["state"] == "ambiguous"
+    assert item["candidates_truncated"] is True
+    assert [c["identity_match"] for c in item["candidates"]] == ["exact_labels"]
 
 
 async def test_multiple_exact_byte_revisions_require_explicit_choice(ledger_app, audio_factory):
