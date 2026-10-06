@@ -29,6 +29,10 @@ FEATURING_LABEL = re.compile(r"^\s*(?:feat\b|ft\b|featuring\b)", re.IGNORECASE)
 UNKNOWN = re.compile(r"^(?:id|\?+|unknown|unreleased id|tba)$", re.IGNORECASE)
 # "03 Artist - Title": a bare number counts as numbering only when the list's numbers run
 # in sequence, so artists such as "2 Unlimited" or "808 State" survive elsewhere.
+# 1001Tracklists copies list "w/ Artist - Title" for a track played together with the previous
+# one, and put track numbers on lines of their own.
+PLAYED_WITH = re.compile(r"^\s*w/\s*", re.IGNORECASE)
+NUMBER_ONLY = re.compile(r"^\s*\d{1,3}[.)]?\s*$")
 BARE_NUMBER = re.compile(r"^\d{1,3}\s+(?=\S)")
 LEADING_DIGITS = re.compile(r"^\s*#?(\d{1,3})")
 
@@ -56,8 +60,8 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     """
     parsed = []
     for number, raw in enumerate(text.splitlines(), 1):
-        line = raw.strip()
-        if not line or line.startswith(("#", "//")):
+        line = PLAYED_WITH.sub("", raw.strip(), count=1)
+        if not line or line.startswith(("#", "//")) or NUMBER_ONLY.match(line):
             continue
         stripped = NUMBERING.sub("", line, count=1)
         marked = stripped != line

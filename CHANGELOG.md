@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0a11
+
+- **Sets from a link.** `djlib set https://soundcloud.com/…` or a YouTube set reads the tracklist from the upload's description or chapters, and reads up to 1,000 listener comments: for each “ID” with a time, the screen shows what listeners named around that moment (SoundCloud timed comments; timestamps written in YouTube comments). Hints are evidence only and are never added by themselves.
+- **Uploads without a tracklist** (most Boiler Room videos) say so and list what listeners named in the comments, e.g. a fan's timestamped tracklist, as a pointer. Comment mining ignores reactions with a single timestamp, time ranges and sentences that merely contain a dash.
+- **`--fetch`: missing songs as MP3.** Searches YouTube and SoundCloud for each missing song, ranks uploads (official artist uploads first; 30-second previews, live recordings, full sets, sped-up versions and unrequested remixes dropped or ranked down), shows the clear matches and downloads them as MP3 after you confirm (`--yes` for scripts). Unclear ones are listed with the best guess, not downloaded. The set is re-checked and the crate built with them.
+- **Artist country tags.** Credits such as “Maz (BR)” or “Samm (BE)” match uploads and tags written without the tag, in search, ranking and request matching.
+- **MP3 downloads.** Web downloads are saved as MP3 (VBR V0, or copied when the source already is MP3) instead of FLAC, so every CDJ plays them, and the library copy is tagged with the artist and title you asked for. A download the provider refuses is retried once. Quality is the source's; djlib labels them as unverified web audio.
+- **1001Tracklists.** Its tracklist pages are only served to browsers, so djlib does not fetch them: paste the page's tracklist into a file (track-number lines and `w/` entries are understood), or let your assistant read it in your browser.
+- **Assistants.** New MCP tool `djlib_find_sources` (43 tools); `djlib_source_inspect` can include comments.
+- `rekordbox usb` and `set --usb` show how many tracks' key/BPM were read back from the stick.
+
 ## 0.1.0a10
 
 - **`djlib set tracklist.txt [--usb]`: the whole workflow in one command.** Checks which songs you own, builds the crate in set order, imports it into rekordbox and, with `--usb`, exports it to your stick and verifies it. One screen shows what made it, what is missing and which other versions you own. Rerunning reuses the list, crate and playlist.

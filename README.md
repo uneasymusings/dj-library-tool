@@ -21,14 +21,14 @@ Not in the crate (3)
 13   ○ unknown ID   ID - ID @ 41:20
 ```
 
-> **Experimental alpha, 0.1.0a10.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a11.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
 
 ## Quick start
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```bash
-uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a10/dj_library_tool-0.1.0a10-py3-none-any.whl'
+uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a11/dj_library_tool-0.1.0a11-py3-none-any.whl'
 djlib init --allow-root ~/Music      # creates and remembers your workspace
 djlib scan                           # indexes your music in place
 djlib set tracklist.txt --usb        # tracklist → crate → rekordbox → USB
@@ -41,7 +41,9 @@ A tracklist is plain text with one `Artist - Title (Mix)` per line. Numbering, t
 
 | Step | Command | What happens |
 | --- | --- | --- |
-| All at once | `djlib set tracklist.txt [--usb]` | Runs the steps below. Without `--usb` it stops at the rekordbox playlist. Running it again reuses the list, crate and playlist. |
+| All at once | `djlib set tracklist.txt [--fetch] [--usb]` | Runs the steps below. Without `--usb` it stops at the rekordbox playlist. Running it again reuses the list, crate and playlist. |
+| From a link | `djlib set https://soundcloud.com/…` | A YouTube or SoundCloud set: its description or chapters become the tracklist, and listener comments around each “ID” are shown as hints. 1001Tracklists only serves browsers, so copy its tracklist into a file or let your assistant read it in your browser. |
+| Missing songs | `--fetch` | Searches YouTube and SoundCloud, downloads clear matches as MP3 after you confirm (official uploads first; previews, live versions, full sets and unrequested remixes skipped), then fills the set. Unclear ones are listed with the best guess. Web audio is the source's quality; you are responsible for having the rights. |
 | Index | `djlib scan` | Reads tags, or “Artist - Title” file names, in place. Nothing is moved or retagged. Rescans only decode new bytes. |
 | Ask | `djlib requests create --text tracklist.txt` | Each line becomes owned, missing, other version owned, or unknown ID. Matching uses exact artist/title/version labels and is hash-checked; a different mix is never swapped in. |
 | Crate | `djlib requests collect ID` | Owned songs become a collection in set order; missing ones stay listed (`requests report` saves them). |
@@ -62,7 +64,7 @@ In a terminal every command prints a readable view, with live progress for long 
 
 ## Use with an AI assistant
 
-The package ships an MCP server (42 tools) and a [skill](skills/dj-library/SKILL.md) that teaches the workflow, including computer etiquette: idle-time pushes, batching, no UI polling. Register it with your assistant:
+The package ships an MCP server (43 tools) and a [skill](skills/dj-library/SKILL.md) that teaches the workflow, including computer etiquette: idle-time pushes, batching, no UI polling. Register it with your assistant:
 
 ```bash
 claude mcp add --transport stdio djlib -- "$(command -v djlib)" mcp serve
@@ -77,7 +79,7 @@ The rekordbox and USB steps run through the CLI on your Mac. The assistant tells
 
 ## More
 
-- **Optional web recordings.** With the `download` extra, selected public YouTube, SoundCloud or Bandcamp recordings can be fetched as durable per-track jobs, labelled as unverified source quality. See [quickstart](docs/QUICKSTART.md).
+- **Web downloads** need the `download` extra (included in the install command above) and FFmpeg. Downloads are MP3 and labelled as unverified source quality. See [quickstart](docs/QUICKSTART.md).
 - **Delivery workflows.** Separate, tagged working copies with guided native-app and USB checks for when you don't want to export your originals: [DJ delivery](docs/DJ_DELIVERY.md). Serato working copies are supported there but untested with real music.
 - **Try it without your music.** `djlib --workspace ./demo demo` builds a collection from three generated tones.
 

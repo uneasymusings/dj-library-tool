@@ -1,5 +1,17 @@
 # Implementation status
 
+## 0.1.0a11
+
+Adds sets from a YouTube or SoundCloud link (tracklist from the description or chapters, listener comments as hints for IDs), `--fetch` for missing songs (YouTube/SoundCloud search, ranked; clear matches downloaded as MP3 after confirmation, the library copy tagged with the requested labels), MP3 downloads, artist country tags such as “(BR)” ignored in matching, and 1001Tracklists through the browser (its tracklist pages answer scripts with a captcha, which djlib does not get around).
+
+Live on 2026-10-06:
+- **Search and ranking.** For 7 well-known songs searched on both sites, the official upload ranked first in 6 and was marked clear in 5; 30-second SoundCloud previews, live recordings, extended edits and unrequested remixes were dropped or ranked down. Both searches together take about 1.5 s.
+- **Set from a link.** A 62-minute YouTube radio show's description gave 13 tracks (2 IDs) in 31 s; for its 11 named songs, 5 had clear matches (3 before the country-tag fix), 2 are not on either site and 4 have competing edits, left for the user to pick.
+- **Fetch end to end** (isolated workspace): a 3-line tracklist with one owned song downloaded the other 2 from YouTube as MP3 (about 270 kbps VBR), built the 3-track crate in order and imported it into rekordbox 7.2.19, in 44 s. A refused YouTube stream (seen once) succeeds when retried, which `--fetch` now does once; the managed MP3 copy carries the requested artist/title tags.
+- **Comments.** On a Boiler Room upload with no tracklist, 300 YouTube comments yield the fan's timestamped tracklist (8 titles) and one credited remix, with no reactions or sentences; on a 2-hour SoundCloud mix, 67 timed comments named nothing usable and none were invented.
+
+Not verified: download quality beyond the provider's stream (web audio is labelled unverified), and comment hints against a set whose IDs are known. Local validation: 752 tests passed with five Windows-only skips.
+
 ## 0.1.0a10
 
 Adds `djlib set` (tracklist → owned/missing → crate → rekordbox playlist → USB in one command) and `rekordbox usb` (a crate goes to a USB stick through rekordbox's own Playlist > Export Playlist, then djlib reads the stick back), plus artist-order-insensitive request matching, key import from the stick, `doctor` rekordbox checks and a fresh-user pass.
@@ -8,9 +20,10 @@ Live on 2026-10-05 with rekordbox 7.2.19 and a FAT32 stick that already held a r
 - **USB export.** The user clicked "Set 0" once; djlib confirmed the selection from rekordbox's export dialog, started the export, and all 28 tracks (24-bit FLAC) were on the stick after about 90 s. The first run reported early (8/28) because rekordbox shows export progress inside its window; completion is now read from the stick, and that wait, run against the same export, confirmed 28/28.
 - **Device library.** Reading the stick's `export.pdb` back, "Set 0" lists 28 entries in crate order, each pointing at a file with the original's SHA-256. Across all 318 comparable tracks on the stick, its BPM matched rekordbox's XML export 318/318 and key 317/318.
 - **`set` on the real library.** An 8-line test tracklist matched 5 owned songs exactly (including "Avalon Emerson & Moby" against tags "Avalon Emerson, Moby"), reported "Lasso (Original Mix)" as missing with the owned Two Door Cinema Club Remix as another version, kept one missing song and one unknown ID, and imported the crate into rekordbox as a playlist. Its USB step waited for a click that did not happen (the user was away) and exported nothing, as designed.
+- **After release (2026-10-06), with the published 0.1.0a10 wheel.** `djlib set` with `--usb` on that tracklist reused the list, crate and playlist, waited for the click and confirmed 5/5 entries in the player's library, in order and byte for byte, 81 s from start including the click. Key/BPM read back from the stick matched all 5 catalog originals and agreed with rekordbox's earlier XML values (5 unchanged). A second run where the user first clicked "Set 0" printed “That's ‘Set 0’” and kept waiting; on the right click rekordbox re-exported in 12.6 s, replacing the playlist on the stick rather than duplicating it (325 tracks, one playlist of that name), and the check passed again.
 - **Fresh install.** A clean wheel install with an isolated home walked through init, scan, status, requests, crates, doctor, setup-agent and MCP (42 tools) on six real tracks; the rough edges found were fixed in this release.
 
-Not verified: playback on a CDJ/XDJ, a stick without an existing rekordbox library, and key import from a real stick (covered by tests with a synthetic `export.pdb`). Local validation: 674 tests passed with five Windows-only skips.
+Not verified: playback on a CDJ/XDJ, and a stick without an existing rekordbox library. Local validation: 674 tests passed with five Windows-only skips.
 
 ## 0.1.0a9
 

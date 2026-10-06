@@ -182,12 +182,24 @@ async def run(
     return bytes(output)
 
 
-async def inspect_source(url: str) -> dict:
+async def inspect_source(url: str, comments: int = 0) -> dict:
+    """A set's published description and chapters, plus up to ``comments`` listener comments.
+
+    SoundCloud comments carry their position in the set (``start_time``); YouTube comments
+    often write timestamps in their text. Both are untrusted evidence, not identification.
+    """
     validate_url(url)
+    extra = []
+    if comments:
+        extra = [
+            "--write-comments",
+            "--extractor-args",
+            f"youtube:max_comments={comments},all,100;comment_sort=top",
+        ]
     raw = await run(
-        [*command(), "--skip-download", "--dump-single-json", "--", url],
-        timeout=90,
-        output_limit=8 * 1024 * 1024,
+        [*command(), "--skip-download", *extra, "--dump-single-json", "--", url],
+        timeout=240 if comments else 90,
+        output_limit=32 * 1024 * 1024 if comments else 8 * 1024 * 1024,
     )
     try:
         data = json.loads(raw)
@@ -220,10 +232,15 @@ async def inspect_source(url: str) -> dict:
         ],
         "identity_evidence": "publisher metadata; untrusted text; no audio recognition",
         "description_truncated": len(str(data.get("description") or "")) > 30000,
+        "comments": _comments(data, comments) if comments else [],
     }
 
 
+AUDIO_NAMES = ("audio.mp3", "audio.flac")  # MP3 since a11; FLAC receipts from earlier releases
+
+
 async def download(url: str, destination: Path) -> tuple[Path, dict]:
+    """Fetch one selected recording as an MP3 (copied when the source already is one)."""
     validate_url(url)
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise AppError("DEPENDENCY_REQUIRED", "Web audio acquisition requires FFmpeg and ffprobe.")
@@ -238,8 +255,10 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
             raise AppError(
                 "RECEIPT_INVALID", "The saved download receipt is invalid; inspect staging."
             ) from exc
-        if receipt.get("source_url") == url and (destination / "audio.flac").is_file():
-            return destination / "audio.flac", receipt
+        if receipt.get("source_url") == url:
+            for name in AUDIO_NAMES:
+                if (destination / name).is_file():
+                    return destination / name, receipt
     # Stable output names cannot be influenced by a publisher's title or template.
     await run(
         [
@@ -248,7 +267,9 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
             "bestaudio/best",
             "--extract-audio",
             "--audio-format",
-            "flac",
+            "mp3",
+            "--audio-quality",
+            "0",
             "--max-filesize",
             str(MAX_DOWNLOAD_BYTES),
             "--match-filters",
@@ -263,7 +284,7 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
         output_limit=1024 * 1024,
         download_dir=destination,
     )
-    path = destination / "audio.flac"
+    path = destination / "audio.mp3"
     if not path.is_file():
         raise AppError(
             "DOWNLOAD_UNAVAILABLE", "No audio was produced; the source may exceed the limits."
@@ -272,9 +293,79 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
         "kind": "web_audio",
         "source_url": url,
         "adapter": "yt-dlp",
-        "transformation": "decoded to FLAC for compatibility; source quality is unchanged",
+        "format": "mp3",
+        "transformation": "MP3 for DJ players (VBR V0, or copied when the source is MP3); "
+        "source quality is unchanged",
         "source_quality": "unverified",
         "acoustic_identity_verified": False,
     }
     atomic_json(receipt_path, receipt)
     return path, receipt
+
+
+SEARCH_PREFIX = {"youtube": "ytsearch", "soundcloud": "scsearch"}
+
+
+async def search(provider: str, query: str, limit: int = 8) -> list[dict]:
+    """Public search results (metadata only) from YouTube or SoundCloud."""
+    if provider not in SEARCH_PREFIX:
+        raise AppError("INPUT_INVALID", "Search YouTube or SoundCloud.")
+    query = " ".join(query.split())[:300]
+    if not query:
+        raise AppError("INPUT_INVALID", "Search for an artist and title.")
+    raw = await run(
+        [
+            *command(),
+            "--flat-playlist",
+            "--dump-single-json",
+            "--",
+            f"{SEARCH_PREFIX[provider]}{max(1, min(limit, 20))}:{query}",
+        ],
+        timeout=90,
+        output_limit=8 * 1024 * 1024,
+    )
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise AppError("SOURCE_INVALID", "The search returned invalid metadata.") from exc
+    results = []
+    for entry in (data.get("entries") or [])[:20] if isinstance(data, dict) else []:
+        if not isinstance(entry, dict):
+            continue
+        link = entry.get("webpage_url") or entry.get("url") or ""
+        try:
+            validate_url(link)
+        except AppError:
+            continue
+        duration = entry.get("duration")
+        results.append(
+            {
+                "provider": provider,
+                "url": link,
+                "title": str(entry.get("title") or "")[:500],
+                "uploader": str(entry.get("uploader") or entry.get("channel") or "")[:300],
+                "duration": float(duration) if isinstance(duration, int | float) else None,
+                "view_count": entry.get("view_count")
+                if isinstance(entry.get("view_count"), int)
+                else None,
+            }
+        )
+    return results
+
+
+def _comments(data: dict, limit: int) -> list[dict]:
+    comments = []
+    for comment in (data.get("comments") or [])[:limit]:
+        if not isinstance(comment, dict) or not comment.get("text"):
+            continue
+        start = comment.get("start_time")
+        likes = comment.get("like_count")
+        comments.append(
+            {
+                "text": str(comment["text"])[:2000],
+                "start_time": float(start) if isinstance(start, int | float) else None,
+                "like_count": likes if isinstance(likes, int) else None,
+                "author": str(comment.get("author") or "")[:200],
+            }
+        )
+    return comments

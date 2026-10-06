@@ -447,3 +447,129 @@ def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
     assert 9.9 <= probes[1] < 10.5 and 19.9 <= probes[2] < 20.5
     assert wrong == ["Other"]
     assert exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+
+
+def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    import shutil
+
+    import djlib.interfaces.service as service_module
+    import djlib.jobs.worker as worker_module
+    from djlib.sources import web
+
+    owned = audio_factory("owned.wav", frequency=410)
+    build(library_http, [owned], [("Nia Okoro", "Slow Burn")])
+    fetched_audio = audio_factory("fetched.wav", frequency=470)
+    url = "https://soundcloud.com/someone/friday-set"
+
+    async def inspect(link, comments=0):
+        assert link == url and comments > 0
+        return {
+            "url": url,
+            "provider": "Soundcloud",
+            "title": "Friday Set",
+            "uploader": "someone",
+            "description": "Tracklist:\n00:00 Nia Okoro - Slow Burn\n04:10 Lumen - Halo\n"
+            "08:00 Velvet Static - Night Bus\n12:30 ID - ID\nFollow me on instagram",
+            "chapters": [],
+            "comments": [
+                {"text": "ID?", "start_time": 752.0, "like_count": 0, "author": "a"},
+                {
+                    "text": "this is Bicep - Glue",
+                    "start_time": 760.0,
+                    "like_count": 3,
+                    "author": "b",
+                },
+                {
+                    "text": "Bicep - Glue for sure",
+                    "start_time": 790.0,
+                    "like_count": 1,
+                    "author": "c",
+                },
+            ],
+        }
+
+    official = {"provider": "youtube", "uploader": "Lumen", "view_count": 500_000}
+    results = {
+        "Lumen Halo": [
+            {
+                **official,
+                "url": "https://youtu.be/halo",
+                "title": "Lumen - Halo (Official Audio)",
+                "duration": 240.0,
+            },
+            {
+                **official,
+                "url": "https://youtu.be/halo2",
+                "uploader": "fan",
+                "title": "Lumen - Halo",
+                "duration": 240.5,
+                "view_count": 900,
+            },
+        ],
+        "Velvet Static Night Bus": [
+            {
+                "provider": "youtube",
+                "url": "https://youtu.be/nb",
+                "uploader": "x",
+                "title": "Velvet Static - Night Bus (Live at Fabric)",
+                "duration": 300.0,
+                "view_count": 10,
+            },
+        ],
+    }
+
+    async def search(provider, query, limit=8):
+        return [entry for entry in results.get(query, []) if entry["provider"] == provider]
+
+    downloaded = []
+
+    async def download(link, destination):
+        downloaded.append(link)
+        if len(downloaded) == 1:  # providers refuse a stream now and then
+            raise AppError("SOURCE_FAILED", "The provider could not retrieve it.", 502, True)
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / "audio.wav"
+        shutil.copyfile(fetched_audio, path)
+        return path, {"kind": "web_audio", "source_url": link, "source_quality": "unverified"}
+
+    monkeypatch.setattr(service_module, "inspect_source", inspect)
+    monkeypatch.setattr(web, "search", search)
+    monkeypatch.setattr(worker_module, "download", download)
+    fake = FakeRekordbox(monkeypatch)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    reply = CliRunner().invoke(cli_app, [*workspace, "set", url, "--fetch", "--yes"])
+
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["name"] == "Friday Set" and result["source"]["url"] == url
+    assert downloaded == ["https://youtu.be/halo", "https://youtu.be/halo"]
+    assert result["fetched"]["downloaded"] == 1
+    assert [entry["label"] for entry in result["fetched"]["needs_your_pick"]] == [
+        "Velvet Static - Night Bus"
+    ]
+    assert (result["songs"], result["owned"]) == (4, 2)
+    assert fake.imported[-1].name == "Friday Set.m3u8"
+    [hint] = result["id_hints"]
+    assert hint["timestamp"] == "12:30" and hint["hints"][0]["label"] == "Bicep - Glue"
+    assert hint["hints"][0]["mentions"] == 2
+    rows = library_http.get("/library", params={"query": "halo"}).json()["result"]["tracks"]
+    assert [(row["artist"], row["title"]) for row in rows] == [("Lumen", "Halo")]
+
+
+def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkeypatch):
+    FakeRekordbox(monkeypatch)
+    reply = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "set",
+            "https://www.1001tracklists.com/tracklist/abc/some-set.html",
+        ],
+    )
+    assert reply.exit_code == 2
+    error = json.loads(reply.stdout)["error"]
+    assert error["code"] == "SOURCE_BROWSER_ONLY" and "text file" in error["message"]
