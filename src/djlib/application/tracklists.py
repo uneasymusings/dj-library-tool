@@ -24,6 +24,8 @@ VERSION_WORDS = re.compile(
     r"\b(?:mix|edit|remix|dub|version|vip|rework|bootleg|instrumental|remaster(?:ed)?|live)\b",
     re.IGNORECASE,
 )
+# "[ft. Ana]" is a featured artist, which request matching reads, not a record label.
+FEATURING_LABEL = re.compile(r"^\s*(?:feat\b|ft\b|featuring\b)", re.IGNORECASE)
 UNKNOWN = re.compile(r"^(?:id|\?+|unknown|unreleased id|tba)$", re.IGNORECASE)
 # "03 Artist - Title": a bare number counts as numbering only when the list's numbers run
 # in sequence, so artists such as "2 Unlimited" or "808 State" survive elsewhere.
@@ -101,7 +103,11 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
         title = parts[1].strip()
         label = TRAILING_LABEL.search(title)
         # "[LABEL]" is a record label in most tracklists; "[Extended Mix]" is a version.
-        if label and not VERSION_WORDS.search(label.group(1)):
+        if (
+            label
+            and not VERSION_WORDS.search(label.group(1))
+            and not FEATURING_LABEL.match(label.group(1))
+        ):
             title = title[: label.start()].strip() or title
         if UNKNOWN.match(artist) or UNKNOWN.match(title):
             if not (timestamp or source_url):
