@@ -534,7 +534,7 @@ async def test_all_mcp_tools_through_http(application, audio_factory, monkeypatc
         shutil.copyfile(source, path)
         return path, {"kind": "provider_fixture", "source_url": url, "source_quality": "unverified"}
 
-    async def fake_inspect(url):
+    async def fake_inspect(url, comments=0):
         return {
             "url": url,
             "title": "Published set",

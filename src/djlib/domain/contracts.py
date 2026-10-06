@@ -106,6 +106,14 @@ class DownloadRequest(Contract):
 
 class SourceRequest(Contract):
     url: str = Field(min_length=1, max_length=4096)
+    comments: int = Field(default=0, ge=0, le=2000)
+
+
+class SourceSearch(Contract):
+    artist: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=1000)
+    version: str = Field(default="", max_length=300)
+    limit: int = Field(default=8, ge=1, le=20)
 
 
 class DeviceRequest(Contract):
@@ -286,16 +294,26 @@ def split_featured(title: str) -> tuple[str, tuple[str, ...]]:
     return (rest, featured) if rest else (title, ())
 
 
+# "Maz (BR)", "Samm (BE)": a country tag that tells same-named artists apart in tracklists and
+# stores, but is rarely written in tags or upload titles.
+ARTIST_TAG = re.compile(r"\s*\((?:[A-Z]{2,3})\)(?=\s|$|[,;/&)\]])")
+
+
+def without_artist_tags(value: str) -> str:
+    """The text without disambiguation tags such as “(BR)” after artist names."""
+    return " ".join(ARTIST_TAG.sub("", value).split())
+
+
 def artist_names(artist: str, *featured: str) -> tuple[str, ...]:
     """Credited names as a sorted set: "Max Dean, Luke Dean & Jamie Jones" has three names.
 
     Featured credits written in a title are passed as ``featured``. This is label matching
     only; identity keys keep the artist string as written.
     """
-    rest, inline = split_featured(artist)
+    rest, inline = split_featured(without_artist_tags(artist))
     names = {
         normalize(name)
-        for part in (rest, *inline, *featured)
+        for part in (rest, *inline, *map(without_artist_tags, featured))
         for name in CREDIT_SEPARATOR.split(part)
     }
     names.discard("")
