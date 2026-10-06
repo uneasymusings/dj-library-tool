@@ -100,8 +100,9 @@ def observe(term: Terminal, client, delivery_id: str, stage: str | None) -> Deli
             playlist_counts[playlist["collection_id"]] = (
                 track_count
                 if len(playlists) == 1
+                # A Text prompt: playlist names are user data, never Rich markup.
                 else IntPrompt.ask(
-                    f"  Tracks in “{playlist.get('name')}”", console=term.out, default=0
+                    Text(f"  Tracks in “{playlist.get('name')}”"), console=term.out, default=0
                 )
             )
         checked = []
