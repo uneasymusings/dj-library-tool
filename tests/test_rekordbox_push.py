@@ -21,6 +21,7 @@ from djlib.interfaces import service
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.rekordbox_cli import playlist_file_name
 from djlib.native import rekordbox_mac
+from tests import pdb_fixture
 from tests.test_headline_workflow import build
 
 
@@ -266,10 +267,8 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
         on_wrong("Some other playlist")
         exported.append((device, target))
         # rekordbox copies the files and rewrites its device library.
-        (volume / "Contents" / "Velvet Static").mkdir(parents=True)
-        for source in sources:
-            (volume / "Contents" / "Velvet Static" / source.name).write_bytes(source.read_bytes())
-        (volume / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"new library")
+        files = [(f"Velvet Static/{source.name}", source.read_bytes()) for source in sources]
+        pdb_fixture.stick(volume, target, files)
 
     monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
     monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
@@ -292,4 +291,6 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     assert exported == [("RICARDO_AM", "Owned")]
     assert fake.imported[0].name == "Owned.m3u8"  # pushed first because it was missing
     assert result["found"] == result["expected"] == 2 and result["missing"] == []
+    assert result["in_order"] is True and result["playlist_on_device"] is True
+    assert result["verified_by"] == "device_library_and_file_hashes"
     assert result["library_updated"] is True and result["player_playback_verified"] is False

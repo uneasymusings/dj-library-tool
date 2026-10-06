@@ -132,3 +132,57 @@ def wait_for_copy(
         if updated and clock() - changed_at >= stall:
             return False
     return False
+
+
+def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
+    """Check the playlist as a player sees it: the device library must list ``name`` with
+    the expected tracks in order, each pointing at a file whose bytes match.
+
+    Falls back to a content-only check of ``Contents/`` when the device library cannot be
+    read; ``verified_by`` says which check ran.
+    """
+    from djlib.exporting import rekordbox_pdb
+
+    try:
+        listed = rekordbox_pdb.playlist(volume, name)
+    except AppError:
+        listed = None
+    if listed is None:
+        result = check_tracks(volume, tracks)
+        return {
+            **result,
+            "playlist_on_device": False,
+            "in_order": None,
+            "verified_by": "usb_file_hashes",
+        }
+    entries = listed["tracks"]
+    found, missing = 0, []
+    for position, track in enumerate(tracks):
+        entry = entries[position] if position < len(entries) else {}
+        path = volume / (entry.get("file_path") or "").lstrip("/")
+        matches = False
+        if entry.get("file_path") and path.is_file():
+            try:
+                matches = (
+                    path.stat().st_size == int(track.get("size_bytes") or -1)
+                    and _sha256(path) == track["sha256"]
+                )
+            except OSError:
+                matches = False
+        if matches:
+            found += 1
+        else:
+            missing.append(track.get("label") or track["sha256"][:12])
+    return {
+        "volume": str(volume),
+        "expected": len(tracks),
+        "found": found,
+        "missing": missing[:20],
+        "playlist_on_device": True,
+        "device_entries": len(entries),
+        "in_order": found == len(tracks) == len(entries),
+        "same_name_playlists": listed["same_name_playlists"],
+        "matched_by": "device_library_path_and_sha256",
+        "verified_by": "device_library_and_file_hashes",
+        "device_written": False,
+    }
