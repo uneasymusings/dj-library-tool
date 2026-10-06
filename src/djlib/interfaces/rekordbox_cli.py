@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.markup import escape
 
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
@@ -68,6 +69,21 @@ def remember(workspace, collection_id: str, **fields) -> None:
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def event(name: str, **fields) -> None:
+    """One JSON line on stderr for a waiting step, so a backgrounded caller can prompt the user."""
+    import sys
+
+    sys.stderr.write(json.dumps({"event": name, **fields}, ensure_ascii=False) + "\n")
+    sys.stderr.flush()
+
+
+def usb_failed(usb: dict | None) -> bool:
+    """A USB check that a DJ must not rely on: files missing or out of order."""
+    if not usb:
+        return False
+    return usb.get("found") != usb.get("expected") or usb.get("in_order") is False
 
 
 def find_usb() -> Path:
@@ -136,7 +152,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         term = terminal.current()
         if term.json:
             return nullcontext()
-        return term.err.status(f"[bold]{message}", spinner_style="accent")
+        return term.err.status(f"[bold]{escape(message)}", spinner_style="accent")
 
     def finished(local, job: dict) -> dict:
         while job["state"] in {"queued", "running"}:
@@ -224,6 +240,23 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if crate["playlist"] in existing
             and history.get(crate["collection_id"], {}).get("playlist") != crate["playlist"]
         ]
+        # A newer version of a crate djlib pushed before (the set gained or lost songs) goes in
+        # as "Name (2)" rather than over the old playlist, which stays for the user to delete.
+        ours = {entry.get("playlist") for entry in history.values() if entry.get("playlist")}
+        for crate in list(unconfirmed):
+            if crate["playlist"] in ours:
+                taken = set(existing) | ours
+                number = 2
+                while f"{crate['playlist']} ({number})" in taken:
+                    number += 1
+                renamed = Path(crate["playlist_file"]).with_name(
+                    f"{playlist_file_name(crate['playlist'])} ({number}).m3u8"
+                )
+                shutil.copyfile(crate["playlist_file"], renamed)
+                crate.update(
+                    replaces=crate["playlist"], playlist=renamed.stem, playlist_file=str(renamed)
+                )
+                unconfirmed.remove(crate)
         if unconfirmed:
             from djlib.exporting.native_rekordbox import playlist_report
 
@@ -289,14 +322,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         term = terminal.current()
 
         def wrong(name):
-            if not term.json:
+            if term.json:
+                event("wrong_playlist", selected=name, playlist=crate["playlist"])
+            else:
                 term.err.print(
-                    f"[warn]That's “{name or 'not a playlist'}”.[/] Click “{crate['playlist']}”."
+                    f"[warn]That's “{escape(name or 'not a playlist')}”.[/] "
+                    f"Click “{escape(crate['playlist'])}”."
                 )
 
-        if not term.json:
+        if term.json:
+            # Assistants run this in the background; stdout stays one envelope at the end.
+            event("select_playlist", playlist=crate["playlist"], device=volume.name)
+        else:
+            name = escape(crate["playlist"])
             term.err.print(
-                f"[accent]→[/] In rekordbox, click the playlist [bold]{crate['playlist']}[/]. "
+                f"[accent]→[/] In rekordbox, click the playlist [bold]{name}[/]. "
                 "djlib exports it as soon as it is selected."
             )
         with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
@@ -307,7 +347,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
             def progress(count):
                 if live is not None:
-                    live.update(f"[bold]{message}[/] {count} of {len(tracks)} files")
+                    live.update(f"[bold]{escape(message)}[/] {count} of {len(tracks)} files")
 
             wait_for_copy(volume, tracks, before, on_progress=progress)
         with status("Checking the playlist on the USB…"):
@@ -452,6 +492,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 }
             )
         )
+        if usb_failed(result):
+            raise typer.Exit(4)
 
     @app.command("set", rich_help_panel=start_panel)
     @handled
@@ -479,6 +521,13 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         yes: bool = typer.Option(False, "--yes", "-y", help="With --fetch: don't ask first."),
         usb: bool = typer.Option(
             False, "--usb", help="Also put it on your USB stick through rekordbox (one click)."
+        ),
+        when_idle: int = typer.Option(
+            0,
+            "--when-idle",
+            min=0,
+            help="Import into rekordbox only once the keyboard and mouse have been idle this "
+            "many seconds.",
         ),
         use_rekordbox: bool = typer.Option(
             True,
@@ -513,6 +562,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         if usb and not use_rekordbox:
             raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
+        if yes and not fetch:
+            raise AppError("INPUT_INVALID", "--yes only applies with --fetch.")
+        if usb and when_idle:
+            raise AppError(
+                "INPUT_INVALID",
+                "--when-idle waits for you to step away, but --usb needs you to click the "
+                "playlist; use one or the other.",
+            )
         if usb:
             with status("Waiting for you to unlock your Mac…"):
                 ui.wait_for_unlock(timeout)
@@ -606,13 +663,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if skipped:
                 result["rekordbox"] = {"status": "skipped", "reason": skipped}
             else:
+                if when_idle:
+                    with status(f"Waiting until you've been away for {when_idle} s…"):
+                        ui.wait_until_idle(when_idle)
                 outcome = into_rekordbox(local, workspace, ui, [crate])
+                result["playlist"] = crate["playlist"]
                 result["rekordbox"] = {"status": crate["status"], **outcome}
+                if crate.get("replaces"):
+                    result["rekordbox"]["replaces"] = crate["replaces"]
             if volume is not None:
                 result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
+        if usb_failed(result["usb"]):
+            raise typer.Exit(4)
 
     def rekordbox_unavailable(ui) -> str | None:
         """Why rekordbox can't be driven right now, or None when it can."""
@@ -636,8 +701,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             length = upload.get("duration")
             minutes = f"{int(length // 60)}:{int(length % 60):02d}" if length else "?"
             term.err.print(
-                f"  {entry['label']}  [muted]← {upload['provider']}: “{upload['title']}” "
-                f"by {upload['uploader'] or '?'} ({minutes})[/]"
+                f"  {escape(entry['label'])}  [muted]← {upload['provider']}: "
+                f"“{escape(upload['title'])}” by {escape(upload['uploader'] or '?')} ({minutes})[/]"
             )
         return typer.confirm("Download these as MP3?", default=True, err=True)
 
