@@ -411,3 +411,39 @@ def test_a_same_named_playlist_is_checked_before_it_is_trusted(
     assert same.exit_code == 0, same.output
     assert json.loads(same.stdout)["result"]["crates"][0]["status"] == "already_in_rekordbox"
     assert fake.imported == []
+
+
+def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
+    clock = {"now": 0.0}
+    clicks = [9.9, 19.9]  # the user clicks other playlists, then the right one
+    selections = iter(["Other", "Other", "Owned"])
+    probes, exported = [], []
+
+    def selected():
+        probes.append(clock["now"])
+        return next(selections)
+
+    def idle():
+        latest = max([at for at in clicks if at <= clock["now"]], default=0.0)
+        return clock["now"] - latest
+
+    def sleep(seconds):
+        clock["now"] += seconds
+
+    monkeypatch.setattr(rekordbox_mac.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(rekordbox_mac.time, "sleep", sleep)
+    monkeypatch.setattr(rekordbox_mac, "idle_seconds", idle)
+    monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: False)
+    monkeypatch.setattr(rekordbox_mac, "frontmost", lambda: True)
+    monkeypatch.setattr(rekordbox_mac, "menu_enabled", lambda *path: True)
+    monkeypatch.setattr(rekordbox_mac, "selected_playlist", selected)
+    monkeypatch.setattr(rekordbox_mac, "click_menu_path", lambda *path: exported.append(path))
+    wrong = []
+
+    rekordbox_mac.wait_for_selection("RICARDO_AM", "Owned", 60, on_wrong=wrong.append)
+
+    # One look at the start, then one after each burst of input: never a dialog per second.
+    assert len(probes) == 3 and probes[0] == 0.0
+    assert 9.9 <= probes[1] < 10.5 and 19.9 <= probes[2] < 20.5
+    assert wrong == ["Other"]
+    assert exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
