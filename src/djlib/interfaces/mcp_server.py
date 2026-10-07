@@ -157,7 +157,11 @@ def build_server(workspace: Workspace) -> MCPServer:
 
     @server.tool(structured_output=True, annotations=online)
     async def djlib_download(request_body: DownloadRequest) -> ResponseEnvelope:
-        """Queue selected public recording URLs into a managed collection; quality is unverified."""
+        """Queue selected public recording URLs into a managed collection; quality is unverified.
+
+        Each track may list up to three `alternates` (other uploads of the same recording),
+        tried in order when its url turns out to be gone.
+        """
         return await request("POST", "/downloads", request_body.model_dump(mode="json"))
 
     @server.tool(
@@ -178,7 +182,7 @@ def build_server(workspace: Workspace) -> MCPServer:
         Previews, live recordings, sets and unrequested remixes are dropped or ranked down.
         The best few are checked for playability: removed, region-locked or DRM uploads move to
         `unavailable`, and only a checked upload is `confident`. Pass a chosen url to
-        djlib_download with the same artist/title/version.
+        djlib_download with the same artist/title/version (other uploads as `alternates`).
         """
         return await request(
             "POST", "/sources/search", {"artist": artist, "title": title, "version": version}

@@ -313,3 +313,90 @@ async def test_download_tags_only_managed_copy_and_records_final_hash(
     track = application.collection(result["result"]["collection_id"])["tracks"][0]
     assert track["sha256"] == checksum(managed) != acquired["sha256"]
     assert track["properties"]["provenance"]["acquired_sha256"] == acquired["sha256"]
+
+
+OFFICIAL = "https://soundcloud.com/phoenix/lasso"
+LABEL = "https://soundcloud.com/glassnotemusic/lasso"
+
+
+def lasso_download(application, key, alternates=(), url=OFFICIAL):
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    track = SourceTrack(url=url, artist="Phoenix", title="Lasso", alternates=list(alternates))
+    return application.download(
+        DownloadRequest(name="Tonight — downloads", idempotency_key=key, tracks=[track])
+    )
+
+
+def fake_provider(monkeypatch, source, failures):
+    calls = []
+
+    async def fake_download(url, destination):
+        calls.append((url, destination.name))
+        if url in failures:
+            raise failures[url]
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / "audio.wav"
+        shutil.copyfile(source, path)
+        return path, {"kind": "test_download", "source_url": url}
+
+    monkeypatch.setattr("djlib.jobs.worker.download", fake_download)
+    return calls
+
+
+async def test_download_falls_back_to_another_upload_when_one_is_gone(
+    application, audio_factory, monkeypatch
+):
+    gone = AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
+    calls = fake_provider(monkeypatch, audio_factory("lasso.wav", frequency=480), {OFFICIAL: gone})
+    job = lasso_download(application, "fallback", [OFFICIAL, LABEL, "https://youtu.be/lasso"])
+    result = await execute(application, job["job_id"])
+
+    assert result["outcome"] == "complete"
+    [item] = application.items(job["job_id"])["items"]
+    # Each upload downloads into its own folder; later alternates are never touched.
+    assert calls == [(OFFICIAL, item["item_id"]), (LABEL, f"{item['item_id']}-1")]
+    assert item["result"]["source_url"] == LABEL
+    assert item["result"]["tried_urls"] == [OFFICIAL, LABEL]
+    track = application.collection(result["result"]["collection_id"])["tracks"][0]
+    assert track["properties"]["provenance"]["source_url"] == LABEL
+    assert track["properties"]["provenance"]["tried_urls"] == [OFFICIAL, LABEL]
+
+
+@pytest.mark.parametrize(
+    ("error", "tried"),
+    [
+        # A refused stream may work on a retry of the same upload: no fallback.
+        (AppError("SOURCE_FAILED", "Refused.", 502, True), [OFFICIAL]),
+        (AppError("SOURCE_UNAVAILABLE", "Gone.", 502), [OFFICIAL, LABEL]),
+    ],
+)
+async def test_download_failures_record_every_upload_tried(
+    application, audio_factory, monkeypatch, error, tried
+):
+    calls = fake_provider(monkeypatch, audio_factory(), {OFFICIAL: error, LABEL: error})
+    job = lasso_download(application, "failing", [LABEL])
+    result = await execute(application, job["job_id"])
+
+    assert result["counts"] == {"failed": 1}
+    [item] = application.items(job["job_id"])["items"]
+    assert [url for url, _ in calls] == tried
+    assert item["result"]["tried_urls"] == tried
+    assert item["result"]["error"]["code"] == error.code
+    assert item["result"]["error"]["retryable"] is error.retryable
+
+
+def test_download_alternates_are_validated_and_optional(application):
+    from pydantic import ValidationError
+
+    from djlib.domain.contracts import SourceTrack
+
+    with pytest.raises(ValidationError):
+        SourceTrack(url=OFFICIAL, artist="A", title="T", alternates=[LABEL] * 4)
+    with pytest.raises(AppError) as error:
+        lasso_download(application, "elsewhere", ["https://evil.test/lasso"])
+    assert error.value.code == "SOURCE_UNSUPPORTED"
+    # Without alternates the stored request is what earlier releases stored.
+    plain = lasso_download(application, "plain")
+    assert "alternates" not in application.items(plain["job_id"])["items"][0]["input"]
+    assert lasso_download(application, "plain")["job_id"] == plain["job_id"]

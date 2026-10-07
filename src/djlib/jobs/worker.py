@@ -42,6 +42,9 @@ from djlib.workspace import atomic_json
 
 logger = logging.getLogger(__name__)
 
+# Failures that belong to one upload, not to the recording: another upload of it may work.
+GONE = frozenset({"SOURCE_UNAVAILABLE", "SOURCE_AUTH_REQUIRED", "DOWNLOAD_UNAVAILABLE"})
+
 
 class Worker:
     """One scheduling authority; slow audio/filesystem work runs outside transactions."""
@@ -361,6 +364,7 @@ class Worker:
                     detail={"source": item_request.get("track", {}).get("path")},
                 )
             )
+        tried: list[str] = []
         try:
             if "track" not in item_request:
                 source_input = item_request["source"]
@@ -368,28 +372,28 @@ class Worker:
                     raise AppError(
                         "DISK_RESERVE_REACHED", "Web acquisition requires 1.1 GiB of free space."
                     )
-                task = asyncio.create_task(
-                    download(source_input["url"], self.app.workspace.incoming / item_id)
+                urls = list(
+                    dict.fromkeys([source_input["url"], *source_input.get("alternates", [])])
                 )
-                try:
-                    while not task.done():
-                        if not self.active(job_id, generation):
-                            task.cancel()
-                            await asyncio.gather(task, return_exceptions=True)
-                            return
-                        await asyncio.sleep(0.2)
-                    path, provenance = await task
-                finally:
-                    if not task.done():
-                        task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
-                if not self.active(job_id, generation):
+                for number, url in enumerate(urls):
+                    tried.append(url)
+                    # Each upload gets its own folder so a resumed receipt names its own audio.
+                    folder = item_id if number == 0 else f"{item_id}-{number}"
+                    try:
+                        fetched = await self.fetch(url, folder, job_id, generation)
+                    except AppError as exc:
+                        if exc.code in GONE and url != urls[-1]:
+                            continue  # this upload is gone; try the next of the same recording
+                        raise
+                    break
+                if fetched is None or not self.active(job_id, generation):
                     return
+                path, provenance = fetched
                 item_request["track"] = {
                     "path": str(path),
                     **{k: source_input[k] for k in ("artist", "title", "version")},
                 }
-                item_request["provenance"] = provenance
+                item_request["provenance"] = {**provenance, "tried_urls": tried}
                 with self.app.db.transaction() as session:
                     require(session, JobItem, item_id).request = item_request
             track = TrackInput.model_validate(item_request["track"])
@@ -509,7 +513,11 @@ class Worker:
             if self.active(job_id, generation):
                 with self.app.db.transaction() as session:
                     item = require(session, JobItem, item_id)
-                    item.state, item.result = "failed", {"error": exc.as_dict()}
+                    item.state = "failed"
+                    item.result = {
+                        "error": exc.as_dict(),
+                        **({"tried_urls": tried} if tried else {}),
+                    }
                     require(session, Operation, operation_id).phase = "failed"
                     add_event(
                         session,
@@ -517,6 +525,22 @@ class Worker:
                         "item_failed",
                         {"item_id": item_id, "code": exc.code},
                     )
+
+    async def fetch(
+        self, url: str, folder: str, job_id: str, generation: int
+    ) -> tuple[Path, dict] | None:
+        """Download one upload, or None when the job was paused or cancelled meanwhile."""
+        task = asyncio.create_task(download(url, self.app.workspace.incoming / folder))
+        try:
+            while not task.done():
+                if not self.active(job_id, generation):
+                    return None
+                await asyncio.sleep(0.2)
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
 
     @staticmethod
     def identity_conflict(
@@ -705,13 +729,18 @@ class Worker:
                         )
                     )
                     require(session, Collection, collection_id).revision += 1
-            item.state = "succeeded"
-            item.result = {
+            result = {
                 "asset_revision_id": revision.id,
                 "recording_id": recording.id,
                 "reused": reused,
                 "path": str(location),
             }
+            if source := item.request.get("source"):
+                # Which upload arrived, and every one tried before it.
+                provenance = item.request.get("provenance") or {}
+                result["source_url"] = provenance.get("source_url") or source["url"]
+                result["tried_urls"] = provenance.get("tried_urls") or [source["url"]]
+            item.state, item.result = "succeeded", result
             require(session, Operation, operation_id).phase = "committed"
             add_event(session, job, "item_ready", {"item_id": item.id, "reused": reused})
 
