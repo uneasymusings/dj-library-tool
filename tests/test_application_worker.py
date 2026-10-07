@@ -460,3 +460,55 @@ async def test_download_tagged_without_original_mix_needs_no_review(
     result = await execute(application, job["job_id"])
     assert (result["state"], result["outcome"]) == ("completed", "complete")
     assert not application.reviews(job["job_id"])["reviews"]
+
+
+def collections(application):
+    return application.saved("collections")["collections"]
+
+
+async def test_failed_downloads_leave_no_empty_collection(application, audio_factory, monkeypatch):
+    gone = AppError("SOURCE_UNAVAILABLE", "Gone.", 502)
+    fake_provider(monkeypatch, audio_factory(), {OFFICIAL: gone})
+    job = lasso_download(application, "gone")
+    assert job["result"] == {"collection_id": None}
+    result = await execute(application, job["job_id"])
+    assert result["counts"] == {"failed": 1}
+    assert result["result"]["collection_id"] is None and collections(application) == []
+
+
+async def test_repeated_downloads_for_one_set_share_its_collection(
+    application, audio_factory, monkeypatch
+):
+    gone = AppError("SOURCE_UNAVAILABLE", "Gone.", 502)
+    other = "https://youtu.be/other"
+    fake_provider(monkeypatch, audio_factory("first.wav", frequency=510), {OFFICIAL: gone})
+    failed = await execute(application, lasso_download(application, "first")["job_id"])
+    first = await execute(application, lasso_download(application, "second", url=LABEL)["job_id"])
+    collection_id = first["result"]["collection_id"]
+    assert failed["result"]["collection_id"] is None and collection_id
+
+    fake_provider(monkeypatch, audio_factory("second.wav", frequency=530), {})
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    later = application.download(
+        DownloadRequest(
+            name="Tonight — downloads",
+            idempotency_key="third",
+            tracks=[SourceTrack(url=other, artist="Phoenix", title="Entertainment")],
+        )
+    )
+    later = await execute(application, later["job_id"])
+    assert later["result"]["collection_id"] == collection_id
+    tracks = application.collection(collection_id)["tracks"]
+    assert [track["title"] for track in tracks] == ["Lasso", "Entertainment"]
+    assert [row["name"] for row in collections(application)] == ["Tonight — downloads"]
+
+    elsewhere = application.download(
+        DownloadRequest(
+            name="Friday — downloads",
+            idempotency_key="friday",
+            tracks=[SourceTrack(url=other, artist="Phoenix", title="Entertainment")],
+        )
+    )
+    elsewhere = await execute(application, elsewhere["job_id"])
+    assert elsewhere["result"]["collection_id"] not in {None, collection_id}
