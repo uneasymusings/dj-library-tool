@@ -47,6 +47,6 @@ MCP on Windows never starts the background service inside the host. The generate
 
 ## Updates
 
-Stop the service (`djlib service stop`), install the newer wheel URL with `uv tool install --force …`, then restart the host. Keep the existing workspace; don't run `init` on a new folder. Schema upgrades back up the catalog first (`backups/` in the workspace). `COORDINATOR_VERSION_MISMATCH` means an old service is still running: `djlib service stop`, then retry. Generated sessions point at an interpreter path; create a new one after reinstalling.
+Stop the service (`djlib service stop`), install the newer wheel URL with `uv tool install --force …`, then restart the host. Keep the existing workspace; don't run `init` on a new folder. Schema upgrades back up the catalog first (`backups/` in the workspace). `COORDINATOR_VERSION_MISMATCH` means an old service is still busy: when it's done, `djlib service stop`, then retry. `CLIENT_OUTDATED` means this session still runs the old djlib: reconnect djlib (`/mcp` in Claude Code) or restart the host. `djlib doctor` shows when the plugin is older than the engine. Generated sessions point at an interpreter path; create a new one after reinstalling.
 
 `uv tool uninstall dj-library-tool` removes the engine but not the workspace or music.
