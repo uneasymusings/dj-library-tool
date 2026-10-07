@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Updates under a running assistant.** An MCP server started before an update no longer calls the newer background service “older” or stops it. It answers `CLIENT_OUTDATED` with how to restart the session (in Claude Code: `/mcp` → djlib → Reconnect), also when it notices a newer djlib was installed under it. An idle older service is still replaced automatically.
+- `djlib upgrade` says how many assistant sessions still run the old djlib, and when the Claude Code plugin needs updating.
+- `djlib doctor` flags a Claude Code plugin from another release, with the command that updates it.
+
 ## 0.1.0a13
 
 From an end-to-end test run of the Claude Code plugin:
