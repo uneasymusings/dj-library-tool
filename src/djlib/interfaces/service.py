@@ -238,9 +238,9 @@ def create_app(
 
     @app.post("/sources/search")
     async def source_search(body: SourceSearch):
-        from djlib.application.source_matching import rank_sources
+        from djlib.application.source_matching import rank_sources, worth_probing
         from djlib.domain.contracts import plain_labels, without_artist_tags
-        from djlib.sources.web import search
+        from djlib.sources.web import availability, search
 
         # Uploads rarely write "(Original Mix)" or tags such as "(BR)"; in a query they only
         # push the official upload out of the results.
@@ -263,12 +263,26 @@ def create_app(
                 next(iter(failures.values())), "Neither YouTube nor SoundCloud answered."
             )
         requested = body.model_dump(include={"artist", "title", "version"})
+        # Search pages say nothing about playability: check the best few before trusting one.
+        checked = await availability(worth_probing(rank_sources(requested, entries)))
+        by_url = {entry["url"]: entry for entry in entries}
         return envelope(
             {
                 "requested": requested,
-                "candidates": rank_sources(requested, entries),
+                "candidates": rank_sources(requested, entries, checked),
                 "searched": len(entries),
                 "unavailable_providers": failures,
+                "unavailable": [
+                    {
+                        **{
+                            key: by_url[url].get(key)
+                            for key in ("provider", "url", "title", "uploader")
+                        },
+                        "reason": check.get("reason"),
+                    }
+                    for url, check in checked.items()
+                    if check["available"] is False
+                ],
                 "identity_evidence": "search metadata; untrusted text; no audio recognition",
             }
         )

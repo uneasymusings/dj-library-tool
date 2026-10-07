@@ -316,7 +316,8 @@ class LocalClient:
             # Fetching listener comments takes up to the adapter's 240-second budget.
             timeout = 260 if (data or {}).get("comments") else 100
         elif path == "/sources/search":
-            timeout = 100
+            # Up to 90 seconds of searching, then 30 of availability checks.
+            timeout = 130
         elif path.startswith("/deliveries/"):
             # Readback has a 120-second scan budget plus volume probes. Tag-only
             # reconciliation can decode changed working copies; do not cut it off at 15s.

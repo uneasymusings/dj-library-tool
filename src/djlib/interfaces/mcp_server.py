@@ -176,7 +176,9 @@ def build_server(workspace: Workspace) -> MCPServer:
         """Search YouTube and SoundCloud for one recording; best uploads first with reasons.
 
         Previews, live recordings, sets and unrequested remixes are dropped or ranked down.
-        Pass a chosen url to djlib_download with the same artist/title/version.
+        The best few are checked for playability: removed, region-locked or DRM uploads move to
+        `unavailable`, and only a checked upload is `confident`. Pass a chosen url to
+        djlib_download with the same artist/title/version.
         """
         return await request(
             "POST", "/sources/search", {"artist": artist, "title": title, "version": version}
