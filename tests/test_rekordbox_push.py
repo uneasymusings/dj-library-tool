@@ -72,6 +72,8 @@ class FakeRekordbox:
         self.imported: list[Path] = []
         self.present: set[str] = set()
         monkeypatch.setattr(rekordbox_mac, "ensure_supported", lambda: None)
+        # Tests must not depend on whether this machine's screen happens to be locked.
+        monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: False)
         monkeypatch.setattr(
             rekordbox_mac,
             "installed",
@@ -685,3 +687,61 @@ def test_a_set_that_gained_songs_becomes_a_new_playlist_version(
     assert grown["owned"] == 2 and grown["collection_id"] != first["collection_id"]
     assert grown["playlist"] == "Friday (2)" and grown["rekordbox"]["status"] == "imported"
     assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
+
+
+def test_a_locked_mac_is_reported_with_what_is_left_to_do(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    build(library_http, [audio_factory("lock.wav", frequency=470)], [("Lumen", "Lock")])
+    tracklist = tmp_path / "locked.txt"
+    tracklist.write_text("Lumen - Lock\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+
+    def locked():
+        raise AppError("APP_SCREEN_LOCKED", "Unlock your Mac first.", retryable=True)
+
+    monkeypatch.setattr(rekordbox_mac, "ensure_supported", locked)
+    reply = CliRunner().invoke(
+        cli_app, ["--workspace", str(application.workspace.root), "set", str(tracklist)]
+    )
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["rekordbox"]["status"] == "skipped"
+    assert result["rekordbox"]["reason_code"] == "APP_SCREEN_LOCKED"
+    handle = result["collection_id"].removeprefix("collection_")[:8]
+    assert result["complete"] is False and result["next"] == [f"djlib rekordbox push {handle}"]
+    assert fake.imported == []
+
+
+def test_usb_on_a_locked_mac_tells_assistants_at_once_and_gives_up_soon(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    collection_id = build(
+        library_http, [audio_factory("lockusb.wav", frequency=480)], [("Lumen", "Usb")]
+    )["result"]["collection_id"]
+    FakeRekordbox(monkeypatch)
+    waited = []
+    monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: True)
+    monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda seconds: waited.append(seconds))
+
+    def still_locked():
+        raise AppError("APP_SCREEN_LOCKED", "Unlock your Mac first.", retryable=True)
+
+    monkeypatch.setattr(rekordbox_mac, "ensure_supported", still_locked)
+    reply = CliRunner().invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "rekordbox",
+            "usb",
+            collection_id,
+            "--timeout",
+            "600",
+        ],
+    )
+    assert reply.exit_code == 2
+    assert json.loads(reply.stdout)["error"]["code"] == "APP_SCREEN_LOCKED"
+    assert waited == [30]  # not the full 10 minutes
+    events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
+    assert [e["event"] for e in events] == ["unlock_mac"]

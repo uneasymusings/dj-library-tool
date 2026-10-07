@@ -1216,6 +1216,12 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "System Settings > Privacy & Security > Accessibility > your terminal",
             ),
             (
+                "Screen",
+                not result.get("screen_locked"),
+                "locked" if result.get("screen_locked") else "unlocked",
+                "unlock it so djlib can drive rekordbox" if result.get("screen_locked") else "",
+            ),
+            (
                 "rekordbox analysis",
                 bool(result.get("rekordbox_analysis_folder")),
                 "found" if result.get("rekordbox_analysis_folder") else "not found",
@@ -1711,7 +1717,15 @@ def set_view(term: Terminal, result: dict) -> None:
     if result.get("collection_id"):
         rows.append(("Crate", marked(term, "ok", f"{plural(owned, 'track')}, in set order")))
         if rekordbox.get("status") == "skipped":
-            rows.append(("rekordbox", Text(f"skipped: {rekordbox.get('reason')}", "muted")))
+            # A skip the user can fix (locked screen, permission) is a warning, not a footnote.
+            fixable = rekordbox.get("reason_code") in {
+                "APP_SCREEN_LOCKED",
+                "APP_AUTOMATION_NOT_ALLOWED",
+            }
+            reason = f"skipped: {rekordbox.get('reason')}"
+            rows.append(
+                ("rekordbox", marked(term, "warn", reason) if fixable else Text(reason, "muted"))
+            )
         else:
             there = "imported" if rekordbox.get("status") == "imported" else "already there"
             playlist = f"playlist “{result.get('playlist')}” {there}"
@@ -1788,6 +1802,11 @@ def set_view(term: Terminal, result: dict) -> None:
     crate = result.get("collection_id")
     if usb_bad and crate:
         steps.append(("Export it to the stick again", ("rekordbox", "usb", crate)))
+    elif crate and rekordbox.get("reason_code") in {
+        "APP_SCREEN_LOCKED",
+        "APP_AUTOMATION_NOT_ALLOWED",
+    }:
+        steps.append(("Put it in rekordbox once that's sorted", ("rekordbox", "push", crate)))
     elif crate and rekordbox.get("status") == "skipped":
         steps.append(("See the crate", ("crate", crate)))
     elif crate and not usb:
