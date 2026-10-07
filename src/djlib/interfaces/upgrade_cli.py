@@ -1,20 +1,51 @@
 """`djlib upgrade`: install the newest GitHub release with uv, then restart the service."""
 
+import os
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import typer
 
 from djlib import __version__
 from djlib.domain.errors import AppError
-from djlib.interfaces.client import version_key
+from djlib.interfaces.client import VERSION, version_key
 from djlib.interfaces.envelope import envelope
 
 REPOSITORY = "uneasymusings/dj-library-tool"
 RELEASES = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=10"
 WHEEL = re.compile(r"^dj_library_tool-(?P<version>[^-]+)-py3-none-any\.whl$")
+# Updating the engine doesn't update the plugin (docs/AGENTS.md).
+PLUGIN_UPDATE = (
+    "claude plugin marketplace update dj-library-tool && claude plugin update djlib@dj-library-tool"
+)
+MCP_SERVE = re.compile(r"\bdjlib\b.*\smcp\s+serve\b")
+
+
+def claude_plugin_version() -> str | None:
+    """The newest djlib plugin Claude Code has installed, or None. Reads folder names only."""
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    folder = root / "plugins" / "cache" / "dj-library-tool" / "djlib"
+    try:
+        found = [path.name for path in folder.iterdir() if VERSION.match(path.name)]
+    except OSError:
+        return None
+    return max(found, key=version_key, default=None)
+
+
+def assistant_sessions() -> int:
+    """How many `djlib mcp serve` processes are running; 0 where `ps` can't tell (Windows)."""
+    if os.name == "nt":
+        return 0
+    try:
+        listing = subprocess.run(
+            ["ps", "-axo", "pid=,args="], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return sum(1 for line in listing.stdout.splitlines() if MCP_SERVE.search(line))
 
 
 def latest_release() -> dict:
@@ -89,4 +120,22 @@ def register_upgrade(app, client, emit, handled, panel=None):
                 "uv couldn't install the new release: "
                 + (completed.stderr.strip().splitlines() or ["unknown error"])[-1][:300],
             )
-        emit(envelope({**result, "update_available": True, "updated": True}))
+        # Assistant sessions keep the old djlib in memory until their host restarts them.
+        sessions = assistant_sessions()
+        reply = envelope(
+            {**result, "update_available": True, "updated": True, "assistant_sessions": sessions}
+        )
+        if sessions:
+            count = f"{sessions} assistant session" + (" is" if sessions == 1 else "s are")
+            reply["warnings"].append(
+                f"{count} still running djlib {__version__}. Restart each one (in Claude Code: "
+                f"/mcp → djlib → Reconnect; in Codex: restart Codex) so it uses "
+                f"{latest['version']}."
+            )
+        plugin = claude_plugin_version()
+        if plugin and version_key(plugin) < version_key(latest["version"]):
+            reply["warnings"].append(
+                f"The Claude Code plugin is still {plugin}. Update it with `{PLUGIN_UPDATE}`, "
+                "then restart Claude Code."
+            )
+        emit(reply)

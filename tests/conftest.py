@@ -22,8 +22,9 @@ from djlib.workspace import Workspace
 
 @pytest.fixture(autouse=True)
 def isolated_user_config(tmp_path_factory, monkeypatch):
-    """Never read or write the developer's real ~/.config/djlib during tests."""
+    """Never read or write the developer's real ~/.config/djlib or ~/.claude during tests."""
     monkeypatch.setenv("DJLIB_CONFIG_DIR", str(tmp_path_factory.mktemp("djlib-config")))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-config")))
     monkeypatch.delenv("DJLIB_WORKSPACE", raising=False)
     monkeypatch.delenv("DJLIB_MCP_TOOLS", raising=False)
 
