@@ -249,8 +249,7 @@ def configure(
         None,
         "--workspace",
         "-w",
-        help="Workspace folder. Defaults to DJLIB_WORKSPACE, else the one chosen with "
-        "'djlib use' (the first init), else ~/.local/share/djlib/default.",
+        help="Workspace folder. Default: DJLIB_WORKSPACE, else the one set by djlib use or init.",
     ),
     json_output: bool = typer.Option(
         False,

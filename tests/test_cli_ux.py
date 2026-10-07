@@ -49,14 +49,42 @@ def run(*arguments, workspace=None, pretty=False, columns=120):
     return CliRunner(env=env).invoke(cli_app, [*prefix, *map(str, arguments)])
 
 
+# Rich draws panels with Unicode boxes, or ASCII ones on some Windows consoles.
+PANEL_TOP = re.compile(r"^[╭+┌][─\-]+ (.+?) [─\-]")
+PANEL_BOTTOM = ("╰", "└", "+")
+PANEL_ROW = re.compile(r"^[│|] ([a-z][a-z-]+) ")
+
+
+def visible_panels(*path: str) -> dict[str, list[str]]:
+    """Help panels and their commands, in help order, read from the CLI itself.
+
+    Independent of how a platform's console draws the boxes.
+    """
+    import click
+    import typer.main
+
+    group = typer.main.get_command(cli_app)
+    context = click.Context(group)
+    for name in path:
+        group = group.get_command(context, name)
+        context = click.Context(group, parent=context)
+    found: dict[str, list[str]] = {}
+    for name in group.list_commands(context):
+        command = group.get_command(context, name)
+        if not command.hidden:
+            panel = getattr(command, "rich_help_panel", None) or "Commands"
+            found.setdefault(panel, []).append(name)
+    return found
+
+
 def panels(output: str) -> dict[str, list[str]]:
     found, current = {}, None
     for line in output.splitlines():
-        if match := re.match(r"╭─ (.+?) ─", line):
+        if match := PANEL_TOP.match(line):
             current = found.setdefault(match.group(1), [])
-        elif line.startswith("╰"):
+        elif line.startswith(PANEL_BOTTOM):
             current = None
-        elif current is not None and (match := re.match(r"│ ([a-z][a-z-]+) ", line)):
+        elif current is not None and (match := PANEL_ROW.match(line)):
             current.append(match.group(1))
     return found
 
@@ -67,9 +95,8 @@ def panels(output: str) -> dict[str, list[str]]:
 def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     reply = run("--help", columns=80)
     assert reply.exit_code == 0
-    found = panels(reply.output)
-    assert {name: found[name] for name in PANELS} == PANELS
-    assert list(found) == ["Options", *PANELS]
+    found = visible_panels()
+    assert found == PANELS and list(found) == list(PANELS)
     listed = {name for names in found.values() for name in names}
     assert listed.isdisjoint(HIDDEN)
     assert "--install-completion" not in reply.output
@@ -106,7 +133,7 @@ def test_version_flag_and_hidden_completion_command():
 
 
 def test_requests_subcommands_follow_the_workflow_and_keys_are_hidden():
-    found = panels(run("requests", "--help", columns=80).output)
+    found = visible_panels("requests")
     assert found["Commands"] == ["create", "get", "collect", "refresh", "report", "resolve", "list"]
     for command in (["scan"], ["export"], ["start"], ["delivery", "prepare"]):
         text = run(*command, "--help").output
@@ -122,9 +149,12 @@ def test_visible_help_has_no_orphan_words_at_80_columns():
     pages += [["requests", name] for name in ("create", "get", "collect", "refresh", "report")]
     pages += [["requests", "resolve"], ["jobs", "wait"], ["roots", "add"], ["service", "stop"]]
     for page in pages:
-        lines = [line.strip(" │") for line in run(*page, "--help", columns=80).output.splitlines()]
+        output = run(*page, "--help", columns=80).output
+        lines = [line.strip(" │|") for line in output.splitlines()]
         for previous, line in zip(lines, lines[1:], strict=False):
-            orphan = len(line.split()) == 1 and not line.startswith(("╰", "╭", "[", "<", "-"))
+            frame = line.startswith(("╰", "╭", "└", "┌", "+", "[", "<", "-"))
+            # A lone path or URL is fine on its own line; a lone ordinary word is not.
+            orphan = len(line.split()) == 1 and not frame and "/" not in line and "\\" not in line
             assert not (orphan and previous), (page, previous, line)
 
 
