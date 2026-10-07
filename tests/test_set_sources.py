@@ -116,6 +116,38 @@ def test_search_queries_leave_out_original_mix_and_country_tags(library_http, mo
     assert queries == ["Antdot & Maz Lasso", "Antdot & Maz Lasso"]
 
 
+def test_search_checks_the_best_uploads_and_drops_gone_ones(library_http, monkeypatch):
+    """The live Phoenix - Lasso case: the official SoundCloud upload became DRM-only."""
+    from djlib.sources import web
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO, lasso_search
+
+    async def search(provider, query, limit=8):
+        return [entry for entry in lasso_search() if entry["provider"] == provider]
+
+    probed = []
+
+    async def probe(url):
+        probed.append(url)
+        if url == OFFICIAL_LASSO:
+            raise web.provider_error(b"ERROR: [soundcloud] 1: This video is DRM protected")
+        return {"url": url, "duration": 167.9}
+
+    monkeypatch.setattr(web, "search", search)
+    monkeypatch.setattr(web, "probe", probe)
+    reply = library_http.post(
+        "/sources/search", json={"artist": "Phoenix", "title": "Lasso (Original Mix)"}
+    ).json()["result"]
+
+    # The best three of the requested version are checked; remixes and live takes are not.
+    assert len(probed) == 3 and OFFICIAL_LASSO in probed and GLASSNOTE_LASSO in probed
+    best = reply["candidates"][0]
+    assert (best["url"], best["confident"], best["available"]) == (GLASSNOTE_LASSO, True, True)
+    assert OFFICIAL_LASSO not in [item["url"] for item in reply["candidates"]]
+    [gone] = reply["unavailable"]
+    assert gone["url"] == OFFICIAL_LASSO and gone["uploader"] == "Phoenix"
+    assert "DRM" in gone["reason"]
+
+
 def test_sources_without_a_tracklist_explain_and_list_what_listeners_named(
     application, library_http, monkeypatch
 ):
