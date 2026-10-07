@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+From a live `set --fetch` run where the official Phoenix – Lasso upload had become DRM-only:
+- **Only uploads that play are trusted.** `--fetch` and `find_sources` check the best three uploads of a song (in parallel, 30 s at most) before calling one a clear match. Removed, region-locked and DRM-protected uploads are dropped and listed under `unavailable`, and the rest are ranked again.
+- **Downloads fall back.** Each chosen song carries up to three other uploads of the same recording (`alternates`: the artist's or label's own, or the same length); when an upload turns out to be gone, the next one is downloaded. Download items say which URL arrived (`source_url`) and which were tried (`tried_urls`). `djlib_download` accepts `alternates` too.
+- **Label uploads count.** SoundCloud's artist credit names the artist even when the title doesn't, and a label upload the length of the artist's own upload (e.g. Glassnote's Lasso) can be a clear match, also when the artist's upload is gone.
+- **Gone is gone.** DRM-protected, region-locked and removed uploads fail as `SOURCE_UNAVAILABLE`, which is not retried; `--fetch` retries a download only when a failure is retryable.
+- **No false metadata conflicts.** A file tagged “Lasso” is accepted for “Lasso (Original Mix)”, and “Antdot, Maz” for “Antdot & Maz (BR)”, as in request matching; another mix, a live take or another artist still asks for review.
+- **No empty download crates.** A download's crate is made when its first song arrives, and repeated `--fetch` runs of one set add to one “<set> — downloads” crate.
+
 ## 0.1.0a13
 
 From an end-to-end test run of the Claude Code plugin:
