@@ -243,6 +243,7 @@ def click_menu(name: str) -> None:
         raise AppError(
             "APP_MENU_DISABLED",
             f"“{name}” is unavailable; close any open rekordbox dialog and retry.",
+            retryable=True,
         )
 
 
@@ -412,16 +413,29 @@ def click_menu_path(*path: str) -> None:
     try:
         outcome = _osascript(CLICK_PATH, *path)
     except AppError as exc:
-        raise AppError("APP_MENU_MISSING", f"rekordbox has no “{' > '.join(path)}”.") from exc
+        if exc.code == "APP_AUTOMATION_NOT_ALLOWED":
+            raise
+        raise AppError(
+            "APP_MENU_MISSING", f"rekordbox has no “{' > '.join(path)}”.", retryable=True
+        ) from exc
     if outcome == "disabled":
-        raise AppError("APP_MENU_DISABLED", f"“{' > '.join(path)}” is unavailable right now.")
+        raise AppError(
+            "APP_MENU_DISABLED", f"“{' > '.join(path)}” is unavailable right now.", retryable=True
+        )
+
+
+def menu_state(*path: str) -> str:
+    """'enabled', 'disabled' or 'missing' for one menu item path."""
+    try:
+        return "enabled" if _osascript(MENU_ENABLED, *path) == "true" else "disabled"
+    except AppError as exc:
+        if exc.code == "APP_AUTOMATION_NOT_ALLOWED":
+            raise
+        return "missing"
 
 
 def menu_enabled(*path: str) -> bool:
-    try:
-        return _osascript(MENU_ENABLED, *path) == "true"
-    except AppError:
-        return False
+    return menu_state(*path) == "enabled"
 
 
 def selected_playlist() -> str | None:
@@ -429,10 +443,15 @@ def selected_playlist() -> str | None:
 
     rekordbox's browser is not exposed to accessibility, but its “export a playlist to a
     file” dialog is pre-filled with the selected playlist's name; it is read and cancelled.
+    The menu can change between looking and clicking while the user clicks around, so a
+    disabled item means nothing is selected right now, not an error.
     """
-    if not menu_enabled(*EXPORT_TO_FILE):
-        return None
-    click_menu_path(*EXPORT_TO_FILE)
+    try:
+        click_menu_path(*EXPORT_TO_FILE)
+    except AppError as exc:
+        if exc.code == "APP_MENU_DISABLED":
+            return None
+        raise
     window = _dialog()
     script = (
         'tell application "System Events" to tell process "rekordbox" to get value of '
@@ -446,6 +465,12 @@ def selected_playlist() -> str | None:
 
 
 FRONTMOST = 'tell application "System Events" to get frontmost of process "rekordbox"'
+BRING_TO_FRONT = 'tell application "System Events" to set frontmost of process "rekordbox" to true'
+NOTIFY = """
+on run argv
+  display notification (item 1 of argv) with title (item 2 of argv)
+end run
+"""
 
 
 def frontmost() -> bool:
@@ -455,46 +480,146 @@ def frontmost() -> bool:
         return False
 
 
+def bring_to_front() -> None:
+    """Show rekordbox so the user can click in it (best effort)."""
+    with contextlib.suppress(AppError):
+        _osascript(BRING_TO_FRONT)
+
+
+def notify(message: str, title: str = "djlib") -> None:
+    """A macOS notification, for a user who is looking at rekordbox rather than the terminal."""
+    with contextlib.suppress(AppError):
+        _osascript(NOTIFY, message, title)
+
+
+def same_name(a: str | None, b: str | None) -> bool:
+    """Playlist names compare equal however their accents were composed."""
+    import unicodedata
+
+    if a is None or b is None:
+        return a is b
+    return unicodedata.normalize("NFC", a) == unicodedata.normalize("NFC", b)
+
+
 MIN_REPROBE_SECONDS = 2.0
+# Look at the selection only once the user has paused this long, never mid-click.
+SETTLE_SECONDS = 0.6
+STATE_EVERY_SECONDS = 60.0
+NOTIFY_EVERY_SECONDS = 180.0
+# Menu hiccups while the user clicks around rekordbox; worth waiting through.
+TRANSIENT = frozenset(
+    {"APP_MENU_DISABLED", "APP_MENU_MISSING", "APP_DIALOG_MISSING", "APP_AUTOMATION_FAILED"}
+)
 
 
-def wait_for_selection(device: str, target: str, timeout: float, on_wrong=None) -> None:
+def waiting_reason(state: str, device: str, selected: str | None = None) -> str:
+    """Why the export has not started yet, in words the user can act on."""
+    return {
+        "starting": "waiting for rekordbox",
+        "mac_locked": "your Mac is locked",
+        "rekordbox_not_in_front": "rekordbox isn't the app in front",
+        "stick_not_in_rekordbox": f"rekordbox doesn't list {device} under Playlist > Export "
+        "Playlist; is the stick plugged in and shown under Devices in rekordbox?",
+        "no_playlist_selected": "no playlist is selected in rekordbox",
+        "wrong_playlist": f"“{selected or 'something else'}” is selected instead",
+        "busy": "rekordbox's menus are busy; a dialog may be open",
+    }.get(state, state)
+
+
+def wait_for_selection(
+    device: str,
+    target: str,
+    timeout: float,
+    on_wrong=None,
+    on_state=None,
+    before_export=None,
+) -> None:
     """Wait until the user selects ``target`` in rekordbox, then export it to ``device``.
 
-    rekordbox's browser cannot be driven, so the user clicks the playlist. As soon as
-    rekordbox enables Playlist > Export Playlist > device while it is in front, the selected
-    playlist's name is read from the export-to-file dialog; only the requested playlist is
-    exported, through rekordbox's own menu.
+    rekordbox's browser cannot be driven, so the user clicks the playlist; rekordbox is
+    brought to the front and a notification says what to click. As soon as rekordbox enables
+    Playlist > Export Playlist > device while it is in front, the selected playlist's name is
+    read from the export-to-file dialog; only the requested playlist is exported, through
+    rekordbox's own menu. Menu hiccups while the user clicks around are waited through.
+
+    ``on_state(state, seconds_left, selected)`` hears why it is still waiting, on each change
+    and every minute; ``before_export()`` runs just before the export is clicked.
     """
-    deadline = time.monotonic() + timeout
+    instruction = f"Click “{target}” in rekordbox's playlist list to put it on {device}."
+    bring_to_front()
+    notify(instruction)
+    started = time.monotonic()
+    deadline = started + timeout
     last_wrong, probed_at = None, None
+    state, reported, reported_at, notified_at = "starting", None, started, started
+
+    def report(new_state: str) -> None:
+        nonlocal state, reported, reported_at
+        state = new_state
+        now = time.monotonic()
+        if on_state is not None and (state != reported or now - reported_at >= STATE_EVERY_SECONDS):
+            on_state(state, max(0, round(deadline - now)), last_wrong)
+            reported, reported_at = state, now
+
     while time.monotonic() < deadline:
-        if screen_locked() or not frontmost():
+        if time.monotonic() - notified_at >= NOTIFY_EVERY_SECONDS:
+            notify(instruction)
+            notified_at = time.monotonic()
+        if screen_locked():
+            report("mac_locked")
             time.sleep(0.4)
             continue
-        if not menu_enabled("Playlist", "Export Playlist", device):
+        if not frontmost():
+            report("rekordbox_not_in_front")
+            time.sleep(0.4)
+            continue
+        menu = menu_state("Playlist", "Export Playlist", device)
+        if menu != "enabled":
+            report("stick_not_in_rekordbox" if menu == "missing" else "no_playlist_selected")
             time.sleep(0.4)
             continue
         # Reading the selection briefly opens a dialog. After a wrong answer, look again only
         # once the user has clicked or typed since (djlib's own menu actions are not input),
         # so browsing other playlists is not interrupted.
+        idle = idle_seconds()
         if probed_at is not None:
             since = time.monotonic() - probed_at
-            if since < MIN_REPROBE_SECONDS or idle_seconds() >= since:
+            if since < MIN_REPROBE_SECONDS or idle >= since:
                 time.sleep(0.4)
                 continue
-        chosen = selected_playlist()
-        probed_at = time.monotonic()
-        if chosen == target:
-            click_menu_path("Playlist", "Export Playlist", device)
-            return
-        if chosen != last_wrong and on_wrong is not None:
-            on_wrong(chosen)
-        last_wrong = chosen
+        if idle < SETTLE_SECONDS:
+            time.sleep(0.2)
+            continue
+        try:
+            chosen = selected_playlist()
+            probed_at = time.monotonic()
+            if same_name(chosen, target):
+                if before_export is not None:
+                    before_export()
+                click_menu_path("Playlist", "Export Playlist", device)
+                return
+        except AppError as exc:
+            if exc.code not in TRANSIENT:
+                raise
+            probed_at = None  # look again as soon as rekordbox settles
+            report("busy")
+            time.sleep(1.0)
+            continue
+        if chosen is None:
+            report("no_playlist_selected")
+            continue
+        if chosen != last_wrong:
+            last_wrong = chosen
+            if on_wrong is not None:
+                on_wrong(chosen)
+            notify(f"That's “{chosen}”. {instruction}")
+        report("wrong_playlist")
     raise AppError(
         "APP_SELECTION_TIMEOUT",
-        f"“{target}” was not selected in rekordbox in time; nothing was exported.",
+        f"“{target}” was not selected in rekordbox in time "
+        f"({waiting_reason(state, device, last_wrong)}); nothing was exported.",
         retryable=True,
+        details={"last_state": state, "selected": last_wrong},
     )
 
 

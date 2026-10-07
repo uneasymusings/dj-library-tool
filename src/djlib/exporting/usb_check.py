@@ -107,13 +107,16 @@ def wait_for_copy(
     timeout: float = 3600.0,
     clock=None,
     sleep=None,
+    ready=None,
 ) -> bool:
     """Wait until rekordbox has finished writing the export; True if every file arrived.
 
     rekordbox shows its progress inside its own window, so completion is read from the
-    stick: the device library changed, every expected file is present and nothing changed
-    for one more check. If nothing changes for ``stall`` seconds the export is over anyway
-    (for example a file was skipped) and False is returned.
+    stick: the device library changed, every expected file is present, ``ready()`` (if
+    given) agrees — e.g. the library lists the playlist — and nothing changed for one more
+    check. Files already on the stick from an earlier export are not enough on their own.
+    If nothing changes for ``stall`` seconds the export is over anyway (for example a file
+    was skipped) and False is returned.
     """
     import time
 
@@ -129,7 +132,7 @@ def wait_for_copy(
         if signature != last:
             last, changed_at = signature, clock()
             continue
-        if updated and count == len(tracks):
+        if updated and count == len(tracks) and (ready is None or ready()):
             return True
         if updated and clock() - changed_at >= stall:
             return False

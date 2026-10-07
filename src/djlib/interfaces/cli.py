@@ -320,6 +320,7 @@ def status(ctx: typer.Context) -> None:
         done = history.get(row["collection_id"], {})
         # A set that changed may live in rekordbox as "Name (2)"; history knows which.
         name = done.get("playlist") or playlist_file_name(row["name"])
+        row["playlist"] = name
         row["in_rekordbox"] = None if playlists is None else name in playlists
         row["pushed_at"] = done.get("pushed_at")
         row["usb"] = done.get("usb")
