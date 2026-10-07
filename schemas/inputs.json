@@ -612,6 +612,16 @@
         "SourceTrack": {
           "additionalProperties": false,
           "properties": {
+            "alternates": {
+              "items": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Alternates",
+              "type": "array"
+            },
             "artist": {
               "maxLength": 500,
               "minLength": 1,
@@ -895,6 +905,72 @@
       "title": "Profile",
       "type": "object"
     },
+    "ReconcileRequest": {
+      "$defs": {
+        "ReconcileItem": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "tag_only",
+                "replace_audio"
+              ],
+              "title": "Action",
+              "type": "string"
+            },
+            "expected_asset_revision_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Expected Asset Revision Id",
+              "type": "string"
+            },
+            "expected_sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Expected Sha256",
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "expected_asset_revision_id",
+            "expected_sha256",
+            "action"
+          ],
+          "title": "ReconcileItem",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ReconcileItem"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items",
+        "idempotency_key"
+      ],
+      "title": "ReconcileRequest",
+      "type": "object"
+    },
     "RequestCreate": {
       "$defs": {
         "RequestItem": {
@@ -1158,6 +1234,27 @@
       "title": "ResolveRequest",
       "type": "object"
     },
+    "RootsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "RootsRequest",
+      "type": "object"
+    },
     "ScanRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1182,6 +1279,13 @@
     "SourceRequest": {
       "additionalProperties": false,
       "properties": {
+        "comments": {
+          "default": 0,
+          "maximum": 2000,
+          "minimum": 0,
+          "title": "Comments",
+          "type": "integer"
+        },
         "url": {
           "maxLength": 4096,
           "minLength": 1,

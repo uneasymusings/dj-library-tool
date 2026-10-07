@@ -6,7 +6,7 @@ Media paths remain subject to workspace authorization after schema validation.
 
 import re
 import unicodedata
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -91,6 +91,10 @@ class SourceTrack(Contract):
     artist: str = Field(min_length=1, max_length=500)
     title: str = Field(min_length=1, max_length=1000)
     version: str = Field(default="", max_length=300)
+    # Other uploads of the same recording, tried in order when the url turns out to be gone.
+    alternates: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(
+        default_factory=list, max_length=3
+    )
 
     @field_validator("artist", "title", "version")
     @classmethod
