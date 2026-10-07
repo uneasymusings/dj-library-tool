@@ -145,7 +145,7 @@ def set_item(item: dict) -> dict:
 
 def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None):
     rekordbox = typer.Typer(
-        help="Put crates into rekordbox and onto USB; read its analysis in the background.",
+        help="Put crates into rekordbox and onto USB.",
         no_args_is_help=True,
     )
     app.add_typer(rekordbox, name="rekordbox", rich_help_panel=panel)
@@ -417,12 +417,13 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             help="Wait until the keyboard and mouse have been idle this many seconds.",
         ),
     ) -> None:
-        """Put collections into rekordbox as playlists, in seconds.
+        """Put crates into rekordbox as playlists, in seconds.
 
-        Uses rekordbox's own File > Import > Import Playlist with your original files, so
-        tracks rekordbox already knows keep their analysis and cues. BPM and cues arrive in
-        the background as rekordbox analyzes (djlib rekordbox sync). macOS must allow your
-        terminal under Privacy & Security > Accessibility.
+        Uses rekordbox's own File > Import > Import Playlist with your original files.
+
+        Tracks rekordbox already knows keep their analysis and cues.
+
+        macOS must allow your terminal under Privacy & Security > Accessibility.
         """
         from djlib.native import rekordbox_mac as ui
 
@@ -471,11 +472,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             600, min=10, help="Seconds to wait for you to select the playlist in rekordbox."
         ),
     ) -> None:
-        """Export a crate to a USB stick through rekordbox, then verify every file on it.
+        """Export a crate to your USB stick through rekordbox, then check it.
 
-        rekordbox's browser cannot be scripted, so you click the playlist once when asked;
-        djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
-        rekordbox to finish and confirms each track on the stick byte for byte.
+        You click the playlist in rekordbox once; djlib checks it is the right one.
+
+        rekordbox exports it, and djlib confirms each track on the stick byte for byte.
         """
         from djlib.native import rekordbox_mac as ui
 
@@ -552,13 +553,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             600, min=10, help="With --usb: seconds to wait for you to click the playlist."
         ),
     ) -> None:
-        """Tracklist → the songs you own → a rekordbox playlist → your USB, in one command.
+        """Tracklist → owned songs → rekordbox playlist → USB.
 
-        Takes a text file or a YouTube/SoundCloud set (its description, chapters and listener
-        comments). Checks which songs you own (exact artist/title/version), with --fetch
-        downloads clear matches for missing ones as MP3, builds a crate in set order, imports
-        it into rekordbox and, with --usb, exports it to your stick and verifies it there.
-        Missing songs are never swapped for another version.
+        Takes a text file, or a YouTube/SoundCloud set whose description lists its tracks.
+
+        Matches exact artist/title/version; other versions are never swapped in.
+
+        --fetch downloads clear matches for missing songs as MP3.
+
+        --usb exports the playlist to your stick and checks every file.
         """
         from djlib.interfaces import set_sources
         from djlib.interfaces.library_cli import (
@@ -727,7 +730,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     @rekordbox.command("sync")
     @handled
     def sync_command(ctx: typer.Context) -> None:
-        """Read rekordbox's analysis files for BPM and cues. No window, no database access."""
+        """Read BPM and cues from rekordbox's analysis files (no window)."""
         emit(client(ctx).request("POST", "/analysis/rekordbox", data={"path": None}))
 
     @rekordbox.command("pull")
@@ -741,7 +744,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             help="Wait until the keyboard and mouse have been idle this many seconds.",
         ),
     ) -> None:
-        """Export rekordbox's collection XML once to also bring in musical key (uses its window)."""
+        """Bring in musical key with one brief rekordbox XML export."""
         from djlib.native import rekordbox_mac as ui
 
         ui.ensure_supported()

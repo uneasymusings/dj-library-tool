@@ -303,7 +303,7 @@ def init(
 @app.command(rich_help_panel=START)
 @handled
 def status(ctx: typer.Context) -> None:
-    """Your library at a glance: tracks, BPM/key, requests and crates."""
+    """Your library at a glance: tracks, lists and crates."""
     from concurrent.futures import ThreadPoolExecutor
 
     from djlib.exporting.rekordbox_anlz import default_root
@@ -337,7 +337,7 @@ def use(
         Path | None, typer.Argument(help="Workspace to use by default; omit to show it.")
     ] = None,
 ) -> None:
-    """Choose the default workspace (when --workspace is not given)."""
+    """Choose the default workspace."""
     if path is not None:
         workspace = Workspace(path)
         workspace.config()  # only initialized workspaces can become the default
@@ -418,7 +418,7 @@ def setup_agent(
     ctx: typer.Context,
     output: Path = typer.Option(..., "--output", help="New folder for the session."),
 ) -> None:
-    """Create a Claude Code or Codex session wired to this workspace.
+    """Create a Claude Code or Codex session for djlib.
 
     The session folder gets the djlib skill, its MCP configuration and launch.py.
     """
@@ -512,7 +512,7 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, rekordbox, downloads and the background service.
+    """Check FFmpeg, rekordbox and the background service.
 
     Works before init too. Changes nothing in DJ apps or on devices. Exits 1 when FFmpeg is missing.
     """
@@ -648,7 +648,7 @@ def scan(
     ] = None,
     key: str | None = typer.Option(None, "--key", help=KEY_HELP, hidden=True),
 ) -> None:
-    """Index your music in place, so djlib knows which songs you own.
+    """Index your music so djlib knows which songs you own.
 
     Files are never renamed, moved or retagged; songs are known by their tags.
     """
