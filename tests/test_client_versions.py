@@ -1,17 +1,21 @@
 """Version negotiation never sends an operation to an incompatible existing coordinator."""
 
 import json
+import time
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from mcp import Client
 from typer.testing import CliRunner
 
 from djlib import __version__
 from djlib.domain.errors import AppError
 from djlib.interfaces import client as client_module
+from djlib.interfaces import mcp_server
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.service import create_app
 
 ABSENT = object()
@@ -117,7 +121,7 @@ def test_old_public_health_uses_authenticated_capabilities_and_blocks_operations
         assert error.value.code == "COORDINATOR_VERSION_MISMATCH"
         assert error.value.status == 409
         assert error.value.retryable is False
-        assert "0.1.0a2" in error.value.message
+        assert "An older djlib (0.1.0a2) is still running" in error.value.message
         assert __version__ in error.value.message
         assert "service stop" in error.value.message
         assert "saved jobs are kept" in error.value.message
@@ -273,3 +277,113 @@ def test_an_idle_old_service_is_replaced_and_the_command_goes_through(applicatio
     posts = [call[1] for call in calls if call[0] == "POST"]
     assert posts == ["/shutdown"]
     assert [call[1] for call in calls].count("/library") == 1
+
+
+NEWER = "99.0.0"
+
+
+@pytest.mark.parametrize("health_version", [ABSENT, NEWER])
+@pytest.mark.parametrize("busy", [False, True])
+def test_a_newer_service_is_never_stopped_for_an_older_client(
+    application, monkeypatch, health_version, busy
+):
+    client, state, calls, _ = coordinator(
+        application, monkeypatch, health_version=health_version, version=NEWER
+    )
+    state["busy"] = busy
+    for _ in range(2):
+        with pytest.raises(AppError) as error:
+            client.request("POST", "/requests", data={"idempotency_key": "never-submit"})
+        assert error.value.code == "CLIENT_OUTDATED"
+        assert error.value.status == 409 and error.value.retryable is False
+        message = error.value.message
+        assert f"This djlib session ({__version__}) is older than" in message
+        assert f"background djlib ({NEWER})" in message and "older djlib" not in message
+        assert "nothing was sent" in message and "djlib upgrade" in message
+    with pytest.raises(AppError) as error:
+        client.start()
+    assert error.value.code == "CLIENT_OUTDATED"
+    # Read-only checks only: no job listing, no shutdown, no new service.
+    assert all(call[0] == "GET" and call[1] in {"/health", "/capabilities"} for call in calls)
+
+
+def test_a_newer_service_that_takes_over_ends_the_restart_at_once(application, monkeypatch):
+    client, state, calls, _ = coordinator(application, monkeypatch)
+    state["busy"] = False
+    state["replace_with"] = {"instance_id": "instance-newer", "version": NEWER}
+    started = time.monotonic()
+    with pytest.raises(AppError) as error:
+        client.request("GET", "/library")
+    assert error.value.code == "CLIENT_OUTDATED" and NEWER in error.value.message
+    assert time.monotonic() - started < 5  # no 15-second wait for a match that can't come
+    assert [call[1] for call in calls if call[0] == "POST"] == ["/shutdown"]
+    assert "/library" not in [call[1] for call in calls]
+
+
+def test_an_old_service_is_kept_when_newer_code_is_installed_under_this_client(
+    application, monkeypatch
+):
+    # A replacement would load the installed code, not this version, and never match.
+    client, state, calls, _ = coordinator(application, monkeypatch)
+    state["busy"] = False
+    monkeypatch.setattr(client_module, "installed_version", lambda: NEWER)
+    with pytest.raises(AppError) as error:
+        client.request("GET", "/library")
+    assert error.value.code == "CLIENT_OUTDATED"
+    assert f"djlib {NEWER} is now installed" in error.value.message
+    assert __version__ in error.value.message
+    assert all(call[0] == "GET" for call in calls)
+
+
+async def test_an_assistant_session_older_than_the_service_is_told_to_reconnect(
+    application, monkeypatch
+):
+    _, _, calls, _ = coordinator(application, monkeypatch, health_version=NEWER, version=NEWER)
+    async with Client(mcp_server.build_server(application.workspace)) as session:
+        reply = await session.call_tool("djlib_library", {})
+    error = reply.structured_content["error"]
+    assert error["code"] == "CLIENT_OUTDATED" and error["retryable"] is False
+    assert f"background djlib ({NEWER})" in error["message"]
+    assert "/mcp → djlib → Reconnect" in error["message"] and f"uses {NEWER}" in error["message"]
+    assert [call[:2] for call in calls] == [("GET", "/health")]
+
+
+async def test_an_upgrade_installed_under_a_running_mcp_server_asks_for_a_restart(
+    application, monkeypatch
+):
+    sent = []
+    monkeypatch.setattr(
+        LocalClient, "request", lambda self, *args, **kwargs: sent.append(args) or envelope({})
+    )
+    on_disk = [__version__]
+    reads = []
+
+    def installed():
+        reads.append(on_disk[0])
+        return on_disk[0]
+
+    monkeypatch.setattr(mcp_server, "installed_version", installed)
+    monkeypatch.setattr(mcp_server, "CODE_CHECK_SECONDS", 3600)
+    async with Client(mcp_server.build_server(application.workspace)) as session:
+        assert (await session.call_tool("djlib_library", {})).structured_content["ok"]
+        on_disk[0] = NEWER
+        # Read at most once per interval: this call still goes through.
+        assert (await session.call_tool("djlib_library", {})).structured_content["ok"]
+        assert reads == [__version__]
+        monkeypatch.setattr(mcp_server, "CODE_CHECK_SECONDS", 0)
+        reply = await session.call_tool("djlib_capabilities", {})
+    error = reply.structured_content["error"]
+    assert error["code"] == "CLIENT_OUTDATED" and error["retryable"] is False
+    assert f"djlib {NEWER} is now installed" in error["message"]
+    assert f"still runs {__version__}" in error["message"] and "Reconnect" in error["message"]
+    assert len(sent) == 2  # nothing reached the service after the upgrade
+
+
+def test_installed_version_reads_this_package_from_disk(tmp_path, monkeypatch):
+    assert client_module.installed_version() == __version__
+    package = tmp_path / "__init__.py"
+    package.write_text('"""Docs."""\n\n__version__ = "0.1.0a99"\n')
+    monkeypatch.setattr(client_module.djlib, "__file__", str(package))
+    assert client_module.installed_version() == "0.1.0a99"
+    package.unlink()
+    assert client_module.installed_version() is None

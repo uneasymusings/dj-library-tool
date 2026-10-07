@@ -14,6 +14,7 @@ import httpx
 from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
 
+import djlib
 from djlib import __version__
 from djlib.domain.errors import AppError
 from djlib.workspace import Workspace
@@ -27,12 +28,63 @@ DEFINITE_DISCOVERY_FAILURES = frozenset(
 # A coordinator started implicitly by a command exits after this long without use.
 # `service start` (used before assistant sessions) keeps its coordinator running.
 IDLE_EXIT_SECONDS = 1800
+# How a client older than the running djlib gets the newer one; the MCP server says reconnect.
+UPDATE_FIX = "Run the newer djlib (`djlib upgrade` installs it), then try again."
+VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?(?:\.post(\d+))?(?:\.dev(\d+))?")
+
+
+def version_key(value: str) -> tuple:
+    """Order versions like 0.1.0a10 > 0.1.0a9 > 0.1.0a9.dev0 without extra dependencies."""
+    match = VERSION.match(value)
+    if not match:
+        return (0,)
+    major, minor, patch, stage, number, post, dev = match.groups()
+    rank = {"a": 0, "b": 1, "rc": 2, None: 3}[stage]
+    if stage is None and post is None and dev is not None:
+        rank = -1  # 0.2.0.dev1 comes before 0.2.0a1
+    post_number = -1 if post is None else int(post)
+    numbers = (int(major), int(minor), int(patch), rank, int(number or 0), post_number)
+    return (*numbers, dev is None, int(dev or 0))
+
+
+def installed_version() -> str | None:
+    """The djlib version on disk now, which a newly started process would run.
+
+    Read from this package's own ``__init__.py``, so it is right for editable installs
+    too; None when it can't be read.
+    """
+    try:
+        text = Path(djlib.__file__).read_text(encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        return None
+    match = re.search(r"""^__version__ = ["']([^"'\s]+)["']""", text, re.MULTILINE)
+    return match[1] if match else None
+
+
+def client_outdated(newer: str, fix: str, *, installed: bool = False) -> AppError:
+    """This process runs older code than the background service or the installed djlib."""
+    if installed:
+        problem = f"djlib {newer} is now installed, but this session still runs {__version__}"
+    else:
+        problem = (
+            f"This djlib session ({__version__}) is older than the background djlib "
+            f"({newer}) that's running"
+        )
+    return AppError(
+        "CLIENT_OUTDATED",
+        f"{problem}, so nothing was sent. {fix.format(version=newer)}",
+        409,
+        False,
+    )
 
 
 class LocalClient:
-    def __init__(self, workspace: Workspace, *, allow_start: bool = True):
+    def __init__(
+        self, workspace: Workspace, *, allow_start: bool = True, outdated_fix: str = UPDATE_FIX
+    ):
         self.workspace = workspace
         self.allow_start = allow_start
+        self.outdated_fix = outdated_fix
         self._coordinator_identity = None
         self._coordinator_version = None
         self._version_checked = False
@@ -89,19 +141,25 @@ class LocalClient:
             except (httpx.HTTPError, ValueError):
                 self._coordinator_version = None
                 self._version_checked = True
-        if self._coordinator_version != __version__:
-            observed = self._coordinator_version or "an unknown application version"
-            stop = "djlib service stop"
-            if self.workspace.root != default_workspace():
-                stop = f"djlib --workspace {shlex.quote(str(self.workspace.root))} service stop"
-            raise AppError(
-                "COORDINATOR_VERSION_MISMATCH",
-                f"An older djlib ({observed}) is still running in the background and is busy "
-                f"or owned by another app, so it wasn't restarted. This is {__version__}. When "
-                f"it's done, run `{stop}` and try again; saved jobs are kept and nothing was "
-                "sent.",
-                409,
-            )
+        observed = self._coordinator_version
+        if observed == __version__:
+            return
+        if observed and version_key(observed) > version_key(__version__):
+            # A newer service is never stopped for an older client; this client must go.
+            raise client_outdated(observed, self.outdated_fix)
+        stop = "djlib service stop"
+        if self.workspace.root != default_workspace():
+            stop = f"djlib --workspace {shlex.quote(str(self.workspace.root))} service stop"
+        which = "A djlib with an unknown application version"
+        if observed:
+            which = f"An older djlib ({observed})"
+        raise AppError(
+            "COORDINATOR_VERSION_MISMATCH",
+            f"{which} is still running in the background and is busy or owned by another "
+            f"app, so it wasn't restarted. This is {__version__}. When it's done, run "
+            f"`{stop}` and try again; saved jobs are kept and nothing was sent.",
+            409,
+        )
 
     def _restart_outdated(self, url: str) -> bool:
         """Stop an older, idle background service so this version starts its own.
@@ -111,6 +169,10 @@ class LocalClient:
         """
         if not self.allow_start:
             return False
+        installed = installed_version()
+        if installed and installed != __version__:
+            # A replacement would run the code on disk, not this version: it would never match.
+            raise client_outdated(installed, self.outdated_fix, installed=True)
         try:
             with httpx.Client(trust_env=False, timeout=5) as client:
                 reply = client.get(f"{url}/jobs", params={"limit": 50}, headers=self.headers())
@@ -130,7 +192,9 @@ class LocalClient:
             try:
                 self._require_matching_version(current)
                 return True  # already replaced by a matching service
-            except AppError:
+            except AppError as error:
+                if error.code == "CLIENT_OUTDATED":
+                    raise  # a newer djlib took over; waiting won't help
                 time.sleep(0.2)
         return False
 
