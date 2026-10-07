@@ -511,14 +511,37 @@ def refresh_request(app, request_id: str, request: RequestRefresh) -> dict:
     selected = set(request.item_ids) if request.item_ids is not None else None
     if selected is not None and selected - {item["item_id"] for item in ledger["items"]}:
         raise AppError("NOT_FOUND", "One or more requested song items were not found.", 404)
+    before = _evidence(ledger["items"])
     ledger["items"] = [
         _refresh_item(app, item, verification)
         if selected is None or item["item_id"] in selected
         else item
         for item in ledger["items"]
     ]
-    _save(app, ledger)
+    # A re-check that changed nothing keeps the revision, so printed commands stay valid.
+    if _evidence(ledger["items"]) != before:
+        _save(app, ledger)
     return get_request(app, request_id)
+
+
+def _evidence(items: list[dict]) -> list:
+    """What a refresh can change about a request list, without check timestamps."""
+    return [
+        (
+            item["item_id"],
+            item.get("state"),
+            (item.get("accepted") or {}).get("asset_revision_id"),
+            sorted(
+                (
+                    candidate.get("asset_revision_id") or "",
+                    candidate.get("identity_match") or "",
+                    candidate.get("availability") or "",
+                )
+                for candidate in item.get("candidates") or []
+            ),
+        )
+        for item in items
+    ]
 
 
 def resolve_request(app, request_id: str, item_id: str, request: RequestResolution) -> dict:

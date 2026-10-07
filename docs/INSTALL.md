@@ -1,6 +1,6 @@
 # Install
 
-djlib runs locally with Python 3.13, installed through [uv](https://docs.astral.sh/uv/getting-started/installation/). Driving rekordbox needs macOS; the catalog, tracklist checks, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases); the commands below use v0.1.0a12.
+djlib runs locally with Python 3.13, installed through [uv](https://docs.astral.sh/uv/getting-started/installation/). Driving rekordbox needs macOS; the catalog, tracklist checks, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases); the commands below use v0.1.0a13.
 
 On macOS or Linux, one line installs uv if missing, the newest release and FFmpeg (through Homebrew when available), then runs `djlib doctor`; continue with `djlib init` in step 2: `curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh`
 
@@ -8,7 +8,7 @@ On macOS or Linux, one line installs uv if missing, the newest release and FFmpe
 2. **djlib**:
 
    ```bash
-   uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a12/dj_library_tool-0.1.0a12-py3-none-any.whl'
+   uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a13/dj_library_tool-0.1.0a13-py3-none-any.whl'
    djlib init --allow-root ~/Music    # Windows: --allow-root "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor

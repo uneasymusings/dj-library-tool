@@ -170,9 +170,9 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
             {"request_id": request_id, "revision": 1, "item_ids": [ledger["items"][1]["item_id"]]},
         )
         assert refreshed["items"][0] == ledger["items"][0]
-        assert refreshed["revision"] == 2
+        assert refreshed["revision"] == 1  # nothing changed, revision kept
         await call(
-            "djlib_refresh_request", {"request_id": request_id, "revision": 1}, "REQUEST_STALE"
+            "djlib_refresh_request", {"request_id": request_id, "revision": 2}, "REQUEST_STALE"
         )
         selected = await call(
             "djlib_resolve_request",
@@ -180,7 +180,7 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
                 "request_id": request_id,
                 "item_id": ledger["items"][2]["item_id"],
                 "resolution": {
-                    "revision": 2,
+                    "revision": 1,
                     "action": "select_source",
                     "source_url": "https://soundcloud.com/test/missing-recording",
                     "notes": "Source selected only; no acquisition authorized by this operation",
@@ -191,7 +191,7 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
         assert selected["items"][2]["accepted"] is None
         replay = await call("djlib_create_request", {"request_body": request_body()})
         assert replay.pop("reused") is True and replay == selected
-        report = await call("djlib_request_report", {"request_id": request_id, "revision": 3})
+        report = await call("djlib_request_report", {"request_id": request_id, "revision": 2})
         missing = json.loads(Path(report["report_path"]).read_text())
         assert missing["unresolved_items"] == 2
         assert missing["items"][0]["input"]["timestamp"] == "01:02:03"
@@ -302,7 +302,9 @@ def test_library_cli_groups_emit_standard_json_and_preserve_patch_omissions(
         requested["items"][1]["item_id"],
     )
     assert refreshed["items"][0] == requested["items"][0]
-    cli("requests", "refresh", request_id, "--revision", 1, error="REQUEST_STALE")
+    # Nothing changed, so the revision (and any printed command using it) stays valid.
+    assert refreshed["revision"] == 1
+    cli("requests", "refresh", request_id, "--revision", 2, error="REQUEST_STALE")
     selected = cli(
         "requests",
         "resolve",
@@ -312,7 +314,7 @@ def test_library_cli_groups_emit_standard_json_and_preserve_patch_omissions(
         file(
             "resolution.json",
             {
-                "revision": 2,
+                "revision": 1,
                 "action": "select_source",
                 "source_url": "https://soundcloud.com/test/selected-song",
                 "notes": "No download performed",
@@ -320,7 +322,7 @@ def test_library_cli_groups_emit_standard_json_and_preserve_patch_omissions(
         ),
     )
     assert selected["items"][2]["accepted"] is None
-    report = cli("requests", "report", request_id, "--revision", 3)
+    report = cli("requests", "report", request_id, "--revision", 2)
     assert Path(report["report_path"]).is_file()
     assert (
         cli("requests", "create", "--file", tmp_path / "requests.json")["request_id"] == request_id

@@ -97,3 +97,65 @@ def test_named_in_comments_points_to_credited_mentions_first():
     assert message.startswith(" Listeners named 4 tracks in the comments, e.g. The Streets")
     assert set_sources.named_in_comments([]) == ""
     assert set_sources.named_in_comments([{"text": "ID?"}]) == ""
+
+
+def test_search_queries_leave_out_original_mix_and_country_tags(library_http, monkeypatch):
+    from djlib.sources import web
+
+    queries = []
+
+    async def search(provider, query, limit=8):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(web, "search", search)
+    library_http.post(
+        "/sources/search",
+        json={"artist": "Antdot & Maz (BR)", "title": "Lasso (Original Mix)", "version": ""},
+    )
+    assert queries == ["Antdot & Maz Lasso", "Antdot & Maz Lasso"]
+
+
+def test_sources_without_a_tracklist_explain_and_list_what_listeners_named(
+    application, library_http, monkeypatch
+):
+    import json
+
+    from typer.testing import CliRunner
+
+    import djlib.interfaces.service as service_module
+    from djlib.interfaces.cli import app as cli_app
+    from tests.test_rekordbox_push import FakeRekordbox
+
+    comments = [
+        {"text": "2:41 - gunk / 12:00 - freedom 2 / 38:00 - hackney parrot", "start_time": None},
+        {"text": "this is The Streets - Turn the page (Overmono remix) 26:06", "start_time": None},
+    ]
+
+    async def inspect(url, count=0):
+        return {
+            "url": url,
+            "title": "Boiler Room",
+            "description": "",
+            "chapters": [],
+            "comments": comments if count else [],
+        }
+
+    monkeypatch.setattr(service_module, "inspect_source", inspect)
+    inspected = library_http.post(
+        "/sources/inspect", json={"url": "https://youtu.be/x", "comments": 100}
+    ).json()["result"]
+    assert [hint["at"] for hint in inspected["named_in_comments"]] == [
+        "2:41",
+        "12:00",
+        "26:06",
+        "38:00",
+    ]
+    FakeRekordbox(monkeypatch)
+    reply = CliRunner().invoke(
+        cli_app, ["--workspace", str(application.workspace.root), "set", "https://youtu.be/x"]
+    )
+    error = json.loads(reply.stdout)["error"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND"
+    labels = [hint["label"] for hint in error["details"]["named_in_comments"]]
+    assert "The Streets - Turn the page (Overmono remix)" in labels and labels[0] == "gunk"
