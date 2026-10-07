@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a13
 
 From an end-to-end test run of the Claude Code plugin:
 - **A locked Mac is handled quickly and clearly.** Assistants get `{"event": "unlock_mac"}` on stderr at once and `APP_SCREEN_LOCKED` after 30 s instead of a 10-minute silent wait (a terminal still waits visibly). A skipped rekordbox step carries `reason_code`, `set` results say `complete` and `next` (the exact command to finish), and `doctor` shows whether the screen is locked.
