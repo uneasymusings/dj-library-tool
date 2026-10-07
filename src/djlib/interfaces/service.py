@@ -228,7 +228,13 @@ def create_app(
 
     @app.post("/sources/inspect")
     async def source(body: SourceRequest):
-        return envelope(await inspect_source(body.url, body.comments))
+        result = await inspect_source(body.url, body.comments)
+        if body.comments:
+            from djlib.interfaces.set_sources import comment_list
+
+            # What listeners named, in set order: the useful part of hundreds of comments.
+            result["named_in_comments"] = comment_list(result.get("comments") or [])
+        return envelope(result)
 
     @app.post("/sources/search")
     async def source_search(body: SourceSearch):
