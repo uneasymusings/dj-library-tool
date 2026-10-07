@@ -135,7 +135,7 @@ def register_commands(app, client, emit, handled, panel=None):
     from djlib.interfaces.handles import resolve
 
     requests = typer.Typer(
-        help="Wanted songs: what you own, what is missing, what is unknown.",
+        help="Wanted songs: owned, missing or unknown.",
         no_args_is_help=True,
     )
     organize = typer.Typer(

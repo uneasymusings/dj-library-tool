@@ -1,7 +1,6 @@
 """What a DJ meets first: the command map, short handles, doctor, defaults and messages."""
 
 import json
-import re
 import shutil
 import sys
 
@@ -49,12 +48,6 @@ def run(*arguments, workspace=None, pretty=False, columns=120):
     return CliRunner(env=env).invoke(cli_app, [*prefix, *map(str, arguments)])
 
 
-# Rich draws panels with Unicode boxes, or ASCII ones on some Windows consoles.
-PANEL_TOP = re.compile(r"^[╭+┌][─\-]+ (.+?) [─\-]")
-PANEL_BOTTOM = ("╰", "└", "+")
-PANEL_ROW = re.compile(r"^[│|] ([a-z][a-z-]+) ")
-
-
 def visible_panels(*path: str) -> dict[str, list[str]]:
     """Help panels and their commands, in help order, read from the CLI itself.
 
@@ -74,18 +67,6 @@ def visible_panels(*path: str) -> dict[str, list[str]]:
         if not command.hidden:
             panel = getattr(command, "rich_help_panel", None) or "Commands"
             found.setdefault(panel, []).append(name)
-    return found
-
-
-def panels(output: str) -> dict[str, list[str]]:
-    found, current = {}, None
-    for line in output.splitlines():
-        if match := PANEL_TOP.match(line):
-            current = found.setdefault(match.group(1), [])
-        elif line.startswith(PANEL_BOTTOM):
-            current = None
-        elif current is not None and (match := PANEL_ROW.match(line)):
-            current.append(match.group(1))
     return found
 
 
@@ -141,21 +122,33 @@ def test_requests_subcommands_follow_the_workflow_and_keys_are_hidden():
     assert "idempotency" not in run("--help").output.lower()
 
 
-def test_visible_help_has_no_orphan_words_at_80_columns():
-    """A lone wrapped word at the end of a help line reads like a typo."""
-    # set and rekordbox are written elsewhere (rekordbox_cli.py).
-    pages = [[], *([name] for names in PANELS.values() for name in names)]
-    pages = [page for page in pages if page not in (["set"], ["rekordbox"])]
-    pages += [["requests", name] for name in ("create", "get", "collect", "refresh", "report")]
-    pages += [["requests", "resolve"], ["jobs", "wait"], ["roots", "add"], ["service", "stop"]]
-    for page in pages:
-        output = run(*page, "--help", columns=80).output
-        lines = [line.strip(" │|") for line in output.splitlines()]
-        for previous, line in zip(lines, lines[1:], strict=False):
-            frame = line.startswith(("╰", "╭", "└", "┌", "+", "[", "<", "-"))
-            # A lone path or URL is fine on its own line; a lone ordinary word is not.
-            orphan = len(line.split()) == 1 and not frame and "/" not in line and "\\" not in line
-            assert not (orphan and previous), (page, previous, line)
+def test_help_text_wraps_cleanly_on_every_platform():
+    """Summaries fit one line of the command list, and no paragraph is hard-wrapped.
+
+    Hard line breaks inside help paragraphs leave orphan words wherever the console's width
+    differs (Windows consoles use one column less); short single-line paragraphs don't.
+    """
+    import click
+    import typer.main
+
+    def visit(group, context, path=()):
+        for name in group.list_commands(context):
+            command = group.get_command(context, name)
+            if command.hidden:
+                continue
+            text = (command.help or "").strip()
+            paragraphs = [part.strip() for part in text.split("\n\n") if part.strip()]
+            summary = paragraphs[0] if paragraphs else ""
+            assert len(summary) <= 60, (*path, name, summary)
+            assert all("\n" not in part for part in paragraphs), (*path, name)
+            for parameter in command.params:
+                if not getattr(parameter, "hidden", False) and parameter.help:
+                    assert "\n" not in parameter.help.strip(), (*path, name, parameter.name)
+            if isinstance(command, click.Group):
+                visit(command, click.Context(command, parent=context), (*path, name))
+
+    group = typer.main.get_command(cli_app)
+    visit(group, click.Context(group))
 
 
 def test_json_and_workspace_options_work_after_the_subcommand(tmp_path, monkeypatch, capsys):
