@@ -7,9 +7,10 @@ from djlib.interfaces import upgrade_cli
 
 def test_versions_order_like_releases():
     key = upgrade_cli.version_key
-    assert key("0.1.0a10") > key("0.1.0a9") > key("0.1.0a3")
+    assert key("0.1.0a10") > key("0.1.0a9") > key("0.1.0a9.dev0") > key("0.1.0a3")
     assert key("0.1.0") > key("0.1.0rc1") > key("0.1.0b2") > key("0.1.0a11")
-    assert key("0.2.0a1") > key("0.1.9")
+    assert key("0.2.0a1") > key("0.2.0.dev1") > key("0.1.9")
+    assert key("0.1.0.post1") > key("0.1.0") and key("0.1.0a13") == key("0.1.0a13")
 
 
 def test_latest_release_skips_drafts_and_finds_the_wheel(monkeypatch):

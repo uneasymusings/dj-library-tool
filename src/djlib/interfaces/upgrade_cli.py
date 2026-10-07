@@ -9,21 +9,12 @@ import typer
 
 from djlib import __version__
 from djlib.domain.errors import AppError
+from djlib.interfaces.client import version_key
 from djlib.interfaces.envelope import envelope
 
 REPOSITORY = "uneasymusings/dj-library-tool"
 RELEASES = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=10"
 WHEEL = re.compile(r"^dj_library_tool-(?P<version>[^-]+)-py3-none-any\.whl$")
-
-
-def version_key(value: str) -> tuple:
-    """Order versions like 0.1.0a10 > 0.1.0a9 > 0.1.0a9.dev0 without extra dependencies."""
-    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?", value)
-    if not match:
-        return (0,)
-    major, minor, patch, stage, number = match.groups()
-    rank = {"a": 0, "b": 1, "rc": 2, None: 3}[stage]
-    return (int(major), int(minor), int(patch), rank, int(number or 0))
 
 
 def latest_release() -> dict:
