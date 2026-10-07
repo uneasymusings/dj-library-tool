@@ -45,7 +45,7 @@ Then open or reconnect Claude Code or Codex. `COORDINATOR_START_REQUIRED` means 
 | `APP_AUTOMATION_NOT_ALLOWED` | Allow your terminal app under System Settings → Privacy & Security → Accessibility, then retry. |
 | `APP_SCREEN_LOCKED` | The Mac is locked, and no app can be driven then. Retry once it's unlocked (USB steps wait for the unlock themselves). |
 | `APP_PLAYLIST_NAME_TAKEN` | rekordbox has a different playlist with that name. Rename or delete it, or pass `--name`. Nothing was imported. |
-| `APP_SELECTION_TIMEOUT` | The playlist wasn't selected in time; nothing was exported. Run the USB step again and click the playlist named in the prompt. |
+| `APP_SELECTION_TIMEOUT` | The playlist wasn't selected in time; nothing was exported. The message says why (rekordbox wasn't in front, no playlist was selected, the stick wasn't listed under Playlist > Export Playlist, or another playlist was selected). Run the USB step again and click the playlist named in the prompt and the notification. |
 | `DEVICE_REQUIRED` | No stick or several sticks are mounted. Pass `--device /Volumes/NAME`. |
 | `APP_AUTOMATION_UNSUPPORTED` | Not a Mac. `set` still builds the crate; import it into your DJ app yourself. |
 | Exit code 4 | The USB check found missing or out-of-order files. Don't play from that stick; export again. |
