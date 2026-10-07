@@ -1,5 +1,9 @@
 # Implementation status
 
+## 0.1.0a13
+
+Fixes from an end-to-end run of the published 0.1.0a12 plugin by a separate Claude Code session on the user's Mac (9 tests: 5 passed, 2 partial, 2 blocked because the Mac was locked). That run showed: a locked Mac cost a 10-minute silent wait and a skipped rekordbox step read as success; `set --fetch` missed the official Phoenix – Lasso upload that `find_sources` found (the query kept “(Original Mix)”, live-verified fixed: both now pick soundcloud.com/phoenix/lasso, score 0.877, confident); re-runs bumped revisions without changes; the no-tracklist error carried listener comments only as prose; `crates` and `status` disagreed about rekordbox/USB state. Each is fixed and covered by tests. Not re-run yet: the blocked rekordbox import and USB steps of that plugin test. Local validation: 854 tests passed with five Windows-only skips.
+
 ## 0.1.0a12
 
 A UX and product pass driven by three audits (a sandboxed first-time install, the CLI surface and output at 80/120 columns, and use from Claude Code/Codex). Measured on 2026-10-06:
