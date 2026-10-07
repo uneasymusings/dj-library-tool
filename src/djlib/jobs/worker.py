@@ -8,7 +8,7 @@ from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from djlib.application.service import Application, add_event, new_id, require
 from djlib.application.tracklists import file_name_labels
@@ -727,6 +727,16 @@ class Worker:
                     )
                 )
             item = require(session, JobItem, item_id)
+            position = item.position
+            if job.kind == "download":
+                collection_id = self.download_collection(session, job)
+                # A shared collection keeps earlier downloads first.
+                last = session.scalar(
+                    select(func.max(Membership.position)).where(
+                        Membership.collection_id == collection_id
+                    )
+                )
+                position = 0 if last is None else last + 1
             if collection_id:
                 member = session.scalar(
                     select(Membership).where(
@@ -741,7 +751,7 @@ class Worker:
                             collection_id=collection_id,
                             recording_id=recording.id,
                             revision_id=revision.id,
-                            position=item.position,
+                            position=position,
                         )
                     )
                     require(session, Collection, collection_id).revision += 1
@@ -759,6 +769,37 @@ class Worker:
             item.state, item.result = "succeeded", result
             require(session, Operation, operation_id).phase = "committed"
             add_event(session, job, "item_ready", {"item_id": item.id, "reused": reused})
+
+    @staticmethod
+    def download_collection(session, job: Job) -> str:
+        """A download job's collection, made when its first song arrives. Downloads with the
+        same name, such as repeated ``set --fetch`` runs of one set, share one."""
+        if collection_id := job.result.get("collection_id"):
+            return collection_id
+        earlier = session.scalars(
+            select(Job.result)
+            .where(
+                Job.kind == "download",
+                Job.id != job.id,
+                Job.request["name"].as_string() == job.request["name"],
+            )
+            .order_by(Job.created_at.desc(), Job.id.desc())
+        ).all()
+        collection_id = next(
+            (
+                result["collection_id"]
+                for result in earlier
+                if (result or {}).get("collection_id")
+                and session.get(Collection, result["collection_id"]) is not None
+            ),
+            None,
+        )
+        if collection_id is None:
+            collection_id = new_id("collection")
+            session.add(Collection(id=collection_id, name=job.request["name"]))
+            session.flush()
+        job.result = {**job.result, "collection_id": collection_id}
+        return collection_id
 
     async def export(self, job_id: str, generation: int, snapshot: dict) -> None:
         for track in snapshot["tracks"]:

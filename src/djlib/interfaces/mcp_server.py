@@ -160,7 +160,8 @@ def build_server(workspace: Workspace) -> MCPServer:
         """Queue selected public recording URLs into a managed collection; quality is unverified.
 
         Each track may list up to three `alternates` (other uploads of the same recording),
-        tried in order when its url turns out to be gone.
+        tried in order when its url turns out to be gone. The collection is made when the first
+        song arrives (`collection_id` is null until then); downloads with the same name share it.
         """
         return await request("POST", "/downloads", request_body.model_dump(mode="json"))
 
