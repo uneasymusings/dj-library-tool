@@ -695,7 +695,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 body = set_sources.download_body(request["name"], request["request_id"], chosen)
                 with status(f"Downloading {plural(len(chosen), 'song')} as MP3…"):
                     job = finished(local, local.request("POST", "/downloads", data=body)["result"])
-                    if (job.get("counts") or {}).get("failed"):
+                    if set_sources.worth_retrying(local, job):
                         # YouTube and SoundCloud refuse a stream now and then; try once more.
                         local.request(
                             "POST", f"/jobs/{job['job_id']}/control", data={"action": "retry"}

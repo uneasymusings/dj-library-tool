@@ -8,7 +8,7 @@ from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from djlib.application.service import Application, add_event, new_id, require
 from djlib.application.tracklists import file_name_labels
@@ -18,10 +18,12 @@ from djlib.audio.preparation import tag_download_copy
 from djlib.domain.contracts import (
     Profile,
     TrackInput,
+    artist_names,
+    credit_form,
     label_form,
-    normalize,
     recording_key,
     version_markers,
+    without_artist_tags,
 )
 from djlib.domain.errors import AppError
 from djlib.exporting.handoff import atomic_text, playlist_label, rekordbox_xml
@@ -41,6 +43,9 @@ from djlib.sources.web import download
 from djlib.workspace import atomic_json
 
 logger = logging.getLogger(__name__)
+
+# Failures that belong to one upload, not to the recording: another upload of it may work.
+GONE = frozenset({"SOURCE_UNAVAILABLE", "SOURCE_AUTH_REQUIRED", "DOWNLOAD_UNAVAILABLE"})
 
 
 class Worker:
@@ -361,6 +366,7 @@ class Worker:
                     detail={"source": item_request.get("track", {}).get("path")},
                 )
             )
+        tried: list[str] = []
         try:
             if "track" not in item_request:
                 source_input = item_request["source"]
@@ -368,28 +374,28 @@ class Worker:
                     raise AppError(
                         "DISK_RESERVE_REACHED", "Web acquisition requires 1.1 GiB of free space."
                     )
-                task = asyncio.create_task(
-                    download(source_input["url"], self.app.workspace.incoming / item_id)
+                urls = list(
+                    dict.fromkeys([source_input["url"], *source_input.get("alternates", [])])
                 )
-                try:
-                    while not task.done():
-                        if not self.active(job_id, generation):
-                            task.cancel()
-                            await asyncio.gather(task, return_exceptions=True)
-                            return
-                        await asyncio.sleep(0.2)
-                    path, provenance = await task
-                finally:
-                    if not task.done():
-                        task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
-                if not self.active(job_id, generation):
+                for number, url in enumerate(urls):
+                    tried.append(url)
+                    # Each upload gets its own folder so a resumed receipt names its own audio.
+                    folder = item_id if number == 0 else f"{item_id}-{number}"
+                    try:
+                        fetched = await self.fetch(url, folder, job_id, generation)
+                    except AppError as exc:
+                        if exc.code in GONE and url != urls[-1]:
+                            continue  # this upload is gone; try the next of the same recording
+                        raise
+                    break
+                if fetched is None or not self.active(job_id, generation):
                     return
+                path, provenance = fetched
                 item_request["track"] = {
                     "path": str(path),
                     **{k: source_input[k] for k in ("artist", "title", "version")},
                 }
-                item_request["provenance"] = provenance
+                item_request["provenance"] = {**provenance, "tried_urls": tried}
                 with self.app.db.transaction() as session:
                     require(session, JobItem, item_id).request = item_request
             track = TrackInput.model_validate(item_request["track"])
@@ -509,7 +515,11 @@ class Worker:
             if self.active(job_id, generation):
                 with self.app.db.transaction() as session:
                     item = require(session, JobItem, item_id)
-                    item.state, item.result = "failed", {"error": exc.as_dict()}
+                    item.state = "failed"
+                    item.result = {
+                        "error": exc.as_dict(),
+                        **({"tried_urls": tried} if tried else {}),
+                    }
                     require(session, Operation, operation_id).phase = "failed"
                     add_event(
                         session,
@@ -518,18 +528,48 @@ class Worker:
                         {"item_id": item_id, "code": exc.code},
                     )
 
+    async def fetch(
+        self, url: str, folder: str, job_id: str, generation: int
+    ) -> tuple[Path, dict] | None:
+        """Download one upload, or None when the job was paused or cancelled meanwhile."""
+        task = asyncio.create_task(download(url, self.app.workspace.incoming / folder))
+        try:
+            while not task.done():
+                if not self.active(job_id, generation):
+                    return None
+                await asyncio.sleep(0.2)
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
     @staticmethod
     def identity_conflict(
         track: TrackInput, inspection: Inspection, exact_version: bool = True
     ) -> bool:
-        if inspection.artist and normalize(inspection.artist) != normalize(track.artist):
-            return True
-        if inspection.title:
-            expected = {normalize(track.title), normalize(f"{track.title} {track.version}")}
-            if normalize(inspection.title) not in expected:
+        """Whether embedded tags name another artist, song or version than the request.
+
+        Compared as request matching compares: "(Original Mix)" is no version, country tags
+        such as "(BR)" and the order of credited names do not matter, and a featured artist
+        may be credited in the artist or the title.
+        """
+        names, wanted = credit_form(track.artist, track.title, without_artist_tags(track.version))
+        if inspection.artist:
+            # Without a title tag, featured names in the requested title cannot be checked.
+            found = (
+                credit_form(inspection.artist, inspection.title)[0]
+                if inspection.title
+                else artist_names(inspection.artist)
+            )
+            if found != (names if inspection.title else artist_names(track.artist)):
                 return True
-            requested = version_markers(f"{track.title} {track.version}")
-            if exact_version and requested != version_markers(inspection.title):
+        if inspection.title:
+            title = credit_form("", inspection.title)[1]
+            # Tags often leave the mix name out; the version markers below still tell.
+            if title not in {wanted, credit_form("", track.title)[1]}:
+                return True
+            if exact_version and version_markers(wanted) != version_markers(title):
                 return True
         return False
 
@@ -687,6 +727,16 @@ class Worker:
                     )
                 )
             item = require(session, JobItem, item_id)
+            position = item.position
+            if job.kind == "download":
+                collection_id = self.download_collection(session, job)
+                # A shared collection keeps earlier downloads first.
+                last = session.scalar(
+                    select(func.max(Membership.position)).where(
+                        Membership.collection_id == collection_id
+                    )
+                )
+                position = 0 if last is None else last + 1
             if collection_id:
                 member = session.scalar(
                     select(Membership).where(
@@ -701,19 +751,55 @@ class Worker:
                             collection_id=collection_id,
                             recording_id=recording.id,
                             revision_id=revision.id,
-                            position=item.position,
+                            position=position,
                         )
                     )
                     require(session, Collection, collection_id).revision += 1
-            item.state = "succeeded"
-            item.result = {
+            result = {
                 "asset_revision_id": revision.id,
                 "recording_id": recording.id,
                 "reused": reused,
                 "path": str(location),
             }
+            if source := item.request.get("source"):
+                # Which upload arrived, and every one tried before it.
+                provenance = item.request.get("provenance") or {}
+                result["source_url"] = provenance.get("source_url") or source["url"]
+                result["tried_urls"] = provenance.get("tried_urls") or [source["url"]]
+            item.state, item.result = "succeeded", result
             require(session, Operation, operation_id).phase = "committed"
             add_event(session, job, "item_ready", {"item_id": item.id, "reused": reused})
+
+    @staticmethod
+    def download_collection(session, job: Job) -> str:
+        """A download job's collection, made when its first song arrives. Downloads with the
+        same name, such as repeated ``set --fetch`` runs of one set, share one."""
+        if collection_id := job.result.get("collection_id"):
+            return collection_id
+        earlier = session.scalars(
+            select(Job.result)
+            .where(
+                Job.kind == "download",
+                Job.id != job.id,
+                Job.request["name"].as_string() == job.request["name"],
+            )
+            .order_by(Job.created_at.desc(), Job.id.desc())
+        ).all()
+        collection_id = next(
+            (
+                result["collection_id"]
+                for result in earlier
+                if (result or {}).get("collection_id")
+                and session.get(Collection, result["collection_id"]) is not None
+            ),
+            None,
+        )
+        if collection_id is None:
+            collection_id = new_id("collection")
+            session.add(Collection(id=collection_id, name=job.request["name"]))
+            session.flush()
+        job.result = {**job.result, "collection_id": collection_id}
+        return collection_id
 
     async def export(self, job_id: str, generation: int, snapshot: dict) -> None:
         for track in snapshot["tracks"]:

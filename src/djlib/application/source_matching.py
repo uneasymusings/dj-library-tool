@@ -28,6 +28,11 @@ DURATION_TOLERANCE = 8
 SAME_LENGTH = 2
 CONFIDENT_SCORE = 0.75
 CONFIDENT_MARGIN = 0.1
+PROBES = 3
+MAX_ALTERNATES = 3
+OFFICIAL = "official artist upload"
+LABEL = "label upload"
+VOUCHED = "same length as the artist's upload"
 MAX_COMMENTS = 2000
 MAX_COMMENT_CHARS = 5000
 MAX_MENTIONS = 20_000
@@ -223,14 +228,22 @@ class Assessed:
     missing: bool
     versioned: bool
     official: bool
+    label: bool
     duration: float | None
+
+
+def _credits(entry: dict) -> str:
+    """The publisher's artist credit (SoundCloud's ``artists``) in matching form."""
+    artists = entry.get("artists")
+    names = [name for name in artists if isinstance(name, str)] if isinstance(artists, list) else []
+    return _text(" ".join(names[:10]))
 
 
 def _assess(want: Wanted, entry: dict, index: int) -> Assessed | None:
     title = str(entry.get("title") or "")
     uploader = str(entry.get("uploader") or "")
     duration = _seconds(entry.get("duration"))
-    title_text, text = _text(title), _text(f"{title} {uploader}")
+    title_text, text, credits = _text(title), _text(f"{title} {uploader}"), _credits(entry)
     words = set(text.split())
     if duration is not None and duration < MIN_SECONDS:
         return None
@@ -247,17 +260,17 @@ def _assess(want: Wanted, entry: dict, index: int) -> Assessed | None:
     label = not official and bool(
         (want.label and _same_name(core, want.label)) or LABEL_WORDS & uploader_words
     )
-    named = {name for name in want.primary if _has(text, name)}
+    named = {name for name in want.primary if _has(text, name) or _has(credits, name)}
     if not named and not official and not label:
         return None
 
     score, reasons, missing = BASE_SCORE, [], False
     if official:
         score += OFFICIAL_BONUS
-        reasons.append("official artist upload")
+        reasons.append(OFFICIAL)
     elif label:
         score += LABEL_BONUS
-        reasons.append("label upload")
+        reasons.append(LABEL)
     if not named and not official:
         score -= MISSING_PENALTY
         reasons.append("artist not in title")
@@ -303,17 +316,33 @@ def _assess(want: Wanted, entry: dict, index: int) -> Assessed | None:
         reasons,
         missing,
         bool(strong) or "extended" in extra,
-        official or label,
+        official,
+        label,
         duration,
     )
 
 
-def rank_sources(requested: dict, entries: list[dict]) -> list[dict]:
+def _same_length(one: Assessed, other: Assessed) -> bool:
+    return (
+        one.duration is not None
+        and other.duration is not None
+        and abs(one.duration - other.duration) <= SAME_LENGTH
+    )
+
+
+def rank_sources(
+    requested: dict, entries: list[dict], checked: dict[str, dict] | None = None
+) -> list[dict]:
     """Plausible search entries for the requested track, best first.
 
-    Each returned entry is a copy with ``score`` (0..1), ``confident`` and short ``reasons``.
-    Entries missing the title, artist or requested version words, previews under a minute,
-    over-long uploads and full sets are dropped; unrequested versions stay with a heavy penalty.
+    Each returned entry is a copy with ``score`` (0..1), ``confident``, short ``reasons``,
+    ``other_version`` and ``available``. Entries missing the title, artist or requested version
+    words, previews under a minute, over-long uploads and full sets are dropped; unrequested
+    versions stay with a heavy penalty.
+
+    ``checked`` maps URLs to availability probes (``available`` True, False or None). With it,
+    uploads that are gone are left out (they still vouch for the recording's length) and only
+    an upload that played can be confident.
     """
     want = _wanted(requested)
     assessed = [
@@ -321,6 +350,10 @@ def rank_sources(requested: dict, entries: list[dict]) -> list[dict]:
         for index, entry in enumerate(entries)
         if isinstance(entry, dict) and (item := _assess(want, entry, index)) is not None
     ]
+
+    def available(item: Assessed) -> bool | None:
+        return ((checked or {}).get(item.entry.get("url")) or {}).get("available")
+
     clean = [item for item in assessed if not item.versioned and item.duration is not None]
     for item in assessed:
         others = [other.duration for other in clean if other is not item]
@@ -332,6 +365,10 @@ def rank_sources(requested: dict, entries: list[dict]) -> list[dict]:
         ):
             item.score += DURATION_BONUS
             item.reasons.append("duration matches others")
+        if item.label and any(
+            other.official and not other.versioned and _same_length(item, other) for other in clean
+        ):
+            item.reasons.append(VOUCHED)
         item.score = round(min(max(item.score, 0.0), 1.0), 3)
 
     def views(item: Assessed) -> int:
@@ -344,26 +381,30 @@ def rank_sources(requested: dict, entries: list[dict]) -> list[dict]:
         return (-item.score, -views(item), *text, item.index)
 
     assessed.sort(key=order)
+    kept = [item for item in assessed if available(item) is not False]
     confident = False
-    if assessed:
-        best = assessed[0]
-        runner = assessed[1] if len(assessed) > 1 else None
+    if kept:
+        best = kept[0]
+        runner = kept[1] if len(kept) > 1 else None
         same_upload = (
             runner is not None
-            and runner.official
+            and (runner.official or runner.label)
             and not runner.versioned
-            and best.duration is not None
-            and runner.duration is not None
-            and abs(best.duration - runner.duration) <= SAME_LENGTH
+            and _same_length(best, runner)
         )
+        # A label upload as long as the artist's own upload (even one that is gone) is that
+        # recording, whether or not its title names the artist.
+        vouched = VOUCHED in best.reasons
         confident = (
-            not best.missing
+            (not best.missing or vouched)
             and not best.versioned
             and best.score >= CONFIDENT_SCORE
+            and (checked is None or available(best) is True)
             and (
                 runner is None
                 or round(best.score - runner.score, 3) >= CONFIDENT_MARGIN
                 or same_upload
+                or vouched
             )
         )
     return [
@@ -372,9 +413,36 @@ def rank_sources(requested: dict, entries: list[dict]) -> list[dict]:
             "score": item.score,
             "confident": confident and position == 0,
             "reasons": item.reasons,
+            "other_version": item.versioned,
+            "available": available(item),
         }
-        for position, item in enumerate(assessed)
+        for position, item in enumerate(kept)
     ]
+
+
+def worth_probing(ranked: list[dict], count: int = PROBES) -> list[str]:
+    """URLs of the best few uploads of the requested version, for an availability check."""
+    return [item["url"] for item in ranked if not item.get("other_version")][:count]
+
+
+def alternates(ranked: list[dict], chosen: dict, limit: int = MAX_ALTERNATES) -> list[str]:
+    """Other uploads to fetch when the chosen one turns out to be gone, best first.
+
+    Only the requested version: the artist's or label's own uploads, or any upload of the
+    same length as the chosen one.
+    """
+    length = _seconds(chosen.get("duration"))
+    found = []
+    for item in ranked:
+        if item.get("url") == chosen.get("url") or item.get("other_version"):
+            continue
+        if item.get("available") is False or item.get("url") in found:
+            continue
+        duration = _seconds(item.get("duration"))
+        same_length = None not in (length, duration) and abs(length - duration) <= SAME_LENGTH
+        if same_length or {OFFICIAL, LABEL} & set(item.get("reasons") or []):
+            found.append(item["url"])
+    return found[:limit]
 
 
 CLOCK = re.compile(r"(?<![\w:])@?(\d{1,2}(?::[0-5]\d){1,2})(?![\w:])")

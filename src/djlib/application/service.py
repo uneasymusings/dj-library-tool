@@ -241,9 +241,13 @@ class Application:
                 session.add(value)
                 session.flush()
                 if kind in {"collection", "download"}:
-                    collection = Collection(id=new_id("collection"), name=payload["name"])
-                    session.add(collection)
-                    value.result = {"collection_id": collection.id}
+                    # A download's collection is made when its first song arrives, so failed
+                    # downloads leave no empty crate behind.
+                    collection_id = None
+                    if kind == "collection":
+                        collection_id = new_id("collection")
+                        session.add(Collection(id=collection_id, name=payload["name"]))
+                    value.result = {"collection_id": collection_id}
                     for position, track in enumerate(payload["tracks"]):
                         session.add(
                             JobItem(
@@ -302,8 +306,12 @@ class Application:
 
     def download(self, request: DownloadRequest) -> dict:
         for track in request.tracks:
-            validate_url(track.url)
+            for url in (track.url, *track.alternates):
+                validate_url(url)
         payload = request.model_dump(mode="json", exclude={"idempotency_key"})
+        for track in payload["tracks"]:
+            if not track["alternates"]:
+                del track["alternates"]  # earlier submissions keep their fingerprint
         payload["effective_profile"] = self.profile("archive").model_dump(mode="json")
         return self.submit("download", payload, request.idempotency_key)
 

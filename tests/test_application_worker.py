@@ -313,3 +313,202 @@ async def test_download_tags_only_managed_copy_and_records_final_hash(
     track = application.collection(result["result"]["collection_id"])["tracks"][0]
     assert track["sha256"] == checksum(managed) != acquired["sha256"]
     assert track["properties"]["provenance"]["acquired_sha256"] == acquired["sha256"]
+
+
+OFFICIAL = "https://soundcloud.com/phoenix/lasso"
+LABEL = "https://soundcloud.com/glassnotemusic/lasso"
+
+
+def lasso_download(application, key, alternates=(), url=OFFICIAL):
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    track = SourceTrack(url=url, artist="Phoenix", title="Lasso", alternates=list(alternates))
+    return application.download(
+        DownloadRequest(name="Tonight — downloads", idempotency_key=key, tracks=[track])
+    )
+
+
+def fake_provider(monkeypatch, source, failures):
+    calls = []
+
+    async def fake_download(url, destination):
+        calls.append((url, destination.name))
+        if url in failures:
+            raise failures[url]
+        destination.mkdir(parents=True, exist_ok=True)
+        path = destination / "audio.wav"
+        shutil.copyfile(source, path)
+        return path, {"kind": "test_download", "source_url": url}
+
+    monkeypatch.setattr("djlib.jobs.worker.download", fake_download)
+    return calls
+
+
+async def test_download_falls_back_to_another_upload_when_one_is_gone(
+    application, audio_factory, monkeypatch
+):
+    gone = AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
+    calls = fake_provider(monkeypatch, audio_factory("lasso.wav", frequency=480), {OFFICIAL: gone})
+    job = lasso_download(application, "fallback", [OFFICIAL, LABEL, "https://youtu.be/lasso"])
+    result = await execute(application, job["job_id"])
+
+    assert result["outcome"] == "complete"
+    [item] = application.items(job["job_id"])["items"]
+    # Each upload downloads into its own folder; later alternates are never touched.
+    assert calls == [(OFFICIAL, item["item_id"]), (LABEL, f"{item['item_id']}-1")]
+    assert item["result"]["source_url"] == LABEL
+    assert item["result"]["tried_urls"] == [OFFICIAL, LABEL]
+    track = application.collection(result["result"]["collection_id"])["tracks"][0]
+    assert track["properties"]["provenance"]["source_url"] == LABEL
+    assert track["properties"]["provenance"]["tried_urls"] == [OFFICIAL, LABEL]
+
+
+@pytest.mark.parametrize(
+    ("error", "tried"),
+    [
+        # A refused stream may work on a retry of the same upload: no fallback.
+        (AppError("SOURCE_FAILED", "Refused.", 502, True), [OFFICIAL]),
+        (AppError("SOURCE_UNAVAILABLE", "Gone.", 502), [OFFICIAL, LABEL]),
+    ],
+)
+async def test_download_failures_record_every_upload_tried(
+    application, audio_factory, monkeypatch, error, tried
+):
+    calls = fake_provider(monkeypatch, audio_factory(), {OFFICIAL: error, LABEL: error})
+    job = lasso_download(application, "failing", [LABEL])
+    result = await execute(application, job["job_id"])
+
+    assert result["counts"] == {"failed": 1}
+    [item] = application.items(job["job_id"])["items"]
+    assert [url for url, _ in calls] == tried
+    assert item["result"]["tried_urls"] == tried
+    assert item["result"]["error"]["code"] == error.code
+    assert item["result"]["error"]["retryable"] is error.retryable
+
+
+def test_download_alternates_are_validated_and_optional(application):
+    from pydantic import ValidationError
+
+    from djlib.domain.contracts import SourceTrack
+
+    with pytest.raises(ValidationError):
+        SourceTrack(url=OFFICIAL, artist="A", title="T", alternates=[LABEL] * 4)
+    with pytest.raises(AppError) as error:
+        lasso_download(application, "elsewhere", ["https://evil.test/lasso"])
+    assert error.value.code == "SOURCE_UNSUPPORTED"
+    # Without alternates the stored request is what earlier releases stored.
+    plain = lasso_download(application, "plain")
+    assert "alternates" not in application.items(plain["job_id"])["items"][0]["input"]
+    assert lasso_download(application, "plain")["job_id"] == plain["job_id"]
+
+
+@pytest.mark.parametrize(
+    ("requested", "tags"),
+    [
+        (("Phoenix", "Lasso (Original Mix)", ""), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", "Original Mix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Original Mix)")),
+        (("Antdot & Maz (BR)", "Lasso", ""), ("Antdot, Maz", "Lasso")),
+        (("Maz (BR), Antdot", "Lasso", ""), ("Antdot & Maz", "Lasso")),
+        (("Phoenix feat. Ana", "Lasso", ""), ("Phoenix", "Lasso (feat. Ana)")),
+        (("Phoenix", "Lasso", "Maz (BR) Remix"), ("Phoenix", "Lasso (Maz Remix)")),
+        (("Phoenix", "Lasso (Extended Mix)", ""), ("Phoenix", "Lasso (Extended Mix)")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "")),
+        (("Phoenix", "Lasso", ""), ("", "Lasso")),
+    ],
+)
+def test_equivalent_labels_are_not_a_metadata_conflict(requested, tags):
+    from types import SimpleNamespace
+
+    track = TrackInput(path="/x.mp3", artist=requested[0], title=requested[1], version=requested[2])
+    file = SimpleNamespace(artist=tags[0], title=tags[1])
+    assert Worker.identity_conflict(track, file) is False
+
+
+@pytest.mark.parametrize(
+    ("requested", "tags"),
+    [
+        (("Phoenix", "Lasso (Two Door Cinema Club Remix)", ""), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Two Door Cinema Club Remix)")),
+        (("Phoenix", "Lasso", "Two Door Cinema Club Remix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", "Extended Mix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Live)")),
+        (("Phoenix", "Lasso", ""), ("Glassnote Records", "Lasso")),
+        (("Antdot & Maz", "Lasso", ""), ("Antdot", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Entertainment")),
+    ],
+)
+def test_other_versions_and_artists_are_still_a_metadata_conflict(requested, tags):
+    from types import SimpleNamespace
+
+    track = TrackInput(path="/x.mp3", artist=requested[0], title=requested[1], version=requested[2])
+    assert Worker.identity_conflict(track, SimpleNamespace(artist=tags[0], title=tags[1])) is True
+
+
+async def test_download_tagged_without_original_mix_needs_no_review(
+    application, audio_factory, monkeypatch
+):
+    """The live case: the label's MP3 is tagged "Lasso"; the tracklist said "(Original Mix)"."""
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    tagged = audio_factory("glassnote.wav", frequency=490, artist="Phoenix", title="Lasso")
+    fake_provider(monkeypatch, tagged, {})
+    track = SourceTrack(url=LABEL, artist="Phoenix", title="Lasso (Original Mix)")
+    job = application.download(
+        DownloadRequest(name="Tonight — downloads", idempotency_key="tagged", tracks=[track])
+    )
+    result = await execute(application, job["job_id"])
+    assert (result["state"], result["outcome"]) == ("completed", "complete")
+    assert not application.reviews(job["job_id"])["reviews"]
+
+
+def collections(application):
+    return application.saved("collections")["collections"]
+
+
+async def test_failed_downloads_leave_no_empty_collection(application, audio_factory, monkeypatch):
+    gone = AppError("SOURCE_UNAVAILABLE", "Gone.", 502)
+    fake_provider(monkeypatch, audio_factory(), {OFFICIAL: gone})
+    job = lasso_download(application, "gone")
+    assert job["result"] == {"collection_id": None}
+    result = await execute(application, job["job_id"])
+    assert result["counts"] == {"failed": 1}
+    assert result["result"]["collection_id"] is None and collections(application) == []
+
+
+async def test_repeated_downloads_for_one_set_share_its_collection(
+    application, audio_factory, monkeypatch
+):
+    gone = AppError("SOURCE_UNAVAILABLE", "Gone.", 502)
+    other = "https://youtu.be/other"
+    fake_provider(monkeypatch, audio_factory("first.wav", frequency=510), {OFFICIAL: gone})
+    failed = await execute(application, lasso_download(application, "first")["job_id"])
+    first = await execute(application, lasso_download(application, "second", url=LABEL)["job_id"])
+    collection_id = first["result"]["collection_id"]
+    assert failed["result"]["collection_id"] is None and collection_id
+
+    fake_provider(monkeypatch, audio_factory("second.wav", frequency=530), {})
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    later = application.download(
+        DownloadRequest(
+            name="Tonight — downloads",
+            idempotency_key="third",
+            tracks=[SourceTrack(url=other, artist="Phoenix", title="Entertainment")],
+        )
+    )
+    later = await execute(application, later["job_id"])
+    assert later["result"]["collection_id"] == collection_id
+    tracks = application.collection(collection_id)["tracks"]
+    assert [track["title"] for track in tracks] == ["Lasso", "Entertainment"]
+    assert [row["name"] for row in collections(application)] == ["Tonight — downloads"]
+
+    elsewhere = application.download(
+        DownloadRequest(
+            name="Friday — downloads",
+            idempotency_key="friday",
+            tracks=[SourceTrack(url=other, artist="Phoenix", title="Entertainment")],
+        )
+    )
+    elsewhere = await execute(application, elsewhere["job_id"])
+    assert elsewhere["result"]["collection_id"] not in {None, collection_id}
