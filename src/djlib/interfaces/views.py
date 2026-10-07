@@ -1,12 +1,12 @@
 """Readable terminal views for djlib results, keyed by CLI command path."""
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
 import typer
 from rich import box
 from rich.cells import cell_len
-from rich.markup import escape
 from rich.padding import Padding
 from rich.table import Table
 from rich.text import Text
@@ -14,19 +14,28 @@ from rich.text import Text
 from djlib import __version__
 from djlib.domain.contracts import TRAILING_VERSION
 from djlib.interfaces.terminal import (
+    ACCESSIBILITY_SETTINGS,
     ACTIVE_STATES,
     JOB_LABELS,
     Terminal,
+    active_context,
     ago,
     command_parts,
     duration,
+    ffmpeg_install,
     follow,
+    hanging,
     humanize,
+    indented,
     job_progress,
+    needs_ffmpeg,
     params,
     path_text,
     plural,
+    quote,
     render_error,
+    shell_path,
+    short_id,
     short_path,
     size,
 )
@@ -73,6 +82,8 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
     result = envelope.get("result")
     if result is None:
         result = {}
+    # Skipped lines and similar notes belong under the headline, not after the next steps.
+    term.pending = [str(warning) for warning in envelope.get("warnings") or []]
     if (
         name in FOLLOW
         and client_factory is not None
@@ -82,13 +93,11 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
     ):
         followed = follow(term, client_factory(), result)
         job_card(term, followed.job, detached=followed.detached)
+        flush_warnings(term)
         exit_for_job(followed.job, detached=followed.detached)
         return
     VIEWS.get(name, generic)(term, result)
-    for warning in envelope.get("warnings") or []:
-        term.err.print(
-            Text.assemble((f"{term.glyph('warn')} ", "warn"), str(warning)), soft_wrap=True
-        )
+    flush_warnings(term)  # views without a headline
 
 
 def exit_for_job(job: dict, *, detached: bool = False, timed_out: bool = False) -> None:
@@ -107,61 +116,134 @@ def exit_for_job(job: dict, *, detached: bool = False, timed_out: bool = False) 
 # -- building blocks ---------------------------------------------------------------------------
 
 
+# A follow-up: (label, djlib command parts), (label, "plain shell command") or (label, None).
+Step = tuple[str, tuple | str | None]
+# Glyph colors; only the glyph of a good result is green, its text stays plain.
+TONE_STYLES = {
+    "ok": "ok",
+    "bad": "bad",
+    "warn": "warn",
+    "run": "info",
+    "pause": "warn",
+    "todo": "muted",
+    "skip": "muted",
+    "mark": "brand",
+}
+
+
+def flush_warnings(term: Terminal) -> None:
+    pending, term.pending = term.pending, []
+    for warning in pending:
+        hanging(term.out, Text(term.glyph("warn"), style="warn"), Text(warning), indent=2)
+
+
 def header(term: Terminal, title: str, subtitle: str = "", *, glyph: str = "mark") -> None:
-    line = Text.assemble((term.glyph(glyph), "brand" if glyph == "mark" else glyph), " ")
-    line.append(title, style="heading")
+    line = Text.assemble((title, "heading"))
     if subtitle:
         line.append(f"  {subtitle}", style="muted")
-    term.out.print(line)
+    hanging(term.out, Text(term.glyph(glyph), style=TONE_STYLES.get(glyph, "")), line)
+    flush_warnings(term)
 
 
-def status_line(term: Terminal, tone: str, message: str, detail: str = "") -> None:
-    line = Text.assemble((term.glyph(tone), tone), " ", (message, "heading"))
+def status_line(
+    term: Terminal, tone: str, message: str, detail: str = "", *, detail_style: str = "muted"
+) -> None:
+    """The headline: wraps under its message, never back to column 0."""
+    line = Text.assemble((message, "heading"))
     if detail:
-        line.append(f"  {detail}", style="muted")
-    term.out.print(line)
+        line.append(f"  {detail}", style=detail_style)
+    hanging(term.out, Text(term.glyph(tone), style=TONE_STYLES.get(tone, "")), line)
+    flush_warnings(term)
+
+
+def marked(term: Terminal, glyph: str, label: str, tone: str | None = None) -> Text:
+    """``✓ label`` with the glyph colored; good news keeps its text plain."""
+    tone = tone or glyph
+    style = TONE_STYLES.get(tone, tone)
+    text = Text.assemble((term.glyph(glyph), style))
+    text.append(f" {label}", style="" if tone == "ok" else style)
+    return text
 
 
 def fields(term: Terminal, rows: list[tuple[str, object]]) -> None:
-    """Aligned label/value rows; soft wrapping keeps long paths copy-pasteable."""
+    """Aligned label/value rows; long values wrap under their value column."""
     rows = [(label, value) for label, value in rows if value is not None and value != ""]
     if not rows:
         return
-    width = max(len(label) for label, _ in rows)
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="label", no_wrap=True)
+    grid.add_column(overflow="fold")
     for label, value in rows:
-        line = Text("  ")
-        line.append(label.ljust(width), style="label")
-        line.append("  ")
-        line.append_text(value if isinstance(value, Text) else Text(str(value)))
-        term.out.print(line, soft_wrap=True)
+        grid.add_row(Text(label), value if isinstance(value, Text) else Text(str(value)))
+    term.out.print(indented(grid))
 
 
-def next_steps(term: Terminal, steps: list[tuple[str, tuple | None]]) -> None:
+# Crate and request-list arguments accept the first characters of an ID (djlib.handles).
+LONG_ID = re.compile(r"^(?:collection|request)_(?P<hex>[0-9a-f]{32})$")
+
+
+def short_handle(part: str) -> str:
+    """`collection_083659cb…` → `083659cb` in printed commands; full IDs elsewhere."""
+    match = LONG_ID.match(part)
+    return match["hex"][:8] if match else part
+
+
+def next_steps(term: Terminal, steps: list[Step], *, title: str = "Next") -> None:
     """Copy-pasteable follow-ups; long commands move under their label, unbroken."""
-    steps = [step for step in steps if step]
+    steps = list(dict.fromkeys(step for step in steps if step))
     if not steps:
         return
     term.out.print()
-    term.out.print(Text("Next", style="heading"))
-    width = max(len(label) for label, _ in steps)
-    for label, parts in steps:
-        line = Text.assemble("  ", (term.glyph("arrow"), "accent"), " ", label)
-        if parts:
-            command = term.command(*parts)
-            if 6 + width + len(command) <= term.out.width:
-                line.append(" " * (width - len(label) + 2))
-            else:
-                line.append("\n    ")
+    term.out.print(Text(title, style="heading"))
+    commands = [
+        ""
+        if not parts
+        else parts
+        if isinstance(parts, str)
+        else term.command(
+            *(short_handle(part) if isinstance(part, str) else part for part in parts)
+        )
+        for _, parts in steps
+    ]
+    # Align the commands of the steps that fit on one line; the rest move under their label.
+    width = max(
+        (
+            cell_len(label)
+            for (label, _), command in zip(steps, commands, strict=True)
+            if 6 + cell_len(label) + cell_len(command) <= term.out.width
+        ),
+        default=0,
+    )
+    for (label, _), command in zip(steps, commands, strict=True):
+        if command and 6 + max(width, cell_len(label)) + cell_len(command) <= term.out.width:
+            line = Text.assemble("  ", (term.glyph("arrow"), "accent"), " ", label)
+            line.append(" " * (width - cell_len(label) + 2))
             line.append(command, style="cmd")
-        term.out.print(line, soft_wrap=True)
+            term.out.print(line, soft_wrap=True)
+            continue
+        hanging(term.out, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
+        if command:
+            # Soft wrap leaves the command in one piece for copying.
+            term.out.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+
+
+def more_line(term: Terminal, summary: str, parts: tuple | None) -> None:
+    """``20 of 412 tracks · more: djlib library --after X`` under a list."""
+    line = Text.assemble((summary, "muted"))
+    if parts:
+        line.append(f"  {term.glyph('dot')}  more: ", style="muted")
+        line.append(term.command(*parts), style="cmd")
+    term.out.print()
+    term.out.print(line, soft_wrap=True)
 
 
 def note(term: Terminal, message: str) -> None:
-    term.out.print(Padding(Text(message, style="muted"), (0, 0, 0, 2)))
+    term.out.print(indented(Text(message, style="muted")))
 
 
 MIN_FLEX = 6
 READABLE_FLEX = 12  # optional columns drop before flexible text gets narrower than this
+TITLE_WIDTH = 24  # ... or a title or name narrower than this; the mix name tells versions apart
 GUTTER = 3  # cell padding on both sides plus SIMPLE_HEAD's blank divider
 
 
@@ -182,7 +264,8 @@ class Grid:
         return len(self.rows)
 
     def add_row(self, *cells) -> None:
-        self.rows.append(list(cells))
+        # Plain strings would be read as Rich markup; titles like "[/]" must print as typed.
+        self.rows.append([Text(cell) if isinstance(cell, str) else cell for cell in cells])
 
     def __rich_console__(self, console, options):
         count = len(self.columns)
@@ -198,11 +281,14 @@ class Grid:
             )
             natural.append(min(size, spec.get("max_width", size)))
         active = list(range(count))
+        # Titles and names keep about 24 cells; optional columns go first.
+        floor = [
+            min(natural[i], spec.get("readable", READABLE_FLEX)) if flexible[i] else natural[i]
+            for i, (_, spec) in enumerate(self.columns)
+        ]
 
         def needed(columns):
-            return sum(
-                min(natural[i], READABLE_FLEX) if flexible[i] else natural[i] for i in columns
-            ) + GUTTER * (len(columns) - 1)
+            return sum(floor[i] for i in columns) + GUTTER * (len(columns) - 1)
 
         droppable = sorted(
             (spec["drop"], index) for index, (_, spec) in enumerate(self.columns) if "drop" in spec
@@ -214,9 +300,14 @@ class Grid:
         room -= sum(widths[i] for i in active if not flexible[i])
         shrinkable = [i for i in active if flexible[i]]
         while shrinkable and sum(widths[i] for i in shrinkable) > room:
-            widest = max(shrinkable, key=lambda i: widths[i])
-            if widths[widest] <= MIN_FLEX:
-                break
+            # Shrink whatever is furthest above its readable width; below that, the widest.
+            roomy = [i for i in shrinkable if widths[i] > floor[i]]
+            if roomy:
+                widest = max(roomy, key=lambda i: widths[i] - floor[i])
+            else:
+                widest = max(shrinkable, key=lambda i: widths[i])
+                if widths[widest] <= MIN_FLEX:
+                    break
             widths[widest] -= 1
         grid = Table(
             box=box.SIMPLE_HEAD,
@@ -248,7 +339,7 @@ def page_hint(term: Terminal, result: dict, noun: str, shown: int) -> None:
     total = result.get("total")
     cursor = result.get("next_cursor")
     summary = f"{shown} of {plural(total, noun)}" if isinstance(total, int) else plural(shown, noun)
-    line = Text(summary, style="muted")
+    parts = None
     if cursor is not None:
         options = params()
         parts = command_parts()
@@ -260,10 +351,8 @@ def page_hint(term: Terminal, result: dict, noun: str, shown: int) -> None:
             if options.get("limit") not in (None, 20):
                 parts += ["--limit", str(options["limit"])]
             parts += ["--after", str(cursor)]
-        line.append(f"  {term.glyph('dot')}  more: ", style="muted")
-        line.append(term.command(*parts), style="cmd")
-    term.out.print()
-    term.out.print(line)
+        parts = tuple(parts)
+    more_line(term, summary, parts)
 
 
 def track_label(track: dict) -> Text:
@@ -303,21 +392,21 @@ def file_tail(path: str | None) -> Text:
 def badge(term: Terminal, state: str | None, outcome: str | None = None) -> Text:
     if state == "completed":
         if outcome == "completed_with_gaps":
-            return Text(f"{term.glyph('warn')} partial", style="warn")
-        return Text(f"{term.glyph('ok')} done", style="ok")
-    glyph, tone, label = {
-        "queued": ("todo", "muted", "queued"),
-        "running": ("run", "info", "running"),
-        "paused": ("pause", "warn", "paused"),
-        "needs_attention": ("warn", "warn", "needs review"),
-        "failed": ("bad", "bad", "failed"),
-        "cancelled": ("skip", "muted", "cancelled"),
-    }.get(state or "", ("todo", "muted", state or "unknown"))
-    return Text(f"{term.glyph(glyph)} {label}", style=tone)
+            return marked(term, "warn", "partial")
+        return marked(term, "ok", "done")
+    glyph, label = {
+        "queued": ("todo", "queued"),
+        "running": ("run", "running"),
+        "paused": ("pause", "paused"),
+        "needs_attention": ("warn", "needs review"),
+        "failed": ("bad", "failed"),
+        "cancelled": ("skip", "cancelled"),
+    }.get(state or "", ("todo", state or "unknown"))
+    return marked(term, glyph, label)
 
 
 COUNT_TONES = {
-    "succeeded": "ok",
+    "succeeded": "",
     "failed": "bad",
     "skipped": "warn",
     "needs_input": "warn",
@@ -349,26 +438,89 @@ def counts_text(term: Terminal, counts: dict | None) -> Text:
 # -- jobs --------------------------------------------------------------------------------------
 
 
-def job_card(term: Terminal, job: dict, *, detached: bool = False, timed_out: bool = False):
-    kind = job.get("kind") or "job"
-    label = JOB_LABELS.get(kind, humanize(kind))
-    state, outcome = job.get("state"), job.get("outcome")
-    title = label.split(" ", 1)[0] if state == "completed" else label
-    if state == "completed":
-        tone = "warn" if outcome == "completed_with_gaps" else "ok"
+CRATE_JOBS = frozenset({"collection", "organize", "organization"})
+NEEDS_FFMPEG = "NEEDS_FFMPEG"  # failure group, not an error code
+
+
+def job_error(job: dict) -> dict:
+    """The job-level error (e.g. ITEM_LIMIT for a scan), if the whole job failed."""
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    error = result.get("error")
+    return error if isinstance(error, dict) else {"message": str(error)} if error else {}
+
+
+def failed_items(job_id: str, limit: int = 100) -> list[dict]:
+    """Failed items of a finished job, best effort; the card falls back to plain counts."""
+    ctx = active_context()
+    workspace = ctx.find_root().obj if ctx is not None else None
+    if not job_id or workspace is None:
+        return []
+    from djlib.interfaces.client import LocalClient
+    from djlib.workspace import Workspace
+
+    if not isinstance(workspace, Workspace):
+        return []
+    try:
+        reply = LocalClient(workspace, allow_start=False).request(
+            "GET", f"/jobs/{job_id}/items", params={"state": "failed", "limit": limit}
+        )
+    except Exception:  # noqa: BLE001 - the card still renders without reasons
+        return []
+    return (reply.get("result") or {}).get("items") or []
+
+
+def failure_groups(job: dict) -> list[tuple[str, str, int]]:
+    """``(code, first message, count)`` for a finished job's failed items, commonest first."""
+    failed = int((job.get("counts") or {}).get("failed", 0))
+    if not failed or job.get("state") in ACTIVE_STATES:
+        return []
+    groups: dict[str, list] = {}
+    items = failed_items(job.get("job_id", ""))
+    for item in items:
+        error = (item.get("result") or {}).get("error") or {}
+        if not isinstance(error, dict):
+            error = {"message": str(error)}
+        code = NEEDS_FFMPEG if needs_ffmpeg(error) else str(error.get("code") or "FAILED")
+        groups.setdefault(code, [str(error.get("message") or "failed"), 0])[1] += 1
+    if len(groups) == 1 and len(items) < failed:
+        next(iter(groups.values()))[1] = failed  # one reason for every failure we sampled
+    return sorted(
+        ((code, message, count) for code, (message, count) in groups.items()),
+        key=lambda group: -group[2],
+    )
+
+
+def job_headline(kind: str, job: dict) -> str:
+    counts = job.get("counts") or {}
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    succeeded = int(counts.get("succeeded", 0))
+    if kind == "scan":
+        message = f"{plural(succeeded, 'track')} indexed"
+    elif kind in CRATE_JOBS:
+        tracks = result.get("selected_count")
+        message = f"Crate built: {plural(int(succeeded if tracks is None else tracks), 'track')}"
+    else:
         message = {
-            "scan": "Music indexed",
-            "collection": "Collection built",
             "download": "Downloads finished",
             "export": "Export ready",
             "delivery": "Working copies prepared",
             "delivery_check": "Delivery check recorded",
-            "organize": "Collection organized",
-            "organization": "Collection organized",
             "reconcile": "Changes reconciled",
-        }.get(kind, f"{title} finished")
-        if tone == "warn":
-            message += ", with gaps"
+        }.get(kind, f"{JOB_LABELS.get(kind, humanize(kind)).split(' ', 1)[0]} finished")
+    if job.get("outcome") == "completed_with_gaps":
+        gaps = [f"{counts[state]} {state}" for state in ("failed", "skipped") if counts.get(state)]
+        message += ", " + (" and ".join(gaps) if gaps else "with gaps")
+    return message
+
+
+def job_card(term: Terminal, job: dict, *, detached: bool = False, timed_out: bool = False):
+    kind = job.get("kind") or "job"
+    label = JOB_LABELS.get(kind, humanize(kind))
+    state, outcome = job.get("state"), job.get("outcome")
+    counts = job.get("counts") or {}
+    if state == "completed":
+        tone = "warn" if outcome == "completed_with_gaps" else "ok"
+        message = job_headline(kind, job)
     elif state in ACTIVE_STATES:
         tone, message = "run", f"{label} {'(detached)' if detached else 'in progress'}"
     else:
@@ -379,24 +531,40 @@ def job_card(term: Terminal, job: dict, *, detached: bool = False, timed_out: bo
             "paused": f"{label} paused",
             "needs_attention": f"{label} needs your review",
         }.get(state, f"{label}: {state}")
-    status_line(term, tone if tone in {"ok", "warn", "bad"} else tone, message)
-    done, total = job_progress(job.get("counts") or {})
+    status_line(term, tone, message)
+    groups = failure_groups(job)
+    troubled = bool(
+        counts.get("failed")
+        or state in {"failed", "needs_attention"}
+        or outcome == "completed_with_gaps"
+    )
+    done, total = job_progress(counts)
     rows: list[tuple[str, object]] = []
-    if total:
-        progress = counts_text(term, job.get("counts"))
+    # Scan and crate headlines already carry the counts once the job is done.
+    if total and (state != "completed" or kind not in {"scan", *CRATE_JOBS}):
+        progress = counts_text(term, counts)
         if state in ACTIVE_STATES:
             progress = Text(f"{done}/{total}  ", style="").append_text(progress)
         rows.append(("Items", progress))
+    noun = "file" if kind == "scan" else "track"
+    for index, (code, reason, count) in enumerate(groups):
+        text = (
+            Text(f"{plural(count, noun)} need FFmpeg", style="bad")
+            if code == NEEDS_FFMPEG
+            else Text.assemble((f"{plural(count, noun)}  ", "bad"), reason)
+        )
+        rows.append(("Failed" if index == 0 else "", text))
     rows += job_result_rows(term, kind, job.get("result") or {})
-    rows.append(("Job", Text(job.get("job_id", ""), style="muted")))
-    if job.get("updated_at"):
-        rows.append(("Updated", Text(ago(job["updated_at"]), style="muted")))
+    if troubled:
+        rows.append(("Job", Text(job.get("job_id", ""), style="muted")))
+        if job.get("updated_at"):
+            rows.append(("Updated", Text(ago(job["updated_at"]), style="muted")))
     fields(term, rows)
     if detached:
         note(term, "The job keeps running in the background; closing this terminal is safe.")
     elif timed_out:
         note(term, "Still running in the background.")
-    next_steps(term, job_next_steps(term, job))
+    next_steps(term, job_next_steps(term, job, groups))
 
 
 def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, object]]:
@@ -411,14 +579,12 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
             ("Manifest", path_text(result.get("manifest_path"))),
         ]
         return rows
-    if kind in {"organize", "organization"} and "selected_count" in result:
-        rows.append(("Selected", plural(int(result.get("selected_count") or 0), "track")))
-        if result.get("excluded_count"):
-            reasons = ", ".join(
-                f"{count} {humanize(reason).lower()}"
-                for reason, count in (result.get("exclusion_counts") or {}).items()
-            )
-            rows.append(("Excluded", Text(f"{result['excluded_count']}  {reasons}", "warn")))
+    if kind in {"organize", "organization"} and result.get("excluded_count"):
+        reasons = ", ".join(
+            f"{count} {humanize(reason).lower()}"
+            for reason, count in (result.get("exclusion_counts") or {}).items()
+        )
+        rows.append(("Excluded", Text(f"{result['excluded_count']}  {reasons}", "warn")))
     skipped = result.get("skipped_files") or {}
     if kind == "scan" and sum(skipped.values()):
         reasons = []
@@ -427,8 +593,10 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
         if skipped.get("outside_allowed_folders"):
             reasons.append(f"{skipped['outside_allowed_folders']} links outside allowed folders")
         rows.append(("Skipped", Text(", ".join(reasons), style="muted")))
-    if result.get("collection_id"):
-        rows.append(("Collection", Text(result["collection_id"], style="")))
+    if kind in CRATE_JOBS and result.get("name"):
+        rows.append(("Crate", Text(result["name"])))
+    elif result.get("collection_id"):
+        rows.append(("Crate", Text(result["collection_id"], style="")))
     if result.get("delivery_id"):
         rows.append(("Delivery", Text(result["delivery_id"], style="")))
     for index, playlist in enumerate(result.get("playlists") or []):
@@ -440,12 +608,14 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
     return rows
 
 
-def job_next_steps(term: Terminal, job: dict) -> list[tuple[str, tuple | None]]:
+def job_next_steps(
+    term: Terminal, job: dict, groups: list[tuple[str, str, int]] | None = None
+) -> list[Step]:
     job_id = job.get("job_id", "")
     state, kind = job.get("state"), job.get("kind")
     counts = job.get("counts") or {}
     result = job.get("result") if isinstance(job.get("result"), dict) else {}
-    steps: list[tuple[str, tuple | None]] = []
+    steps: list[Step] = []
     if state in ACTIVE_STATES:
         steps.append(("Watch progress", ("jobs", "watch", job_id)))
         return steps
@@ -453,20 +623,35 @@ def job_next_steps(term: Terminal, job: dict) -> list[tuple[str, tuple | None]]:
         steps.append(("Review conflicts", ("reviews", "list", "--job-id", job_id)))
     if state == "paused":
         steps.append(("Resume", ("jobs", "control", job_id, "resume")))
-    if counts.get("failed") or state == "failed":
+    error = job_error(job)
+    retry = ("jobs", "control", job_id, "retry")
+    codes = {code for code, _, _ in groups or []}
+    if error.get("code") == "ITEM_LIMIT" and kind == "scan":
+        # Retrying the same folder hits the same limit.
+        steps.append(("Scan one subfolder at a time", ("scan", "PATH")))
+    elif needs_ffmpeg(error) or NEEDS_FFMPEG in codes:
+        steps.append(("Install FFmpeg", ffmpeg_install() or ("doctor",)))
+        if codes - {NEEDS_FFMPEG}:
+            steps.append(("See the other failures", ("jobs", "items", job_id, "--state", "failed")))
+        steps.append(("Then retry the failed files", retry))
+    elif counts.get("failed"):
         steps.append(("See what failed", ("jobs", "items", job_id, "--state", "failed")))
         if state != "cancelled":
-            steps.append(("Retry failed items", ("jobs", "control", job_id, "retry")))
+            steps.append(("Retry failed items", retry))
+    elif state == "failed":
+        steps.append(("Try again", retry))
     if state == "completed":
         if kind == "scan":
             steps.append(("Browse your library", ("library",)))
             steps.append(("Check a set's tracklist against it", ("set", "TRACKLIST.txt")))
         elif result.get("collection_id"):
-            steps.append(("Open the collection", ("collection", result["collection_id"])))
-            if kind in {"collection", "organize"}:
-                collection = result["collection_id"]
+            collection = result["collection_id"]
+            if kind in CRATE_JOBS:
                 steps.append(("Put it in rekordbox", ("rekordbox", "push", collection)))
                 steps.append(("Or straight onto your USB", ("rekordbox", "usb", collection)))
+                steps.append(("See its tracks", ("crate", collection)))
+            else:
+                steps.append(("Open the crate", ("crate", collection)))
         elif kind in {"delivery", "delivery_check"} and result.get("delivery_id"):
             steps.append(("Check delivery status", ("delivery", "get", result["delivery_id"])))
         elif kind == "export" and result.get("playlist_path"):
@@ -489,8 +674,8 @@ def jobs_list(term: Terminal, result: dict) -> None:
     grid = table(
         ("State", {}),
         ("Kind", {}),
-        ("Name", {"overflow": "ellipsis", "drop": 2}),
-        ("Items", {"overflow": "ellipsis", "drop": 3}),
+        ("Name", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Items", {"overflow": "ellipsis", "drop": 2}),
         ("Updated", {"style": "muted", "drop": 1}),
         ("Job", {"style": "muted"}),
     )
@@ -501,7 +686,7 @@ def jobs_list(term: Terminal, result: dict) -> None:
             job.get("name") or "",
             counts_text(term, job.get("counts")),
             ago(job.get("updated_at")),
-            job.get("job_id", ""),
+            short_id(job.get("job_id")),
         )
     term.out.print(grid)
     page_hint(term, result, "job", len(rows))
@@ -544,17 +729,11 @@ def jobs_items(term: Terminal, result: dict) -> None:
         )
     term.out.print(grid)
     if result.get("next_cursor") is not None:
-        job_id = params().get("job_id", "")
-        term.out.print()
-        term.out.print(
-            Text.assemble(
-                ("more: ", "muted"),
-                (
-                    term.command("jobs", "items", job_id, "--after", str(result["next_cursor"])),
-                    "cmd",
-                ),
-            )
-        )
+        options = params()
+        parts = ("jobs", "items", options.get("job_id", ""), "--after", str(result["next_cursor"]))
+        if options.get("state"):
+            parts += ("--state", str(options["state"]))
+        more_line(term, plural(len(rows), "item"), parts)
 
 
 def item_badge(term: Terminal, state: str | None) -> Text:
@@ -563,12 +742,12 @@ def item_badge(term: Terminal, state: str | None) -> Text:
         "failed": ("bad", "bad"),
         "skipped": ("skip", "warn"),
         "needs_input": ("warn", "warn"),
-        "running": ("run", "info"),
-        "pending": ("todo", "muted"),
-        "cancelled": ("skip", "muted"),
-    }.get(state or "", ("todo", "muted"))
+        "running": ("run", "run"),
+        "pending": ("todo", "todo"),
+        "cancelled": ("skip", "skip"),
+    }.get(state or "", ("todo", "todo"))
     label = "needs review" if state == "needs_input" else (state or "")
-    return Text(f"{term.glyph(glyph)} {label}", style=tone)
+    return marked(term, glyph, label, tone)
 
 
 # -- reviews -----------------------------------------------------------------------------------
@@ -611,6 +790,7 @@ def reviews_list(term: Terminal, result: dict) -> None:
                 )
                 for choice in review.get("choices") or []
             ],
+            title="Choose one",  # one per review; "Next" stays one block per screen
         )
 
 
@@ -631,7 +811,7 @@ def track_table(
         columns.append(("#", {"justify": "right", "style": "muted"}))
     columns += [
         ("Artist", {"overflow": "ellipsis"}),
-        ("Title", {"overflow": "ellipsis", "style": "heading"}),
+        ("Title", {"overflow": "ellipsis", "style": "heading", "readable": TITLE_WIDTH}),
     ]
     if show_version:
         columns.append(("Version", {"overflow": "ellipsis"}))
@@ -676,57 +856,50 @@ def library(term: Terminal, result: dict) -> None:
     page_hint(term, result, "track", len(tracks))
 
 
-@view("collections")
+# `crates`/`crate` are the command names; `collections`/`collection` remain as aliases.
+@view("crates", "collections")
 def collections(term: Terminal, result: dict) -> None:
     rows = result.get("collections") or []
     if not rows:
-        status_line(term, "todo", "No collections yet")
-        note(term, "A collection (crate) is built from the songs of a tracklist you own.")
+        status_line(term, "todo", "No crates yet")
+        note(term, "A crate is built from the songs of a tracklist you own.")
         next_steps(term, [("Build one from a tracklist", ("set", "TRACKLIST.txt"))])
         return
     grid = table(
-        ("Name", {"style": "heading", "overflow": "ellipsis"}),
+        ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Tracks", {"justify": "right"}),
         ("Created", {"style": "muted", "drop": 1}),
-        ("Collection", {"style": "muted"}),
+        ("ID", {"style": "muted"}),
     )
     for row in rows:
         grid.add_row(
             row.get("name") or "",
             str(row.get("track_count", "")),
             ago(row.get("created_at")),
-            row.get("collection_id", ""),
+            short_id(row.get("collection_id")),
         )
     term.out.print(grid)
-    page_hint(term, result, "collection", len(rows))
+    page_hint(term, result, "crate", len(rows))
 
 
-@view("collection")
+@view("crate", "collection")
 def collection(term: Terminal, result: dict) -> None:
     tracks = result.get("tracks") or []
     total = result.get("track_count", len(tracks))
-    header(term, result.get("name") or "Collection", plural(total, "track"))
+    header(term, result.get("name") or "Crate", plural(total, "track"))
+    offset = int(params().get("after") or 0)
     if tracks:
         term.out.print()
-        offset = int(params().get("after") or 0)
         term.out.print(track_table(term, tracks, numbered=True, start=offset))
-    term.out.print()
-    fields(term, [("Collection", Text(result.get("collection_id", ""), style="muted"))])
     if result.get("next_cursor") is not None:
-        next_steps(
+        more_line(
             term,
-            [
-                (
-                    "Next page",
-                    (
-                        "collection",
-                        result.get("collection_id", ""),
-                        "--after",
-                        str(result["next_cursor"]),
-                    ),
-                )
-            ],
+            f"{offset + 1}{'–' if term.unicode else '-'}{offset + len(tracks)} "
+            f"of {plural(total, 'track')}",
+            ("crate", result.get("collection_id", ""), "--after", str(result["next_cursor"])),
         )
+    term.out.print()
+    fields(term, [("Crate", Text(result.get("collection_id", ""), style="muted"))])
     collection = result.get("collection_id", "")
     next_steps(
         term,
@@ -753,17 +926,15 @@ def roots(term: Terminal, result: dict) -> None:
     header(term, "Music folders", "djlib only reads inside these")
     for root in allowed:
         exists = Path(root).is_dir()
-        line = Text("  ")
-        line.append(term.glyph("ok" if exists else "bad"), style="ok" if exists else "bad")
-        line.append(" ")
-        line.append(short_path(root), style="path")
+        line = Text.assemble((short_path(root), "path"))
         if root in added:
             line.append("  new", style="accent")
         if not exists:
             line.append("  not found (unplugged drive?)", style="bad")
-        term.out.print(line)
+        glyph = "ok" if exists else "bad"
+        hanging(term.out, Text(term.glyph(glyph), style=glyph), line, indent=2)
     if added and len(added) == 1:
-        next_steps(term, [("Index it", ("scan", next(iter(added))))])
+        next_steps(term, [("Index it", ("scan", Path(next(iter(added)))))])
 
 
 # -- setup and service -------------------------------------------------------------------------
@@ -799,7 +970,8 @@ def init_view(term: Terminal, result: dict) -> None:
 
 @view("ui")
 def review_page(term: Terminal, result: dict) -> None:
-    header(term, "Review page", "opening in your browser")
+    # Only claim the browser opened when the command says it did.
+    header(term, "Review page", "opened in your browser" if result.get("opened") else "")
     term.out.print(Text("  " + (result.get("url") or ""), style="path"), soft_wrap=True)
     term.out.print()
     note(term, "The link contains this workspace's access token. Keep it to yourself.")
@@ -810,17 +982,17 @@ def review_page(term: Terminal, result: dict) -> None:
 def status_view(term: Terminal, result: dict) -> None:
     tracks = int(result.get("tracks") or 0)
     header(term, "djlib", short_path(result.get("workspace")))
-    service = result.get("service_url")
     bpm, key = int(result.get("with_bpm") or 0), int(result.get("with_key") or 0)
+    dot = term.glyph("dot")
     fields(
         term,
         [
-            ("Library", f"{plural(tracks, 'track')}  ·  BPM for {bpm}  ·  key for {key}"),
             (
-                "Service",
-                Text(f"{term.glyph('ok')} running", style="ok")
-                if service
-                else Text("stopped; starts when needed", style="muted"),
+                "Library",
+                Text.assemble(
+                    (plural(tracks, "track"), "heading"),
+                    f"  {dot}  BPM for {bpm}  {dot}  key for {key}",
+                ),
             ),
             (
                 "Analysis",
@@ -830,47 +1002,81 @@ def status_view(term: Terminal, result: dict) -> None:
             ),
         ],
     )
-    # A tracklist checked again after edits makes a new list; show the newest per name.
+    # A tracklist checked again after edits makes a new list, and a rebuilt crate a new
+    # collection; show the newest of each name.
     newest: dict[str, dict] = {}
     for row in result.get("recent_requests") or []:
         newest.setdefault(row.get("name") or row.get("request_id"), row)
     requests = list(newest.values())
+    crates: dict[str, dict] = {}
+    for row in result.get("recent_collections") or []:
+        crates.setdefault(row.get("name") or row.get("collection_id"), row)
+    collections = list(crates.values())
+    # A list that owns more songs than its crate holds was re-checked after new music.
+    outdated = {
+        row.get("name"): row
+        for row in requests
+        if row.get("name") in crates
+        and int(row.get("owned") or 0) > int(crates[row["name"]].get("tracks") or 0)
+    }
     if requests:
         term.out.print()
         term.out.print(Text("Request lists", style="heading"))
         for row in requests:
-            line = Text("  ")
             done = not row.get("unresolved")
-            line.append(term.glyph("ok" if done else "todo"), style="ok" if done else "warn")
-            line.append(f" {row.get('name', '')}", style="heading")
-            line.append(f"  {row.get('owned', 0)}/{row.get('songs', 0)} owned", style="muted")
+            line = Text(str(row.get("name") or ""))
+            line.append(f"  {row.get('owned', 0)} of {row.get('songs', 0)} owned", style="heading")
             if row.get("missing"):
                 line.append(f"  {row['missing']} missing", style="warn")
-            term.out.print(line, soft_wrap=True)
-    collections = result.get("recent_collections") or []
+            glyph = Text(term.glyph("ok" if done else "todo"), style="ok" if done else "warn")
+            hanging(term.out, glyph, line, indent=2)
     if collections:
         term.out.print()
-        term.out.print(Text("Crates", style="heading"))
+        heading = Text.assemble(("Crates", "heading"))
+        if result.get("rekordbox_checked") is False:
+            heading.append("  rekordbox: not readable right now", style="muted")
+        term.out.print(heading)
         for row in collections:
-            line = Text("  ")
-            line.append(f"{row.get('name', '')}", style="heading")
-            line.append(f"  {plural(int(row.get('tracks') or 0), 'track')}", style="muted")
-            if row.get("in_rekordbox") is True:
-                line.append(f"  {term.glyph('ok')} in rekordbox", style="ok")
-            elif row.get("in_rekordbox") is False:
-                line.append("  not in rekordbox yet", style="muted")
-            elif row.get("pushed_at"):
-                line.append(f"  pushed to rekordbox {ago(row['pushed_at'])}", style="muted")
-            usb = row.get("usb") or {}
-            if usb:
-                complete = usb.get("expected") and usb.get("found") == usb.get("expected")
-                line.append(
-                    f"  {term.glyph('ok' if complete else 'warn')} on {usb.get('device')} "
-                    f"{usb.get('found')}/{usb.get('expected')} {ago(usb.get('checked_at'))}",
-                    style="ok" if complete else "warn",
-                )
-            term.out.print(line, soft_wrap=True)
-    steps: list[tuple[str, tuple | None]] = []
+            line = crate_line(term, row, outdated.get(row.get("name")))
+            term.out.print(indented(line))
+    steps = status_steps(result, requests, collections, outdated)
+    if not steps:
+        steps.append(("Check a set's tracklist against your music", ("set", "TRACKLIST.txt")))
+    next_steps(term, steps)
+
+
+def crate_line(term: Terminal, row: dict, outdated: dict | None) -> Text:
+    """``Friday  8 tracks  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago`` for the status screen."""
+    line = Text(str(row.get("name") or ""))
+    line.append(f"  {plural(int(row.get('tracks') or 0), 'track')}", style="heading")
+    if outdated:
+        line.append(
+            f"  {term.glyph('warn')} outdated: you now own {outdated.get('owned')} of its songs",
+            style="warn",
+        )
+    if row.get("in_rekordbox") is True:
+        line.append("  ").append_text(marked(term, "ok", "in rekordbox"))
+    elif row.get("in_rekordbox") is False:
+        line.append("  not in rekordbox yet", style="muted")
+    elif row.get("pushed_at"):
+        line.append(f"  pushed to rekordbox {ago(row['pushed_at'])}", style="muted")
+    usb = row.get("usb") or {}
+    if usb and usb_failed(usb):
+        line.append("  ").append_text(
+            marked(term, "bad", f"USB check failed on {usb.get('device')}: {usb_problem(usb)}")
+        )
+    elif usb:
+        line.append("  ").append_text(marked(term, "ok", f"on {usb.get('device')}"))
+        line.append(f" {ago(usb.get('checked_at'))}", style="muted")
+    return line
+
+
+def status_steps(
+    result: dict, requests: list[dict], collections: list[dict], outdated: dict[str, dict]
+) -> list[Step]:
+    tracks = int(result.get("tracks") or 0)
+    bpm, key = int(result.get("with_bpm") or 0), int(result.get("with_key") or 0)
+    steps: list[Step] = []
     if not tracks:
         steps.append(("Index your music", ("scan",)))
     elif not requests and not collections:
@@ -878,46 +1084,52 @@ def status_view(term: Terminal, result: dict) -> None:
     synced = result.get("rekordbox_analysis_synced_at")
     if tracks and not bpm and not synced and result.get("rekordbox_installed"):
         steps.append(("Read BPM and cues from rekordbox's analysis", ("rekordbox", "sync")))
-    for row in collections:
+    for row in outdated.values():
+        # Pushing the old crate would leave the new songs out of the set.
+        steps.append(
+            (
+                f"Rebuild “{row['name']}” with the {plural(int(row['owned']), 'song')} you own",
+                ("requests", "collect", row["request_id"]),
+            )
+        )
+        break
+    current = [row for row in collections if row.get("name") not in outdated]
+    for row in current:
         if row.get("in_rekordbox") is False:
             steps.append(
-                (
-                    f"Put “{row['name']}” in rekordbox",
-                    ("rekordbox", "push", row["collection_id"]),
-                )
+                (f"Put “{row['name']}” in rekordbox", ("rekordbox", "push", row["collection_id"]))
             )
             break
     for row in requests:
         if row.get("needs_check"):
-            steps.append(
-                (
-                    f"Re-check “{row['name']}”",
-                    ("requests", "refresh", row["request_id"], "--revision", str(row["revision"])),
-                )
-            )
+            steps.append((f"Re-check “{row['name']}”", ("requests", "refresh", row["request_id"])))
             break
     for row in requests:
         if (
             row.get("owned")
             and not row.get("needs_check")
-            and not any(c["name"] == row["name"] for c in collections)
+            and not any(c.get("name") == row.get("name") for c in collections)
         ):
             steps.append(
                 (f"Make a crate from “{row['name']}”", ("requests", "collect", row["request_id"]))
             )
             break
-    for row in collections:
+    for row in current:
         in_rekordbox = row.get("in_rekordbox") is True or (
             row.get("in_rekordbox") is None and row.get("pushed_at")
         )
-        if in_rekordbox and not row.get("usb"):
-            steps.append(
-                (f"Put “{row['name']}” on your USB", ("rekordbox", "usb", row["collection_id"]))
+        usb = row.get("usb") or {}
+        if in_rekordbox and (not usb or usb_failed(usb)):
+            label = (
+                f"Export “{row['name']}” to your USB again"
+                if usb
+                else f"Put “{row['name']}” on your USB"
             )
+            steps.append((label, ("rekordbox", "usb", row["collection_id"])))
             break
-    if bpm > key and result.get("rekordbox_checked"):
+    if tracks and bpm > key and result.get("rekordbox_checked"):
         steps.append(("Bring in musical key", ("rekordbox", "pull", "--when-idle", "120")))
-    next_steps(term, steps)
+    return steps
 
 
 @view("use")
@@ -944,8 +1156,14 @@ def doctor(term: Terminal, result: dict) -> None:
     header(term, "djlib doctor", __version__)
     runtimes = result.get("javascript_runtimes") or {}
     selected = runtimes.get(runtimes.get("selected") or "") or {}
+    ready = result.get("workspace_initialized") is not False
     checks = [
-        ("Workspace", True, short_path(result.get("workspace")) or "", ""),
+        (
+            "Workspace",
+            ready,
+            (short_path(result.get("workspace")) or "") if ready else "not set up yet",
+            "",
+        ),
         (
             "Background service",
             bool(result.get("coordinator_url")),
@@ -1006,20 +1224,46 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "optional; appears once rekordbox has analyzed tracks",
             ),
         ]
-    grid = Table.grid(padding=(0, 2))
-    grid.add_column(no_wrap=True, min_width=max(len(check[0]) for check in checks) + 2)
-    grid.add_column(overflow="fold")
+    fixes = result.get("fixes") or {}
+    if not ready and not fixes.get("workspace"):
+        fixes = {**fixes, "workspace": term.command("init", "--allow-root", Path.home() / "Music")}
+    width = max(cell_len(check[0]) for check in checks) + 2  # glyph and space
     for name, passed, value, hint in checks:
-        optional = "optional" in hint or name == "Background service"
-        tone = "ok" if passed else ("todo" if optional else "bad")
-        style = {"ok": "ok", "todo": "muted", "bad": "bad"}[tone]
-        detail = Text(value, style="path" if passed and "/" in value else "")
+        # Not set up yet and not running yet are steps to take, not failures.
+        todo = "optional" in hint or name in {"Background service", "Workspace"}
+        tone = "ok" if passed else ("todo" if todo else "bad")
+        detail = Text.assemble((value, "path" if passed and "/" in value else ""))
         if hint:
             detail.append(f"  {hint}", style="muted")
-        grid.add_row(Text(f"{term.glyph(tone)} ", style=style) + Text(name), detail)
-    term.out.print(Padding(grid, (0, 0, 0, 2)))
+        row = Table.grid(padding=(0, 2))
+        row.add_column(no_wrap=True, min_width=width)
+        row.add_column(overflow="fold")
+        row.add_row(marked(term, tone, name), detail)
+        term.out.print(indented(row))
+        fix = None if passed else fixes.get(DOCTOR_FIXES.get(name, ""))
+        if name == "App control" and not passed:
+            fix = fix or ACCESSIBILITY_SETTINGS
+        if fix:
+            # Under the detail column, unbroken so it can be pasted.
+            line = Text.assemble(" " * (width + 4), (term.glyph("arrow"), "accent"), " ")
+            term.out.print(line.append(str(fix), style="cmd"), soft_wrap=True)
     term.out.print()
+    if result.get("required_checks_passed") is False:
+        note(term, f"Fix the items marked {term.glyph('bad')}, then run djlib doctor again.")
     note(term, "djlib drives rekordbox through its own menus and never edits its database.")
+
+
+# Doctor check -> key of its install/fix command in the result's ``fixes``.
+DOCTOR_FIXES = {
+    "Workspace": "workspace",
+    "FFmpeg": "ffmpeg",
+    "ffprobe": "ffprobe",
+    "yt-dlp": "yt_dlp",
+    "YouTube JS runtime": "javascript_runtime",
+    "rekordbox": "rekordbox",
+    "App control": "app_control",
+    "rekordbox analysis": "rekordbox_analysis",
+}
 
 
 @view("capabilities")
@@ -1028,12 +1272,8 @@ def capabilities(term: Terminal, result: dict) -> None:
     grid = Table.grid(padding=(0, 4))
     grid.add_column()
     grid.add_column()
-    implemented = [
-        Text(f"{term.glyph('ok')} ", "ok") + humanize(x) for x in result.get("implemented") or []
-    ]
-    planned = [
-        Text(f"{term.glyph('todo')} ", "muted") + humanize(x) for x in result.get("planned") or []
-    ]
+    implemented = [marked(term, "ok", humanize(x)) for x in result.get("implemented") or []]
+    planned = [marked(term, "todo", humanize(x)) for x in result.get("planned") or []]
     grid.add_row(Text("Available", style="label"), Text("Planned", style="label"))
     for index in range(max(len(implemented), len(planned))):
         grid.add_row(
@@ -1076,22 +1316,19 @@ def setup_agent(term: Terminal, result: dict) -> None:
     fields(
         term, [("Session", path_text(output)), ("Workspace", path_text(result.get("workspace")))]
     )
-    launches = [
-        (f"Start {host.title()}", result.get(f"launch_{host}")) for host in ("claude", "codex")
-    ]
-    term.out.print()
-    term.out.print(Text("Next", style="heading"))
-    for label, command in launches:
-        if command:
-            line = Text.assemble((term.glyph("arrow"), "accent"), f" {label}  ")
-            line.append(" ".join(shell_word(part) for part in command), style="cmd")
-            term.out.print(Padding(line, (0, 0, 0, 2)))
+    next_steps(
+        term,
+        [
+            (f"Start {host.title()}", " ".join(shell_word(part) for part in command))
+            for host in ("claude", "codex")
+            if (command := result.get(f"launch_{host}"))
+        ],
+    )
 
 
 def shell_word(value: str) -> str:
-    from djlib.interfaces.terminal import quote
-
-    return quote(short_path(value)) if "/" in value else quote(value)
+    """Paths as ``~/…`` outside quotes so the shell still expands them."""
+    return shell_path(value) if "/" in value or "\\" in value else quote(value)
 
 
 @view("demo")
@@ -1104,7 +1341,7 @@ def demo(term: Terminal, result: dict) -> None:
         term,
         [
             ("Indexed", counts_text(term, ingestion.get("counts"))),
-            ("Collection", Text(collection_id)),
+            ("Crate", Text(collection_id)),
             ("Playlist", path_text(export.get("playlist_path"))),
             ("rekordbox XML", path_text(export.get("rekordbox_xml_path"))),
         ],
@@ -1113,8 +1350,7 @@ def demo(term: Terminal, result: dict) -> None:
         term,
         [
             ("Browse the library", ("library",)),
-            ("Open the collection", ("collection", collection_id)),
-            ("Stop the background service", ("service", "stop")),
+            ("Open the crate", ("crate", collection_id)),
         ],
     )
 
@@ -1151,7 +1387,7 @@ def usb_preflight(term: Terminal, result: dict) -> None:
     if isinstance(free, int) and isinstance(total, int) and total:
         width = 30
         filled = round(width * (total - free) / total)
-        meter = Text(term.glyph("bar_full") * filled, style="accent")
+        meter = Text.assemble((term.glyph("bar_full") * filled, "accent"))
         meter.append(term.glyph("bar_empty") * (width - filled), style="muted")
         meter.append(f"  {size(free)} free of {size(total)}")
         term.out.print(Padding(meter, (0, 0, 0, 2)))
@@ -1164,9 +1400,9 @@ def usb_preflight(term: Terminal, result: dict) -> None:
                 Text.assemble(
                     size(required),
                     "  ",
-                    (f"{term.glyph('ok')} fits", "ok")
+                    marked(term, "ok", "fits")
                     if enough
-                    else (f"{term.glyph('bad')} not enough space", "bad"),
+                    else marked(term, "bad", "not enough space"),
                 ),
             )
         )
@@ -1228,7 +1464,7 @@ def rekordbox_import(term: Terminal, result: dict) -> None:
     )
     rows: list[tuple[str, object]] = [
         ("In the XML", plural(int(result.get("tracks_in_xml") or 0), "track")),
-        ("Matched", Text(plural(matched, "track"), style="ok" if matched else "")),
+        ("Matched", Text(plural(matched, "track"), style="heading" if matched else "")),
     ]
     if result.get("unchanged"):
         rows.append(("Unchanged", str(result["unchanged"])))
@@ -1249,26 +1485,48 @@ def rekordbox_import(term: Terminal, result: dict) -> None:
 @view("rekordbox push")
 def rekordbox_push(term: Terminal, result: dict) -> None:
     crates = result.get("crates") or []
+    short = [
+        crate
+        for crate in crates
+        if "expected" in crate and int(crate.get("matched") or 0) < int(crate["expected"] or 0)
+    ]
+    seconds = result.get("rekordbox_ui_seconds")
     status_line(
         term,
-        "ok",
-        f"In rekordbox: {plural(len(crates), 'playlist')}",
-        f"rekordbox in front for {result.get('rekordbox_ui_seconds', 0):g} s",
+        "warn" if short else "ok",
+        f"In rekordbox: {plural(len(crates), 'playlist')}"
+        + (f", {len(short)} incomplete" if short else ""),
+        f"rekordbox needed the screen for {max(1, round(seconds))} s"
+        if isinstance(seconds, int | float) and seconds > 0
+        else "",
     )
     for crate in crates:
-        line = Text("  ")
         imported = crate.get("status") == "imported"
-        line.append(term.glyph("ok"), style="ok")
-        line.append(f" {crate.get('playlist', '')}", style="heading")
+        line = Text.assemble((str(crate.get("playlist") or ""), "heading"))
         line.append("  imported" if imported else "  already there", style="muted")
         if "expected" in crate:
-            complete = crate["matched"] == crate["expected"]
+            expected = int(crate["expected"] or 0)
             line.append(
-                f"  {crate['matched']}/{crate['expected']} tracks",
-                style="ok" if complete else "warn",
+                f"  {crate.get('matched', 0)} of {plural(expected, 'track')}",
+                style="warn" if crate in short else "heading",
             )
-            line.append(f", {crate['analyzed']} analyzed", style="muted")
-        term.out.print(line)
+            if crate.get("analyzed") is not None:
+                line.append(f", {crate['analyzed']} analyzed", style="muted")
+        glyph = "warn" if crate in short else "ok"
+        hanging(term.out, Text(term.glyph(glyph), style=glyph), line, indent=2)
+        if crate in short:
+            gap = int(crate["expected"] or 0) - int(crate.get("matched") or 0)
+            why = (
+                "rekordbox may have skipped a file it can't read"
+                if imported
+                else "this playlist may be from an older build of the crate"
+            )
+            explain = Text(
+                f"{plural(gap, 'track')} from the crate {'is' if gap == 1 else 'are'} "
+                f"not in this playlist: {why}. Check it in rekordbox before you export it.",
+                style="warn",
+            )
+            term.out.print(indented(explain, 4))
     sync = result.get("analysis_sync") or {}
     if sync:
         term.out.print()
@@ -1282,45 +1540,117 @@ def rekordbox_push(term: Terminal, result: dict) -> None:
         "rekordbox keeps analyzing in the background; djlib picks up BPM and cues on its own. "
         "Its database was not edited.",
     )
+    ready = [crate for crate in crates if crate not in short and crate.get("collection_id")]
+    next_steps(
+        term,
+        [
+            (
+                "Put it on your USB"
+                if len(crates) == 1
+                else f"Put “{crate.get('playlist', '')}” on your USB",
+                ("rekordbox", "usb", crate["collection_id"]),
+            )
+            for crate in ready[:3]
+        ],
+    )
 
 
 @view("rekordbox usb")
 def rekordbox_usb(term: Terminal, result: dict) -> None:
-    found, expected = int(result.get("found") or 0), int(result.get("expected") or 0)
-    complete = expected and found == expected
-    status_line(
-        term,
-        "ok" if complete else "warn",
-        f"“{result.get('playlist', '')}” on {Path(result.get('device') or '').name}",
-        f"exported in {result.get('export_seconds', 0):g} s",
-    )
-    if result.get("playlist_on_device"):
-        order = ", in order and" if result.get("in_order") else ","
-        tracks_line = f"{found} of {expected} in the player's library{order} byte for byte"
+    expected = int(result.get("expected") or 0)
+    failed = usb_failed(result)
+    stick = Path(result.get("device") or "").name
+    rows: list[tuple[str, object]] = []
+    if failed:
+        usb_failure(term, result)
+        rows.append(("Playlist", Text(f"“{result.get('playlist', '')}”")))
     else:
-        tracks_line = f"{found} of {expected} files on the USB, byte for byte (playlist not read)"
-    fields(
-        term,
-        [
-            ("Tracks", Text(tracks_line, "ok" if complete else "warn")),
-            (
-                "Library",
-                Text(f"{term.glyph('ok')} rekordbox device library updated", "ok")
-                if result.get("library_updated")
-                else Text("device library unchanged", "warn"),
-            ),
-            ("Key/BPM", device_analysis(result)),
-        ],
-    )
-    for label in (result.get("missing") or [])[:5]:
-        note(term, f"not matched: {label}")
+        seconds = result.get("export_seconds")
+        status_line(
+            term,
+            "ok" if expected else "warn",
+            f"“{result.get('playlist', '')}” on {stick}",
+            f"exported in {round(seconds)} s" if isinstance(seconds, int | float) else "",
+        )
+    rows += [
+        ("Tracks", Text(usb_tracks(result), style="bad" if failed else "")),
+        (
+            "Library",
+            marked(term, "ok", "rekordbox device library updated")
+            if result.get("library_updated")
+            else Text("device library unchanged", "warn"),
+        ),
+        ("Key/BPM", device_analysis(result)),
+    ]
+    fields(term, rows)
+    unmatched(term, result)
     term.out.print()
     note(term, PLAYER_NOTE)
+    if failed and result.get("collection_id"):
+        next_steps(
+            term,
+            [("Export it to the stick again", ("rekordbox", "usb", result["collection_id"]))],
+        )
 
 
 PLAYER_NOTE = (
     "Exported by rekordbox; djlib only read the stick. Test it on your player before a gig."
 )
+
+
+def usb_failed(usb: dict) -> bool:
+    """A stick that came back short or out of order must not leave for the gig."""
+    expected = int(usb.get("expected") or 0)
+    return bool(expected) and (
+        int(usb.get("found") or 0) != expected or usb.get("in_order") is False
+    )
+
+
+def usb_problem(usb: dict) -> str:
+    """``1 of 8 missing``, ``tracks out of order`` or both."""
+    found, expected = int(usb.get("found") or 0), int(usb.get("expected") or 0)
+    problems = []
+    if found < expected:
+        problems.append(f"{expected - found} of {expected} missing")
+    elif found != expected:
+        problems.append(f"{found} found, {expected} expected")
+    if usb.get("in_order") is False:
+        problems.append("out of order" if problems else "tracks out of order")
+    return " and ".join(problems)
+
+
+def usb_failure(term: Terminal, usb: dict) -> None:
+    stick = Path(usb.get("device") or "").name or "the USB"
+    dash = "—" if term.unicode else "-"
+    status_line(
+        term,
+        "bad",
+        f"USB check failed: {usb_problem(usb)} on {stick} {dash} don't take this stick yet",
+    )
+
+
+def usb_tracks(usb: dict) -> str:
+    found, expected = int(usb.get("found") or 0), int(usb.get("expected") or 0)
+    if not usb.get("playlist_on_device"):
+        return f"{found} of {expected} files on the USB, byte for byte (playlist not read)"
+    if usb.get("in_order") is False:
+        return f"{found} of {expected} in the player's library, byte for byte, but out of order"
+    order = ", in order and" if usb.get("in_order") else ","
+    return f"{found} of {expected} in the player's library{order} byte for byte"
+
+
+def unmatched(term: Terminal, usb: dict) -> None:
+    """The crate's tracks the stick did not give back."""
+    missing = usb.get("missing") or []
+    if not missing:
+        return
+    count = max(len(missing), int(usb.get("expected") or 0) - int(usb.get("found") or 0))
+    term.out.print()
+    term.out.print(Text(f"Not found on the stick ({count})", style="heading"))
+    for label in missing:
+        hanging(term.out, Text(term.glyph("bad"), style="bad"), Text(str(label)), indent=2)
+    if count > len(missing):
+        note(term, f"… and {count - len(missing)} more")
 
 
 def device_analysis(result: dict) -> Text | None:
@@ -1338,7 +1668,7 @@ def fetched_line(term: Terminal, fetched: dict) -> Text:
     chosen = len(fetched.get("chosen") or [])
     downloaded, failed = int(fetched.get("downloaded") or 0), int(fetched.get("failed") or 0)
     if downloaded:
-        line = Text(f"{term.glyph('ok')} {plural(downloaded, 'song')} downloaded as MP3", "ok")
+        line = marked(term, "ok", f"{plural(downloaded, 'song')} downloaded as MP3")
         if failed:
             line.append(f", {failed} failed", style="warn")
         return line
@@ -1351,15 +1681,24 @@ def fetched_line(term: Terminal, fetched: dict) -> Text:
 def set_view(term: Terminal, result: dict) -> None:
     owned, songs = int(result.get("owned") or 0), int(result.get("songs") or 0)
     usb = result.get("usb") or {}
-    usb_ok = not usb or (usb.get("expected") and usb.get("found") == usb.get("expected"))
-    status_line(
-        term,
-        "ok" if owned and usb_ok else "warn",
-        result.get("name") or "Set",
-        f"{owned} of {plural(songs, 'song')} owned",
-    )
-    rekordbox = result.get("rekordbox") or {}
+    usb_bad = bool(usb) and usb_failed(usb)
+    owned_line = f"{owned} of {plural(songs, 'song')} owned"
     rows: list[tuple[str, object]] = []
+    if usb_bad:
+        # The stick is what leaves for the gig; its failure leads.
+        usb_failure(term, usb)
+        rows.append(
+            ("Set", Text(result.get("name") or "").append(f"  {owned_line}", style="heading"))
+        )
+    else:
+        status_line(
+            term,
+            "ok" if owned and (not usb or usb.get("expected")) else "warn",
+            result.get("name") or "Set",
+            owned_line,
+            detail_style="heading",
+        )
+    rekordbox = result.get("rekordbox") or {}
     page = result.get("source") or {}
     if page:
         provider = (page.get("provider") or "").removesuffix("Tab").replace("Youtube", "YouTube")
@@ -1370,33 +1709,26 @@ def set_view(term: Terminal, result: dict) -> None:
     if fetched:
         rows.append(("Fetched", fetched_line(term, fetched)))
     if result.get("collection_id"):
-        rows.append(("Crate", Text(f"{plural(owned, 'track')}, in set order", "ok")))
-        there = "imported" if rekordbox.get("status") == "imported" else "already there"
-        rows.append(
-            (
-                "rekordbox",
-                Text(f"{term.glyph('ok')} playlist “{result.get('playlist')}” {there}", "ok"),
-            )
-        )
+        rows.append(("Crate", marked(term, "ok", f"{plural(owned, 'track')}, in set order")))
+        if rekordbox.get("status") == "skipped":
+            rows.append(("rekordbox", Text(f"skipped: {rekordbox.get('reason')}", "muted")))
+        else:
+            there = "imported" if rekordbox.get("status") == "imported" else "already there"
+            playlist = f"playlist “{result.get('playlist')}” {there}"
+            if rekordbox.get("replaces"):
+                # The set changed: a new version beside the playlist djlib made earlier.
+                playlist += f"; the older “{rekordbox['replaces']}” is still there to delete"
+            rows.append(("rekordbox", marked(term, "ok", playlist)))
     else:
         rows.append(("Crate", Text("none of these songs are in your library yet", "warn")))
     if usb:
-        found, expected = usb.get("found") or 0, usb.get("expected") or 0
-        place = "the player's library" if usb.get("playlist_on_device") else "the stick"
-        order = ", in order and" if usb.get("in_order") else ","
         stick = Path(usb.get("device") or "").name
-        rows.append(
-            (
-                "USB",
-                Text(
-                    f"{term.glyph('ok' if usb_ok else 'warn')} {stick}: "
-                    f"{found} of {expected} in {place}{order} byte for byte",
-                    "ok" if usb_ok else "warn",
-                ),
-            )
-        )
+        glyph = "bad" if usb_bad else "ok" if usb.get("expected") else "warn"
+        rows.append(("USB", marked(term, glyph, f"{stick}: {usb_tracks(usb)}")))
         rows.append(("Key/BPM", device_analysis(usb)))
     fields(term, rows)
+    if usb_bad:
+        unmatched(term, usb)
     missing = result.get("missing") or []
     if missing:
         term.out.print()
@@ -1404,16 +1736,16 @@ def set_view(term: Terminal, result: dict) -> None:
         grid = table(
             ("#", {"justify": "right", "style": "muted"}),
             ("Status", {"min_width": 11}),
-            ("Requested", {"overflow": "ellipsis"}),
+            ("Requested", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
             ("You own", {"overflow": "ellipsis", "drop": 1}),
         )
         for item in missing:
             glyph, tone, label = REQUEST_STATES.get(
-                item.get("state") or "", ("todo", "muted", item.get("state") or "")
+                item.get("state") or "", ("todo", "todo", item.get("state") or "")
             )
             grid.add_row(
                 str(item.get("position") or ""),
-                Text(f"{term.glyph(glyph)} {label}", style=tone),
+                marked(term, glyph, label, tone),
                 Text(item.get("label") or ""),
                 Text(", ".join(item.get("you_own") or []), style="warn"),
             )
@@ -1423,51 +1755,63 @@ def set_view(term: Terminal, result: dict) -> None:
         term.out.print()
         term.out.print(Text(f"Not downloaded: no clear match ({len(pick)})", style="heading"))
         for entry in pick[:10]:
-            line = Text(f"  {entry.get('label', '')}", style="heading")
+            line = Text.assemble((str(entry.get("label") or ""), "heading"))
             options = entry.get("options") or []
-            if options:
-                line.append(f"  best guess: {options[0].get('url')}", style="path")
-            else:
+            if not options:
                 line.append(f"  {entry.get('reason') or 'nothing found'}", style="muted")
-            term.out.print(line, soft_wrap=True)
+                term.out.print(indented(line))
+                continue
+            line.append("  best guess:", style="muted")
+            term.out.print(indented(line))
+            # One unbroken line, so the link stays clickable and copyable.
+            url = Text.assemble("    ", (str(options[0].get("url") or ""), "path"))
+            term.out.print(url, soft_wrap=True)
     hints = result.get("id_hints") or []
     if hints:
         term.out.print()
         term.out.print(Text("IDs: what listeners named around that moment", style="heading"))
         for hint in hints:
             best = hint["hints"][0]
-            line = Text(f"  #{hint.get('position')} @ {hint.get('timestamp')}  ", style="muted")
-            line.append(best.get("label") or "", style="heading")
+            line = Text.assemble((str(best.get("label") or ""), "heading"))
             line.append(f"  {plural(int(best.get('mentions') or 1), 'mention')}", style="muted")
-            others = [h.get("label") for h in hint["hints"][1:]]
+            others = [str(h.get("label") or "") for h in hint["hints"][1:]]
             if others:
-                line.append(f"  · also: {', '.join(others)}", style="muted")
-            term.out.print(line, soft_wrap=True)
+                line.append(f"  {term.glyph('dot')} also: {', '.join(others)}", style="muted")
+            moment = Text(f"#{hint.get('position')} @ {hint.get('timestamp')} ", style="muted")
+            hanging(term.out, moment, line, indent=2)
     term.out.print()
-    note(term, "Matched by exact artist/title/version labels; other versions are never swapped in.")
-    if fetched.get("downloaded"):
-        note(term, "Downloads are web audio of unverified quality, labelled as you requested.")
-    if hints:
-        note(term, "Comment hints are listeners' guesses; nothing was added for them.")
-    if usb:
-        note(term, PLAYER_NOTE)
-    steps: list[tuple[str, tuple | None]] = []
-    if result.get("collection_id") and not usb:
-        steps.append(("Put it on your USB", ("rekordbox", "usb", result["collection_id"])))
+    for line in set_notes(
+        downloaded=bool(fetched.get("downloaded")), hints=bool(hints), usb=bool(usb)
+    ):
+        note(term, line)
+    steps: list[Step] = []
+    crate = result.get("collection_id")
+    if usb_bad and crate:
+        steps.append(("Export it to the stick again", ("rekordbox", "usb", crate)))
+    elif crate and rekordbox.get("status") == "skipped":
+        steps.append(("See the crate", ("crate", crate)))
+    elif crate and not usb:
+        steps.append(("Put it on your USB", ("rekordbox", "usb", crate)))
     if missing:
-        steps.append(
-            (
-                "Save the missing songs as a list",
-                (
-                    "requests",
-                    "report",
-                    result.get("request_id", ""),
-                    "--revision",
-                    str(result.get("revision", "")),
-                ),
-            )
-        )
+        report = ("requests", "report", result.get("request_id", ""))
+        steps.append(("Save the missing songs as a list", report))
     next_steps(term, steps)
+
+
+def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
+    """At most two short lines of caveats under a set."""
+    first = "Exact artist/title/version matches only."
+    if downloaded:
+        first += " Downloads: unverified web audio."
+    second = " ".join(
+        part
+        for part, shown in (
+            ("ID hints are listeners' guesses.", hints),
+            ("Test the stick on your player before a gig.", usb),
+        )
+        if shown
+    )
+    return [line for line in (first, second) if line]
 
 
 @view("rekordbox sync")
@@ -1619,7 +1963,7 @@ def delivery_get(term: Terminal, result: dict) -> None:
         steps.add_column(style="accent", no_wrap=True)
         steps.add_column(overflow="fold")
         for number, step in enumerate(result["native_steps"], 1):
-            steps.add_row(f"{number}.", step.removeprefix(f"In {app}: "))
+            steps.add_row(f"{number}.", Text(step.removeprefix(f"In {app}: ")))
         term.out.print(Padding(steps, (0, 0, 0, 2)))
         term.out.print()
     rows: list[tuple[str, object]] = []
@@ -1633,7 +1977,7 @@ def delivery_get(term: Terminal, result: dict) -> None:
     next_steps(term, delivery_next_steps(term, result))
 
 
-def delivery_next_steps(term: Terminal, result: dict) -> list[tuple[str, tuple | None]]:
+def delivery_next_steps(term: Terminal, result: dict) -> list[Step]:
     delivery_id = result.get("delivery_id", "")
     revision = str(result.get("revision", ""))
     step = result.get("next_step") or ""
@@ -1687,7 +2031,7 @@ def delivery_list(term: Terminal, result: dict) -> None:
         next_steps(term, [("See supported targets", ("delivery", "targets"))])
         return
     grid = table(
-        ("Name", {"style": "heading", "overflow": "ellipsis"}),
+        ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Workflow", {}),
         ("Stages", {"min_width": 6}),
         ("Delivery", {"style": "muted"}),
@@ -1722,7 +2066,7 @@ def delivery_list(term: Terminal, result: dict) -> None:
                 f" {row.get('phase') or ''}", style="muted"
             ),
             stages,
-            row.get("delivery_id", ""),
+            short_id(row.get("delivery_id")),
         )
     term.out.print(grid)
     page_hint(term, result, "delivery", len(rows))
@@ -1762,7 +2106,7 @@ def requests_list(term: Terminal, result: dict) -> None:
         next_steps(term, [("Create one", ("requests", "create", "--file", "wanted.json"))])
         return
     grid = table(
-        ("Name", {"style": "heading", "overflow": "ellipsis"}),
+        ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Songs", {"justify": "right"}),
         ("Updated", {"style": "muted", "drop": 1}),
         ("Request", {"style": "muted"}),
@@ -1772,7 +2116,7 @@ def requests_list(term: Terminal, result: dict) -> None:
             row.get("name") or "",
             str(row.get("total_items", "")),
             ago(row.get("updated_at") or row.get("created_at")),
-            row.get("request_id", ""),
+            short_id(row.get("request_id")),
         )
     term.out.print(grid)
     page_hint(term, result, "request list", len(rows))
@@ -1786,20 +2130,20 @@ def request_view(term: Terminal, result: dict) -> None:
     counts = result.get("counts") or {}
     total = result.get("total_items", len(result.get("items") or []))
     header(term, result.get("name") or "Requests", plural(total, "song"))
-    summary = Text("  ")
+    summary = Text()
     for state in ("satisfied", "missing", "ambiguous", "unknown", "unavailable", "source_selected"):
         amount = int(counts.get(state, 0))
         if amount:
             glyph, tone, label = REQUEST_STATES[state]
-            if len(summary) > 2:
+            if summary:
                 summary.append(f"  {term.glyph('dot')}  ", style="muted")
-            summary.append(f"{amount} {label}", style=tone)
-    term.out.print(summary)
+            summary.append(f"{amount} {label}", style="heading" if tone == "ok" else tone)
+    term.out.print(indented(summary))
     term.out.print()
     grid = table(
         ("#", {"justify": "right", "style": "muted"}),
         ("Status", {"min_width": 15}),
-        ("Requested", {"overflow": "ellipsis"}),
+        ("Requested", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Match", {"overflow": "ellipsis", "drop": 1}),
     )
     for item in result.get("items") or []:
@@ -1812,7 +2156,7 @@ def request_view(term: Terminal, result: dict) -> None:
         ):
             glyph, tone, label = "todo", "muted", "not checked"
         if source.get("kind") == "unknown":
-            requested = Text(source.get("label") or "Unknown", style="muted")
+            requested = Text.assemble((source.get("label") or "Unknown", "muted"))
             if source.get("timestamp"):
                 requested.append(f"  @ {source['timestamp']}", style="muted")
         else:
@@ -1834,62 +2178,40 @@ def request_view(term: Terminal, result: dict) -> None:
             match = Text("")
         grid.add_row(
             str(item.get("position", "")),
-            Text(f"{term.glyph(glyph)} {label}", style=tone),
+            marked(term, glyph, label, tone),
             requested,
             match,
         )
     term.out.print(grid)
+    request_id = result.get("request_id", "")
     if result.get("next_offset") is not None:
-        next_steps(
+        shown = len(result.get("items") or [])
+        more_line(
             term,
-            [
-                (
-                    "Next page",
-                    (
-                        "requests",
-                        "get",
-                        result.get("request_id", ""),
-                        "--after",
-                        str(result["next_offset"]),
-                    ),
-                )
-            ],
+            f"{shown} of {plural(int(total or 0), 'song')}",
+            ("requests", "get", request_id, "--after", str(result["next_offset"])),
         )
     term.out.print()
     fields(
         term,
         [
-            ("Request", Text(result.get("request_id", ""), style="muted")),
+            ("Request", Text(request_id, style="muted")),
             ("Revision", result.get("revision")),
         ],
     )
     note(term, "Matched by exact artist/title/version labels only; no audio identification.")
-    steps: list[tuple[str, tuple | None]] = []
+    steps: list[Step] = []
+    owned = int(counts.get("satisfied", 0))
+    if owned:
+        steps.append(
+            (
+                f"Build the crate from the {plural(owned, 'song')} you own",
+                ("requests", "collect", request_id),
+            )
+        )
     if result.get("unresolved_items"):
-        steps.append(
-            (
-                "Save a missing-tracks report",
-                (
-                    "requests",
-                    "report",
-                    result.get("request_id", ""),
-                    "--revision",
-                    str(result.get("revision", "")),
-                ),
-            )
-        )
-        steps.append(
-            (
-                "Re-check after adding music",
-                (
-                    "requests",
-                    "refresh",
-                    result.get("request_id", ""),
-                    "--revision",
-                    str(result.get("revision", "")),
-                ),
-            )
-        )
+        steps.append(("Save a missing-tracks report", ("requests", "report", request_id)))
+        steps.append(("Re-check after adding music", ("requests", "refresh", request_id)))
     next_steps(term, steps)
 
 
@@ -1963,12 +2285,12 @@ def generic(term: Terminal, result, *, depth: int = 0) -> None:
         elif key.endswith("_at") and isinstance(value, str):
             scalars.append((humanize(key), Text(ago(value) or value, style="muted")))
         else:
-            scalars.append((humanize(key), escape(str(value))))
+            scalars.append((humanize(key), Text(str(value))))  # Text: never read as markup
     grid = Table.grid(padding=(0, 2))
     grid.add_column(style="label", no_wrap=True)
     grid.add_column(overflow="fold")
     for label, value in scalars:
-        grid.add_row(label, value if isinstance(value, Text) else Text(str(value)))
+        grid.add_row(Text(label), value if isinstance(value, Text) else Text(str(value)))
     if grid.row_count:
         term.out.print(Padding(grid, (0, 0, 0, 2 + 2 * depth)))
     for key, value in nested:

@@ -234,12 +234,27 @@ def recording_key(artist: str, title: str, version: str = "") -> str:
 TRAILING_VERSION = re.compile(r"^(?P<title>.*\S)\s*[\(\[](?P<version>[^\)\]]+)[\)\]]\s*$")
 
 
+# "(Original Mix)" is how stores and tracklists say "no special version"; files are often
+# tagged with the bare title. It never distinguishes recordings, so matching ignores it.
+ORIGINAL = re.compile(r"\s*[\(\[]\s*original(?:\s+(?:mix|version))?\s*[\)\]]\s*$", re.IGNORECASE)
+ORIGINAL_VERSIONS = frozenset({"original", "original mix", "original version"})
+
+
+def plain_labels(title: str, version: str = "") -> tuple[str, str]:
+    """The title and version without an "(Original Mix)"-style marker."""
+    if normalize(version) in ORIGINAL_VERSIONS:
+        version = ""
+    return ORIGINAL.sub("", title) or title, version
+
+
 def label_form(artist: str, title: str, version: str = "") -> tuple[str, str]:
     """Labels compared as written: "Rain (Extended Mix)" equals "Rain" + "Extended Mix".
 
     Taggers store mix names either inside the title or in a separate version field. This is
     label equivalence for matching only; identity keys and stored IDs are unchanged.
+    "(Original Mix)" is ignored: "The Bells (Original Mix)" equals "The Bells".
     """
+    title, version = plain_labels(title, version)
     return normalize(artist), normalize(f"{title} {version}" if version.strip() else title)
 
 
@@ -327,6 +342,7 @@ def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, 
     "Max Dean, Luke Dean, Jamie Jones" equals "Jamie Jones & Max Dean & Luke Dean", and
     "A feat. B" + "T" equals "A" + "T (feat. B)". A subset of the names is not equal.
     """
+    title, version = plain_labels(title, version)
     title, featured = split_featured(title)
     return artist_names(artist, *featured), label_form("", title, version)[1]
 

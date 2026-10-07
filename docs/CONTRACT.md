@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes **`0.1.0a11`**: 43 MCP tools (a10: 42) plus CLI and authenticated local HTTP routes. Released a6 exposes 40 tools (without `djlib_collect_request` and `djlib_import_rekordbox_analysis`); earlier a3 exposes 34; a2 omits delivery/request/organization commands. The response envelope remains schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes the CLI, the authenticated local HTTP routes and 43 MCP tools. `djlib mcp serve` exposes 19 core tools by default (tracklists, request lists, crates, set links, web sources, downloads, jobs and rekordbox analysis) and all 43 with `DJLIB_MCP_TOOLS=full`; `djlib.interfaces.tool_manifest` lists both. rekordbox and USB steps (`set`, `rekordbox push|usb|pull`) are CLI-only. The response envelope is schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 
@@ -21,7 +21,7 @@ Failures set `ok: false`, `result: null`, and `error: {code, message, retryable}
 
 CLI stdout is this JSON envelope whenever output is captured (pipes, files, assistants, CI), with the global `--json` flag (accepted before or after the subcommand), or with `DJLIB_OUTPUT=json`. In an interactive terminal, commands print readable views instead: tables, live job progress on stderr and copy-pasteable next steps; errors go to stderr. `DJLIB_OUTPUT=pretty` forces the terminal view. Presentation never changes what a command submits, and generated assistant sessions set `DJLIB_OUTPUT=json`. Help and argument parsing follow Typer conventions.
 
-Interactive terminals add conveniences that scripts never get implicitly: `--key` may be omitted for `scan`, `start`, `export` and `delivery prepare` (a fresh key is generated; with JSON output a missing key is an `INPUT_INVALID` envelope), submissions follow their job until it finishes (Ctrl-C detaches; the job keeps running), and `delivery observe ID` without `--file` asks what you saw and fills counts and recording IDs from the frozen, checksummed manifest only after you confirm. `scan` without a path uses the only allowed root, in either mode. MCP stdout is protocol-only. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
+Interactive terminals add conveniences that scripts never get implicitly: `--key` may be omitted for `scan`, `start`, `export` and `delivery prepare` (a fresh key is generated; with JSON output a missing key is an `INPUT_INVALID` envelope), submissions follow their job until it finishes (Ctrl-C detaches; the job keeps running), and `delivery observe ID` without `--file` asks what you saw and fills counts and recording IDs from the frozen, checksummed manifest only after you confirm. `scan` without a path uses the only allowed root, in either mode. MCP stdout is protocol-only; each tool's text content is the compact JSON of its `structuredContent` envelope, and before `djlib init` every tool answers `WORKSPACE_REQUIRED`. Workspace service diagnostics go to `runtime/service.log`. The service has no unauthenticated browser UI or public endpoint.
 
 ## Inputs
 
@@ -96,9 +96,9 @@ A coordinator started implicitly by a command is launched with `--idle-exit 1800
 
 `delivery plan` also accepts `--collection ID` (repeatable), `--workflow`, `--app-version`, optional `--name`, `--player` and `--full` instead of `--file`.
 
-Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/cli.md#exact-requests-and-unknown-ids).
+Named request items preserve artist/title/version; unknown items retain a label plus timestamp or HTTPS source evidence without guessed identity. Saved reads are paginated snapshots (`next_offset` maps to `after`); explicit create/refresh/resolution performs bounded checks. Source selection is separate from acquisition. Multiple exact byte revisions require explicit selection. See [request recipes](../skills/dj-library/references/requests.md).
 
-Annotations bind exact recording/revision IDs. Revision `0` creates the first annotation; later patches require the current revision. Omitted fields are unchanged and explicit null clears the annotation. BPM/key values carry `source: operator|native_tag` and `verified: false` by default; `native_tag` must match freshly read catalog tags. Organization freezes ordered collections from up to 1,000 explicit references, reports exclusions and uses explicit unknown policies. It does not perform acoustic analysis or retag catalog originals. See [organization recipes](../skills/dj-library/references/cli.md#catalog-notes-and-ordered-collections).
+Annotations bind exact recording/revision IDs. Revision `0` creates the first annotation; later patches require the current revision. Omitted fields are unchanged and explicit null clears the annotation. BPM/key values carry `source: operator|native_tag` and `verified: false` by default; `native_tag` must match freshly read catalog tags. Organization freezes ordered collections from up to 1,000 explicit references, reports exclusions and uses explicit unknown policies. It does not perform acoustic analysis or retag catalog originals. See [organization recipes](../skills/dj-library/references/organize.md).
 
 ## Use cases and routes
 

@@ -22,6 +22,9 @@ from djlib.interfaces.client import LocalClient
 from djlib.interfaces.mcp_server import build_server
 from djlib.interfaces.service import create_app
 
+# Delivery tools are outside the default core MCP profile.
+pytestmark = pytest.mark.usefixtures("full_mcp_tools")
+
 DELIVERY_TOOLS = {
     "djlib_delivery_targets",
     "djlib_plan_delivery",

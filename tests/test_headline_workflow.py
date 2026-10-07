@@ -72,6 +72,55 @@ def test_tracklist_lines_become_requests_without_guessing():
     assert with_source[0].source_url == "https://example.com/set"
 
 
+def test_trailing_timestamps_are_stripped_and_kept_for_unknowns():
+    items, skipped = parse_tracklist(
+        "\n".join(
+            [
+                "Velvet Static - Night Bus @ 41:20",
+                "Nia Okoro - Slow Burn (1:02:03)",
+                "Lumen - Halo (Extended Mix) [3:20]",
+                "Lumen - Rain [Defected] [12:05]",
+                "ID - ID @ 41:20",
+                "ID - ID (47:12)",
+            ]
+        )
+    )
+    assert skipped == []
+    named = [(i.artist, i.title) for i in items if i.kind == "named"]
+    assert named == [
+        ("Velvet Static", "Night Bus"),
+        ("Nia Okoro", "Slow Burn"),
+        ("Lumen", "Halo (Extended Mix)"),
+        ("Lumen", "Rain"),
+    ]
+    unknown = [(i.label, i.timestamp) for i in items if i.kind == "unknown"]
+    assert unknown == [("ID - ID", "41:20"), ("ID - ID", "47:12")]
+    # A leading timestamp wins over a trailing one; a mix name is not a time.
+    both, _ = parse_tracklist("[10:00] ID - ID @ 41:20\nLumen - Halo (2 Step Mix)")
+    assert both[0].timestamp == "10:00" and both[1].title == "Halo (2 Step Mix)"
+
+
+def test_first_line_of_an_unnumbered_list_names_the_set():
+    from djlib.interfaces.library_cli import text_request
+
+    items, skipped = parse_tracklist("Friday at Fabric\nLumen - Halo\nNia - Burn\njust words")
+    assert [(i.artist, i.title) for i in items] == [("Lumen", "Halo"), ("Nia", "Burn")]
+    assert skipped == [
+        (1, "Friday at Fabric", "looks like a heading"),
+        (4, "just words", "no “Artist - Title” separator"),
+    ]
+    body, warnings = text_request("Friday at Fabric\nLumen - Halo", None, "file-name", None)
+    assert body.name == "Friday at Fabric" and warnings == []
+    # A "Tracklist:" label says what follows; the file name still names the set.
+    body, warnings = text_request("Tracklist:\nLumen - Halo", None, "file-name", None)
+    assert body.name == "file-name" and warnings == []
+    # Unknown IDs and real tracks on the first line are never mistaken for a heading.
+    first, skipped = parse_tracklist("Lumen - Halo\nNia - Burn")
+    assert len(first) == 2 and skipped == []
+    unknown, skipped = parse_tracklist("ID\nLumen - Halo")
+    assert skipped == [(1, "ID", "unknown ID needs a timestamp or --source")]
+
+
 def rekordbox_xml(path: Path, tracks: list[tuple[Path, str, str]]) -> Path:
     entries = "".join(
         f"<TRACK TrackID={quoteattr(str(n))} Name='t{n}' Artist='a'"
@@ -90,7 +139,7 @@ def rekordbox_xml(path: Path, tracks: list[tuple[Path, str, str]]) -> Path:
     return path
 
 
-def build(http, sources, labels):
+def build(http, sources, labels, key="own"):
     plan = assert_envelope(
         http.post(
             "/plans",
@@ -105,7 +154,7 @@ def build(http, sources, labels):
     )
     job = assert_envelope(
         http.post(
-            "/jobs", json={"plan_id": plan["plan_id"], "revision": 1, "idempotency_key": "own"}
+            "/jobs", json={"plan_id": plan["plan_id"], "revision": 1, "idempotency_key": key}
         ).json()
     )
     return finish(http, job["job_id"])
@@ -353,3 +402,24 @@ def test_cli_keeps_checking_until_the_budget_is_no_longer_the_limit(
     ledger = json.loads(reply.stdout)["result"]
     assert ledger["counts"]["satisfied"] == 3
     assert ledger["revision"] > 2
+
+
+def test_rerunning_a_tracklist_rechecks_it_against_new_music(
+    application, library_http, audio_factory, tmp_path
+):
+    build(library_http, [audio_factory("first.wav", frequency=310)], [("Lumen", "Halo")])
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nLumen - Rain\n", encoding="utf-8")
+    workspace = ["--workspace", str(application.workspace.root)]
+    first = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", str(tracklist)]
+    )
+    assert json.loads(first.stdout)["result"]["counts"]["satisfied"] == 1
+    # The DJ adds the missing song and runs the same tracklist again.
+    build(library_http, [audio_factory("second.wav", frequency=620)], [("Lumen", "Rain")], "own-2")
+    again = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", str(tracklist)]
+    )
+    result = json.loads(again.stdout)["result"]
+    assert result["request_id"] == json.loads(first.stdout)["result"]["request_id"]
+    assert result["counts"]["satisfied"] == 2

@@ -35,6 +35,11 @@ def test_setup_contains_both_skills_and_absolute_mcp_command(tmp_path):
         assert (skill / "SKILL.md").is_file() and (skill / "references" / "cli.md").is_file()
     assert result["personal_config_changed"] is False
     compile((output / "launch.py").read_text(), "launch.py", "exec")
+    # The guidance matches the current rekordbox/USB workflow, not the old export handoff.
+    guidance = (output / "AGENTS.md").read_text()
+    assert "djlib set FILE_OR_URL" in guidance and "background" in guidance
+    assert "handoff" not in guidance and "--usb" in guidance
+    assert "python3 launch.py claude" in (output / "README.md").read_text()
 
 
 def test_setup_preserves_existing_session(tmp_path):
@@ -76,6 +81,8 @@ def test_launchers_supply_scoped_config_and_forward_arguments(tmp_path, monkeypa
         assert "startup" in recorded, "Coordinator must start before the assistant host"
         # The assistant's own djlib commands keep the JSON contract even inside a PTY.
         assert env["DJLIB_OUTPUT"] == "json"
+        # rekordbox/USB steps run through the CLI, which must use the session's workspace.
+        assert env["DJLIB_WORKSPACE"] == str(workspace.root)
         recorded.update(command=command, cwd=cwd)
         return 7
 
@@ -138,7 +145,7 @@ def test_launcher_does_not_launch_host_after_failed_startup(
         assert "startup" in str(raised.value.code).lower()
 
 
-def test_mcp_startup_failure_keeps_stdout_clean(tmp_path):
+def test_mcp_without_workspace_keeps_stdout_clean(tmp_path):
     reply = subprocess.run(
         [
             sys.executable,
@@ -149,8 +156,13 @@ def test_mcp_startup_failure_keeps_stdout_clean(tmp_path):
             "mcp",
             "serve",
         ],
+        input="",
         capture_output=True,
         text=True,
         timeout=15,
     )
-    assert reply.returncode == 2 and reply.stdout == "" and reply.stderr
+    # Whether the CLI refuses to start (exit 2, reason on stderr) or the server starts and
+    # answers WORKSPACE_REQUIRED per call (exit 0 at end of input), stdout carries no text
+    # that would corrupt the MCP transport.
+    assert reply.stdout == ""
+    assert reply.returncode == 0 or (reply.returncode == 2 and reply.stderr)
