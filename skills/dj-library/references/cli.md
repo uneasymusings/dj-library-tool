@@ -87,7 +87,7 @@ Notes, BPM/key, filtered crates, folders and changed files: [organize](organize.
 djlib --json download --file downloads.json
 ```
 
-URLs are placeholders; `djlib_find_sources` (or `set --fetch`) finds and ranks real ones. Public YouTube, SoundCloud and Bandcamp recordings only, up to 30 minutes each and 1,000 per request. Downloads are saved as MP3 at the source's quality, and the catalog copy is tagged with the supplied artist/title/version. They need the `download` extra and FFmpeg; YouTube also needs Deno or Node 22+.
+URLs are placeholders; `djlib_find_sources` (or `set --fetch`) finds and ranks real ones. Optional `alternates` (up to three URLs of the same recording) are tried in order when the first upload is gone. Public YouTube, SoundCloud and Bandcamp recordings only, up to 30 minutes each and 1,000 per request. Downloads are saved as MP3 at the source's quality, and the catalog copy is tagged with the supplied artist/title/version. They need the `download` extra and FFmpeg; YouTube also needs Deno or Node 22+.
 
 ## Collections from local files and exports
 

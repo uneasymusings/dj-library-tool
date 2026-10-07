@@ -2,7 +2,13 @@
 
 import pytest
 
-from djlib.application.source_matching import comment_hints, rank_sources, tracklist_from_source
+from djlib.application.source_matching import (
+    alternates,
+    comment_hints,
+    rank_sources,
+    tracklist_from_source,
+    worth_probing,
+)
 from djlib.application.tracklists import parse_tracklist
 
 GEM_LINGO = {"artist": "Overmono", "title": "Gem Lingo", "version": ""}
@@ -323,6 +329,99 @@ def test_confidence_is_refused_for_penalised_best_candidates():
     assert missing[0]["score"] - missing[1]["score"] >= 0.1
     assert "credited artist missing" in missing[0]["reasons"]
     assert missing[0]["confident"] is False
+
+
+OFFICIAL_LASSO = "https://soundcloud.com/phoenix/lasso"
+GLASSNOTE_LASSO = "https://soundcloud.com/glassnotemusic/lasso"
+
+
+def lasso_search(credit=("Phoenix",), label_length=167.9):
+    """The live search for Phoenix - Lasso; SoundCloud entries carry the artist credit."""
+    official = {**sc("Lasso", "Phoenix", 167.863, 52_000), "url": OFFICIAL_LASSO}
+    label = {**sc("Lasso", "Glassnote Records", label_length), "url": GLASSNOTE_LASSO}
+    for upload in (official, label):
+        upload["artists"] = list(credit)
+    return [official, label, *LASSO_RESULTS[2:]]
+
+
+def test_artist_credit_on_soundcloud_counts_as_naming_the_artist():
+    ranked = rank_sources(LASSO, lasso_search())
+    label = next(item for item in ranked if item["url"] == GLASSNOTE_LASSO)
+    assert "artist not in title" not in label["reasons"]
+    assert {"label upload", "same length as the artist's upload"} <= set(label["reasons"])
+    uncredited = rank_sources(LASSO, lasso_search(credit=()))
+    label = next(item for item in uncredited if item["url"] == GLASSNOTE_LASSO)
+    assert "artist not in title" in label["reasons"]
+    # A stranger's upload credited to the artist is found too.
+    stranger = rank_sources(LASSO, [{**sc("Lasso", "Some DJ", 168), "artists": ["Phoenix"]}])
+    assert [item["uploader"] for item in stranger] == ["Some DJ"]
+
+
+def test_only_an_upload_that_plays_is_confident():
+    ranked = rank_sources(LASSO, lasso_search())
+    assert ranked[0]["url"] == OFFICIAL_LASSO and ranked[0]["confident"] is True
+    assert ranked[0]["available"] is None and ranked[0]["other_version"] is False
+    assert worth_probing(ranked) == [OFFICIAL_LASSO, GLASSNOTE_LASSO, LASSO_RESULTS[2]["url"]]
+    assert all(not item["other_version"] for item in ranked[:3])
+    assert all(item["other_version"] for item in ranked[3:])
+
+    played = {url: {"available": True} for url in worth_probing(ranked)}
+    checked = rank_sources(LASSO, lasso_search(), played)
+    assert checked[0]["url"] == OFFICIAL_LASSO and checked[0]["confident"] is True
+    assert checked[0]["available"] is True
+
+    for unknown in ({}, {OFFICIAL_LASSO: {"available": None}}):
+        ranked = rank_sources(LASSO, lasso_search(), unknown)
+        assert ranked[0]["url"] == OFFICIAL_LASSO and ranked[0]["confident"] is False
+
+
+def test_label_upload_of_the_same_length_stands_in_for_a_gone_official_upload():
+    gone = {
+        OFFICIAL_LASSO: {"available": False},
+        GLASSNOTE_LASSO: {"available": True},
+        LASSO_RESULTS[2]["url"]: {"available": True},
+    }
+    ranked = rank_sources(LASSO, lasso_search(), gone)
+    assert OFFICIAL_LASSO not in [item["url"] for item in ranked]
+    best, runner = ranked[:2]
+    assert best["url"] == GLASSNOTE_LASSO and best["available"] is True
+    assert best["score"] - runner["score"] < 0.1  # the margin alone would not do
+    assert best["confident"] is True
+
+    # Not when the label's upload is another length, or its title and credit lack the artist
+    # and the score falls short.
+    longer = rank_sources(LASSO, lasso_search(label_length=175), gone)
+    assert longer[0]["url"] == GLASSNOTE_LASSO and longer[0]["confident"] is False
+    uncredited = rank_sources(LASSO, lasso_search(credit=()), gone)
+    assert not any(item["confident"] for item in uncredited)
+    # A label upload that was not checked cannot be confident either.
+    unchecked = rank_sources(LASSO, lasso_search(), {OFFICIAL_LASSO: {"available": False}})
+    assert unchecked[0]["url"] == GLASSNOTE_LASSO and unchecked[0]["confident"] is False
+
+
+def test_alternates_are_other_uploads_of_the_same_recording():
+    ranked = rank_sources(
+        LASSO,
+        [
+            *lasso_search(),
+            yt("Phoenix - Lasso", "Fan", 168.5),
+            yt("Lasso (Official Video)", "PhoenixVEVO", 190),
+        ],
+    )
+    chosen = ranked[0]
+    assert chosen["url"] == OFFICIAL_LASSO
+    found = alternates(ranked, chosen)
+    # Same length or the artist's/label's own uploads; never a remix, live take or the pick itself.
+    assert found == [
+        GLASSNOTE_LASSO,
+        yt("Phoenix - Lasso", "Fan", 168.5)["url"],
+        yt("Lasso (Official Video)", "PhoenixVEVO", 190)["url"],
+    ]
+    assert alternates(ranked, chosen, limit=1) == [GLASSNOTE_LASSO]
+    gone = [
+        {**item, "available": False} if item["url"] == GLASSNOTE_LASSO else item for item in ranked
+    ]
+    assert GLASSNOTE_LASSO not in alternates(gone, chosen)
 
 
 def test_ranking_is_deterministic_and_returns_copies():
