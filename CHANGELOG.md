@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0a13
+
+From an end-to-end test run of the Claude Code plugin:
+- **A locked Mac is handled quickly and clearly.** Assistants get `{"event": "unlock_mac"}` on stderr at once and `APP_SCREEN_LOCKED` after 30 s instead of a 10-minute silent wait (a terminal still waits visibly). A skipped rekordbox step carries `reason_code`, `set` results say `complete` and `next` (the exact command to finish), and `doctor` shows whether the screen is locked.
+- **`--fetch` and `find_sources` agree.** Searches leave out “(Original Mix)” and country tags, which pushed official uploads out of the results (e.g. Phoenix – Lasso on SoundCloud).
+- **Re-checks keep the revision** when nothing changed, so printed commands stay valid.
+- **Sets without a tracklist** return what listeners named, in set order with times, in `error.details.named_in_comments`; `source-inspect --comments N` and `djlib_source_inspect` return the same list.
+- **`crates` shows each crate's rekordbox/USB record**, matching `status`.
+
 ## 0.1.0a12
 
 - **Updates just work.** After an update, an older background service that is idle is replaced automatically and the command goes through; only a busy one gets a short note saying to run `djlib service stop` when it's done.

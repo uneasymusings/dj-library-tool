@@ -58,7 +58,7 @@ Only supplied fields change, and `null` clears a field. Other fields: `genres`, 
 
 ## Saved work and folders
 
-Catalog, jobs and saved lists take `query`, `limit` (1–100) and an opaque `after`; pass `next_cursor` back with the same query until it is null. Rows show recorded locations, not freshly checked availability. A collection's app/device state is `not_tracked_here`, which doesn't mean rekordbox lacks it.
+Catalog, jobs and saved lists take `query`, `limit` (1–100) and an opaque `after`; pass `next_cursor` back with the same query until it is null. Rows show recorded locations, not freshly checked availability. A collection's app/device state is `not_tracked_here`, which doesn't mean rekordbox lacks it: `djlib crates` adds a `rekordbox` record per crate (playlist, `pushed_at`, last `usb` check), the same one `djlib status` uses.
 
 Add only folders the user names: `djlib_add_roots` with `{"paths": ["/Users/NAME/Music/New"]}`. Existing roots stay and no music moves. `init --allow-root` on an existing workspace returns `ROOTS_NOT_UPDATED` instead of adding roots.
 

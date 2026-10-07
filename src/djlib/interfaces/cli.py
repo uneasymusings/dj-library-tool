@@ -523,13 +523,14 @@ def doctor(ctx: typer.Context) -> None:
 
     initialized = ctx.obj.config_path.is_file()
     config = ctx.obj.config() if initialized else None
-    rekordbox = automation = None
+    rekordbox = automation = locked = None
     if sys.platform == "darwin":
         # Only macOS can drive rekordbox; elsewhere nothing here touches it.
         from djlib.native import rekordbox_mac
 
         rekordbox = rekordbox_mac.installed()
         automation = rekordbox_mac.automation_allowed()
+        locked = rekordbox_mac.screen_locked()
     analysis = default_root()
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     runtimes = javascript_runtimes()
@@ -543,6 +544,8 @@ def doctor(ctx: typer.Context) -> None:
         fixes["ffprobe"] = install_hint("ffmpeg")  # ffprobe ships with FFmpeg
     if not runtimes.get("youtube_runtime_ready"):
         fixes["javascript_runtime"] = install_hint("deno")
+    if locked:
+        fixes["screen"] = "Unlock your Mac; rekordbox can't be driven while it is locked."
     required = bool(ffmpeg and ffprobe)
     reply = envelope(
         {
@@ -558,6 +561,8 @@ def doctor(ctx: typer.Context) -> None:
             "coordinator_url": client(ctx).discover() if initialized else None,
             "rekordbox": rekordbox,
             "rekordbox_automation_allowed": automation,
+            # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
+            "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
             "native_app_compatibility": "not_verified",
             "required_checks_passed": required,
@@ -724,9 +729,15 @@ def download(
 
 @app.command("source-inspect", hidden=True)
 @handled
-def source_inspect(ctx: typer.Context, url: str) -> None:
-    """Read a set's published description and chapters (this does not identify its audio)."""
-    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url}))
+def source_inspect(
+    ctx: typer.Context,
+    url: str,
+    comments: int = typer.Option(
+        0, "--comments", min=0, max=2000, help="Also read up to this many listener comments."
+    ),
+) -> None:
+    """Read a set's description and chapters, and optionally its comments."""
+    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url, "comments": comments}))
 
 
 @app.command(rich_help_panel=LIBRARY)
@@ -752,10 +763,22 @@ def collections(
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
     """List your crates (saved collections), newest first."""
+    from djlib.interfaces.rekordbox_cli import remembered
+
     params = {"query": query, "limit": limit}
     if after is not None:
         params["after"] = after
-    emit(client(ctx).request("GET", "/collections", params=params))
+    reply = client(ctx).request("GET", "/collections", params=params)
+    # The same rekordbox/USB record `status` shows: what djlib pushed and last checked.
+    history = remembered(ctx.obj)
+    for row in reply["result"].get("collections") or []:
+        done = history.get(row.get("collection_id"), {})
+        row["rekordbox"] = {
+            "playlist": done.get("playlist"),
+            "pushed_at": done.get("pushed_at"),
+            "usb": done.get("usb"),
+        }
+    emit(reply)
 
 
 app.command("crates", rich_help_panel=LIBRARY)(collections)

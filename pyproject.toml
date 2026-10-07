@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dj-library-tool"
-version = "0.1.0a12"
+version = "0.1.0a13"
 description = "From a DJ set's tracklist to a rekordbox playlist and a verified USB stick, using the music you own. CLI and MCP tools."
 readme = "README.md"
 requires-python = ">=3.12"

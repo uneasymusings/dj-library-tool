@@ -80,7 +80,8 @@ async def check_library_workflows(client, collection_id: str) -> None:
             "request_id": request_id,
             "item_id": requested["items"][0]["item_id"],
             "resolution": {
-                "revision": 2,
+                # A re-check that changes nothing keeps the revision; use what it returned.
+                "revision": refreshed["revision"],
                 "action": "satisfy",
                 **reference,
                 "notes": "Explicitly reuse the generated tone's existing catalog revision.",
@@ -88,7 +89,9 @@ async def check_library_workflows(client, collection_id: str) -> None:
         },
     )
     assert satisfied["items"][1]["state"] == "unknown"
-    report = await call("djlib_request_report", {"request_id": request_id, "revision": 3})
+    report = await call(
+        "djlib_request_report", {"request_id": request_id, "revision": satisfied["revision"]}
+    )
     missing = json.loads(Path(report["report_path"]).read_text(encoding="utf-8"))
     assert missing["unresolved_items"] == 1
     assert missing["items"][0]["input"] == requested["items"][1]["input"]

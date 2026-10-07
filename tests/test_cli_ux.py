@@ -290,7 +290,8 @@ def test_request_commands_take_handles_and_default_to_the_current_revision(
 
     assert cli_result("requests", "get", "tonight")["request_id"] == ledger["request_id"]
     refreshed = cli_result("requests", "refresh", "last")
-    assert refreshed["revision"] == ledger["revision"] + 1
+    # Nothing changed since the list was created, so the revision is kept.
+    assert refreshed["revision"] == ledger["revision"]
     prefix = ledger["request_id"].removeprefix("request_")[:8]
     assert cli_result("requests", "report", prefix)["report_path"]
     resolution = tmp_path / "resolution.json"
