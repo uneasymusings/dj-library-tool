@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-This document describes **0.1.0a11**. a7–a10 added the tracklist-to-crate workflow, rekordbox automation on macOS (push, background analysis, USB export with device-library read-back) and the terminal and review-page interfaces; a6 added catalog reconciliation/discovery and durable native checks; a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
+This document describes **0.1.0a12**. a7–a10 added the tracklist-to-crate workflow, rekordbox automation on macOS (push, background analysis, USB export with device-library read-back) and the terminal and review-page interfaces; a6 added catalog reconciliation/discovery and durable native checks; a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
 
 ## Execution boundary
 
@@ -49,7 +49,7 @@ Collection membership chooses one revision per recording and does not automatica
 
 Explicit reconciliation pins a catalog revision and the changed path's new SHA-256. `tag_only` requires unchanged decoded payload and stream format, keeps recording/asset identity and adds a byte revision. Legacy revisions need a baseline or another verified original-byte location. `replace_audio` uses exact known bytes or a new provisional identity. Neither mutates audio or transfers prior annotations/memberships to the new revision. Old location history is retained; affected request matches and delivery evidence are invalidated, and historical export receipts gain a stale marker rather than being rewritten.
 
-Web assets retain source URL, conversion evidence, unverified source quality, and unverified acoustic identity. Selected FLAC downloads receive chosen artist/title/version tags on a staged managed copy; full decoding and hashing run again before that copy is promoted. The acquisition bytes remain unchanged in `incoming/`, with their hash retained in provenance. Generated tags are supplied display labels, not independent identity evidence. External user files retain their source path and original tags.
+Web assets retain source URL, conversion evidence, unverified source quality, and unverified acoustic identity. Selected downloads are saved as MP3 (copied when the source already is MP3) and receive the chosen artist/title/version tags on a staged managed copy; full decoding and hashing run again before that copy is promoted. The acquisition bytes remain unchanged in `incoming/`, with their hash retained in provenance. Generated tags are supplied display labels, not independent identity evidence. External user files retain their source path and original tags.
 
 ## Durable jobs
 

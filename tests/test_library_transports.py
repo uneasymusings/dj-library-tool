@@ -14,6 +14,9 @@ from djlib.interfaces.mcp_server import build_server
 from djlib.interfaces.tool_manifest import LIBRARY_WORKFLOW_TOOLS
 from tests.test_delivery_transports import assert_envelope, finish
 
+# Organization tools are outside the default core MCP profile.
+pytestmark = pytest.mark.usefixtures("full_mcp_tools")
+
 
 def catalog(http, audio_factory):
     sources = [
@@ -187,7 +190,7 @@ async def test_all_nine_library_mcp_tools_use_real_asgi_and_catalog(
         assert selected["items"][2]["state"] == "source_selected"
         assert selected["items"][2]["accepted"] is None
         replay = await call("djlib_create_request", {"request_body": request_body()})
-        assert replay == selected
+        assert replay.pop("reused") is True and replay == selected
         report = await call("djlib_request_report", {"request_id": request_id, "revision": 3})
         missing = json.loads(Path(report["report_path"]).read_text())
         assert missing["unresolved_items"] == 2

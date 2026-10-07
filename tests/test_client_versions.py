@@ -58,8 +58,16 @@ def coordinator(application, monkeypatch, *, health_version=ABSENT, version="0.1
             result = {"workspace_id": state.get("capabilities_workspace", state["workspace_id"])}
             if state["version"] is not ABSENT:
                 result["application_version"] = state["version"]
+        elif request.url.path == "/jobs":
+            # An old service still running a job is never replaced automatically.
+            busy = [{"job_id": "j", "state": "running"}] if state.get("busy", True) else []
+            result = {"jobs": busy}
         elif request.url.path == "/shutdown":
             result = {"state": "stopping"}
+            if state.get("replace_with"):
+                # The old service exits and this version's service takes over.
+                state.update(state.pop("replace_with"))
+                record()
         else:
             result = {"handled": request.url.path}
         return httpx.Response(
@@ -102,7 +110,7 @@ def test_old_public_health_uses_authenticated_capabilities_and_blocks_operations
 ):
     client, state, calls, _ = coordinator(application, monkeypatch)
     assert client.discover() == state["url"]
-    assert [call[1] for call in calls] == ["/health"]
+    assert [call[1] for call in calls if call[1] != "/jobs"] == ["/health"]
     for _ in range(2):
         with pytest.raises(AppError) as error:
             client.request(method, path, data={"idempotency_key": "never-submit"})
@@ -112,9 +120,12 @@ def test_old_public_health_uses_authenticated_capabilities_and_blocks_operations
         assert "0.1.0a2" in error.value.message
         assert __version__ in error.value.message
         assert "service stop" in error.value.message
-        assert "Accepted jobs remain stored" in error.value.message
+        assert "saved jobs are kept" in error.value.message
     assert sum(call[1] == "/capabilities" for call in calls) == 1
-    assert all(call[0] == "GET" and call[1] in {"/health", "/capabilities"} for call in calls)
+    # Read-only checks only (the busy old service is asked for its jobs, never changed).
+    assert all(
+        call[0] == "GET" and call[1] in {"/health", "/capabilities", "/jobs"} for call in calls
+    )
 
 
 @pytest.mark.parametrize("health_version", [ABSENT, __version__])
@@ -145,7 +156,7 @@ def test_health_version_takes_precedence_without_extra_capabilities_lookup(
         client.request("GET", "/library")
     assert error.value.code == "COORDINATOR_VERSION_MISMATCH"
     assert "0.1.0a3.dev0" in error.value.message
-    assert [call[1] for call in calls] == ["/health"]
+    assert [call[1] for call in calls if call[1] != "/jobs"] == ["/health"]
 
 
 @pytest.mark.parametrize("version", [ABSENT, None, "", "private diagnostic\nsecret", 123])
@@ -199,7 +210,7 @@ def test_discovery_still_rejects_identity_or_protocol_mismatch(application, monk
     # Keep the on-disk record unchanged while the health identity diverges.
     state[field] = "different"
     assert client.discover() is None
-    assert [call[1] for call in calls] == ["/health"]
+    assert [call[1] for call in calls if call[1] != "/jobs"] == ["/health"]
 
 
 @pytest.mark.parametrize(
@@ -252,3 +263,13 @@ def test_current_health_publishes_exact_application_version(application):
     assert result["application_version"] == __version__
     assert result["workspace_id"] == application.workspace.config().workspace_id
     assert result["instance_id"] == "version-health"
+
+
+def test_an_idle_old_service_is_replaced_and_the_command_goes_through(application, monkeypatch):
+    client, state, calls, _ = coordinator(application, monkeypatch)
+    state["busy"] = False
+    state["replace_with"] = {"instance_id": "instance-new", "version": __version__}
+    assert client.request("GET", "/library")["ok"]
+    posts = [call[1] for call in calls if call[0] == "POST"]
+    assert posts == ["/shutdown"]
+    assert [call[1] for call in calls].count("/library") == 1

@@ -117,7 +117,8 @@ async def test_owned_exact_reuse_and_duplicate_rows_are_persistent_without_jobs(
     same = create(
         ledger_app, [named(), named(artist=" ORIGINAL artist "), named(title="Missing tone")]
     )
-    assert same == result
+    # The same list again returns the stored report, marked as reused so callers can re-check it.
+    assert same.pop("reused") is True and same == result
     assert checked == [track["path"]]
     with ledger_app.db.transaction() as session:
         assert session.scalar(select(func.count()).select_from(RequestLedger)) == 1
@@ -625,3 +626,37 @@ def test_resolution_and_revision_contracts_are_strict():
         RequestResolution(revision=1, action="satisfy", recording_id="rec", notes="")
     with pytest.raises(ValidationError):
         RequestResolution(revision=1, action="clear", source_url="https://soundcloud.com/a/b")
+
+
+async def test_original_mix_means_no_special_version(ledger_app, audio_factory):
+    await owned(ledger_app, audio_factory, name="bare", artist="Jeff Mills", title="The Bells")
+    await owned(
+        ledger_app,
+        audio_factory,
+        name="tagged",
+        artist="Kerri Chandler",
+        title="Rain (Original Mix)",
+        frequency=330,
+    )
+    await owned(
+        ledger_app,
+        audio_factory,
+        name="radio",
+        artist="Lumen",
+        title="Halo",
+        version="Radio Edit",
+        frequency=550,
+    )
+    result = create(
+        ledger_app,
+        [
+            named(artist="Jeff Mills", title="The Bells (Original Mix)"),
+            named(artist="Jeff Mills", title="The Bells", version="Original Mix"),
+            named(artist="Kerri Chandler", title="Rain"),
+            named(artist="Lumen", title="Halo (Original Mix)"),
+        ],
+    )
+    states = [item["state"] for item in result["items"]]
+    assert states == ["satisfied", "satisfied", "satisfied", "missing"]
+    lumen = result["items"][3]["candidates"]
+    assert [c["identity_match"] for c in lumen] == ["different_version"]

@@ -1,6 +1,6 @@
 # Deliver a collection through a native DJ app
 
-This workflow describes **0.1.0a11**. It prepares isolated working copies and records the path to a native app, with a separate route for device delivery. Earlier a3 requires a matching pilot before full preparation and performs analysis/app checks synchronously. See [status](STATUS.md) for actual validation and publication evidence. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB. Native import, analysis, export, and playback remain actions in the selected DJ app and on the intended hardware.
+For most sets, `djlib set` and `djlib rekordbox push|usb` are simpler: they put your original files into rekordbox through its own menus and verify the USB stick (see the [README](../README.md#how-it-works)). This delivery workflow is the alternative when you want separate, tagged working copies, use Serato, or want a recorded, step-by-step path through a native app, with a separate route for device delivery. It does not operate rekordbox or Serato, write their databases, format a USB, or copy anything onto that USB: native import, analysis, export and playback are actions you take in the DJ app and on the hardware. With an assistant, these tools need `DJLIB_MCP_TOOLS=full`. See [status](STATUS.md) for validation evidence.
 
 Use `delivery list --query NAME` to rediscover saved work, then `delivery get DELIVERY_ID` for its next blocker. App-only work progresses through **cataloged → prepared for import → imported → analyzed → working files checked**. A separate USB delivery continues through **native exported → device library checked → hardware playback checked**, with device byte readback. A download, M3U, XML, database filename, or successful hash readback alone cannot establish native app or hardware behavior.
 
@@ -14,7 +14,7 @@ Use `delivery list --query NAME` to rediscover saved work, then `delivery get DE
 | `serato_portable` | Regular crates and audio copied through Serato for a Serato computer/setup | App version for preparation; actual USB mount and destination computer/controller/OS checks for device completion. No standalone-player profile is implied. |
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery targets
+djlib delivery targets
 ```
 
 The small profile table covers `cdj-2000nxs`, `cdj-3000`, `xdj-rx3`, and `opus-quad`. It includes source links and known audio/filesystem restrictions. Unknown hardware is blocked rather than guessed. CDJ-2000NXS does not support FLAC; RX3 and CDJ-3000 have different lossless sample-rate limits. These are technical checks, not firmware or hardware certifications. A null partition-scheme allowlist means the sources do not establish an exhaustive list; it does not mean every partition scheme works.
@@ -44,20 +44,20 @@ Establish the version from the app's **About** screen or a supported native XML 
 For Serato, replace the workflow with `serato_import` and supply its actual app version. Omit `hardware_profile`; it applies only to `rekordbox_usb`.
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery plan --file app-trial.json
-djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
+djlib delivery plan --file app-trial.json
+djlib delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key local-app-pilot-v1
-djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
-djlib --workspace /path/to/dj-workspace jobs items JOB_ID
+djlib jobs wait JOB_ID --timeout 30
+djlib jobs items JOB_ID
 ```
 
 After all preparation items succeed, import the provided M3U8 in rekordbox, or import the working files into regular Serato crates matching the manifest. Inspect all memberships/paths and analyze only the selected new working copies. Record `imported` and `analyzed` using the observation contract below, then refresh the working-file evidence:
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery verify-app DELIVERY_ID \
+djlib delivery verify-app DELIVERY_ID \
   --revision CURRENT_REVISION
-djlib --workspace /path/to/dj-workspace jobs wait VERIFICATION_JOB_ID --timeout 30
-djlib --workspace /path/to/dj-workspace jobs items VERIFICATION_JOB_ID
+djlib jobs wait VERIFICATION_JOB_ID --timeout 30
+djlib jobs items VERIFICATION_JOB_ID
 ```
 
 A passed `analyzed` observation and `verify-app` each return a durable job. Wait for the analysis job before submitting app verification with the updated revision. A successful completed job returns only `delivery_id`, `revision` and `evidence_committed: true`; it never returns `ready_for_app_use`. Read `delivery get` for `app_requirements_met_at_last_check`, blockers and `evidence.app_readback.checked_at` (also `last_app_readback_at`). These describe saved file checks and operator-reported native behavior, not a new check. `delivery get` reports saved evidence without rehashing; submit verification against its current revision for a new check. The engine does not read the app's database or independently prove musical accuracy.
@@ -71,7 +71,7 @@ No device binding, USB readback or hardware-playback observation is needed to co
 After import, use rekordbox's supported **File → Export Collection in xml format** operation. Save a new XML file within the library workspace or an explicitly allowed root, preserving any existing snapshot. Then compare it with the prepared delivery:
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery inspect-native-xml DELIVERY_ID \
+djlib delivery inspect-native-xml DELIVERY_ID \
   /path/to/dj-workspace/native-collection.xml --revision CURRENT_REVISION
 ```
 
@@ -101,13 +101,13 @@ Start with accepted, inspected collection members. Substitute real collection ID
 The version and hardware here are examples, not defaults or recommended upgrades. A pilot selects up to five recordings, sampling collections in round-robin order; three is the default. Inspect the selected recordings and retained playlist memberships before proceeding.
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery plan --file delivery.json
-djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
-djlib --workspace /path/to/dj-workspace delivery prepare DELIVERY_ID \
+djlib delivery plan --file delivery.json
+djlib delivery get DELIVERY_ID
+djlib delivery prepare DELIVERY_ID \
   --revision CURRENT_REVISION --key friday-pilot-prepare-v1
-djlib --workspace /path/to/dj-workspace jobs wait JOB_ID --timeout 30
-djlib --workspace /path/to/dj-workspace jobs items JOB_ID
-djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
+djlib jobs wait JOB_ID --timeout 30
+djlib jobs items JOB_ID
+djlib delivery get DELIVERY_ID
 ```
 
 Use the IDs and current revision from JSON responses. Preparation is a durable job; retain its stable key and inspect item outcomes. Every frozen recording must prepare successfully before native-stage observations can pass. A job completed with gaps is not a complete handoff.
@@ -131,14 +131,14 @@ Read the generated manifest, then import its M3U8 playlists in **rekordbox EXPOR
 Record `imported`, then `analyzed`, using actual observations as described below. Bind the mounted USB root; an ordinary directory cannot stand in for a device:
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery bind-device DELIVERY_ID \
+djlib delivery bind-device DELIVERY_ID \
   /Volumes/DJ_USB --revision CURRENT_REVISION
 ```
 
 Export the selected playlists through rekordbox's **Devices** workflow or Sync Manager, using the target's required library format. Wait for completion, then browse the device library in rekordbox and check playlist membership/counts and track loading. Record `native_exported`, wait for its check job to succeed, then read the updated revision before recording `device_library_checked`. Preserve an existing device library before any separately approved library conversion. AlphaTheta documents native USB export and library selection in its [USB export guide](https://cdn.rekordbox.com/files/20260318114024/OneLibrary-Compatible-USB-Device-Export_en.pdf).
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery verify-device DELIVERY_ID \
+djlib delivery verify-device DELIVERY_ID \
   --revision CURRENT_REVISION
 ```
 
@@ -164,8 +164,8 @@ Create an observation file only after the corresponding action. This example des
 ```
 
 ```bash
-djlib --workspace /path/to/dj-workspace delivery observe DELIVERY_ID --file observation.json
-djlib --workspace /path/to/dj-workspace delivery get DELIVERY_ID
+djlib delivery observe DELIVERY_ID --file observation.json
+djlib delivery get DELIVERY_ID
 ```
 
 | Stage | Required observation |

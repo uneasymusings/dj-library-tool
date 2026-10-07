@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.markup import escape
 
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
-from djlib.interfaces.service import envelope
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.terminal import plural
 
 
@@ -70,6 +71,21 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def event(name: str, **fields) -> None:
+    """One JSON line on stderr for a waiting step, so a backgrounded caller can prompt the user."""
+    import sys
+
+    sys.stderr.write(json.dumps({"event": name, **fields}, ensure_ascii=False) + "\n")
+    sys.stderr.flush()
+
+
+def usb_failed(usb: dict | None) -> bool:
+    """A USB check that a DJ must not rely on: files missing or out of order."""
+    if not usb:
+        return False
+    return usb.get("found") != usb.get("expected") or usb.get("in_order") is False
+
+
 def find_usb() -> Path:
     """The one external, writable USB volume, preferring one with a rekordbox library."""
     import plistlib
@@ -108,6 +124,8 @@ def set_item(item: dict) -> dict:
     source = item.get("input") or {}
     if source.get("kind") == "unknown":
         label = source.get("label") or "Unknown ID"
+        if source.get("timestamp"):
+            label += f" @ {source['timestamp']}"
     else:
         label = f"{source.get('artist') or 'Unknown artist'} - {source.get('title') or 'Untitled'}"
         if source.get("version"):
@@ -127,7 +145,7 @@ def set_item(item: dict) -> dict:
 
 def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None):
     rekordbox = typer.Typer(
-        help="Put crates into rekordbox and onto USB; read its analysis in the background.",
+        help="Put crates into rekordbox and onto USB.",
         no_args_is_help=True,
     )
     app.add_typer(rekordbox, name="rekordbox", rich_help_panel=panel)
@@ -136,7 +154,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         term = terminal.current()
         if term.json:
             return nullcontext()
-        return term.err.status(f"[bold]{message}", spinner_style="accent")
+        return term.err.status(f"[bold]{escape(message)}", spinner_style="accent")
 
     def finished(local, job: dict) -> dict:
         while job["state"] in {"queued", "running"}:
@@ -224,6 +242,23 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if crate["playlist"] in existing
             and history.get(crate["collection_id"], {}).get("playlist") != crate["playlist"]
         ]
+        # A newer version of a crate djlib pushed before (the set gained or lost songs) goes in
+        # as "Name (2)" rather than over the old playlist, which stays for the user to delete.
+        ours = {entry.get("playlist") for entry in history.values() if entry.get("playlist")}
+        for crate in list(unconfirmed):
+            if crate["playlist"] in ours:
+                taken = set(existing) | ours
+                number = 2
+                while f"{crate['playlist']} ({number})" in taken:
+                    number += 1
+                renamed = Path(crate["playlist_file"]).with_name(
+                    f"{playlist_file_name(crate['playlist'])} ({number}).m3u8"
+                )
+                shutil.copyfile(crate["playlist_file"], renamed)
+                crate.update(
+                    replaces=crate["playlist"], playlist=renamed.stem, playlist_file=str(renamed)
+                )
+                unconfirmed.remove(crate)
         if unconfirmed:
             from djlib.exporting.native_rekordbox import playlist_report
 
@@ -289,14 +324,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         term = terminal.current()
 
         def wrong(name):
-            if not term.json:
+            if term.json:
+                event("wrong_playlist", selected=name, playlist=crate["playlist"])
+            else:
                 term.err.print(
-                    f"[warn]That's “{name or 'not a playlist'}”.[/] Click “{crate['playlist']}”."
+                    f"[warn]That's “{escape(name or 'not a playlist')}”.[/] "
+                    f"Click “{escape(crate['playlist'])}”."
                 )
 
-        if not term.json:
+        if term.json:
+            # Assistants run this in the background; stdout stays one envelope at the end.
+            event("select_playlist", playlist=crate["playlist"], device=volume.name)
+        else:
+            name = escape(crate["playlist"])
             term.err.print(
-                f"[accent]→[/] In rekordbox, click the playlist [bold]{crate['playlist']}[/]. "
+                f"[accent]→[/] In rekordbox, click the playlist [bold]{name}[/]. "
                 "djlib exports it as soon as it is selected."
             )
         with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
@@ -307,7 +349,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
             def progress(count):
                 if live is not None:
-                    live.update(f"[bold]{message}[/] {count} of {len(tracks)} files")
+                    live.update(f"[bold]{escape(message)}[/] {count} of {len(tracks)} files")
 
             wait_for_copy(volume, tracks, before, on_progress=progress)
         with status("Checking the playlist on the USB…"):
@@ -359,7 +401,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def push(
         ctx: typer.Context,
         collection_ids: Annotated[
-            list[str] | None, typer.Argument(help="Collections to push.")
+            list[str] | None,
+            typer.Argument(help="Crates to push: name, ID or its first characters, or 'last'."),
         ] = None,
         request: str | None = typer.Option(
             None, "--request", help="Build a crate from this request list's owned songs first."
@@ -374,20 +417,23 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             help="Wait until the keyboard and mouse have been idle this many seconds.",
         ),
     ) -> None:
-        """Put collections into rekordbox as playlists, in seconds.
+        """Put crates into rekordbox as playlists, in seconds.
 
-        Uses rekordbox's own File > Import > Import Playlist with your original files, so
-        tracks rekordbox already knows keep their analysis and cues. BPM and cues arrive in
-        the background as rekordbox analyzes (djlib rekordbox sync). macOS must allow your
-        terminal under Privacy & Security > Accessibility.
+        Uses rekordbox's own File > Import > Import Playlist with your original files.
+
+        Tracks rekordbox already knows keep their analysis and cues.
+
+        macOS must allow your terminal under Privacy & Security > Accessibility.
         """
         from djlib.native import rekordbox_mac as ui
 
         ui.ensure_supported()
+        from djlib.interfaces.handles import resolve
+
         local, workspace = client(ctx), ctx.obj
-        ids = list(collection_ids or [])
+        ids = [resolve(local, "collection", value) for value in collection_ids or []]
         if request:
-            ids.append(build_crate(local, request))
+            ids.append(build_crate(local, resolve(local, "request", request)))
         if not ids:
             raise AppError("INPUT_INVALID", "Name a collection ID, or pass --request ID.")
         with status("Checking the collections' files…"):
@@ -416,7 +462,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     @handled
     def usb(
         ctx: typer.Context,
-        collection_id: str,
+        collection_id: Annotated[
+            str, typer.Argument(help="The crate: name, ID or its first characters, or 'last'.")
+        ],
         device: Path | None = typer.Option(
             None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
         ),
@@ -424,11 +472,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             600, min=10, help="Seconds to wait for you to select the playlist in rekordbox."
         ),
     ) -> None:
-        """Export a crate to a USB stick through rekordbox, then verify every file on it.
+        """Export a crate to your USB stick through rekordbox, then check it.
 
-        rekordbox's browser cannot be scripted, so you click the playlist once when asked;
-        djlib checks it is the right one, runs Playlist > Export Playlist > your USB, waits for
-        rekordbox to finish and confirms each track on the stick byte for byte.
+        You click the playlist in rekordbox once; djlib checks it is the right one.
+
+        rekordbox exports it, and djlib confirms each track on the stick byte for byte.
         """
         from djlib.native import rekordbox_mac as ui
 
@@ -436,7 +484,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Waiting for you to unlock your Mac…"):
             ui.wait_for_unlock(timeout)
         ui.ensure_supported()
+        from djlib.interfaces.handles import resolve
+
         local, workspace = client(ctx), ctx.obj
+        collection_id = resolve(local, "collection", collection_id)
         volume = usb_target(device)
         with status("Checking the collection's files…"):
             crate = prepare(local, workspace, collection_id)
@@ -452,6 +503,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 }
             )
         )
+        if usb_failed(result):
+            raise typer.Exit(4)
 
     @app.command("set", rich_help_panel=start_panel)
     @handled
@@ -480,6 +533,19 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         usb: bool = typer.Option(
             False, "--usb", help="Also put it on your USB stick through rekordbox (one click)."
         ),
+        when_idle: int = typer.Option(
+            0,
+            "--when-idle",
+            min=0,
+            help="Import into rekordbox only once the keyboard and mouse have been idle this "
+            "many seconds.",
+        ),
+        use_rekordbox: bool = typer.Option(
+            True,
+            "--rekordbox/--no-rekordbox",
+            help="Import the crate into rekordbox when it can be driven (macOS); "
+            "--no-rekordbox only builds the crate.",
+        ),
         device: Path | None = typer.Option(
             None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
         ),
@@ -487,27 +553,44 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             600, min=10, help="With --usb: seconds to wait for you to click the playlist."
         ),
     ) -> None:
-        """Tracklist → the songs you own → a rekordbox playlist → your USB, in one command.
+        """Tracklist → owned songs → rekordbox playlist → USB.
 
-        Takes a text file or a YouTube/SoundCloud set (its description, chapters and listener
-        comments). Checks which songs you own (exact artist/title/version), with --fetch
-        downloads clear matches for missing ones as MP3, builds a crate in set order, imports
-        it into rekordbox and, with --usb, exports it to your stick and verifies it there.
-        Missing songs are never swapped for another version.
+        Takes a text file, or a YouTube/SoundCloud set whose description lists its tracks.
+
+        Matches exact artist/title/version; other versions are never swapped in.
+
+        --fetch downloads clear matches for missing songs as MP3.
+
+        --usb exports the playlist to your stick and checks every file.
         """
         from djlib.interfaces import set_sources
         from djlib.interfaces.library_cli import (
             all_items,
+            created,
             finish_checks,
             text_request,
             tracklist_request,
         )
         from djlib.native import rekordbox_mac as ui
 
+        if usb and not use_rekordbox:
+            raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
+        if yes and not fetch:
+            raise AppError("INPUT_INVALID", "--yes only applies with --fetch.")
+        if usb and when_idle:
+            raise AppError(
+                "INPUT_INVALID",
+                "--when-idle waits for you to step away, but --usb needs you to click the "
+                "playlist; use one or the other.",
+            )
         if usb:
             with status("Waiting for you to unlock your Mac…"):
                 ui.wait_for_unlock(timeout)
-        ui.ensure_supported()
+            ui.ensure_supported()
+        # Owned/missing, the crate and downloads need no DJ app; rekordbox is used when it can be.
+        skipped = None if use_rekordbox else "not requested (--no-rekordbox)"
+        if use_rekordbox and not usb:
+            skipped = rekordbox_unavailable(ui)
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
@@ -529,9 +612,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         else:
             body, warnings = tracklist_request(Path(tracklist).expanduser(), name, source)
         with status("Checking which songs you own…"):
-            reply = finish_checks(
-                local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
-            )
+            reply = created(local, body)
         request = reply["result"]
         items = all_items(local, request)
         fetched = None
@@ -591,17 +672,35 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             collection_id = build_crate(local, request["request_id"])
             with status("Checking the crate's files…"):
                 crate = prepare(local, workspace, collection_id)
-            outcome = into_rekordbox(local, workspace, ui, [crate])
-            result.update(
-                collection_id=collection_id,
-                playlist=crate["playlist"],
-                rekordbox={"status": crate["status"], **outcome},
-            )
+            result.update(collection_id=collection_id, playlist=crate["playlist"])
+            if skipped:
+                result["rekordbox"] = {"status": "skipped", "reason": skipped}
+            else:
+                if when_idle:
+                    with status(f"Waiting until you've been away for {when_idle} s…"):
+                        ui.wait_until_idle(when_idle)
+                outcome = into_rekordbox(local, workspace, ui, [crate])
+                result["playlist"] = crate["playlist"]
+                result["rekordbox"] = {"status": crate["status"], **outcome}
+                if crate.get("replaces"):
+                    result["rekordbox"]["replaces"] = crate["replaces"]
             if volume is not None:
                 result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
+        if usb_failed(result["usb"]):
+            raise typer.Exit(4)
+
+    def rekordbox_unavailable(ui) -> str | None:
+        """Why rekordbox can't be driven right now, or None when it can."""
+        try:
+            ui.ensure_supported()  # macOS only; also checks the Accessibility permission
+        except AppError as error:
+            return error.message
+        if ui.installed() is None:
+            return "rekordbox is not installed in /Applications"
+        return None
 
     def confirm_fetch(term, chosen: list[dict]) -> bool:
         """Show what would be downloaded and ask; scripts and assistants pass --yes instead."""
@@ -615,8 +714,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             length = upload.get("duration")
             minutes = f"{int(length // 60)}:{int(length % 60):02d}" if length else "?"
             term.err.print(
-                f"  {entry['label']}  [muted]← {upload['provider']}: “{upload['title']}” "
-                f"by {upload['uploader'] or '?'} ({minutes})[/]"
+                f"  {escape(entry['label'])}  [muted]← {upload['provider']}: "
+                f"“{escape(upload['title'])}” by {escape(upload['uploader'] or '?')} ({minutes})[/]"
             )
         return typer.confirm("Download these as MP3?", default=True, err=True)
 
@@ -631,7 +730,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     @rekordbox.command("sync")
     @handled
     def sync_command(ctx: typer.Context) -> None:
-        """Read rekordbox's analysis files for BPM and cues. No window, no database access."""
+        """Read BPM and cues from rekordbox's analysis files (no window)."""
         emit(client(ctx).request("POST", "/analysis/rekordbox", data={"path": None}))
 
     @rekordbox.command("pull")
@@ -645,7 +744,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             help="Wait until the keyboard and mouse have been idle this many seconds.",
         ),
     ) -> None:
-        """Export rekordbox's collection XML once to also bring in musical key (uses its window)."""
+        """Bring in musical key with one brief rekordbox XML export."""
         from djlib.native import rekordbox_mac as ui
 
         ui.ensure_supported()

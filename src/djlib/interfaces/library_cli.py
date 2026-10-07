@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -67,6 +68,22 @@ def text_request(
     return body, warnings
 
 
+def created(local, body) -> dict:
+    """POST a request list; when the same list already exists, re-check it against the library.
+
+    Rerunning an unchanged tracklist after adding music must report the new songs as owned.
+    """
+    reply = local.request("POST", "/requests", data=body.model_dump(mode="json"))
+    result = reply["result"]
+    if result.get("reused"):
+        reply = local.request(
+            "POST",
+            f"/requests/{result['request_id']}/refresh",
+            data={"revision": result["revision"]},
+        )
+    return finish_checks(local, reply)
+
+
 def finish_checks(local, reply: dict) -> dict:
     """Keep hash-checking matches that hit the per-call budget, in bounded batches.
 
@@ -92,30 +109,42 @@ def finish_checks(local, reply: dict) -> dict:
             reply = local.request("POST", f"/requests/{result['request_id']}/refresh", data=body)
 
 
+def current_revision(local, request_id: str) -> int:
+    """The request list's revision right now, for commands that default to it."""
+    return local.request("GET", f"/requests/{request_id}", params={"limit": 1})["result"][
+        "revision"
+    ]
+
+
+def resolution_body(text: str, revision: int | None, current) -> RequestResolution:
+    """A resolution from JSON text; ``revision`` (or the current one) fills in a missing one."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return RequestResolution.model_validate_json(text)  # reports what is wrong
+    if revision is not None:
+        data["revision"] = revision
+    elif "revision" not in data:
+        data["revision"] = current()
+    return RequestResolution.model_validate(data)
+
+
 def register_commands(app, client, emit, handled, panel=None):
+    from djlib.interfaces.handles import resolve
+
     requests = typer.Typer(
-        help="Track wanted songs: what you own, what is missing, what is unknown.",
+        help="Wanted songs: owned, missing or unknown.",
         no_args_is_help=True,
     )
     organize = typer.Typer(
         help="Add DJ notes to tracks and build ordered collections.", no_args_is_help=True
     )
     app.add_typer(requests, name="requests", rich_help_panel=panel)
-    app.add_typer(organize, name="organize", rich_help_panel=panel)
-
-    @requests.command("list")
-    @handled
-    def request_list(
-        ctx: typer.Context,
-        query: str = typer.Option("", "--query", "-q", help="Match a name or ID."),
-        limit: int = typer.Option(20, min=1, max=100),
-        after: str | None = typer.Option(None, help="Cursor from the previous page."),
-    ):
-        """List saved request lists."""
-        params = {"query": query, "limit": limit}
-        if after is not None:
-            params["after"] = after
-        emit(client(ctx).request("GET", "/requests", params=params))
+    app.add_typer(organize, name="organize", hidden=True)
+    request_help = "List name, ID start (6+ characters) or last."
+    revision_help = "Request list revision; defaults to the current one."
 
     @requests.command("create")
     @handled
@@ -123,7 +152,7 @@ def register_commands(app, client, emit, handled, panel=None):
         ctx: typer.Context,
         file: Path | None = typer.Option(None, help="JSON request list (see: djlib schemas)."),
         text: Path | None = typer.Option(
-            None, help="Plain tracklist, one “Artist - Title (Mix)” per line."
+            None, help="Text file, one “Artist - Title (Mix)” per line."
         ),
         name: str | None = typer.Option(None, help="List name for --text; defaults to the file."),
         source: str | None = typer.Option(
@@ -142,90 +171,114 @@ def register_commands(app, client, emit, handled, panel=None):
         else:
             body, warnings = tracklist_request(text, name, source)
         local = client(ctx)
-        reply = finish_checks(
-            local, local.request("POST", "/requests", data=body.model_dump(mode="json"))
-        )
+        reply = created(local, body)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
-
-    @requests.command("collect")
-    @handled
-    def request_collect(
-        ctx: typer.Context,
-        request_id: str,
-        name: str | None = typer.Option(None, help="Collection name; defaults to the list's."),
-        revision: int | None = typer.Option(
-            None, min=1, help="Request revision; defaults to the current one."
-        ),
-    ):
-        """Turn the songs you own from a request list into a collection, in list order."""
-        local = client(ctx)
-        if revision is None:
-            current = local.request("GET", f"/requests/{request_id}", params={"limit": 1})
-            revision = current["result"]["revision"]
-        body = {"revision": revision}
-        if name is not None:
-            body["name"] = name
-        emit(local.request("POST", f"/requests/{request_id}/collection", data=body))
 
     @requests.command("get")
     @handled
     def request_get(
         ctx: typer.Context,
-        request_id: str,
+        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
         after: int = typer.Option(0, min=0),
         limit: int = typer.Option(100, min=1, max=100),
     ):
         """Show a request list and each song's status."""
+        local = client(ctx)
+        request_id = resolve(local, "request", request_id)
         emit(
-            client(ctx).request(
-                "GET", f"/requests/{request_id}", params={"after": after, "limit": limit}
-            )
+            local.request("GET", f"/requests/{request_id}", params={"after": after, "limit": limit})
         )
+
+    @requests.command("collect")
+    @handled
+    def request_collect(
+        ctx: typer.Context,
+        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        name: str | None = typer.Option(None, help="Crate name; defaults to the list's."),
+        revision: int | None = typer.Option(None, min=1, help=revision_help),
+    ):
+        """Make a crate of the songs you own in a request list, in order."""
+        local = client(ctx)
+        request_id = resolve(local, "request", request_id)
+        if revision is None:
+            revision = current_revision(local, request_id)
+        body = {"revision": revision}
+        if name is not None:
+            body["name"] = name
+        emit(local.request("POST", f"/requests/{request_id}/collection", data=body))
 
     @requests.command("refresh")
     @handled
     def request_refresh(
         ctx: typer.Context,
-        request_id: str,
-        revision: int = typer.Option(..., min=1),
-        item_id: list[str] = typer.Option(None, "--item-id"),
+        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        revision: int | None = typer.Option(None, min=1, help=revision_help),
+        item_id: list[str] = typer.Option(None, "--item-id", help="Only this song; repeatable."),
     ):
-        """Re-check a request list against the catalog, e.g. after a scan."""
+        """Re-check a request list against your library, e.g. after a scan."""
+        local = client(ctx)
+        request_id = resolve(local, "request", request_id)
+        if revision is None:
+            revision = current_revision(local, request_id)
         body = {"revision": revision}
         if item_id is not None:
             body["item_ids"] = item_id
-        local = client(ctx)
         emit(
             finish_checks(
                 local, local.request("POST", f"/requests/{request_id}/refresh", data=body)
             )
         )
 
+    @requests.command("report")
+    @handled
+    def request_report(
+        ctx: typer.Context,
+        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        revision: int | None = typer.Option(None, min=1, help=revision_help),
+    ):
+        """Save a report of the missing and unclear songs in a request list."""
+        local = client(ctx)
+        request_id = resolve(local, "request", request_id)
+        if revision is None:
+            revision = current_revision(local, request_id)
+        emit(local.request("POST", f"/requests/{request_id}/report", data={"revision": revision}))
+
     @requests.command("resolve")
     @handled
     def request_resolve(
-        ctx: typer.Context, request_id: str, item_id: str, file: Path = typer.Option(...)
+        ctx: typer.Context,
+        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        item_id: str,
+        file: Path = typer.Option(..., help="JSON resolution (djlib schemas)."),
+        revision: int | None = typer.Option(
+            None, min=1, help="Request list revision; defaults to the file's, else the current one."
+        ),
     ):
-        """Pick a source or catalog match for one requested song."""
-        body = RequestResolution.model_validate_json(file.read_text(encoding="utf-8"))
+        """Pick a source or library match for one requested song."""
+        text = file.read_text(encoding="utf-8")
+        local = client(ctx)
+        request_id = resolve(local, "request", request_id)
+        body = resolution_body(text, revision, lambda: current_revision(local, request_id))
         emit(
-            client(ctx).request(
+            local.request(
                 "POST", f"/requests/{request_id}/items/{item_id}", data=body.model_dump(mode="json")
             )
         )
 
-    @requests.command("report")
+    @requests.command("list")
     @handled
-    def request_report(
-        ctx: typer.Context, request_id: str, revision: int = typer.Option(..., min=1)
+    def request_list(
+        ctx: typer.Context,
+        query: str = typer.Option("", "--query", "-q", help="Match a name or ID."),
+        limit: int = typer.Option(20, min=1, max=100),
+        after: str | None = typer.Option(None, help="Cursor from the previous page."),
     ):
-        """Save a missing/ambiguous report for a request list."""
-        emit(
-            client(ctx).request(
-                "POST", f"/requests/{request_id}/report", data={"revision": revision}
-            )
-        )
+        """List saved request lists, newest first."""
+        params = {"query": query, "limit": limit}
+        if after is not None:
+            params["after"] = after
+        emit(client(ctx).request("GET", "/requests", params=params))
 
     @organize.command("metadata")
     @handled

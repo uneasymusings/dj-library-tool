@@ -65,19 +65,36 @@ class Application:
         self.workspace, self.db = workspace, database
 
     def capabilities(self) -> dict:
+        import sys
+
+        from djlib.native import rekordbox_mac
+
+        # rekordbox is driven through its own menus, from the CLI on this Mac only.
+        native = sys.platform == "darwin" and rekordbox_mac.installed() is not None
         return {
             "application_version": __version__,
             "schema_version": "1",
             "workspace_id": self.workspace.config().workspace_id,
             "implemented": [
                 "local_audio_index",
+                "owned_request_matching",
+                "missing_track_ledger",
                 "local_tracklist_collection",
+                "set_command",
+                "set_link_tracklists",
+                "listener_comment_id_hints",
+                "web_source_search",
+                "selected_web_audio_download",
+                "rekordbox_push",
+                "rekordbox_usb_export",
+                "usb_device_library_verification",
+                "rekordbox_analysis_sync",
+                "rekordbox_analysis_pull",
                 "durable_jobs",
                 "review_queue",
                 "manifest_export",
                 "rekordbox_xml_handoff",
                 "usb_space_preflight",
-                "selected_web_audio_download",
                 "set_metadata_inspection",
                 "json_cli",
                 "mcp_stdio",
@@ -87,8 +104,6 @@ class Application:
                 "device_audio_readback",
                 "operator_native_stage_evidence",
                 "app_import_workflow",
-                "owned_request_matching",
-                "missing_track_ledger",
                 "catalog_annotations",
                 "organization_filters",
                 "native_rekordbox_snapshot_inspection",
@@ -99,19 +114,40 @@ class Application:
             ],
             "planned": [
                 "soulseek",
-                "online_source_discovery",
                 "set_recognition",
                 "artist_catalogs",
                 "native_serato",
-                "native_rekordbox",
-                "device_export",
                 "standalone_chat",
             ],
-            "identity_method": "supplied labels and embedded tags; no acoustic identification yet",
-            "native_automation_available": False,
+            "details": {
+                "rekordbox": (
+                    "set, rekordbox push, usb and pull drive rekordbox's own menus on macOS "
+                    "and are CLI only; sync (MCP: djlib_import_rekordbox_analysis) reads its "
+                    "analysis files in the background. The USB export is verified from the "
+                    "stick's device library (export.pdb) against each file's SHA-256"
+                ),
+                "web_sources": (
+                    "YouTube and SoundCloud search (djlib_find_sources) and MP3 downloads of "
+                    "unverified source quality"
+                ),
+                "set_links": (
+                    "YouTube and SoundCloud set descriptions or chapters become the tracklist; "
+                    "listener comments near each ID are hints, not identifications"
+                ),
+            },
+            "cli_only": [
+                "djlib set FILE_OR_URL [--fetch --yes] [--usb] [--no-rekordbox]",
+                "djlib rekordbox push ID",
+                "djlib rekordbox usb ID",
+            ],
+            "identity_method": (
+                "exact artist/title/version labels from tags or file names, hash-checked; "
+                "no acoustic identification"
+            ),
+            "native_automation_available": native,
             "delivery_default": (
-                "small_pilot_before_bulk; native app operations require "
-                "an operator or host UI tools"
+                "rekordbox: djlib set or rekordbox push/usb from the CLI on macOS; "
+                "working-copy deliveries: small pilot before bulk, native steps by the operator"
             ),
             "stage": "experimental alpha; consult docs/STATUS.md for app/provider test evidence",
         }

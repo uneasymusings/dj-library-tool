@@ -26,6 +26,10 @@ class WorkspaceConfig(Contract):
     )
 
 
+def missing_folder(path: Path) -> str:
+    return f"{path} isn't an existing folder. Check the path, or plug the drive back in."
+
+
 def atomic_json(path: Path, data: dict) -> None:
     """Write complete private JSON, without exposing a half-written runtime record."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,14 +72,15 @@ class Workspace:
             return config
         if self.root.exists() and any(self.root.iterdir()):
             raise AppError("WORKSPACE_NOT_EMPTY", "Choose an empty directory for a new workspace.")
-        try:
-            roots = [str(p.expanduser().resolve(strict=True)) for p in allowed_roots or []]
-            if any(not Path(p).is_dir() for p in roots):
-                raise ValueError("Allowed roots must be directories.")
-        except (OSError, ValueError) as exc:
-            raise AppError(
-                "SOURCE_ROOT_INVALID", "Every allowed root must be an existing directory."
-            ) from exc
+        roots = []
+        for value in allowed_roots or []:
+            try:
+                root = value.expanduser().resolve(strict=True)
+                if not root.is_dir():
+                    raise ValueError("Allowed roots must be directories.")
+            except (OSError, ValueError) as exc:
+                raise AppError("SOURCE_ROOT_INVALID", missing_folder(value)) from exc
+            roots.append(str(root))
         self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
         if os.name != "nt":
             self.root.chmod(0o700)
@@ -96,18 +101,18 @@ class Workspace:
         if not values:
             raise AppError("SOURCE_ROOT_INVALID", "Supply at least one existing music folder.")
         roots = []
-        try:
-            for value in values:
-                if any(ord(c) < 32 or ord(c) == 127 for c in str(value)):
-                    raise ValueError("Control characters in root")
+        for value in values:
+            if any(ord(c) < 32 or ord(c) == 127 for c in str(value)):
+                raise AppError(
+                    "SOURCE_ROOT_INVALID", "Folder names can't contain control characters."
+                )
+            try:
                 root = value.expanduser().resolve(strict=True)
                 if not root.is_dir():
                     raise ValueError("Not a directory")
-                roots.append(str(root))
-        except (OSError, ValueError) as exc:
-            raise AppError(
-                "SOURCE_ROOT_INVALID", "Every allowed root must be an existing folder."
-            ) from exc
+            except (OSError, ValueError) as exc:
+                raise AppError("SOURCE_ROOT_INVALID", missing_folder(value)) from exc
+            roots.append(str(root))
         with FileLock(self.root / "configuration.lock", timeout=10):
             config = self.config()
             additions = [root for root in dict.fromkeys(roots) if root not in config.allowed_roots]
@@ -119,9 +124,7 @@ class Workspace:
     def config(self) -> WorkspaceConfig:
         if not self.config_path.is_file():
             raise AppError(
-                "WORKSPACE_REQUIRED",
-                f"No djlib workspace at {self.root}. Create it with djlib init, "
-                "or choose another with --workspace.",
+                "WORKSPACE_REQUIRED", f"djlib isn't set up yet (no workspace in {self.root})."
             )
         try:
             return WorkspaceConfig.model_validate_json(self.config_path.read_text(encoding="utf-8"))
@@ -143,12 +146,13 @@ class Workspace:
         try:
             path = Path(value).expanduser().resolve(strict=True)
         except OSError as exc:
-            raise AppError("FILE_UNAVAILABLE", "The requested local path is unavailable.") from exc
+            raise AppError(
+                "FILE_UNAVAILABLE",
+                f"Can't find {value}. Check the path, or plug the drive back in.",
+            ) from exc
         roots = [self.root, *(Path(p) for p in self.config().allowed_roots)]
         if not any(path.is_relative_to(root) for root in roots):
-            raise AppError(
-                "SOURCE_NOT_ALLOWED", "The path is outside configured workspace roots.", 403
-            )
+            raise AppError("SOURCE_NOT_ALLOWED", f"djlib isn't allowed to read {path} yet.", 403)
         if directory and not path.is_dir():
             raise AppError("DIRECTORY_REQUIRED", "The scan requires a directory.")
         if not directory and not path.is_file():
