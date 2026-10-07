@@ -17,7 +17,10 @@ from djlib.interfaces.service import create_app
 from djlib.jobs.worker import Worker
 from djlib.persistence.database import Database
 from djlib.persistence.models import Job
+from djlib.sources import web
 from djlib.workspace import Workspace
+
+REAL_PROBE = web.probe
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +29,17 @@ def isolated_user_config(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("DJLIB_CONFIG_DIR", str(tmp_path_factory.mktemp("djlib-config")))
     monkeypatch.delenv("DJLIB_WORKSPACE", raising=False)
     monkeypatch.delenv("DJLIB_MCP_TOOLS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def offline_probes(monkeypatch):
+    """Availability checks never reach YouTube or SoundCloud: every upload plays unless a test
+    replaces ``web.probe`` (tests of the probe itself use ``REAL_PROBE``)."""
+
+    async def probe(url):
+        return {"url": url, "duration": None}
+
+    monkeypatch.setattr(web, "probe", probe)
 
 
 @pytest.fixture

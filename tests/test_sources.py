@@ -9,6 +9,7 @@ import pytest
 
 from djlib.domain.errors import AppError
 from djlib.sources import web
+from tests.conftest import REAL_PROBE
 
 
 @pytest.mark.parametrize(
@@ -254,6 +255,7 @@ async def test_search_keeps_public_youtube_and_soundcloud_results(monkeypatch):
                         "webpage_url": "https://soundcloud.com/a/lasso",
                         "title": "Lasso",
                         "uploader": "Phoenix",
+                        "artists": ["Phoenix", 7],
                         "duration": 167.9,
                         "view_count": 10,
                     },
@@ -273,6 +275,7 @@ async def test_search_keeps_public_youtube_and_soundcloud_results(monkeypatch):
             "url": "https://soundcloud.com/a/lasso",
             "title": "Lasso",
             "uploader": "Phoenix",
+            "artists": ["Phoenix"],
             "duration": 167.9,
             "view_count": 10,
         }
@@ -302,3 +305,89 @@ async def test_inspect_can_include_listener_comments(monkeypatch):
     assert [c["text"] for c in result["comments"]] == ["ID?", "Bicep - Glue"]
     assert result["comments"][0]["start_time"] == 483.2
     assert result["comments"][1]["like_count"] == 4
+
+
+@pytest.mark.parametrize(
+    ("stderr", "code", "retryable"),
+    [
+        ("ERROR: [soundcloud] 255: This video is DRM protected", "SOURCE_UNAVAILABLE", False),
+        (
+            "ERROR: Unable to download JSON metadata: HTTP Error 404: Not Found",
+            "SOURCE_UNAVAILABLE",
+            False,
+        ),
+        (
+            "ERROR: [youtube] x: The uploader has not made this video available in your country",
+            "SOURCE_UNAVAILABLE",
+            False,
+        ),
+        (
+            "ERROR: This video is not available from your location due to geo restriction",
+            "SOURCE_UNAVAILABLE",
+            False,
+        ),
+        ("ERROR: Requested format is not available", "SOURCE_UNAVAILABLE", False),
+        ("ERROR: HTTP Error 503: Service Unavailable", "SOURCE_FAILED", True),
+        # A warning about a retried request is not the final error.
+        ("WARNING: HTTP Error 404, retrying\nERROR: Read timed out", "SOURCE_FAILED", True),
+    ],
+)
+def test_gone_uploads_are_unavailable_and_not_retried(stderr, code, retryable):
+    error = web.provider_error(stderr.encode())
+    assert (error.code, error.retryable) == (code, retryable)
+    assert stderr.split(": ")[-1] not in error.message
+
+
+async def test_probe_selects_audio_without_downloading(monkeypatch):
+    seen = {}
+
+    async def fake(args, *, timeout, output_limit):
+        seen.update(args=args, timeout=timeout)
+        return json.dumps({"id": "lasso", "duration": 167.863}).encode()
+
+    monkeypatch.setattr(web, "run", fake)
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    result = await REAL_PROBE("https://soundcloud.com/glassnotemusic/lasso")
+    assert result == {"url": "https://soundcloud.com/glassnotemusic/lasso", "duration": 167.863}
+    args = seen["args"]
+    assert args[args.index("--format") + 1] == "bestaudio/best"
+    assert "--skip-download" in args and args[-1] == "https://soundcloud.com/glassnotemusic/lasso"
+    assert seen["timeout"] <= 30
+
+    async def drm(args, **_):
+        raise web.provider_error(b"ERROR: [soundcloud] 1: This video is DRM protected")
+
+    monkeypatch.setattr(web, "run", drm)
+    with pytest.raises(AppError) as error:
+        await REAL_PROBE("https://soundcloud.com/phoenix/lasso")
+    assert error.value.code == "SOURCE_UNAVAILABLE"
+    with pytest.raises(AppError):
+        await REAL_PROBE("https://example.com/lasso")
+
+
+async def test_availability_checks_at_once_and_keeps_unknowns_unknown(monkeypatch):
+    outcomes = {
+        "https://soundcloud.com/phoenix/lasso": web.provider_error(b"This video is DRM protected"),
+        "https://youtu.be/private": AppError("SOURCE_AUTH_REQUIRED", "x", 502),
+        "https://youtu.be/slow": AppError(
+            "SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True
+        ),
+        "https://soundcloud.com/glassnotemusic/lasso": None,
+    }
+
+    async def probe(url):
+        await asyncio.sleep(0)
+        if outcomes[url]:
+            raise outcomes[url]
+        return {"url": url, "duration": 167.9}
+
+    monkeypatch.setattr(web, "probe", probe)
+    checked = await web.availability(list(outcomes))
+    assert {url: check["available"] for url, check in checked.items()} == {
+        "https://soundcloud.com/phoenix/lasso": False,
+        "https://youtu.be/private": False,
+        "https://youtu.be/slow": None,
+        "https://soundcloud.com/glassnotemusic/lasso": True,
+    }
+    assert "DRM" in checked["https://soundcloud.com/phoenix/lasso"]["reason"]
+    assert await web.availability([]) == {}
