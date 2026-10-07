@@ -519,6 +519,8 @@ def doctor(ctx: typer.Context) -> None:
     import shutil
 
     from djlib.exporting.rekordbox_anlz import default_root
+    from djlib.interfaces.client import version_key
+    from djlib.interfaces.upgrade_cli import PLUGIN_UPDATE, claude_plugin_version
     from djlib.sources.runtimes import javascript_runtimes
 
     initialized = ctx.obj.config_path.is_file()
@@ -534,6 +536,7 @@ def doctor(ctx: typer.Context) -> None:
     analysis = default_root()
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     runtimes = javascript_runtimes()
+    plugin = claude_plugin_version()
 
     fixes = {}
     if not initialized:
@@ -546,6 +549,11 @@ def doctor(ctx: typer.Context) -> None:
         fixes["javascript_runtime"] = install_hint("deno")
     if locked:
         fixes["screen"] = "Unlock your Mac; rekordbox can't be driven while it is locked."
+    # The plugin brings the skill; one from another release describes other commands.
+    if plugin and version_key(plugin) < version_key(__version__):
+        fixes["claude_plugin"] = PLUGIN_UPDATE
+    elif plugin and version_key(plugin) > version_key(__version__):
+        fixes["claude_plugin"] = "djlib upgrade"
     required = bool(ffmpeg and ffprobe)
     reply = envelope(
         {
@@ -565,6 +573,7 @@ def doctor(ctx: typer.Context) -> None:
             "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
             "native_app_compatibility": "not_verified",
+            "claude_plugin": plugin,
             "required_checks_passed": required,
             "fixes": fixes,
         }

@@ -12,7 +12,7 @@ from djlib import __version__
 from djlib.domain.contracts import ControlRequest
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestResolution
-from djlib.interfaces import cli, handles
+from djlib.interfaces import cli, handles, upgrade_cli
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.validation import validation_message
 from tests.test_delivery_transports import assert_envelope
@@ -382,6 +382,46 @@ def test_doctor_fails_without_ffmpeg_and_names_the_fix(
     assert result["required_checks_passed"] is False
     assert result["fixes"]["ffmpeg"] == result["fixes"]["ffprobe"] == fix
     assert envelope["result"]["fixes"]["ffmpeg"] == fix
+
+
+@pytest.mark.parametrize(
+    ("plugin", "fix", "hint"),
+    [
+        ("0.1.0a1", upgrade_cli.PLUGIN_UPDATE, f"older than djlib {__version__}"),
+        (__version__, None, None),
+        ("99.0.0", "djlib upgrade", f"newer than djlib {__version__}"),
+    ],
+)
+def test_doctor_flags_a_claude_code_plugin_from_another_release(
+    tmp_path, monkeypatch, no_rekordbox, plugin, fix, hint
+):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    cache = tmp_path / "claude" / "plugins/cache/dj-library-tool/djlib"
+    (cache / plugin).mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    reply = run("doctor", workspace=tmp_path / "nothing-yet")
+    assert reply.exit_code == 0, reply.output  # the plugin is never a required check
+    result = json.loads(reply.stdout)["result"]
+    assert result["claude_plugin"] == plugin
+    assert result["fixes"].get("claude_plugin") == fix
+    pretty = run("doctor", pretty=True, workspace=tmp_path / "nothing-yet", columns=200).stdout
+    row = next(line for line in pretty.splitlines() if "Claude Code plugin" in line)
+    assert plugin in row
+    if fix:
+        assert "✗ Claude Code plugin" in row and hint in row and fix in pretty
+    else:
+        assert "✓ Claude Code plugin" in row
+
+
+def test_doctor_has_no_plugin_row_without_the_plugin(tmp_path, monkeypatch, no_rekordbox):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert (
+        json.loads(run("doctor", workspace=tmp_path / "w").stdout)["result"]["claude_plugin"]
+        is None
+    )
+    assert "Claude Code plugin" not in run("doctor", pretty=True, workspace=tmp_path / "w").stdout
 
 
 # -- messages ---------------------------------------------------------------------------------
