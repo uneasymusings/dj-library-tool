@@ -97,3 +97,20 @@ def test_named_in_comments_points_to_credited_mentions_first():
     assert message.startswith(" Listeners named 4 tracks in the comments, e.g. The Streets")
     assert set_sources.named_in_comments([]) == ""
     assert set_sources.named_in_comments([{"text": "ID?"}]) == ""
+
+
+def test_search_queries_leave_out_original_mix_and_country_tags(library_http, monkeypatch):
+    from djlib.sources import web
+
+    queries = []
+
+    async def search(provider, query, limit=8):
+        queries.append(query)
+        return []
+
+    monkeypatch.setattr(web, "search", search)
+    library_http.post(
+        "/sources/search",
+        json={"artist": "Antdot & Maz (BR)", "title": "Lasso (Original Mix)", "version": ""},
+    )
+    assert queries == ["Antdot & Maz Lasso", "Antdot & Maz Lasso"]

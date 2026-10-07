@@ -523,13 +523,14 @@ def doctor(ctx: typer.Context) -> None:
 
     initialized = ctx.obj.config_path.is_file()
     config = ctx.obj.config() if initialized else None
-    rekordbox = automation = None
+    rekordbox = automation = locked = None
     if sys.platform == "darwin":
         # Only macOS can drive rekordbox; elsewhere nothing here touches it.
         from djlib.native import rekordbox_mac
 
         rekordbox = rekordbox_mac.installed()
         automation = rekordbox_mac.automation_allowed()
+        locked = rekordbox_mac.screen_locked()
     analysis = default_root()
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     runtimes = javascript_runtimes()
@@ -543,6 +544,8 @@ def doctor(ctx: typer.Context) -> None:
         fixes["ffprobe"] = install_hint("ffmpeg")  # ffprobe ships with FFmpeg
     if not runtimes.get("youtube_runtime_ready"):
         fixes["javascript_runtime"] = install_hint("deno")
+    if locked:
+        fixes["screen"] = "Unlock your Mac; rekordbox can't be driven while it is locked."
     required = bool(ffmpeg and ffprobe)
     reply = envelope(
         {
@@ -558,6 +561,8 @@ def doctor(ctx: typer.Context) -> None:
             "coordinator_url": client(ctx).discover() if initialized else None,
             "rekordbox": rekordbox,
             "rekordbox_automation_allowed": automation,
+            # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
+            "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
             "native_app_compatibility": "not_verified",
             "required_checks_passed": required,

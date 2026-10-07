@@ -79,6 +79,11 @@ def event(name: str, **fields) -> None:
     sys.stderr.flush()
 
 
+# Reasons a skipped rekordbox step is worth retrying once the user has acted.
+RETRY_LATER = frozenset({"APP_SCREEN_LOCKED", "APP_AUTOMATION_NOT_ALLOWED"})
+LOCKED_GRACE_SECONDS = 30
+
+
 def usb_failed(usb: dict | None) -> bool:
     """A USB check that a DJ must not rely on: files missing or out of order."""
     if not usb:
@@ -480,9 +485,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         """
         from djlib.native import rekordbox_mac as ui
 
-        # This command waits for the user anyway, so a locked screen just means "not yet".
-        with status("Waiting for you to unlock your Mac…"):
-            ui.wait_for_unlock(timeout)
+        await_unlock(ui, timeout)
         ui.ensure_supported()
         from djlib.interfaces.handles import resolve
 
@@ -584,11 +587,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 "playlist; use one or the other.",
             )
         if usb:
-            with status("Waiting for you to unlock your Mac…"):
-                ui.wait_for_unlock(timeout)
+            await_unlock(ui, timeout)
             ui.ensure_supported()
         # Owned/missing, the crate and downloads need no DJ app; rekordbox is used when it can be.
-        skipped = None if use_rekordbox else "not requested (--no-rekordbox)"
+        skipped = None if use_rekordbox else ("not requested (--no-rekordbox)", "NOT_REQUESTED")
         if use_rekordbox and not usb:
             skipped = rekordbox_unavailable(ui)
         volume = usb_target(device) if usb else None
@@ -674,7 +676,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 crate = prepare(local, workspace, collection_id)
             result.update(collection_id=collection_id, playlist=crate["playlist"])
             if skipped:
-                result["rekordbox"] = {"status": "skipped", "reason": skipped}
+                reason, code = skipped
+                result["rekordbox"] = {"status": "skipped", "reason": reason, "reason_code": code}
             else:
                 if when_idle:
                     with status(f"Waiting until you've been away for {when_idle} s…"):
@@ -686,21 +689,44 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     result["rekordbox"]["replaces"] = crate["replaces"]
             if volume is not None:
                 result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
+        # What is left to do, for people and for assistants that branch on it.
+        handle = (result["collection_id"] or "").removeprefix("collection_")[:8]
+        unfinished = []
+        rekordbox_state = result["rekordbox"] or {}
+        if rekordbox_state.get("reason_code") in RETRY_LATER:
+            unfinished.append(f"djlib rekordbox push {handle}")
+        if usb_failed(result["usb"]):
+            unfinished.append(f"djlib rekordbox usb {handle}")
+        result["complete"] = not unfinished
+        result["next"] = unfinished
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
         if usb_failed(result["usb"]):
             raise typer.Exit(4)
 
-    def rekordbox_unavailable(ui) -> str | None:
-        """Why rekordbox can't be driven right now, or None when it can."""
+    def rekordbox_unavailable(ui) -> tuple[str, str] | None:
+        """Why rekordbox can't be driven right now (message, code), or None when it can."""
         try:
-            ui.ensure_supported()  # macOS only; also checks the Accessibility permission
+            ui.ensure_supported()  # macOS only; also checks the lock and Accessibility
         except AppError as error:
-            return error.message
+            return error.message, error.code
         if ui.installed() is None:
-            return "rekordbox is not installed in /Applications"
+            return "rekordbox is not installed in /Applications", "APP_NOT_INSTALLED"
         return None
+
+    def await_unlock(ui, timeout: int) -> None:
+        """A locked Mac can't be driven. In a terminal, wait visibly for the unlock; for
+        scripts and assistants, say so at once (stderr event) and give up after a short grace,
+        so they can tell the user instead of waiting minutes in silence."""
+        if not ui.screen_locked():
+            return
+        if terminal.current().json:
+            event("unlock_mac", reason="macOS does not let apps be controlled while it is locked")
+            ui.wait_for_unlock(min(timeout, LOCKED_GRACE_SECONDS))
+        else:
+            with status("Your Mac is locked; waiting for you to unlock it…"):
+                ui.wait_for_unlock(timeout)
 
     def confirm_fetch(term, chosen: list[dict]) -> bool:
         """Show what would be downloaded and ask; scripts and assistants pass --yes instead."""

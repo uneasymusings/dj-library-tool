@@ -233,11 +233,13 @@ def create_app(
     @app.post("/sources/search")
     async def source_search(body: SourceSearch):
         from djlib.application.source_matching import rank_sources
-        from djlib.domain.contracts import without_artist_tags
+        from djlib.domain.contracts import plain_labels, without_artist_tags
         from djlib.sources.web import search
 
-        # Uploads rarely write disambiguation tags such as "(BR)"; they only narrow a search.
-        query = without_artist_tags(" ".join(filter(None, (body.artist, body.title, body.version))))
+        # Uploads rarely write "(Original Mix)" or tags such as "(BR)"; in a query they only
+        # push the official upload out of the results.
+        title, version = plain_labels(body.title, body.version)
+        query = without_artist_tags(" ".join(filter(None, (body.artist, title, version))))
         found = await asyncio.gather(
             *(search(provider, query, body.limit) for provider in ("youtube", "soundcloud")),
             return_exceptions=True,
