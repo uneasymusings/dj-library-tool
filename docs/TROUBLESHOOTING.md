@@ -6,7 +6,7 @@ Every command reports errors as `error.code` and a message in its JSON envelope 
 
 - **`djlib: command not found`.** `uv tool dir --bin` shows where uv put it; `uv tool update-shell` adds that folder to PATH. Open a new terminal afterwards. See [uv's tool guide](https://docs.astral.sh/uv/guides/tools/#installing-tools).
 - **Use a persistent install for assistants.** An MCP registration or generated session stores the path of the installed `djlib`. An ephemeral `uvx` environment or a deleted developer checkout breaks it; reinstall with `uv tool install` and create a new session.
-- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, rekordbox, the Accessibility permission and the background service without starting it.
+- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, rekordbox, the Accessibility permission and the background service without starting it, and flags a Claude Code plugin from another release.
 - **Release files** come with `SHA256SUMS` to verify downloads. The source checkout's `uv.lock` is the exact dependency record for contributors and CI.
 
 ## Workspace
@@ -24,7 +24,8 @@ Commands start a background service for the workspace on demand. Started that wa
 | `SERVICE_START_BUSY` | Another command held the startup lock for 45 seconds. Check `djlib service status`, then retry. |
 | `SERVICE_START_FAILED` | The service exited. Read the workspace's `runtime/service.log`, fix the cause it names, then retry. |
 | `SERVICE_START_TIMEOUT` | No healthy service within 30 seconds while the process still ran. Check `service status` and the log before retrying; don't start it repeatedly. |
-| `COORDINATOR_VERSION_MISMATCH` | An older service is still running after an update. `djlib service stop`, then retry. |
+| `COORDINATOR_VERSION_MISMATCH` | An older service is still busy after an update (an idle one is replaced by itself). When its jobs finish, `djlib service stop`, then retry. |
+| `CLIENT_OUTDATED` | djlib was updated while this session kept running the old one, often an assistant's MCP server. Restart that session (in Claude Code: `/mcp` → djlib → Reconnect; in Codex: restart Codex). The newer service is left alone; retrying doesn't help. |
 
 A startup error never means a music job was accepted. Redact private paths from logs before sharing them.
 

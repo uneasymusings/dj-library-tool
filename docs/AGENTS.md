@@ -18,7 +18,7 @@ codex plugin marketplace add uneasymusings/dj-library-tool
 codex plugin add djlib@dj-library-tool
 ```
 
-Restart the host. The plugin runs `djlib` from your PATH, so install the engine with `uv tool install` first. Updating the engine doesn't update the plugin, or the other way round. To refresh the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`.
+Restart the host. The plugin runs `djlib` from your PATH, so install the engine with `uv tool install` first. Updating the engine doesn't update the plugin, or the other way round. To refresh the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than the engine. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
 
 ## Manual setup
 

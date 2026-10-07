@@ -7,7 +7,7 @@ description: Check a DJ set's tracklist against the music the user owns, build t
 
 djlib keeps a local catalog of the user's music and turns tracklists into crates. The `djlib` CLI does everything; the `djlib_*` MCP tools cover the catalog, request lists, crates, set links and downloads. Steps that drive rekordbox or a USB stick are CLI-only and need macOS. Every tool reply and captured CLI output is one JSON envelope: check `ok`, `error.code` and `warnings`.
 
-Start with `djlib status` (library, request lists, crates already in rekordbox, next steps) or `djlib_capabilities`. `djlib init` remembered the workspace, so don't ask for it or pass `--workspace`. On `WORKSPACE_REQUIRED`, ask the user to run `djlib init --allow-root ~/Music` with their music folder, then `djlib scan`. If the tools or the CLI are missing, read [install](references/install.md).
+Start with `djlib status` (library, request lists, crates already in rekordbox, next steps) or `djlib_capabilities`. `djlib init` remembered the workspace, so don't ask for it or pass `--workspace`. On `WORKSPACE_REQUIRED`, ask the user to run `djlib init --allow-root ~/Music` with their music folder, then `djlib scan`. If the tools or the CLI are missing, read [install](references/install.md). On `CLIENT_OUTDATED`, djlib was updated under this session: ask the user to reconnect djlib (`/mcp` in Claude Code); retrying won't help.
 
 ## A set: one command
 

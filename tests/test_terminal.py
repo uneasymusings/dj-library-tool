@@ -439,6 +439,7 @@ def indents(text: str) -> list[int]:
         ("INPUT_INVALID", "That input didn't work"),
         ("TRANSPORT_UNCERTAIN", "Lost contact with djlib's background service"),
         ("COORDINATOR_VERSION_MISMATCH", "djlib was updated"),
+        ("CLIENT_OUTDATED", "A newer djlib is running"),
         ("APP_SELECTION_TIMEOUT", "You didn't pick the playlist in time"),
         ("DEVICE_REQUIRED", "Which USB?"),
         ("SOURCE_BROWSER_ONLY", "Open this one in your browser"),
