@@ -18,10 +18,12 @@ from djlib.audio.preparation import tag_download_copy
 from djlib.domain.contracts import (
     Profile,
     TrackInput,
+    artist_names,
+    credit_form,
     label_form,
-    normalize,
     recording_key,
     version_markers,
+    without_artist_tags,
 )
 from djlib.domain.errors import AppError
 from djlib.exporting.handoff import atomic_text, playlist_label, rekordbox_xml
@@ -546,14 +548,28 @@ class Worker:
     def identity_conflict(
         track: TrackInput, inspection: Inspection, exact_version: bool = True
     ) -> bool:
-        if inspection.artist and normalize(inspection.artist) != normalize(track.artist):
-            return True
-        if inspection.title:
-            expected = {normalize(track.title), normalize(f"{track.title} {track.version}")}
-            if normalize(inspection.title) not in expected:
+        """Whether embedded tags name another artist, song or version than the request.
+
+        Compared as request matching compares: "(Original Mix)" is no version, country tags
+        such as "(BR)" and the order of credited names do not matter, and a featured artist
+        may be credited in the artist or the title.
+        """
+        names, wanted = credit_form(track.artist, track.title, without_artist_tags(track.version))
+        if inspection.artist:
+            # Without a title tag, featured names in the requested title cannot be checked.
+            found = (
+                credit_form(inspection.artist, inspection.title)[0]
+                if inspection.title
+                else artist_names(inspection.artist)
+            )
+            if found != (names if inspection.title else artist_names(track.artist)):
                 return True
-            requested = version_markers(f"{track.title} {track.version}")
-            if exact_version and requested != version_markers(inspection.title):
+        if inspection.title:
+            title = credit_form("", inspection.title)[1]
+            # Tags often leave the mix name out; the version markers below still tell.
+            if title not in {wanted, credit_form("", track.title)[1]}:
+                return True
+            if exact_version and version_markers(wanted) != version_markers(title):
                 return True
         return False
 

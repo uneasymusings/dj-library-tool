@@ -400,3 +400,63 @@ def test_download_alternates_are_validated_and_optional(application):
     plain = lasso_download(application, "plain")
     assert "alternates" not in application.items(plain["job_id"])["items"][0]["input"]
     assert lasso_download(application, "plain")["job_id"] == plain["job_id"]
+
+
+@pytest.mark.parametrize(
+    ("requested", "tags"),
+    [
+        (("Phoenix", "Lasso (Original Mix)", ""), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", "Original Mix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Original Mix)")),
+        (("Antdot & Maz (BR)", "Lasso", ""), ("Antdot, Maz", "Lasso")),
+        (("Maz (BR), Antdot", "Lasso", ""), ("Antdot & Maz", "Lasso")),
+        (("Phoenix feat. Ana", "Lasso", ""), ("Phoenix", "Lasso (feat. Ana)")),
+        (("Phoenix", "Lasso", "Maz (BR) Remix"), ("Phoenix", "Lasso (Maz Remix)")),
+        (("Phoenix", "Lasso (Extended Mix)", ""), ("Phoenix", "Lasso (Extended Mix)")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "")),
+        (("Phoenix", "Lasso", ""), ("", "Lasso")),
+    ],
+)
+def test_equivalent_labels_are_not_a_metadata_conflict(requested, tags):
+    from types import SimpleNamespace
+
+    track = TrackInput(path="/x.mp3", artist=requested[0], title=requested[1], version=requested[2])
+    file = SimpleNamespace(artist=tags[0], title=tags[1])
+    assert Worker.identity_conflict(track, file) is False
+
+
+@pytest.mark.parametrize(
+    ("requested", "tags"),
+    [
+        (("Phoenix", "Lasso (Two Door Cinema Club Remix)", ""), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Two Door Cinema Club Remix)")),
+        (("Phoenix", "Lasso", "Two Door Cinema Club Remix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", "Extended Mix"), ("Phoenix", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Live)")),
+        (("Phoenix", "Lasso", ""), ("Glassnote Records", "Lasso")),
+        (("Antdot & Maz", "Lasso", ""), ("Antdot", "Lasso")),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Entertainment")),
+    ],
+)
+def test_other_versions_and_artists_are_still_a_metadata_conflict(requested, tags):
+    from types import SimpleNamespace
+
+    track = TrackInput(path="/x.mp3", artist=requested[0], title=requested[1], version=requested[2])
+    assert Worker.identity_conflict(track, SimpleNamespace(artist=tags[0], title=tags[1])) is True
+
+
+async def test_download_tagged_without_original_mix_needs_no_review(
+    application, audio_factory, monkeypatch
+):
+    """The live case: the label's MP3 is tagged "Lasso"; the tracklist said "(Original Mix)"."""
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    tagged = audio_factory("glassnote.wav", frequency=490, artist="Phoenix", title="Lasso")
+    fake_provider(monkeypatch, tagged, {})
+    track = SourceTrack(url=LABEL, artist="Phoenix", title="Lasso (Original Mix)")
+    job = application.download(
+        DownloadRequest(name="Tonight — downloads", idempotency_key="tagged", tracks=[track])
+    )
+    result = await execute(application, job["job_id"])
+    assert (result["state"], result["outcome"]) == ("completed", "complete")
+    assert not application.reviews(job["job_id"])["reviews"]
