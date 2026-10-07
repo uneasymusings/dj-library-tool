@@ -729,9 +729,15 @@ def download(
 
 @app.command("source-inspect", hidden=True)
 @handled
-def source_inspect(ctx: typer.Context, url: str) -> None:
-    """Read a set's published description and chapters (this does not identify its audio)."""
-    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url}))
+def source_inspect(
+    ctx: typer.Context,
+    url: str,
+    comments: int = typer.Option(
+        0, "--comments", min=0, max=2000, help="Also read up to this many listener comments."
+    ),
+) -> None:
+    """Read a set's description and chapters, and optionally its comments."""
+    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url, "comments": comments}))
 
 
 @app.command(rich_help_panel=LIBRARY)
@@ -757,10 +763,22 @@ def collections(
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
     """List your crates (saved collections), newest first."""
+    from djlib.interfaces.rekordbox_cli import remembered
+
     params = {"query": query, "limit": limit}
     if after is not None:
         params["after"] = after
-    emit(client(ctx).request("GET", "/collections", params=params))
+    reply = client(ctx).request("GET", "/collections", params=params)
+    # The same rekordbox/USB record `status` shows: what djlib pushed and last checked.
+    history = remembered(ctx.obj)
+    for row in reply["result"].get("collections") or []:
+        done = history.get(row.get("collection_id"), {})
+        row["rekordbox"] = {
+            "playlist": done.get("playlist"),
+            "pushed_at": done.get("pushed_at"),
+            "usb": done.get("usb"),
+        }
+    emit(reply)
 
 
 app.command("crates", rich_help_panel=LIBRARY)(collections)

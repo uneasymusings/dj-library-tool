@@ -601,12 +601,20 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             with status("Reading the set's description and listener comments…"):
                 text, page = set_sources.tracklist_from_url(local, tracklist)
             if not text.strip():
+                comments = page.get("comments") or []
                 raise AppError(
                     "TRACKLIST_NOT_FOUND",
                     "This upload has no tracklist in its description or chapters."
-                    + set_sources.named_in_comments(page.get("comments") or [])
+                    + set_sources.named_in_comments(comments)
                     + " Copy its tracklist (for example from 1001Tracklists) into a text file, "
                     f"then run: djlib set FILE --source {tracklist}",
+                    details={
+                        "source": {
+                            k: page.get(k) for k in ("url", "provider", "title", "uploader")
+                        },
+                        # Listeners' guesses, in set order: a starting point, not a tracklist.
+                        "named_in_comments": set_sources.comment_list(comments),
+                    },
                 )
             body, warnings = text_request(
                 text, name, page.get("title") or "Set", page.get("url") or tracklist

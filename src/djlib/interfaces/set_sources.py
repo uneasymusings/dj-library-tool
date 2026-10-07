@@ -83,6 +83,34 @@ def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:
     return hints
 
 
+def comment_list(comments: list[dict]) -> list[dict]:
+    """Everything listeners named across the comments, in set order, for structured output."""
+    if not comments:
+        return []
+    from djlib.application.source_matching import comment_hints
+
+    hints = comment_hints(comments, None)
+    named = [
+        {
+            "label": hint["label"],
+            "artist": hint["artist"],
+            "title": hint["title"],
+            "at": None if hint["at_seconds"] is None else clock(hint["at_seconds"]),
+            "mentions": hint["mentions"],
+            "likes": hint["likes"],
+            "evidence": hint["evidence"][:1],
+        }
+        for hint in hints
+    ]
+    return sorted(named, key=lambda hint: (hint["at"] is None, seconds(hint["at"]) or 0))
+
+
+def clock(value: float) -> str:
+    total = int(value)
+    hours, rest = divmod(total, 3600)
+    return f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours else f"{rest // 60}:{rest % 60:02d}"
+
+
 def named_in_comments(comments: list[dict]) -> str:
     """“ Listeners named 9 tracks in the comments, e.g. …” or an empty string."""
     if not comments:
