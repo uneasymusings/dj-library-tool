@@ -6,13 +6,16 @@ import time
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from mcp import Client
 from typer.testing import CliRunner
 
 from djlib import __version__
 from djlib.domain.errors import AppError
 from djlib.interfaces import client as client_module
+from djlib.interfaces import mcp_server
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
+from djlib.interfaces.envelope import envelope
 from djlib.interfaces.service import create_app
 
 ABSENT = object()
@@ -330,6 +333,50 @@ def test_an_old_service_is_kept_when_newer_code_is_installed_under_this_client(
     assert f"djlib {NEWER} is now installed" in error.value.message
     assert __version__ in error.value.message
     assert all(call[0] == "GET" for call in calls)
+
+
+async def test_an_assistant_session_older_than_the_service_is_told_to_reconnect(
+    application, monkeypatch
+):
+    _, _, calls, _ = coordinator(application, monkeypatch, health_version=NEWER, version=NEWER)
+    async with Client(mcp_server.build_server(application.workspace)) as session:
+        reply = await session.call_tool("djlib_library", {})
+    error = reply.structured_content["error"]
+    assert error["code"] == "CLIENT_OUTDATED" and error["retryable"] is False
+    assert f"background djlib ({NEWER})" in error["message"]
+    assert "/mcp → djlib → Reconnect" in error["message"] and f"uses {NEWER}" in error["message"]
+    assert [call[:2] for call in calls] == [("GET", "/health")]
+
+
+async def test_an_upgrade_installed_under_a_running_mcp_server_asks_for_a_restart(
+    application, monkeypatch
+):
+    sent = []
+    monkeypatch.setattr(
+        LocalClient, "request", lambda self, *args, **kwargs: sent.append(args) or envelope({})
+    )
+    on_disk = [__version__]
+    reads = []
+
+    def installed():
+        reads.append(on_disk[0])
+        return on_disk[0]
+
+    monkeypatch.setattr(mcp_server, "installed_version", installed)
+    monkeypatch.setattr(mcp_server, "CODE_CHECK_SECONDS", 3600)
+    async with Client(mcp_server.build_server(application.workspace)) as session:
+        assert (await session.call_tool("djlib_library", {})).structured_content["ok"]
+        on_disk[0] = NEWER
+        # Read at most once per interval: this call still goes through.
+        assert (await session.call_tool("djlib_library", {})).structured_content["ok"]
+        assert reads == [__version__]
+        monkeypatch.setattr(mcp_server, "CODE_CHECK_SECONDS", 0)
+        reply = await session.call_tool("djlib_capabilities", {})
+    error = reply.structured_content["error"]
+    assert error["code"] == "CLIENT_OUTDATED" and error["retryable"] is False
+    assert f"djlib {NEWER} is now installed" in error["message"]
+    assert f"still runs {__version__}" in error["message"] and "Reconnect" in error["message"]
+    assert len(sent) == 2  # nothing reached the service after the upgrade
 
 
 def test_installed_version_reads_this_package_from_disk(tmp_path, monkeypatch):
