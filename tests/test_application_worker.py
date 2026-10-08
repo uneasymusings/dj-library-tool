@@ -474,6 +474,9 @@ async def test_failed_downloads_leave_no_empty_collection(application, audio_fac
     result = await execute(application, job["job_id"])
     assert result["counts"] == {"failed": 1}
     assert result["result"]["collection_id"] is None and collections(application) == []
+    from djlib.application.catalog_paging import summary
+
+    assert summary(application)["recent_collections"] == []  # `status` lists none either
 
 
 async def test_repeated_downloads_for_one_set_share_its_collection(
