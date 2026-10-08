@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.1.0a14
+
+**Install in one line, for you or your assistant.**
+- **One line sets everything up.** The installer (`curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh`) now also adds the djlib plugin to Claude Code and Codex when they're installed, and in a terminal asks where your music is and indexes it. Running it again updates everything. `DJLIB_PLUGIN=0`, `DJLIB_MUSIC=FOLDER` and `DJLIB_VERSION` control it.
+- **Or paste one line to your assistant:** “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”. [SETUP.md](SETUP.md) walks it through install, indexing, the macOS permission, loading the plugin and a first set.
+- **`djlib upgrade` updates the plugin too**, also when the engine is already current, so engine and plugin no longer drift apart (the cause of `COORDINATOR_VERSION_MISMATCH` in the plugin test).
+- **The plugin checks itself.** At session start it tells the assistant when the djlib engine is missing or from another release, with the one command that fixes it; it is silent otherwise.
+- **`djlib scan` works for scripts and assistants** without the hidden `--key` retry token it used to demand when not run in a terminal (a rescan is harmless; it only reads new bytes).
+- **`--fetch` says which uploads it skipped** and why (`skipped`: removed, region-locked or DRM-protected), also in the confirmation prompt.
 
 From a live `set --fetch` run where the official Phoenix – Lasso upload had become DRM-only:
 - **Only uploads that play are trusted.** `--fetch` and `find_sources` check the best three uploads of a song (in parallel, 30 s at most) before calling one a clear match. Removed, region-locked and DRM-protected uploads are dropped and listed under `unavailable`, and the rest are ranked again.
@@ -16,6 +24,7 @@ From a live plugin test where the USB step timed out three times, created a dupl
 - **Menu hiccups don't end the wait.** rekordbox greys its menus for a moment while you click around; that, a missing dialog or a slow menu is now waited through, the selection is read only once you pause, and names match however their accents are composed.
 - **The stick is read when the export really starts and ends.** The before-snapshot is taken right before the export (a replugged stick is fine), and completion also waits for the stick's library to list the whole playlist.
 
+From the same plugin test, where the assistant's djlib tools stopped working after an update:
 - **Updates under a running assistant.** An MCP server started before an update no longer calls the newer background service “older” or stops it. It answers `CLIENT_OUTDATED` with how to restart the session (in Claude Code: `/mcp` → djlib → Reconnect), also when it notices a newer djlib was installed under it. An idle older service is still replaced automatically.
 - `djlib upgrade` says how many assistant sessions still run the old djlib, and when the Claude Code plugin needs updating.
 - `djlib doctor` flags a Claude Code plugin from another release, with the command that updates it.
