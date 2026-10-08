@@ -811,6 +811,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 f"  {escape(entry['label'])}  [muted]← {upload['provider']}: "
                 f"“{escape(upload['title'])}” by {escape(upload['uploader'] or '?')} ({minutes})[/]"
             )
+            for gone in entry.get("skipped") or []:
+                title, uploader = gone.get("title") or "?", gone.get("uploader") or "?"
+                term.err.print(
+                    f"    [muted]skipped “{escape(title)}” by {escape(uploader)}: "
+                    f"{escape(gone.get('reason') or 'gone')}[/]"
+                )
         return typer.confirm("Download these as MP3?", default=True, err=True)
 
     def sync(local) -> dict | None:
