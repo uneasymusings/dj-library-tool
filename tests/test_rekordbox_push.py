@@ -423,9 +423,13 @@ def test_a_same_named_playlist_is_checked_before_it_is_trusted(
 class FakeSelection:
     """rekordbox's menus and the user's input on a simulated clock, for wait_for_selection."""
 
-    def __init__(self, monkeypatch, clicks=(), selections=(), front=True, menu="enabled"):
+    def __init__(
+        self, monkeypatch, clicks=(), selections=(), front=True, menu="enabled", summaries=()
+    ):
         self.now, self.clicks, self.selections = 0.0, list(clicks), iter(selections)
         self.front, self.menu = front, menu
+        # (from time, rekordbox's "N Tracks, …" line); none means the line can't be read.
+        self.summaries = list(summaries)
         self.probes, self.exported, self.notes = [], [], []
         monkeypatch.setattr(rekordbox_mac.time, "monotonic", lambda: self.now)
         monkeypatch.setattr(rekordbox_mac.time, "sleep", self.sleep)
@@ -435,6 +439,7 @@ class FakeSelection:
         monkeypatch.setattr(rekordbox_mac, "menu_state", lambda *path: self.menu)
         monkeypatch.setattr(rekordbox_mac, "selected_playlist", self.selected)
         monkeypatch.setattr(rekordbox_mac, "click_menu_path", self.click)
+        monkeypatch.setattr(rekordbox_mac, "list_summary", self.summary)
         # Never touch the real rekordbox or Notification Center from a test.
         monkeypatch.setattr(rekordbox_mac, "bring_to_front", lambda: self.notes.append("front"))
         monkeypatch.setattr(rekordbox_mac, "notify", self.notes.append)
@@ -445,6 +450,10 @@ class FakeSelection:
     def idle(self):
         latest = max([at for at in self.clicks if at <= self.now], default=-100.0)
         return self.now - latest
+
+    def summary(self):
+        shown = [text for at, text in self.summaries if at <= self.now]
+        return shown[-1] if shown else None
 
     def selected(self):
         self.probes.append(self.now)
@@ -474,6 +483,71 @@ def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
     # rekordbox comes to the front and the user is told what to click, and why not "Other".
     assert fake.notes[0] == "front" and "Click “Owned”" in fake.notes[1]
     assert any(note.startswith("That's “Other”") for note in fake.notes[2:])
+
+
+def test_the_list_on_screen_says_when_to_look_at_the_selection(monkeypatch):
+    # The Collection is on screen, then another playlist, then the 5-track one: only that
+    # one is looked at (no dialog flashes for the others), and at once, without waiting for
+    # input heuristics.
+    fake = FakeSelection(
+        monkeypatch,
+        clicks=[3.0, 6.0],
+        summaries=[
+            (0.0, "692 Tracks, 41 hours, 13.4 GB"),
+            (3.0, "12 Tracks, 61 minutes, 1.1 GB"),
+            (6.0, "5 Tracks, 17 minutes, 140 MB"),
+        ],
+        selections=["Tonight (3)"],
+    )
+    states = []
+    rekordbox_mac.wait_for_selection(
+        "RICARDO_AM",
+        "Tonight (3)",
+        600,
+        on_state=lambda state, left, about: states.append((state, about)),
+        expected_tracks=5,
+    )
+    assert len(fake.probes) == 1 and 6.0 + rekordbox_mac.SETTLE_SECONDS <= fake.probes[0] < 7.5
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert states[0] == ("other_list_selected", "692 Tracks, 41 hours, 13.4 GB")
+    assert ("other_list_selected", "12 Tracks, 61 minutes, 1.1 GB") in states
+
+
+def test_a_list_of_another_size_is_still_looked_at_after_a_while(monkeypatch):
+    # rekordbox may leave a file out of the playlist it imported: 4 tracks on screen for a
+    # 5-track crate. After a short grace it is looked at anyway, so the export still happens.
+    fake = FakeSelection(
+        monkeypatch, summaries=[(0.0, "4 Tracks, 14 minutes, 110 MB")], selections=["Tonight"]
+    )
+    rekordbox_mac.wait_for_selection("RICARDO_AM", "Tonight", 600, expected_tracks=5)
+    assert fake.probes and fake.probes[0] >= rekordbox_mac.OTHER_LIST_SECONDS
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+
+
+def test_same_sized_copies_are_told_apart_by_the_click(monkeypatch):
+    # "Tonight (2)" and "Tonight (3)" hold the same tracks, so the line on screen doesn't
+    # change between them; the user's click still triggers another look.
+    same = "5 Tracks, 17 minutes, 140 MB"
+    fake = FakeSelection(
+        monkeypatch,
+        clicks=[10.0],
+        summaries=[(0.0, same)],
+        selections=["Tonight (2)", "Tonight (3)"],
+    )
+    wrong = []
+    rekordbox_mac.wait_for_selection(
+        "RICARDO_AM", "Tonight (3)", 600, on_wrong=wrong.append, expected_tracks=5
+    )
+    assert wrong == ["Tonight (2)"] and len(fake.probes) == 2 and fake.probes[1] >= 10.0
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+
+
+def test_track_counts_are_read_from_the_summary_line():
+    assert rekordbox_mac.track_count("5 Tracks, 17 minutes, 140 MB") == 5
+    assert rekordbox_mac.track_count("1 Track, 3 minutes, 9 MB") == 1
+    assert rekordbox_mac.track_count("1,234 Tracks, 80 hours, 40 GB") == 1234
+    assert rekordbox_mac.track_count("rekordbox") is None
+    assert rekordbox_mac.track_count(None) is None
 
 
 def test_a_menu_hiccup_after_a_wrong_click_keeps_waiting(monkeypatch):
