@@ -114,7 +114,10 @@ def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
 ):
     latest = {"version": "99.0.0", "tag": "v99.0.0", "url": "https://e/w.whl", "notes": "n"}
     monkeypatch.setattr(upgrade_cli, "latest_release", lambda: latest)
-    monkeypatch.setattr(upgrade_cli.shutil, "which", lambda name: "/usr/bin/uv")
+    # No `claude` on PATH: the plugin can't be updated here, so the user is told how.
+    monkeypatch.setattr(
+        upgrade_cli.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
+    )
     monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
     monkeypatch.setattr(LocalClient, "discover", lambda self: None)
     installs = []
@@ -139,3 +142,52 @@ def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
         count = "1 assistant session is" if sessions == 1 else "2 assistant sessions are"
         assert warnings[0].startswith(f"{count} still running djlib {__version__}")
         assert "/mcp → djlib → Reconnect" in warnings[0] and "uses 99.0.0" in warnings[0]
+
+
+def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
+    """Engine and plugin from different releases broke the tools once; upgrade syncs both."""
+    latest = {"version": "99.0.0", "tag": "v99.0.0", "url": "https://e/w.whl", "notes": "n"}
+    monkeypatch.setattr(upgrade_cli, "latest_release", lambda: latest)
+    monkeypatch.setattr(upgrade_cli.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
+    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 0)
+    monkeypatch.setattr(LocalClient, "discover", lambda self: None)
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(upgrade_cli.subprocess, "run", run)
+    plugin_cache("0.1.0a12")
+    workspace = ["--workspace", str(tmp_path / "w")]
+    reply = CliRunner().invoke(cli_app, [*workspace, "upgrade"])
+    assert reply.exit_code == 0, reply.output
+    envelope = json.loads(reply.stdout)
+    assert envelope["result"]["plugin_updated"] == {"from": "0.1.0a12", "to": "99.0.0"}
+    assert commands[1:] == [
+        ["/usr/local/bin/claude", "plugin", "marketplace", "update", "dj-library-tool"],
+        ["/usr/local/bin/claude", "plugin", "update", "djlib@dj-library-tool"],
+    ]
+    assert "Restart Claude Code" in envelope["warnings"][-1]
+
+    # Already on the newest engine: an outdated plugin is still brought up to date.
+    commands.clear()
+    latest["version"] = __version__
+    current = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
+    assert current["result"]["updated"] is False
+    assert current["result"]["plugin_updated"]["to"] == __version__ and len(commands) == 2
+
+    # --check never changes anything.
+    commands.clear()
+    checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
+    assert "plugin_updated" not in checked["result"] and commands == []
+
+    def refused(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1, "", "Marketplace not found")
+
+    monkeypatch.setattr(upgrade_cli.subprocess, "run", refused)
+    failed = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
+    assert "plugin_updated" not in failed["result"]
+    assert "(Marketplace not found)" in failed["warnings"][-1]
+    assert upgrade_cli.PLUGIN_UPDATE in failed["warnings"][-1]
