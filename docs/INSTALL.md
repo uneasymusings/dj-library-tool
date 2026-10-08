@@ -1,14 +1,14 @@
 # Install
 
-djlib runs locally with Python 3.13, installed through [uv](https://docs.astral.sh/uv/getting-started/installation/). Driving rekordbox needs macOS; the catalog, tracklist checks, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases); the commands below use v0.1.0a13.
+djlib runs locally with Python 3.13, installed through [uv](https://docs.astral.sh/uv/getting-started/installation/). Driving rekordbox needs macOS; the catalog, tracklist checks, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases); the commands below use v0.1.0a14.
 
-On macOS or Linux, one line installs uv if missing, the newest release and FFmpeg (through Homebrew when available), then runs `djlib doctor`; continue with `djlib init` in step 2: `curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh`
+On macOS or Linux, one line installs uv if missing, the newest release, FFmpeg (through Homebrew when available) and the djlib plugin for Claude Code and Codex when they're installed; in a terminal it then asks where your music is, indexes it and runs `djlib doctor`: `curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh`. `DJLIB_PLUGIN=0` skips the plugin, `DJLIB_MUSIC=FOLDER` indexes a folder without asking (`DJLIB_MUSIC=` skips that step) and `DJLIB_VERSION=0.1.0a14` pins a release. With an assistant, paste: “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”.
 
 1. **FFmpeg** (for MP3, AAC, FLAC and downloads): `brew install ffmpeg` on macOS, `sudo apt install ffmpeg` (or your distribution's package) on Linux, `winget install Gyan.FFmpeg` on Windows. YouTube downloads also need [Deno](https://deno.com) or Node 22+.
 2. **djlib**:
 
    ```bash
-   uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a13/dj_library_tool-0.1.0a13-py3-none-any.whl'
+   uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a14/dj_library_tool-0.1.0a14-py3-none-any.whl'
    djlib init --allow-root ~/Music    # Windows: --allow-root "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor
@@ -20,7 +20,7 @@ On macOS or Linux, one line installs uv if missing, the newest release and FFmpe
 
 ## Update
 
-Stop the background service, then install the newer release's wheel URL over the old one (on macOS or Linux, rerunning the one-line installer does this). Your workspace, catalog and music stay as they are.
+`djlib upgrade` installs the newest release, restarts the background service and updates the Claude Code plugin (rerunning the one-line installer does the same, Codex plugin included). By hand: stop the background service, then install the newer release's wheel URL over the old one. Your workspace, catalog and music stay as they are.
 
 ```bash
 djlib service stop

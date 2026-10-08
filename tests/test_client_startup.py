@@ -198,4 +198,9 @@ def test_mcp_start_policy_is_platform_specific(application, monkeypatch, platfor
     monkeypatch.setattr(mcp_server, "sys", SimpleNamespace(platform=platform))
     monkeypatch.setattr(mcp_server, "LocalClient", local_client)
     mcp_server.build_server(application.workspace)
-    assert observed == [(application.workspace, {"allow_start": allow_start})]
+    assert observed == [
+        (
+            application.workspace,
+            {"allow_start": allow_start, "outdated_fix": mcp_server.RECONNECT},
+        )
+    ]

@@ -187,7 +187,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 f"The collection could not be exported; see djlib jobs get {job['job_id']}.",
             )
         manifest = json.loads(Path(job["result"]["manifest_path"]).read_text(encoding="utf-8"))
-        playlist = workspace.exports / "rekordbox" / f"{playlist_file_name(name)}.m3u8"
+        # A crate keeps the playlist name it got in rekordbox (e.g. "Name (2)"), so later pushes
+        # and USB exports find that playlist instead of importing the crate again. Each crate
+        # has its own folder, so same-named crates never overwrite each other's file.
+        name = remembered(workspace).get(collection_id, {}).get("playlist") or name
+        folder = workspace.exports / "rekordbox" / collection_id
+        playlist = folder / f"{playlist_file_name(name)}.m3u8"
         playlist.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(job["result"]["playlist_path"], playlist)
         tracks = manifest["collection"]["tracks"]
@@ -252,16 +257,26 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         ours = {entry.get("playlist") for entry in history.values() if entry.get("playlist")}
         for crate in list(unconfirmed):
             if crate["playlist"] in ours:
+                base = crate["playlist"]
                 taken = set(existing) | ours
                 number = 2
-                while f"{crate['playlist']} ({number})" in taken:
+                while f"{base} ({number})" in taken:
                     number += 1
                 renamed = Path(crate["playlist_file"]).with_name(
-                    f"{playlist_file_name(crate['playlist'])} ({number}).m3u8"
+                    f"{playlist_file_name(base)} ({number}).m3u8"
                 )
                 shutil.copyfile(crate["playlist_file"], renamed)
+                # The newest earlier version of this set, which the new playlist supersedes.
+                versions = [
+                    entry
+                    for entry in history.values()
+                    if re.fullmatch(re.escape(base) + r"( \(\d+\))?", entry.get("playlist") or "")
+                ]
+                newest = max(versions, key=lambda entry: entry.get("pushed_at") or "", default={})
                 crate.update(
-                    replaces=crate["playlist"], playlist=renamed.stem, playlist_file=str(renamed)
+                    replaces=newest.get("playlist") or base,
+                    playlist=renamed.stem,
+                    playlist_file=str(renamed),
                 )
                 unconfirmed.remove(crate)
         if unconfirmed:
@@ -322,32 +337,72 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
     def to_usb(local, workspace, ui, crate: dict, volume: Path, timeout: int) -> dict:
         """Have rekordbox export one playlist to the stick, then check it as a player would."""
+        from djlib.exporting import rekordbox_pdb
         from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
 
         tracks = crate["tracks"]
+        name = crate["playlist"]
         before = library_state(volume)
         term = terminal.current()
+        instruction = (
+            f"In rekordbox's left sidebar, under Playlists, click “{name}” once; "
+            f"djlib then exports it to {volume.name} and checks the stick."
+        )
 
-        def wrong(name):
+        def wrong(selected):
             if term.json:
-                event("wrong_playlist", selected=name, playlist=crate["playlist"])
+                event("wrong_playlist", selected=selected, playlist=name)
             else:
                 term.err.print(
-                    f"[warn]That's “{escape(name or 'not a playlist')}”.[/] "
-                    f"Click “{escape(crate['playlist'])}”."
+                    f"[warn]That's “{escape(selected or 'not a playlist')}”.[/] "
+                    f"Click “{escape(name)}”."
                 )
+
+        def snapshot():
+            # The stick as it is right before the export, even if it was replugged meanwhile.
+            nonlocal before
+            before = library_state(volume)
+
+        def listed() -> bool:
+            """Whether the stick's library lists the whole playlist yet (True if unreadable)."""
+            try:
+                found = rekordbox_pdb.playlist(volume, name)
+            except AppError:
+                return True
+            return found is not None and len(found["tracks"]) >= len(tracks)
 
         if term.json:
             # Assistants run this in the background; stdout stays one envelope at the end.
-            event("select_playlist", playlist=crate["playlist"], device=volume.name)
+            event("select_playlist", playlist=name, device=volume.name, instruction=instruction)
         else:
-            name = escape(crate["playlist"])
-            term.err.print(
-                f"[accent]→[/] In rekordbox, click the playlist [bold]{name}[/]. "
-                "djlib exports it as soon as it is selected."
+            term.err.print(f"[accent]→[/] {escape(instruction)}")
+        with status(f"Waiting for you to click “{name}” in rekordbox…") as live:
+
+            def waiting(state, seconds_left, selected):
+                reason = ui.waiting_reason(state, volume.name, selected)
+                if term.json:
+                    event(
+                        "waiting",
+                        state=state,
+                        reason=reason,
+                        seconds_left=seconds_left,
+                        playlist=name,
+                    )
+                elif live is not None:
+                    left = f"{seconds_left // 60}:{seconds_left % 60:02d} left"
+                    live.update(
+                        f"[bold]Waiting for you to click “{escape(name)}” in rekordbox[/] "
+                        f"[muted]({left}; {escape(reason)})[/]"
+                    )
+
+            ui.wait_for_selection(
+                volume.name,
+                name,
+                timeout,
+                on_wrong=wrong,
+                on_state=waiting,
+                before_export=snapshot,
             )
-        with status(f"Waiting for “{crate['playlist']}” to be selected in rekordbox…"):
-            ui.wait_for_selection(volume.name, crate["playlist"], timeout, on_wrong=wrong)
         started = time.monotonic()
         message = f"rekordbox is exporting to {volume.name}…"
         with status(message) as live:
@@ -356,9 +411,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 if live is not None:
                     live.update(f"[bold]{escape(message)}[/] {count} of {len(tracks)} files")
 
-            wait_for_copy(volume, tracks, before, on_progress=progress)
+            wait_for_copy(volume, tracks, before, on_progress=progress, ready=listed)
         with status("Checking the playlist on the USB…"):
-            check = check_playlist(volume, crate["playlist"], tracks)
+            check = check_playlist(volume, name, tracks)
         keys = ("expected", "found", "missing", "playlist_on_device", "device_entries", "in_order")
         analysis = None
         if check.get("device_analysis"):
@@ -495,12 +550,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking the collection's files…"):
             crate = prepare(local, workspace, collection_id)
         into_rekordbox(local, workspace, ui, [crate])
+        # Whether the playlist had to be imported first, and which earlier version it replaces.
+        imported = {"status": crate["status"], "replaces": crate.get("replaces")}
         result = to_usb(local, workspace, ui, crate, volume, timeout)
         emit(
             envelope(
                 {
                     "collection_id": collection_id,
                     "playlist": crate["playlist"],
+                    "rekordbox": imported,
                     **result,
                     "database_modified_directly": False,
                 }
@@ -637,7 +695,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 body = set_sources.download_body(request["name"], request["request_id"], chosen)
                 with status(f"Downloading {plural(len(chosen), 'song')} as MP3…"):
                     job = finished(local, local.request("POST", "/downloads", data=body)["result"])
-                    if (job.get("counts") or {}).get("failed"):
+                    if set_sources.worth_retrying(local, job):
                         # YouTube and SoundCloud refuse a stream now and then; try once more.
                         local.request(
                             "POST", f"/jobs/{job['job_id']}/control", data={"action": "retry"}
@@ -674,6 +732,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "fetched": fetched,
             "collection_id": None,
             "playlist": None,
+            "replaces": None,
             "rekordbox": None,
             "usb": None,
             "database_modified_directly": False,
@@ -695,6 +754,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 result["rekordbox"] = {"status": crate["status"], **outcome}
                 if crate.get("replaces"):
                     result["rekordbox"]["replaces"] = crate["replaces"]
+                    result["replaces"] = crate["replaces"]
             if volume is not None:
                 result["usb"] = to_usb(local, workspace, ui, crate, volume, timeout)
         # What is left to do, for people and for assistants that branch on it.
@@ -751,6 +811,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 f"  {escape(entry['label'])}  [muted]← {upload['provider']}: "
                 f"“{escape(upload['title'])}” by {escape(upload['uploader'] or '?')} ({minutes})[/]"
             )
+            for gone in entry.get("skipped") or []:
+                title, uploader = gone.get("title") or "?", gone.get("uploader") or "?"
+                term.err.print(
+                    f"    [muted]skipped “{escape(title)}” by {escape(uploader)}: "
+                    f"{escape(gone.get('reason') or 'gone')}[/]"
+                )
         return typer.confirm("Download these as MP3?", default=True, err=True)
 
     def sync(local) -> dict | None:

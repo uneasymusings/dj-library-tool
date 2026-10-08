@@ -9,6 +9,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -69,9 +70,26 @@ def command() -> list[str]:
     return args
 
 
+UNAVAILABLE = (
+    "unavailable",
+    "not available",
+    "not found",
+    "http error 404",
+    "has been removed",
+    "no longer available",
+    "drm protected",
+    "geo restrict",
+    "geo-restrict",
+    "your country",
+)
+
+
 def provider_error(stderr: bytes) -> AppError:
     """Classify bounded diagnostics without reflecting publisher text or private URLs."""
     text = stderr.decode("utf-8", errors="replace").lower()
+    # Warnings ("retrying…") can name problems the final error does not have.
+    errors = [line for line in text.splitlines() if line.startswith("error:")]
+    text = "\n".join(errors) or text
     if "no supported javascript runtime" in text or "javascript runtime is not supported" in text:
         return AppError(
             "JAVASCRIPT_RUNTIME_REQUIRED",
@@ -88,9 +106,16 @@ def provider_error(stderr: bytes) -> AppError:
         return AppError(
             "SOURCE_RATE_LIMITED", "The provider rate limited retrieval; retry later.", 502, True
         )
-    if any(marker in text for marker in ("unavailable", "not found", "404", "has been removed")):
+    if re.search(r"http error 5\d\d", text):
         return AppError(
-            "SOURCE_UNAVAILABLE", "The public recording is unavailable or removed.", 502
+            "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
+        )
+    if any(marker in text for marker in UNAVAILABLE):
+        # Removed, region-locked and DRM-protected uploads stay that way; retrying cannot help.
+        return AppError(
+            "SOURCE_UNAVAILABLE",
+            "The public recording is unavailable here (removed, region-locked or DRM-protected).",
+            502,
         )
     return AppError(
         "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
@@ -338,12 +363,15 @@ async def search(provider: str, query: str, limit: int = 8) -> list[dict]:
         except AppError:
             continue
         duration = entry.get("duration")
+        artists = entry.get("artists") if isinstance(entry.get("artists"), list) else []
         results.append(
             {
                 "provider": provider,
                 "url": link,
                 "title": str(entry.get("title") or "")[:500],
                 "uploader": str(entry.get("uploader") or entry.get("channel") or "")[:300],
+                # SoundCloud uploads carry the publisher's artist credit.
+                "artists": [str(name)[:300] for name in artists[:10] if isinstance(name, str)],
                 "duration": float(duration) if isinstance(duration, int | float) else None,
                 "view_count": entry.get("view_count")
                 if isinstance(entry.get("view_count"), int)
@@ -351,6 +379,57 @@ async def search(provider: str, query: str, limit: int = 8) -> list[dict]:
             }
         )
     return results
+
+
+PROBE_SECONDS = 30
+GONE = frozenset({"SOURCE_UNAVAILABLE", "SOURCE_AUTH_REQUIRED"})
+
+
+async def probe(url: str) -> dict:
+    """Whether a recording can be fetched now: yt-dlp picks its audio without downloading."""
+    validate_url(url)
+    raw = await run(
+        [
+            *command(),
+            "--format",
+            "bestaudio/best",
+            "--skip-download",
+            "--dump-single-json",
+            "--",
+            url,
+        ],
+        timeout=PROBE_SECONDS,
+        output_limit=8 * 1024 * 1024,
+    )
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("A metadata object is required.")
+    except ValueError as exc:
+        raise AppError("SOURCE_INVALID", "The source returned invalid metadata.") from exc
+    duration = data.get("duration")
+    return {
+        "url": url,
+        "duration": float(duration) if isinstance(duration, int | float) else None,
+    }
+
+
+async def availability(urls: list[str]) -> dict[str, dict]:
+    """Probe the URLs at once: ``available`` True, False (gone for good) or None (unknown).
+
+    A timeout or rate limit says nothing about the upload, so it stays unknown.
+    """
+    found = await asyncio.gather(*(probe(url) for url in urls), return_exceptions=True)
+    checked = {}
+    for url, outcome in zip(urls, found, strict=True):
+        if isinstance(outcome, AppError):
+            gone = outcome.code in GONE
+            checked[url] = {"available": False if gone else None, "reason": outcome.message}
+        elif isinstance(outcome, BaseException):
+            raise outcome
+        else:
+            checked[url] = {"available": True}
+    return checked
 
 
 def _comments(data: dict, limit: int) -> list[dict]:

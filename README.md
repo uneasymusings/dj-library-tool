@@ -8,7 +8,7 @@
 
 ```text
 $ djlib set Friday.txt --usb
-→ In rekordbox, click the playlist Friday — Warm-up. djlib exports it as soon as it is selected.
+→ In rekordbox's left sidebar, under Playlists, click “Friday — Warm-up” once; djlib then exports it to RICARDO_AM and checks the stick.
 ✓ Friday — Warm-up  12 of 15 songs owned
   Crate      12 tracks, in set order
   rekordbox  ✓ playlist “Friday — Warm-up” imported
@@ -21,15 +21,21 @@ Not in the crate (3)
 13   ○ unknown ID   ID - ID @ 41:20
 ```
 
-> **Experimental alpha, 0.1.0a13.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
+> **Experimental alpha, 0.1.0a14.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
 
 ## Quick start
+
+**With Claude Code or Codex**, paste this to your assistant:
+
+> Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md
+
+**In a terminal** (macOS or Linux):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 ```
 
-The installer sets up [uv](https://docs.astral.sh/uv/) if needed, installs the newest djlib release and FFmpeg (through Homebrew when available), and runs `djlib doctor`. Later, `djlib upgrade` updates it. Then:
+Either way you get [uv](https://docs.astral.sh/uv/) if needed, the newest djlib release, FFmpeg (through Homebrew when available) and, when Claude Code or Codex is installed, the djlib plugin for them. In a terminal the installer then asks where your music is and indexes it. Running it again, or `djlib upgrade`, updates everything, plugin included. Then:
 
 ```bash
 djlib init --allow-root ~/Music      # creates and remembers your workspace
@@ -39,7 +45,7 @@ djlib set tracklist.txt --usb        # … and onto your USB stick, verified
 djlib status                         # library, request lists, crates, next steps
 ```
 
-Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a13/dj_library_tool-0.1.0a13-py3-none-any.whl'`.
+Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.13 'dj-library-tool[download] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a14/dj_library_tool-0.1.0a14-py3-none-any.whl'`.
 
 A tracklist is plain text with one `Artist - Title (Mix)` per line. Numbering, timestamps and `[Label]` suffixes are ignored, and a heading line names the set. Start without `--usb` to see what you own; add it when the stick is plugged in.
 
@@ -72,7 +78,7 @@ In a terminal every command prints a readable view, with live progress for long 
 
 ## Use with an AI assistant
 
-Install the engine (Quick start above), then add the plugin. It brings the MCP server and a [skill](skills/dj-library/SKILL.md) that teaches the workflow, including computer etiquette: idle-time pushes, batching, no UI polling.
+The installer adds the plugin to Claude Code and Codex when they're installed (Quick start above); to add it by hand, run the commands below and restart. It brings the MCP server and a [skill](skills/dj-library/SKILL.md) that teaches the workflow, including computer etiquette: idle-time pushes, batching, no UI polling.
 
 ```bash
 # Claude Code

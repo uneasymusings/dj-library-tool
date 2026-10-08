@@ -13,6 +13,7 @@ from rich.text import Text
 
 from djlib import __version__
 from djlib.domain.contracts import TRAILING_VERSION
+from djlib.interfaces.client import version_key
 from djlib.interfaces.terminal import (
     ACCESSIBILITY_SETTINGS,
     ACTIVE_STATES,
@@ -1047,7 +1048,8 @@ def status_view(term: Terminal, result: dict) -> None:
 
 def crate_line(term: Terminal, row: dict, outdated: dict | None) -> Text:
     """``Friday  8 tracks  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago`` for the status screen."""
-    line = Text(str(row.get("name") or ""))
+    # The rekordbox playlist name tells versions of one set apart ("Friday (2)").
+    line = Text(str(row.get("playlist") or row.get("name") or ""))
     line.append(f"  {plural(int(row.get('tracks') or 0), 'track')}", style="heading")
     if outdated:
         line.append(
@@ -1120,11 +1122,8 @@ def status_steps(
         )
         usb = row.get("usb") or {}
         if in_rekordbox and (not usb or usb_failed(usb)):
-            label = (
-                f"Export “{row['name']}” to your USB again"
-                if usb
-                else f"Put “{row['name']}” on your USB"
-            )
+            name = row.get("playlist") or row["name"]
+            label = f"Export “{name}” to your USB again" if usb else f"Put “{name}” on your USB"
             steps.append((label, ("rekordbox", "usb", row["collection_id"])))
             break
     if tracks and bpm > key and result.get("rekordbox_checked"):
@@ -1231,6 +1230,13 @@ def doctor(term: Terminal, result: dict) -> None:
             ),
         ]
     fixes = result.get("fixes") or {}
+    if plugin := result.get("claude_plugin"):
+        hint = ""
+        if fixes.get("claude_plugin"):
+            hint = f"newer than djlib {__version__}"
+            if version_key(plugin) < version_key(__version__):
+                hint = f"older than djlib {__version__}; update it, then restart Claude Code"
+        checks.append(("Claude Code plugin", not hint, plugin, hint))
     if not ready and not fixes.get("workspace"):
         fixes = {**fixes, "workspace": term.command("init", "--allow-root", Path.home() / "Music")}
     width = max(cell_len(check[0]) for check in checks) + 2  # glyph and space
@@ -1269,6 +1275,7 @@ DOCTOR_FIXES = {
     "rekordbox": "rekordbox",
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
+    "Claude Code plugin": "claude_plugin",
 }
 
 
