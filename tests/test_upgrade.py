@@ -94,6 +94,7 @@ def test_assistant_sessions_counts_running_mcp_servers(monkeypatch):
         calls.append(command)
         return SimpleNamespace(returncode=0, stdout=listing)
 
+    monkeypatch.setattr(upgrade_cli, "WINDOWS", False)
     monkeypatch.setattr(upgrade_cli.subprocess, "run", ps)
     assert upgrade_cli.assistant_sessions() == 2
     assert calls == [["ps", "-axo", "pid=,args="]]
@@ -103,7 +104,7 @@ def test_assistant_sessions_counts_running_mcp_servers(monkeypatch):
 
     monkeypatch.setattr(upgrade_cli.subprocess, "run", missing)
     assert upgrade_cli.assistant_sessions() == 0
-    monkeypatch.setattr(upgrade_cli.os, "name", "nt")
+    monkeypatch.setattr(upgrade_cli, "WINDOWS", True)
     monkeypatch.setattr(upgrade_cli.subprocess, "run", lambda *a, **kw: pytest.fail("ps on nt"))
     assert upgrade_cli.assistant_sessions() == 0
 
