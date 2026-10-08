@@ -304,3 +304,24 @@ def test_set_fetch_does_not_retry_uploads_that_are_gone(
     assert downloaded == [OFFICIAL_LASSO, GLASSNOTE_LASSO]  # once each: no retry
     assert (result["fetched"]["downloaded"], result["fetched"]["failed"]) == (0, 1)
     assert result["owned"] == 0
+
+
+def test_set_fetch_says_which_uploads_it_skipped(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    """The live run didn't say why the artist's own upload wasn't used; now it does."""
+    from djlib.sources import web
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO
+
+    async def probe(url):
+        if url == OFFICIAL_LASSO:
+            raise web.provider_error(b"ERROR: [soundcloud] 1: This video is DRM protected")
+        return {"url": url, "duration": 167.9}
+
+    monkeypatch.setattr(web, "probe", probe)
+    result, downloaded = fetch_lasso(application, audio_factory, monkeypatch, tmp_path, {})
+    [chosen] = result["fetched"]["chosen"]
+    assert chosen["source"]["url"] == GLASSNOTE_LASSO and downloaded == [GLASSNOTE_LASSO]
+    [skipped] = chosen["skipped"]
+    assert skipped["url"] == OFFICIAL_LASSO and skipped["uploader"] == "Phoenix"
+    assert "DRM" in skipped["reason"]

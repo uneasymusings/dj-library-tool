@@ -177,9 +177,17 @@ def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
             continue
         candidates = found.get("candidates") or []
         best = candidates[0] if candidates else None
+        # Uploads that no longer play (removed, region-locked, DRM), so a person can see why
+        # e.g. the artist's own upload wasn't used.
+        skipped = {"skipped": found["unavailable"]} if found.get("unavailable") else {}
         if best and best.get("confident"):
             chosen.append(
-                {**song, "source": pick(best), "alternates": alternates(candidates, best)}
+                {
+                    **song,
+                    "source": pick(best),
+                    "alternates": alternates(candidates, best),
+                    **skipped,
+                }
             )
         else:
             undecided.append(
@@ -187,6 +195,7 @@ def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
                     **song,
                     "reason": "no confident match" if candidates else "nothing found",
                     "options": [pick(candidate) for candidate in candidates[:3]],
+                    **skipped,
                 }
             )
     return chosen, undecided
