@@ -106,10 +106,18 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
 
 
 def test_scripts_must_supply_submission_keys(tmp_path):
-    reply = invoke("scan", str(tmp_path), workspace=tmp_path / "ws")
+    reply = invoke("export", "collection_x", workspace=tmp_path / "ws")
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
     assert error["code"] == "INPUT_INVALID" and "--key" in error["message"]
+
+
+def test_scripts_and_assistants_can_scan_without_a_key(local_http):
+    # `djlib scan` straight after `djlib init` is the first thing an assistant or the
+    # installer runs; a rescan only reads new bytes, so it needs no retry token.
+    reply = invoke("scan", workspace=local_http.root)
+    assert reply.exit_code == 0, reply.output
+    assert json.loads(reply.stdout)["ok"] is True
 
 
 def test_cli_resolves_relative_paths_before_the_coordinator_sees_them(
