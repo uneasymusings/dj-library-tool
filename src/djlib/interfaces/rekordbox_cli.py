@@ -402,6 +402,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 on_wrong=wrong,
                 on_state=waiting,
                 before_export=snapshot,
+                expected_tracks=len(tracks),
             )
         started = time.monotonic()
         message = f"rekordbox is exporting to {volume.name}…"
