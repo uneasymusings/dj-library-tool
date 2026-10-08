@@ -30,6 +30,7 @@ from djlib.workspace import Workspace
 PUBLIC_A2_REVISION = "d3d22d3b4b3d"
 DELIVERY_REVISION = "e8b7c9d20104"
 REQUEST_REVISION = "f12d20261005"
+DOWNLOAD_CRATES_REVISION = "a15c20261007"
 
 
 def upgrade_to(database, revision):
@@ -164,7 +165,7 @@ def test_public_a2_catalog_survives_delivery_and_request_migrations(tmp_path, au
 
         # Use the same startup migration entry point as the packaged local coordinator.
         database.migrate()
-        assert schema_revision(database) == REQUEST_REVISION
+        assert schema_revision(database) == DOWNLOAD_CRATES_REVISION
         assert set(inspect(database.engine).get_table_names()) >= {
             "deliveries",
             "request_ledgers",
@@ -212,5 +213,107 @@ def test_public_a2_catalog_survives_delivery_and_request_migrations(tmp_path, au
         with database.engine.connect() as connection:
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
             assert connection.exec_driver_sql("PRAGMA integrity_check").scalar_one() == "ok"
+    finally:
+        database.engine.dispose()
+
+
+def test_empty_crates_of_failed_downloads_are_removed_once(tmp_path):
+    """Before 0.1.0a14 every download made its crate up front, also when nothing arrived."""
+    import sqlite3
+    from contextlib import closing
+
+    from djlib.application.catalog_paging import summary
+    from djlib.jobs.worker import Worker
+    from djlib.persistence.models import Job
+
+    workspace = Workspace(tmp_path / "crates-workspace")
+    (tmp_path / "music").mkdir()
+    workspace.initialize([tmp_path / "music"])
+    database = Database(workspace.database)
+    gone = {"code": "SOURCE_UNAVAILABLE", "message": "Gone.", "retryable": False}
+    try:
+        upgrade_to(database, REQUEST_REVISION)
+        with database.transaction() as session:
+
+            def crate(collection_id, name, kind="download", job_result=None):
+                session.add(Collection(id=collection_id, name=name, revision=1))
+                if kind:
+                    session.add(
+                        Job(
+                            id=f"job-{collection_id}",
+                            kind=kind,
+                            state="completed",
+                            outcome="completed_with_gaps",
+                            request={"name": name, "tracks": []},
+                            result={"collection_id": collection_id, **(job_result or {})},
+                        )
+                    )
+
+            # An old failed download's crate goes; its job keeps the rest of its result.
+            crate("failed", "Tonight — downloads", job_result={"error": gone})
+            # A download crate with a song stays.
+            crate("fetched", "Friday — downloads")
+            session.add(Recording(id="rec", identity_key="a|b|", artist="A", title="B"))
+            session.flush()
+            session.add(Asset(id="asset", recording_id="rec", provenance={}))
+            session.flush()
+            session.add(AssetRevision(id="rev", asset_id="asset", sha256="0" * 64, properties={}))
+            session.flush()
+            session.add(
+                Membership(
+                    id="member",
+                    collection_id="fetched",
+                    recording_id="rec",
+                    revision_id="rev",
+                    position=0,
+                )
+            )
+            # Crates you made yourself stay, whatever their name.
+            crate("mine", "Mine — downloads", kind="collection")
+            crate("loose", "Loose — downloads", kind=None)
+            # An empty download crate that a delivery names stays.
+            crate("delivered", "Delivered — downloads")
+            session.add(
+                Delivery(id="delivery", request={"collection_ids": ["delivered"]}, snapshot={})
+            )
+        tables = set(inspect(database.engine).get_table_names()) - {"alembic_version"}
+        before = snapshot(database, tables)
+
+        database.migrate()
+        assert schema_revision(database) == DOWNLOAD_CRATES_REVISION
+        after = snapshot(database, tables)
+        assert after["collections"] == [r for r in before["collections"] if r["id"] != "failed"]
+        jobs = {row["id"]: row for row in after["jobs"]}
+        assert jobs["job-failed"]["result"] == {"collection_id": None, "error": gone}
+        assert [r for r in after["jobs"] if r["id"] != "job-failed"] == [
+            r for r in before["jobs"] if r["id"] != "job-failed"
+        ]
+        unchanged = tables - {"collections", "jobs"}
+        assert {t: after[t] for t in unchanged} == {t: before[t] for t in unchanged}
+        [backup] = (workspace.database.parent / "backups").glob("*.db")
+        with closing(sqlite3.connect(backup)) as saved:
+            assert ("failed",) in saved.execute("SELECT id FROM collections").fetchall()
+
+        # Neither `status` nor `crates` lists it.
+        application = Application(workspace, database)
+        names = {
+            "Friday — downloads",
+            "Mine — downloads",
+            "Loose — downloads",
+            "Delivered — downloads",
+        }
+        listed = summary(application)["recent_collections"]
+        assert {row["name"] for row in listed} == names
+        assert {row["name"] for row in application.saved("collections")["collections"]} == names
+
+        # Once only, and a retried download makes its crate again when a song arrives.
+        database.migrate()
+        assert snapshot(database, tables) == after
+        with database.transaction() as session:
+            job = session.get(Job, "job-failed")
+            collection_id = Worker.download_collection(session, job)
+            assert collection_id != "failed" and session.get(Collection, collection_id)
+        with database.engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     finally:
         database.engine.dispose()
