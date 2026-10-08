@@ -22,6 +22,7 @@ PLUGIN_UPDATE = (
     "claude plugin marketplace update dj-library-tool && claude plugin update djlib@dj-library-tool"
 )
 MCP_SERVE = re.compile(r"\bdjlib\b.*\smcp\s+serve\b")
+WINDOWS = os.name == "nt"  # no `ps` there
 
 
 def claude_plugin_version() -> str | None:
@@ -37,7 +38,7 @@ def claude_plugin_version() -> str | None:
 
 def assistant_sessions() -> int:
     """How many `djlib mcp serve` processes are running; 0 where `ps` can't tell (Windows)."""
-    if os.name == "nt":
+    if WINDOWS:
         return 0
     try:
         listing = subprocess.run(
