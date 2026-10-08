@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The USB step looks only when it's worth it.** rekordbox shows “N Tracks, M minutes, X MB” for the list on screen; djlib reads it without opening anything. Another list on screen is reported (`waiting` state `other_list_selected`) without flashing rekordbox's export dialog, and a list the size of the crate is checked the moment it appears. A list of another size is still checked after 8 s (rekordbox may have left a file out), copies of the same size are told apart by your click, and when the line can't be read djlib waits as before.
 - **Old empty download crates are gone.** Before 0.1.0a14 every download made its “<set> — downloads” crate up front, so failed downloads left empty crates in `status` and `crates`. The catalog upgrade removes them once, after backing the catalog up: only crates a download made, with no songs, that nothing else uses. Crates you made yourself stay, whatever their name.
 - **One song, one file.** A download joins the recording its labels name the way request matching compares them, so “Phoenix – Lasso (Original Mix)” and “Phoenix – Lasso” are one recording, as are “Antdot & Maz (BR)” and “Maz, Antdot”. When the audio is the same as a file djlib already stored for it, that file is reused (`reused: true`) instead of saving a second copy, so the song stays owned instead of ambiguous. Another mix or a live take stays separate. Recordings already in your catalog keep their IDs; scans are unchanged.
 
