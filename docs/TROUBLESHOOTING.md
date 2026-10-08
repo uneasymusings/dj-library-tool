@@ -6,7 +6,7 @@ Every command reports errors as `error.code` and a message in its JSON envelope 
 
 - **`djlib: command not found`.** `uv tool dir --bin` shows where uv put it; `uv tool update-shell` adds that folder to PATH. Open a new terminal afterwards. See [uv's tool guide](https://docs.astral.sh/uv/guides/tools/#installing-tools).
 - **Use a persistent install for assistants.** An MCP registration or generated session stores the path of the installed `djlib`. An ephemeral `uvx` environment or a deleted developer checkout breaks it; reinstall with `uv tool install` and create a new session.
-- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, rekordbox, the Accessibility permission and the background service without starting it.
+- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, rekordbox, the Accessibility permission and the background service without starting it, and flags a Claude Code plugin from another release.
 - **Release files** come with `SHA256SUMS` to verify downloads. The source checkout's `uv.lock` is the exact dependency record for contributors and CI.
 
 ## Workspace
@@ -24,7 +24,8 @@ Commands start a background service for the workspace on demand. Started that wa
 | `SERVICE_START_BUSY` | Another command held the startup lock for 45 seconds. Check `djlib service status`, then retry. |
 | `SERVICE_START_FAILED` | The service exited. Read the workspace's `runtime/service.log`, fix the cause it names, then retry. |
 | `SERVICE_START_TIMEOUT` | No healthy service within 30 seconds while the process still ran. Check `service status` and the log before retrying; don't start it repeatedly. |
-| `COORDINATOR_VERSION_MISMATCH` | An older service is still running after an update. `djlib service stop`, then retry. |
+| `COORDINATOR_VERSION_MISMATCH` | An older service is still busy after an update (an idle one is replaced by itself). When its jobs finish, `djlib service stop`, then retry. |
+| `CLIENT_OUTDATED` | djlib was updated while this session kept running the old one, often an assistant's MCP server. Restart that session (in Claude Code: `/mcp` → djlib → Reconnect; in Codex: restart Codex). The newer service is left alone; retrying doesn't help. |
 
 A startup error never means a music job was accepted. Redact private paths from logs before sharing them.
 
@@ -45,7 +46,7 @@ Then open or reconnect Claude Code or Codex. `COORDINATOR_START_REQUIRED` means 
 | `APP_AUTOMATION_NOT_ALLOWED` | Allow your terminal app under System Settings → Privacy & Security → Accessibility, then retry. |
 | `APP_SCREEN_LOCKED` | The Mac is locked, and no app can be driven then. Retry once it's unlocked (USB steps wait for the unlock themselves). |
 | `APP_PLAYLIST_NAME_TAKEN` | rekordbox has a different playlist with that name. Rename or delete it, or pass `--name`. Nothing was imported. |
-| `APP_SELECTION_TIMEOUT` | The playlist wasn't selected in time; nothing was exported. Run the USB step again and click the playlist named in the prompt. |
+| `APP_SELECTION_TIMEOUT` | The playlist wasn't selected in time; nothing was exported. The message says why (rekordbox wasn't in front, no playlist was selected, the stick wasn't listed under Playlist > Export Playlist, or another playlist was selected). Run the USB step again and click the playlist named in the prompt and the notification. |
 | `DEVICE_REQUIRED` | No stick or several sticks are mounted. Pass `--device /Volumes/NAME`. |
 | `APP_AUTOMATION_UNSUPPORTED` | Not a Mac. `set` still builds the crate; import it into your DJ app yourself. |
 | Exit code 4 | The USB check found missing or out-of-order files. Don't play from that stick; export again. |

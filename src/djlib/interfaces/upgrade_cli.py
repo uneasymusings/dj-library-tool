@@ -1,29 +1,90 @@
 """`djlib upgrade`: install the newest GitHub release with uv, then restart the service."""
 
+import os
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import typer
 
 from djlib import __version__
 from djlib.domain.errors import AppError
+from djlib.interfaces.client import VERSION, version_key
 from djlib.interfaces.envelope import envelope
 
 REPOSITORY = "uneasymusings/dj-library-tool"
 RELEASES = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=10"
 WHEEL = re.compile(r"^dj_library_tool-(?P<version>[^-]+)-py3-none-any\.whl$")
+# Updating the engine doesn't update the plugin (docs/AGENTS.md).
+PLUGIN_UPDATE = (
+    "claude plugin marketplace update dj-library-tool && claude plugin update djlib@dj-library-tool"
+)
+MCP_SERVE = re.compile(r"\bdjlib\b.*\smcp\s+serve\b")
+WINDOWS = os.name == "nt"  # no `ps` there
 
 
-def version_key(value: str) -> tuple:
-    """Order versions like 0.1.0a10 > 0.1.0a9 > 0.1.0a9.dev0 without extra dependencies."""
-    match = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?", value)
-    if not match:
-        return (0,)
-    major, minor, patch, stage, number = match.groups()
-    rank = {"a": 0, "b": 1, "rc": 2, None: 3}[stage]
-    return (int(major), int(minor), int(patch), rank, int(number or 0))
+def claude_plugin_version() -> str | None:
+    """The newest djlib plugin Claude Code has installed, or None. Reads folder names only."""
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    folder = root / "plugins" / "cache" / "dj-library-tool" / "djlib"
+    try:
+        found = [path.name for path in folder.iterdir() if VERSION.match(path.name)]
+    except OSError:
+        return None
+    return max(found, key=version_key, default=None)
+
+
+def assistant_sessions() -> int:
+    """How many `djlib mcp serve` processes are running; 0 where `ps` can't tell (Windows)."""
+    if WINDOWS:
+        return 0
+    try:
+        listing = subprocess.run(
+            ["ps", "-axo", "pid=,args="], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return sum(1 for line in listing.stdout.splitlines() if MCP_SERVE.search(line))
+
+
+def update_claude_plugin() -> str | None:
+    """Update the Claude Code plugin with the `claude` command: None when done, else why not."""
+    claude = shutil.which("claude")
+    if not claude:
+        return "the `claude` command isn't on PATH"
+    for args in (
+        ["plugin", "marketplace", "update", "dj-library-tool"],
+        ["plugin", "update", "djlib@dj-library-tool"],
+    ):
+        try:
+            done = subprocess.run([claude, *args], capture_output=True, text=True, timeout=180)
+        except (OSError, subprocess.SubprocessError):
+            return "`claude` didn't respond"
+        if done.returncode != 0:
+            lines = (done.stderr or done.stdout or "").strip().splitlines()
+            return (lines or ["it failed"])[-1][:200]
+    return None
+
+
+def sync_plugin(reply: dict, target: str) -> None:
+    """Keep the Claude Code plugin on the engine's release, so tools and skill match it."""
+    plugin = claude_plugin_version()
+    if not plugin or version_key(plugin) >= version_key(target):
+        return
+    problem = update_claude_plugin()
+    if problem is None:
+        reply["result"]["plugin_updated"] = {"from": plugin, "to": target}
+        reply["warnings"].append(
+            f"Updated the Claude Code plugin from {plugin}. Restart Claude Code (or run "
+            "/mcp → djlib → Reconnect) to load it."
+        )
+        return
+    reply["warnings"].append(
+        f"The Claude Code plugin is still {plugin} ({problem}). Update it with "
+        f"`{PLUGIN_UPDATE}`, then restart Claude Code."
+    )
 
 
 def latest_release() -> dict:
@@ -64,12 +125,18 @@ def register_upgrade(app, client, emit, handled, panel=None):
         ctx: typer.Context,
         check: bool = typer.Option(False, "--check", help="Only say whether a newer djlib exists."),
     ) -> None:
-        """Install the newest djlib release (and restart the service)."""
+        """Install the newest djlib release and update the plugin.
+
+        Restarts the background service; the Claude Code plugin is updated to match.
+        """
         latest = latest_release()
         newer = version_key(latest["version"]) > version_key(__version__)
         result = {"current": __version__, "latest": latest["version"], "notes": latest["notes"]}
         if check or not newer:
-            emit(envelope({**result, "update_available": newer, "updated": False}))
+            reply = envelope({**result, "update_available": newer, "updated": False})
+            if not check:
+                sync_plugin(reply, __version__)
+            emit(reply)
             return
         uv = shutil.which("uv")
         command = [
@@ -98,4 +165,17 @@ def register_upgrade(app, client, emit, handled, panel=None):
                 "uv couldn't install the new release: "
                 + (completed.stderr.strip().splitlines() or ["unknown error"])[-1][:300],
             )
-        emit(envelope({**result, "update_available": True, "updated": True}))
+        # Assistant sessions keep the old djlib in memory until their host restarts them.
+        sessions = assistant_sessions()
+        reply = envelope(
+            {**result, "update_available": True, "updated": True, "assistant_sessions": sessions}
+        )
+        if sessions:
+            count = f"{sessions} assistant session" + (" is" if sessions == 1 else "s are")
+            reply["warnings"].append(
+                f"{count} still running djlib {__version__}. Restart each one (in Claude Code: "
+                f"/mcp → djlib → Reconnect; in Codex: restart Codex) so it uses "
+                f"{latest['version']}."
+            )
+        sync_plugin(reply, latest["version"])
+        emit(reply)

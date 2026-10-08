@@ -270,7 +270,7 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     (volume / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"old")
     exported = []
 
-    def wait_for_selection(device, target, timeout, on_wrong=None):
+    def wait_for_selection(device, target, timeout, on_wrong=None, **hooks):
         on_wrong("Some other playlist")
         exported.append((device, target))
         # rekordbox copies the files and rewrites its device library.
@@ -335,7 +335,7 @@ def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
     (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
     owned_in_order = [sources[1], sources[0]]
 
-    def wait_for_selection(device, target, timeout, on_wrong=None):
+    def wait_for_selection(device, target, timeout, on_wrong=None, **hooks):
         assert (device, target) == ("RICARDO_AM", "Friday — Warm-up")
         files = [(source.name, source.read_bytes()) for source in owned_in_order]
         pdb_fixture.stick(volume, target, files)
@@ -420,40 +420,117 @@ def test_a_same_named_playlist_is_checked_before_it_is_trusted(
     assert fake.imported == []
 
 
+class FakeSelection:
+    """rekordbox's menus and the user's input on a simulated clock, for wait_for_selection."""
+
+    def __init__(self, monkeypatch, clicks=(), selections=(), front=True, menu="enabled"):
+        self.now, self.clicks, self.selections = 0.0, list(clicks), iter(selections)
+        self.front, self.menu = front, menu
+        self.probes, self.exported, self.notes = [], [], []
+        monkeypatch.setattr(rekordbox_mac.time, "monotonic", lambda: self.now)
+        monkeypatch.setattr(rekordbox_mac.time, "sleep", self.sleep)
+        monkeypatch.setattr(rekordbox_mac, "idle_seconds", self.idle)
+        monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: False)
+        monkeypatch.setattr(rekordbox_mac, "frontmost", lambda: self.front)
+        monkeypatch.setattr(rekordbox_mac, "menu_state", lambda *path: self.menu)
+        monkeypatch.setattr(rekordbox_mac, "selected_playlist", self.selected)
+        monkeypatch.setattr(rekordbox_mac, "click_menu_path", self.click)
+        # Never touch the real rekordbox or Notification Center from a test.
+        monkeypatch.setattr(rekordbox_mac, "bring_to_front", lambda: self.notes.append("front"))
+        monkeypatch.setattr(rekordbox_mac, "notify", self.notes.append)
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+    def idle(self):
+        latest = max([at for at in self.clicks if at <= self.now], default=-100.0)
+        return self.now - latest
+
+    def selected(self):
+        self.probes.append(self.now)
+        chosen = next(self.selections)
+        if isinstance(chosen, AppError):
+            raise chosen
+        return chosen
+
+    def click(self, *path):
+        self.exported.append(path)
+
+
 def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
-    clock = {"now": 0.0}
-    clicks = [9.9, 19.9]  # the user clicks other playlists, then the right one
-    selections = iter(["Other", "Other", "Owned"])
-    probes, exported = [], []
-
-    def selected():
-        probes.append(clock["now"])
-        return next(selections)
-
-    def idle():
-        latest = max([at for at in clicks if at <= clock["now"]], default=0.0)
-        return clock["now"] - latest
-
-    def sleep(seconds):
-        clock["now"] += seconds
-
-    monkeypatch.setattr(rekordbox_mac.time, "monotonic", lambda: clock["now"])
-    monkeypatch.setattr(rekordbox_mac.time, "sleep", sleep)
-    monkeypatch.setattr(rekordbox_mac, "idle_seconds", idle)
-    monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: False)
-    monkeypatch.setattr(rekordbox_mac, "frontmost", lambda: True)
-    monkeypatch.setattr(rekordbox_mac, "menu_enabled", lambda *path: True)
-    monkeypatch.setattr(rekordbox_mac, "selected_playlist", selected)
-    monkeypatch.setattr(rekordbox_mac, "click_menu_path", lambda *path: exported.append(path))
+    # The user clicks other playlists, then the right one.
+    fake = FakeSelection(monkeypatch, clicks=[9.9, 19.9], selections=["Other", "Other", "Owned"])
     wrong = []
 
     rekordbox_mac.wait_for_selection("RICARDO_AM", "Owned", 60, on_wrong=wrong.append)
 
-    # One look at the start, then one after each burst of input: never a dialog per second.
-    assert len(probes) == 3 and probes[0] == 0.0
-    assert 9.9 <= probes[1] < 10.5 and 19.9 <= probes[2] < 20.5
+    # One look at the start, then one after each burst of input once the user pauses:
+    # never a dialog per second, and never in the middle of a click.
+    assert len(fake.probes) == 3 and fake.probes[0] == 0.0
+    settle = rekordbox_mac.SETTLE_SECONDS
+    assert 9.9 + settle <= fake.probes[1] < 11.0 and 19.9 + settle <= fake.probes[2] < 21.0
     assert wrong == ["Other"]
-    assert exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    # rekordbox comes to the front and the user is told what to click, and why not "Other".
+    assert fake.notes[0] == "front" and "Click “Owned”" in fake.notes[1]
+    assert any(note.startswith("That's “Other”") for note in fake.notes[2:])
+
+
+def test_a_menu_hiccup_after_a_wrong_click_keeps_waiting(monkeypatch):
+    # The live failure: a wrong click, then rekordbox disabled the export-to-file item for a
+    # moment while the user clicked the right playlist. That must not end the wait.
+    hiccup = AppError("APP_MENU_DISABLED", "unavailable right now", retryable=True)
+    fake = FakeSelection(
+        monkeypatch, clicks=[5.0, 6.0], selections=["Tonight", hiccup, "Tonight (3)"]
+    )
+    states, exported_at = [], []
+
+    rekordbox_mac.wait_for_selection(
+        "RICARDO_AM",
+        "Tonight (3)",
+        600,
+        on_state=lambda state, left, selected: states.append(state),
+        before_export=lambda: exported_at.append(fake.now),
+    )
+
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert "wrong_playlist" in states and "busy" in states
+    assert exported_at and exported_at[0] >= 6.0  # the stick is read right before the export
+
+
+def test_a_timeout_says_why_nothing_was_exported(monkeypatch):
+    fake = FakeSelection(monkeypatch, front=False)
+    states = []
+    with pytest.raises(AppError) as raised:
+        rekordbox_mac.wait_for_selection(
+            "RICARDO_AM", "Owned", 30, on_state=lambda state, left, _: states.append(state)
+        )
+    error = raised.value
+    assert error.code == "APP_SELECTION_TIMEOUT" and error.retryable is True
+    assert "isn't the app in front" in error.message
+    assert error.details["last_state"] == "rekordbox_not_in_front"
+    assert states == ["rekordbox_not_in_front"] and fake.probes == []
+
+    FakeSelection(monkeypatch, menu="missing")
+    with pytest.raises(AppError) as raised:
+        rekordbox_mac.wait_for_selection("RICARDO_AM", "Owned", 30)
+    assert "doesn't list RICARDO_AM" in raised.value.message
+
+
+def test_names_match_however_their_accents_are_composed(monkeypatch):
+    import unicodedata
+
+    fake = FakeSelection(monkeypatch, selections=[unicodedata.normalize("NFD", "Café Nuit")])
+    rekordbox_mac.wait_for_selection("RICARDO_AM", "Café Nuit", 60)
+    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+
+
+def test_a_disabled_export_item_means_nothing_is_selected(monkeypatch):
+    def disabled(*path):
+        raise AppError("APP_MENU_DISABLED", "unavailable right now", retryable=True)
+
+    monkeypatch.setattr(rekordbox_mac, "click_menu_path", disabled)
+    assert rekordbox_mac.selected_playlist() is None
 
 
 def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
@@ -633,7 +710,7 @@ def test_usb_prompt_is_a_json_event_and_a_failed_check_exits_nonzero(
     volume = tmp_path / "STICK"
     (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
 
-    def wait_for_selection(device, target, timeout, on_wrong=None):
+    def wait_for_selection(device, target, timeout, on_wrong=None, **hooks):
         on_wrong("Some other playlist")
         # rekordbox only manages to copy one of the two files.
         pdb_fixture.stick(volume, target, [(sources[0].name, sources[0].read_bytes())])
@@ -687,6 +764,71 @@ def test_a_set_that_gained_songs_becomes_a_new_playlist_version(
     assert grown["owned"] == 2 and grown["collection_id"] != first["collection_id"]
     assert grown["playlist"] == "Friday (2)" and grown["rekordbox"]["status"] == "imported"
     assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
+
+
+def test_a_new_version_keeps_its_playlist_name_for_usb_and_later_pushes(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_headline_workflow import build as build_keyed
+
+    sources = [audio_factory("k1.wav", frequency=340), audio_factory("k2.wav", frequency=680)]
+    build_keyed(library_http, sources[:1], [("Lumen", "Halo")], "k-1")
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nLumen - Rain\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    def run(*args):
+        reply = CliRunner().invoke(cli_app, [*workspace, *args])
+        assert reply.exit_code == 0, reply.output
+        return reply
+
+    run("set", str(tracklist))
+    build_keyed(library_http, sources[1:], [("Lumen", "Rain")], "k-2")
+    grown = json.loads(run("set", str(tracklist)).stdout)["result"]
+    assert grown["playlist"] == "Friday (2)" and grown["replaces"] == "Friday"
+
+    # The live bug: the USB step for that crate imported it again as "Friday (3)" and then
+    # asked the user to click a playlist they had never been told about.
+    volume = tmp_path / "RICARDO_AM"
+    (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
+    asked = []
+
+    def wait_for_selection(device, target, timeout, on_wrong=None, **hooks):
+        asked.append(target)
+        hooks["on_state"]("rekordbox_not_in_front", 590, None)
+        hooks["before_export"]()
+        pdb_fixture.stick(volume, target, [(s.name, s.read_bytes()) for s in sources])
+
+    monkeypatch.setattr(rekordbox_mac, "wait_for_unlock", lambda timeout: None)
+    monkeypatch.setattr(rekordbox_mac, "wait_for_selection", wait_for_selection)
+    quick = functools.partial(usb_check.wait_for_copy, sleep=lambda seconds: None)
+    monkeypatch.setattr(usb_check, "wait_for_copy", quick)
+    reply = run("rekordbox", "usb", grown["collection_id"], "--device", str(volume))
+    result = json.loads(reply.stdout)["result"]
+    assert asked == ["Friday (2)"] and result["playlist"] == "Friday (2)"
+    assert result["rekordbox"]["status"] == "already_in_rekordbox"
+    assert (result["found"], result["expected"], result["in_order"]) == (2, 2, True)
+    assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
+    events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
+    assert [e["event"] for e in events] == ["select_playlist", "waiting"]
+    assert "click “Friday (2)” once" in events[0]["instruction"]
+    assert events[1]["reason"] == "rekordbox isn't the app in front"
+    assert events[1]["seconds_left"] == 590
+
+    # Pushing again changes nothing; if the user deleted the playlist, it comes back under
+    # the same name rather than as yet another version.
+    again = json.loads(run("rekordbox", "push", grown["collection_id"]).stdout)["result"]
+    assert again["crates"][0]["status"] == "already_in_rekordbox"
+    fake.present.discard("Friday (2)")
+    back = json.loads(run("rekordbox", "push", grown["collection_id"]).stdout)["result"]
+    assert back["crates"][0]["playlist"] == "Friday (2)"
+    assert [path.name for path in fake.imported][-1] == "Friday (2).m3u8"
+    assert len(fake.imported) == 3
+
+    status = json.loads(run("status").stdout)["result"]
+    playlists = {row["collection_id"]: row["playlist"] for row in status["recent_collections"]}
+    assert playlists[grown["collection_id"]] == "Friday (2)"
 
 
 def test_a_locked_mac_is_reported_with_what_is_left_to_do(

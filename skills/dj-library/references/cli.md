@@ -87,7 +87,7 @@ Notes, BPM/key, filtered crates, folders and changed files: [organize](organize.
 djlib --json download --file downloads.json
 ```
 
-URLs are placeholders; `djlib_find_sources` (or `set --fetch`) finds and ranks real ones. Public YouTube, SoundCloud and Bandcamp recordings only, up to 30 minutes each and 1,000 per request. Downloads are saved as MP3 at the source's quality, and the catalog copy is tagged with the supplied artist/title/version. They need the `download` extra and FFmpeg; YouTube also needs Deno or Node 22+.
+URLs are placeholders; `djlib_find_sources` (or `set --fetch`) finds and ranks real ones. Optional `alternates` (up to three URLs of the same recording) are tried in order when the first upload is gone. Public YouTube, SoundCloud and Bandcamp recordings only, up to 30 minutes each and 1,000 per request. Downloads are saved as MP3 at the source's quality, and the catalog copy is tagged with the supplied artist/title/version. They need the `download` extra and FFmpeg; YouTube also needs Deno or Node 22+.
 
 ## Collections from local files and exports
 
@@ -117,7 +117,8 @@ Commands start the background service on demand, and it stops after 30 idle minu
 - `SERVICE_START_BUSY`: another starter held the lock for 45 seconds. Check `service status` before retrying.
 - `SERVICE_START_FAILED`: the service exited. Read the workspace's `runtime/service.log`, fix the cause, then retry.
 - `SERVICE_START_TIMEOUT`: no healthy service within 30 seconds while the process still ran. Check status and the log before retrying; don't launch repeatedly.
-- `COORDINATOR_VERSION_MISMATCH`: an older service is running. `service stop`, then retry.
+- `COORDINATOR_VERSION_MISMATCH`: an older service is still busy. When its jobs finish, `service stop`, then retry.
+- `CLIENT_OUTDATED`: djlib was updated under this session. Ask the user to reconnect djlib (Claude Code: `/mcp` → djlib → Reconnect) or restart the assistant; don't stop the service or retry.
 - `COORDINATOR_START_REQUIRED` (Windows MCP): run `djlib service start` in an ordinary terminal, then reconnect.
 
 None of these submits a music job. A later uncertain submission still uses its original idempotency key. Redact logs before sharing.

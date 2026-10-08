@@ -7,7 +7,7 @@ description: Check a DJ set's tracklist against the music the user owns, build t
 
 djlib keeps a local catalog of the user's music and turns tracklists into crates. The `djlib` CLI does everything; the `djlib_*` MCP tools cover the catalog, request lists, crates, set links and downloads. Steps that drive rekordbox or a USB stick are CLI-only and need macOS. Every tool reply and captured CLI output is one JSON envelope: check `ok`, `error.code` and `warnings`.
 
-Start with `djlib status` (library, request lists, crates already in rekordbox, next steps) or `djlib_capabilities`. `djlib init` remembered the workspace, so don't ask for it or pass `--workspace`. On `WORKSPACE_REQUIRED`, ask the user to run `djlib init --allow-root ~/Music` with their music folder, then `djlib scan`. If the tools or the CLI are missing, read [install](references/install.md).
+Start with `djlib status` (library, request lists, crates already in rekordbox, next steps) or `djlib_capabilities`. `djlib init` remembered the workspace, so don't ask for it or pass `--workspace`. On `WORKSPACE_REQUIRED`, ask the user to run `djlib init --allow-root ~/Music` with their music folder, then `djlib scan`. If the tools or the CLI are missing, read [install](references/install.md). On `CLIENT_OUTDATED`, djlib was updated under this session: ask the user to reconnect djlib (`/mcp` in Claude Code); retrying won't help.
 
 ## A set: one command
 
@@ -24,12 +24,12 @@ Start with `djlib status` (library, request lists, crates already in rekordbox, 
 
 Running the same tracklist again re-checks it and reuses the crate and playlist; a changed set becomes a new playlist "Name (2)". On Linux or Windows, or without rekordbox or the Accessibility permission, `set` skips the rekordbox step with the reason and still builds the crate.
 
-The result has `owned` of `songs`, `missing[]` (`label`, `state`, `you_own`), `id_hints[]`, `fetched`, `playlist`, `rekordbox.status` and `usb` (`found`, `expected`, `in_order`).
+The result has `owned` of `songs`, `missing[]` (`label`, `state`, `you_own`), `id_hints[]`, `fetched`, `playlist` (with `replaces` when it is a new version “Name (2)”), `rekordbox.status` and `usb` (`found`, `expected`, `in_order`). A crate keeps its playlist name, so later pushes and USB exports reuse that playlist.
 
 ### Running rekordbox commands
 
 - Run `set`, `rekordbox push`, `rekordbox usb` and `rekordbox pull` from the shell in the background (in Claude Code, `run_in_background`; otherwise with a timeout of 15 minutes or more) and read the final JSON when they end: `--usb` waits up to 10 minutes for a click, and `--when-idle` until the user steps away. Never poll rekordbox's window.
-- Before `--usb` or `rekordbox usb`, tell the user: "In rekordbox, click the playlist NAME." stderr carries the name as `{"event": "select_playlist", "playlist": …}`; `wrong_playlist` means they clicked another one. Nothing else is ever exported. `--usb` can't be combined with `--when-idle` or `--no-rekordbox`.
+- For `--usb` or `rekordbox usb`, the user clicks the playlist in rekordbox once. Start the command first, wait for the `{"event": "select_playlist", "playlist": …, "instruction": …}` line on stderr, then relay its `instruction` word for word; take the name only from that event, never from an earlier result. While it waits, `{"event": "waiting", "reason": …, "seconds_left": …}` says why nothing has happened yet (rekordbox isn't in front, no playlist selected, the stick isn't listed); tell the user the reason. `wrong_playlist` means they clicked another one. rekordbox is brought to the front and a macOS notification repeats the instruction. Nothing else is ever exported. `--usb` can't be combined with `--when-idle` or `--no-rekordbox`.
 - Exit code 4 from a USB step means files are missing from the stick or out of order. Say so plainly; the stick is not ready.
 - `set` reports `complete` and `next`: when `complete` is false, `next` lists the exact commands that finish the job (e.g. `djlib rekordbox push 1a2b3c4d` after the user unlocks). A skipped rekordbox step has `rekordbox.reason_code`; `NOT_REQUESTED` and `APP_NOT_INSTALLED` are expected, `APP_SCREEN_LOCKED` and `APP_AUTOMATION_NOT_ALLOWED` need the user.
 - Pass `--when-idle 60` to pushes you start on your own, and push several crates in one command.
@@ -37,7 +37,7 @@ The result has `owned` of `songs`, `missing[]` (`label`, `state`, `you_own`), `i
   - `APP_AUTOMATION_NOT_ALLOWED`: ask once to allow the terminal app under System Settings > Privacy & Security > Accessibility.
   - `APP_SCREEN_LOCKED`: the Mac is locked. `{"event": "unlock_mac"}` on stderr appears at once (in JSON mode djlib gives up after 30 s); tell the user to unlock, then run `next` or retry. `djlib doctor` shows `screen_locked`.
   - `APP_PLAYLIST_NAME_TAKEN`: rekordbox has a different playlist with that name; ask to rename one, or pass `--name`.
-  - `APP_SELECTION_TIMEOUT`: nothing was exported; ask again.
+  - `APP_SELECTION_TIMEOUT`: nothing was exported; the message and `error.details.last_state` say why. Tell the user, and start again only once they're at rekordbox.
   - `DEVICE_REQUIRED`: pass `--device /Volumes/NAME`.
   - `APP_AUTOMATION_UNSUPPORTED`: not a Mac; stop at the crate.
 

@@ -116,6 +116,38 @@ def test_search_queries_leave_out_original_mix_and_country_tags(library_http, mo
     assert queries == ["Antdot & Maz Lasso", "Antdot & Maz Lasso"]
 
 
+def test_search_checks_the_best_uploads_and_drops_gone_ones(library_http, monkeypatch):
+    """The live Phoenix - Lasso case: the official SoundCloud upload became DRM-only."""
+    from djlib.sources import web
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO, lasso_search
+
+    async def search(provider, query, limit=8):
+        return [entry for entry in lasso_search() if entry["provider"] == provider]
+
+    probed = []
+
+    async def probe(url):
+        probed.append(url)
+        if url == OFFICIAL_LASSO:
+            raise web.provider_error(b"ERROR: [soundcloud] 1: This video is DRM protected")
+        return {"url": url, "duration": 167.9}
+
+    monkeypatch.setattr(web, "search", search)
+    monkeypatch.setattr(web, "probe", probe)
+    reply = library_http.post(
+        "/sources/search", json={"artist": "Phoenix", "title": "Lasso (Original Mix)"}
+    ).json()["result"]
+
+    # The best three of the requested version are checked; remixes and live takes are not.
+    assert len(probed) == 3 and OFFICIAL_LASSO in probed and GLASSNOTE_LASSO in probed
+    best = reply["candidates"][0]
+    assert (best["url"], best["confident"], best["available"]) == (GLASSNOTE_LASSO, True, True)
+    assert OFFICIAL_LASSO not in [item["url"] for item in reply["candidates"]]
+    [gone] = reply["unavailable"]
+    assert gone["url"] == OFFICIAL_LASSO and gone["uploader"] == "Phoenix"
+    assert "DRM" in gone["reason"]
+
+
 def test_sources_without_a_tracklist_explain_and_list_what_listeners_named(
     application, library_http, monkeypatch
 ):
@@ -159,3 +191,137 @@ def test_sources_without_a_tracklist_explain_and_list_what_listeners_named(
     assert error["code"] == "TRACKLIST_NOT_FOUND"
     labels = [hint["label"] for hint in error["details"]["named_in_comments"]]
     assert "The Streets - Turn the page (Overmono remix)" in labels and labels[0] == "gunk"
+
+
+def test_fetch_plans_alternates_and_keys_downloads_by_them():
+    from djlib.application.source_matching import rank_sources
+    from tests.test_source_matching import GLASSNOTE_LASSO, LASSO, OFFICIAL_LASSO, lasso_search
+
+    candidates = rank_sources(LASSO, lasso_search(), {OFFICIAL_LASSO: {"available": True}})
+    local = FakeLocal({"Lasso": candidates})
+    [chosen], undecided = set_sources.plan_fetch(local, [item(1, "Lasso")])
+    assert undecided == [] and chosen["source"]["url"] == OFFICIAL_LASSO
+    assert chosen["source"]["available"] is True
+    assert chosen["alternates"] == [GLASSNOTE_LASSO]
+
+    body = set_sources.download_body("Tonight", "request_1", [chosen])
+    assert body["tracks"][0]["alternates"] == [GLASSNOTE_LASSO]
+    alone = set_sources.download_body("Tonight", "request_1", [{**chosen, "alternates": []}])
+    assert "alternates" not in alone["tracks"][0]
+    assert alone["idempotency_key"] != body["idempotency_key"]
+
+
+class JobItems:
+    def __init__(self, errors):
+        self.errors = errors
+
+    def request(self, method, path, *, data=None, params=None):
+        assert (method, path, params["state"]) == ("GET", "/jobs/job_1/items", "failed")
+        items = [{"state": "failed", "result": {"error": error}} for error in self.errors]
+        return {"result": {"items": items}}
+
+
+def test_only_retryable_download_failures_are_retried():
+    refused = {"code": "SOURCE_FAILED", "retryable": True}
+    gone = {"code": "SOURCE_UNAVAILABLE", "retryable": False}
+    job = {"job_id": "job_1", "counts": {"failed": 2}}
+    assert set_sources.worth_retrying(JobItems([gone, refused]), job) is True
+    assert set_sources.worth_retrying(JobItems([gone, gone]), job) is False
+    assert set_sources.worth_retrying(JobItems([]), {**job, "counts": {"succeeded": 1}}) is False
+
+
+def fetch_lasso(application, audio_factory, monkeypatch, tmp_path, failures):
+    """`djlib set tonight.txt --fetch --yes` for the live Phoenix - Lasso case."""
+    import json
+    import shutil
+
+    from typer.testing import CliRunner
+
+    import djlib.jobs.worker as worker_module
+    from djlib.interfaces.cli import app as cli_app
+    from djlib.sources import web
+    from tests.test_rekordbox_push import FakeRekordbox
+    from tests.test_source_matching import lasso_search
+
+    fetched_audio = audio_factory("lasso.wav", frequency=480)
+
+    async def search(provider, query, limit=8):
+        return [entry for entry in lasso_search() if entry["provider"] == provider]
+
+    downloaded = []
+
+    async def download(url, destination):
+        downloaded.append(url)
+        if url in failures:
+            raise failures[url]
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(fetched_audio, destination / "audio.wav")
+        return destination / "audio.wav", {"kind": "test_download", "source_url": url}
+
+    monkeypatch.setattr(web, "search", search)
+    monkeypatch.setattr(worker_module, "download", download)
+    FakeRekordbox(monkeypatch)
+    tracklist = tmp_path / "tonight.txt"
+    tracklist.write_text("Phoenix - Lasso (Original Mix)\n", encoding="utf-8")
+    args = ["--workspace", str(application.workspace.root), "set", str(tracklist)]
+    reply = CliRunner().invoke(cli_app, [*args, "--fetch", "--yes", "--no-rekordbox"])
+    assert reply.exit_code == 0, reply.output
+    return json.loads(reply.stdout)["result"], downloaded
+
+
+def test_set_fetch_falls_back_to_the_label_upload(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO
+
+    drm = AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
+    result, downloaded = fetch_lasso(
+        application, audio_factory, monkeypatch, tmp_path, {OFFICIAL_LASSO: drm}
+    )
+    assert downloaded == [OFFICIAL_LASSO, GLASSNOTE_LASSO]
+    fetched = result["fetched"]
+    assert (fetched["downloaded"], fetched["failed"]) == (1, 0)
+    assert fetched["chosen"][0]["alternates"] == [GLASSNOTE_LASSO]
+    assert (result["songs"], result["owned"]) == (1, 1)
+    [item] = library_http.get(f"/jobs/{fetched['job_id']}/items").json()["result"]["items"]
+    assert item["result"]["source_url"] == GLASSNOTE_LASSO
+    assert item["result"]["tried_urls"] == [OFFICIAL_LASSO, GLASSNOTE_LASSO]
+
+
+def test_set_fetch_does_not_retry_uploads_that_are_gone(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO
+
+    drm = AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
+    result, downloaded = fetch_lasso(
+        application,
+        audio_factory,
+        monkeypatch,
+        tmp_path,
+        {OFFICIAL_LASSO: drm, GLASSNOTE_LASSO: drm},
+    )
+    assert downloaded == [OFFICIAL_LASSO, GLASSNOTE_LASSO]  # once each: no retry
+    assert (result["fetched"]["downloaded"], result["fetched"]["failed"]) == (0, 1)
+    assert result["owned"] == 0
+
+
+def test_set_fetch_says_which_uploads_it_skipped(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    """The live run didn't say why the artist's own upload wasn't used; now it does."""
+    from djlib.sources import web
+    from tests.test_source_matching import GLASSNOTE_LASSO, OFFICIAL_LASSO
+
+    async def probe(url):
+        if url == OFFICIAL_LASSO:
+            raise web.provider_error(b"ERROR: [soundcloud] 1: This video is DRM protected")
+        return {"url": url, "duration": 167.9}
+
+    monkeypatch.setattr(web, "probe", probe)
+    result, downloaded = fetch_lasso(application, audio_factory, monkeypatch, tmp_path, {})
+    [chosen] = result["fetched"]["chosen"]
+    assert chosen["source"]["url"] == GLASSNOTE_LASSO and downloaded == [GLASSNOTE_LASSO]
+    [skipped] = chosen["skipped"]
+    assert skipped["url"] == OFFICIAL_LASSO and skipped["uploader"] == "Phoenix"
+    assert "DRM" in skipped["reason"]

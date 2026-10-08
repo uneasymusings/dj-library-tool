@@ -6,6 +6,7 @@ are evidence, and only confident search matches are offered for download.
 """
 
 import hashlib
+import json
 import re
 from urllib.parse import urlsplit
 
@@ -147,9 +148,12 @@ SEARCHES_AT_ONCE = 4
 def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
     """Missing named songs → (confident downloads, songs that need a person's pick).
 
-    Songs are searched a few at a time; results keep the set's order.
+    Songs are searched a few at a time; results keep the set's order. Each download carries
+    up to three other uploads of the same recording to fall back on.
     """
     from concurrent.futures import ThreadPoolExecutor
+
+    from djlib.application.source_matching import alternates
 
     missing = [
         item
@@ -173,35 +177,58 @@ def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
             continue
         candidates = found.get("candidates") or []
         best = candidates[0] if candidates else None
+        # Uploads that no longer play (removed, region-locked, DRM), so a person can see why
+        # e.g. the artist's own upload wasn't used.
+        skipped = {"skipped": found["unavailable"]} if found.get("unavailable") else {}
         if best and best.get("confident"):
-            chosen.append({**song, "source": pick(best)})
+            chosen.append(
+                {
+                    **song,
+                    "source": pick(best),
+                    "alternates": alternates(candidates, best),
+                    **skipped,
+                }
+            )
         else:
             undecided.append(
                 {
                     **song,
                     "reason": "no confident match" if candidates else "nothing found",
                     "options": [pick(candidate) for candidate in candidates[:3]],
+                    **skipped,
                 }
             )
     return chosen, undecided
 
 
 def pick(candidate: dict) -> dict:
-    keys = ("provider", "url", "title", "uploader", "duration", "score", "reasons")
+    keys = ("provider", "url", "title", "uploader", "duration", "score", "reasons", "available")
     return {key: candidate.get(key) for key in keys}
 
 
 def download_body(name: str, request_id: str, chosen: list[dict]) -> dict:
-    urls = "\n".join(entry["source"]["url"] for entry in chosen)
-    digest = hashlib.sha256(f"{request_id}\n{urls}".encode()).hexdigest()[:16]
+    tracks = [
+        {
+            "url": entry["source"]["url"],
+            **{key: entry[key] for key in ("artist", "title", "version")},
+            **({"alternates": entry["alternates"]} if entry.get("alternates") else {}),
+        }
+        for entry in chosen
+    ]
+    fingerprint = json.dumps([request_id, tracks], sort_keys=True)
     return {
         "name": f"{name} — downloads"[:300],
-        "idempotency_key": f"set-fetch:{digest}",
-        "tracks": [
-            {
-                "url": entry["source"]["url"],
-                **{key: entry[key] for key in ("artist", "title", "version")},
-            }
-            for entry in chosen
-        ],
+        "idempotency_key": f"set-fetch:{hashlib.sha256(fingerprint.encode()).hexdigest()[:16]}",
+        "tracks": tracks,
     }
+
+
+def worth_retrying(local, job: dict) -> bool:
+    """Whether any failed download may work on a second try (a refused stream, a timeout);
+    uploads that are gone stay gone."""
+    if not (job.get("counts") or {}).get("failed"):
+        return False
+    failed = local.request(
+        "GET", f"/jobs/{job['job_id']}/items", params={"state": "failed", "limit": 100}
+    )["result"]["items"]
+    return any(((item.get("result") or {}).get("error") or {}).get("retryable") for item in failed)
