@@ -230,11 +230,13 @@ def local_path(path: Path) -> str:
     return str(path.expanduser().absolute())
 
 
-def submission_key(key: str | None, kind: str) -> str:
-    """Scripts must choose stable keys; an interactive terminal may get a fresh one."""
+def submission_key(key: str | None, kind: str, scripts_choose: bool = True) -> str:
+    """Scripts must choose stable keys for jobs that act; an interactive terminal may get a
+    fresh one. ``scripts_choose=False`` is for jobs that are harmless to repeat (a rescan
+    only reads new bytes), so assistants and installers can just run them."""
     if key:
         return key
-    if terminal.current().json:
+    if terminal.current().json and scripts_choose:
         raise AppError(
             "INPUT_INVALID",
             "Pass --key TOKEN, a retry token you choose: reusing it never runs the job twice.",
@@ -690,7 +692,7 @@ def scan(
                 "None of your music folders can be found. Plug the drive back in, "
                 "or add another folder: djlib roots add PATH",
             )
-    key = submission_key(key, "scan")
+    key = submission_key(key, "scan", scripts_choose=False)
     local = client(ctx)
     replies = [
         local.request(
