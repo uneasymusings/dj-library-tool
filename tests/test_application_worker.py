@@ -336,7 +336,7 @@ def fake_provider(monkeypatch, source, failures):
         if url in failures:
             raise failures[url]
         destination.mkdir(parents=True, exist_ok=True)
-        path = destination / "audio.wav"
+        path = destination / f"audio{source.suffix}"
         shutil.copyfile(source, path)
         return path, {"kind": "test_download", "source_url": url}
 
@@ -515,3 +515,117 @@ async def test_repeated_downloads_for_one_set_share_its_collection(
     )
     elsewhere = await execute(application, elsewhere["job_id"])
     assert elsewhere["result"]["collection_id"] not in {None, collection_id}
+
+
+def download_as(application, key, labels, url=OFFICIAL, name="Tonight — downloads"):
+    from djlib.domain.contracts import DownloadRequest, SourceTrack
+
+    artist, title, version = labels
+    track = SourceTrack(url=url, artist=artist, title=title, version=version)
+    return application.download(DownloadRequest(name=name, idempotency_key=key, tracks=[track]))
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        (("Phoenix", "Lasso (Original Mix)", ""), ("Phoenix", "Lasso", ""), True),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso", "Original Mix"), True),
+        (("Antdot & Maz (BR)", "Lasso", ""), ("Maz, Antdot", "Lasso", ""), True),
+        (("Phoenix", "Lasso", ""), ("Phoenix", "Lasso (Two Door Cinema Club Remix)", ""), False),
+        (("Phoenix", "Lasso (Original Mix)", ""), ("Phoenix", "Lasso", "Live"), False),
+    ],
+)
+async def test_downloads_join_the_recording_their_labels_name(
+    application, audio_factory, monkeypatch, first, second, same
+):
+    """Labels compare as in request matching; another mix or a live take stays separate."""
+    fake_provider(monkeypatch, audio_factory("one.wav", frequency=610), {})
+    one = await execute(application, download_as(application, "one", first)["job_id"])
+    fake_provider(monkeypatch, audio_factory("two.wav", frequency=620), {})
+    two = await execute(application, download_as(application, "two", second, LABEL)["job_id"])
+    assert one["outcome"] == two["outcome"] == "complete"
+    [first_item] = application.items(one["job_id"])["items"]
+    [second_item] = application.items(two["job_id"])["items"]
+    assert (first_item["result"]["recording_id"] == second_item["result"]["recording_id"]) is same
+    # Different audio is a second file either way.
+    assert first_item["result"]["path"] != second_item["result"]["path"]
+    assert len(list(application.workspace.managed.iterdir())) == 2
+
+
+def mp3_of(audio_factory, name, frequency):
+    import subprocess
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg not installed")
+    source = audio_factory(name, frequency=frequency)
+    target = source.with_suffix(".mp3")
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), str(target)],
+        check=True,
+        timeout=20,
+    )
+    return target
+
+
+async def test_the_same_upload_downloaded_twice_is_one_recording_and_one_file(
+    application, audio_factory, monkeypatch
+):
+    """The live case: ``set --fetch`` asked for "Lasso (Original Mix)", a later download for
+    "Lasso"; each managed MP3 is tagged with its own labels, but the audio is the same."""
+    from djlib.application import requests
+    from djlib.domain.request_contracts import RequestCreate, RequestItem
+
+    fake_provider(monkeypatch, mp3_of(audio_factory, "lasso.wav", 640), {})
+    fetched = await execute(
+        application,
+        download_as(application, "fetch", ("Phoenix", "Lasso (Original Mix)", ""))["job_id"],
+    )
+    direct = await execute(
+        application,
+        download_as(application, "direct", ("Phoenix", "Lasso", ""), name="Lasso")["job_id"],
+    )
+    assert fetched["outcome"] == direct["outcome"] == "complete"
+    [first] = application.items(fetched["job_id"])["items"]
+    [second] = application.items(direct["job_id"])["items"]
+    assert second["result"]["reused"] is True
+    for key in ("recording_id", "asset_revision_id", "path"):
+        assert second["result"][key] == first["result"][key]
+    assert len(list(application.workspace.managed.iterdir())) == 1
+    with application.db.transaction() as session:
+        assert session.scalar(select(func.count()).select_from(AssetRevision)) == 1
+    # Both crates hold that one file, and a request for the song is owned, not ambiguous.
+    for job in (fetched, direct):
+        [track] = application.collection(job["result"]["collection_id"])["tracks"]
+        assert track["path"] == first["result"]["path"]
+    ledger = requests.create_request(
+        application,
+        RequestCreate(
+            name="Lasso",
+            idempotency_key="lasso",
+            items=[RequestItem(artist="Phoenix", title="Lasso")],
+        ),
+    )
+    assert ledger["items"][0]["state"] == "satisfied"
+
+    # A managed file that is gone is stored again rather than reused.
+    Path(first["result"]["path"]).unlink()
+    again = await execute(
+        application, download_as(application, "again", ("Phoenix", "Lasso", ""))["job_id"]
+    )
+    [third] = application.items(again["job_id"])["items"]
+    assert third["result"]["recording_id"] == first["result"]["recording_id"]
+    assert third["result"]["reused"] is False and Path(third["result"]["path"]).is_file()
+
+
+async def test_a_remix_of_the_same_upload_is_not_reused(application, audio_factory, monkeypatch):
+    fake_provider(monkeypatch, mp3_of(audio_factory, "lasso.wav", 650), {})
+    original = await execute(
+        application, download_as(application, "original", ("Phoenix", "Lasso", ""))["job_id"]
+    )
+    remix = ("Phoenix", "Lasso", "Two Door Cinema Club Remix")
+    other = await execute(application, download_as(application, "remix", remix)["job_id"])
+    [first] = application.items(original["job_id"])["items"]
+    [second] = application.items(other["job_id"])["items"]
+    assert second["result"]["recording_id"] != first["result"]["recording_id"]
+    assert second["result"]["reused"] is False
+    assert len(list(application.workspace.managed.iterdir())) == 2

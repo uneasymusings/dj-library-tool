@@ -351,6 +351,12 @@ def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, 
     return artist_names(artist, *featured), label_form("", title, version)[1]
 
 
+def equivalent_labels(first: tuple[str, str, str], second: tuple[str, str, str]) -> bool:
+    """Whether two artist/title/version labels name the same song and version, as request
+    matching compares them: as written (``label_form``) or by credited names (``credit_form``)."""
+    return label_form(*first) == label_form(*second) or credit_form(*first) == credit_form(*second)
+
+
 def credit_base_form(artist: str, title: str) -> tuple[tuple[str, ...], str]:
     """``base_form`` with credited names as a set: same song, same artists, any version."""
     title, featured = split_featured(title)
