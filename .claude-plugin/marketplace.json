@@ -9,7 +9,7 @@
     {
       "name": "djlib",
       "source": "./",
-      "description": "MCP tools and the dj-library skill for the djlib engine (needs the djlib CLI: curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh).",
+      "description": "MCP tools and the dj-library skill for the djlib engine. One line installs both: curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh",
       "category": "music",
       "tags": ["dj", "rekordbox", "usb", "tracklist"]
     }

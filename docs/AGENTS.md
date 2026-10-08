@@ -2,7 +2,7 @@
 
 The engine is model-independent. Conversation, web search and interpretation belong to your assistant; everything that touches your music, rekordbox or a USB stick is done by `djlib` on your computer. The [dj-library skill](../skills/dj-library/SKILL.md) teaches the assistant the workflow, and the MCP server gives it typed tools.
 
-First [install the engine](INSTALL.md) and run `djlib init --allow-root ~/Music` and `djlib scan`.
+The quickest start is to paste “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md” into your assistant. Or run the [one-line installer](INSTALL.md) in a terminal: it installs the engine and adds this plugin to Claude Code and Codex when they're installed, then indexes your music.
 
 ## Plugin (recommended)
 
@@ -18,7 +18,7 @@ codex plugin marketplace add uneasymusings/dj-library-tool
 codex plugin add djlib@dj-library-tool
 ```
 
-Restart the host. The plugin runs `djlib` from your PATH, so install the engine with `uv tool install` first. Updating the engine doesn't update the plugin, or the other way round. To refresh the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than the engine. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
+Restart the host. The plugin runs `djlib` from your PATH; at session start it tells the assistant when the engine is missing or from another release, with the fix. `djlib upgrade` (or rerunning the installer) updates the engine and the plugin together. To refresh only the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than the engine. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
 
 ## Manual setup
 
