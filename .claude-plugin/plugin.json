@@ -1,7 +1,7 @@
 {
   "name": "djlib",
   "displayName": "DJ Library Tool",
-  "version": "0.1.0a13",
+  "version": "0.1.0a14.dev0",
   "description": "Check a DJ set's tracklist against the music you own, build the crate, push it to rekordbox and verify the USB stick. Needs the djlib CLI on PATH: curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh",
   "author": {
     "name": "uneasymusings",
