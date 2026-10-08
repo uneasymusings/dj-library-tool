@@ -22,6 +22,7 @@ from djlib.domain.contracts import (
     base_form,
     credit_base_form,
     credit_form,
+    equivalent_labels,
     label_form,
     normalize,
     related_prefixes,
@@ -113,9 +114,8 @@ def _identity(artist, title, version=""):
 
 def _equivalent(labels, requested):
     """Same song and version: labels as written, or the same credited names in any order."""
-    wanted = requested["artist"], requested["title"], requested["version"]
-    return label_form(*labels) == label_form(*wanted) or credit_form(*labels) == credit_form(
-        *wanted
+    return equivalent_labels(
+        labels, (requested["artist"], requested["title"], requested["version"])
     )
 
 
