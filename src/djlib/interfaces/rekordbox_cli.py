@@ -693,10 +693,6 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         with status("Checking which songs you own…"):
             reply = created(local, body)
         request = reply["result"]
-        if shazam is not None:
-            from djlib.sources.shazam_history import remember_import
-
-            remember_import(workspace, shazam, request["request_id"])
         items = all_items(local, request)
         fetched = None
         if fetch:
@@ -790,6 +786,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             unfinished.append(f"djlib rekordbox usb {handle}")
         result["complete"] = not unfinished
         result["next"] = unfinished
+        if shazam is not None:
+            from djlib.sources.shazam_history import remember_import
+
+            # Only now: when a step above fails, rerunning shazam:new rebuilds the same list
+            # (same idempotency key) and finishes it.
+            remember_import(workspace, shazam, request["request_id"])
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)

@@ -12,7 +12,7 @@ import typer
 
 from djlib.domain.errors import AppError
 from djlib.interfaces.envelope import envelope
-from djlib.interfaces.terminal import plural
+from djlib.interfaces.terminal import plural, short_id
 from djlib.sources import shazam_history
 
 MAX_SONGS = 1000  # a request list's limit
@@ -64,6 +64,25 @@ def describe(loaded: dict, songs: int) -> str:
     return text
 
 
+def nothing_new(loaded: dict) -> AppError:
+    """SHAZAM_NOTHING_NEW, naming the last import's list for ``shazam:new``."""
+    start = shazam_history.local_time(loaded["since"])
+    details = {"since": loaded["since"], "songs_in_history": loaded["total"]}
+    again = "Shazam some songs, give them a few minutes to sync, then run this again."
+    if not loaded["new"]:
+        message = f"Nothing was Shazamed since {start}. {again}"
+        return AppError("SHAZAM_NOTHING_NEW", message, details=details)
+    last = loaded["last_import"] or {}
+    details["last_import"] = {key: last.get(key) for key in ("request_id", "name", "imported_at")}
+    message = f"Nothing new was Shazamed after {start} (the newest Shazam you imported). {again}"
+    if last.get("request_id"):
+        message += (
+            f" Your last import is the list “{last.get('name') or 'Shazam'}”: "
+            f"djlib requests get {short_id(last['request_id'])}"
+        )
+    return AppError("SHAZAM_NOTHING_NEW", message, details=details)
+
+
 def set_request(spec: str, name: str | None, workspace) -> tuple:
     """(request body, warnings, summary) for ``djlib set shazam[:SPEC]``.
 
@@ -71,7 +90,7 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     ``summary["remaining"]`` newer ones come next with ``shazam:new``; from a file or Apple
     Music it takes the newest and leaves out the ``remaining`` oldest.
 
-    The summary goes into the set's result and, once the list exists, into
+    The summary goes into the set's result and, once every step of the set is done, into
     ``shazam_history.remember_import`` so ``shazam:new`` starts after its newest song.
     """
     from djlib.domain.request_contracts import RequestCreate, RequestItem
@@ -80,17 +99,7 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     loaded = shazam_history.load(source, since, workspace)
     records = loaded["records"]
     if not records:
-        start = shazam_history.local_time(loaded["since"])
-        found = (
-            f"Nothing new was Shazamed after {start} (the newest song of your last import)."
-            if loaded["new"]
-            else f"Nothing was Shazamed since {start}."
-        )
-        raise AppError(
-            "SHAZAM_NOTHING_NEW",
-            f"{found} Shazam some songs, give them a few minutes to sync, then run this again.",
-            details={"since": loaded["since"], "songs_in_history": loaded["total"]},
-        )
+        raise nothing_new(loaded)
     items, used, left_out = [], [], 0
     for item in records:
         artist, title, version = labels(item)

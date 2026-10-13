@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from djlib.domain.errors import AppError
 from djlib.interfaces import shazam_cli
 from djlib.interfaces.cli import app as cli_app
+from djlib.native import rekordbox_mac
 from djlib.sources import shazam_history
 from djlib.workspace import Workspace
 from tests.test_headline_workflow import build
@@ -690,6 +691,54 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
     assert old.exit_code == 0, old.output
     assert "Shazam: CSV file, 1 song" in old.stdout and "shazam:new" not in old.stdout
     assert shazam_history.last_import(workspace)["newest_shazamed_at"] == mark
+
+
+def test_a_failed_rekordbox_step_leaves_shazam_new_ready_to_retry(
+    application, library_http, audio_factory, monkeypatch, home
+):
+    owned = [audio_factory("retry-0.wav", frequency=420)]
+    build(library_http, owned, [("Lumen", "Halo")])
+    mac_history(home, ("2026-10-01T21:14:00+00:00", "Nia Okoro", "Slow Burn"))
+    fake = FakeRekordbox(monkeypatch)
+    workspace = application.workspace
+    first = invoke(workspace, "set", "shazam", "--no-rekordbox")
+    assert first.exit_code == 0, first.output
+    mac_history(
+        home,
+        ("2026-10-04T00:10:00+00:00", "Lumen", "Halo"),
+        ("2026-10-04T00:40:00+00:00", "Someone", "Not Owned"),
+    )
+
+    def menu_disabled(playlist):
+        raise AppError("APP_MENU_DISABLED", "rekordbox's Import Playlist menu is greyed out.")
+
+    monkeypatch.setattr(rekordbox_mac, "import_playlist", menu_disabled)
+    failed = invoke(workspace, "set", "shazam:new")
+    assert failed.exit_code == 2
+    assert json.loads(failed.stdout)["error"]["code"] == "APP_MENU_DISABLED"
+    # The list was made but never finished: shazam:new still starts where it did.
+    mark = shazam_history.last_import(workspace)["newest_shazamed_at"]
+    assert mark == "2026-10-01T21:14:00+00:00"
+    monkeypatch.setattr(rekordbox_mac, "import_playlist", fake.import_playlist)
+
+    retry = invoke(workspace, "set", "shazam:new")
+    assert retry.exit_code == 0, retry.output
+    result = json.loads(retry.stdout)["result"]
+    assert (result["songs"], result["owned"]) == (2, 1)
+    assert result["rekordbox"]["status"] == "imported" and len(fake.imported) == 1
+    # The retry finished the same list instead of making another one.
+    assert library_http.get("/requests").json()["result"]["total"] == 2
+    last = shazam_history.last_import(workspace)
+    assert last["newest_shazamed_at"] == "2026-10-04T00:40:00+00:00"
+    assert last["request_id"] == result["request_id"]
+
+    nothing = invoke(workspace, "set", "shazam:new")
+    error = json.loads(nothing.stdout)["error"]
+    assert error["code"] == "SHAZAM_NOTHING_NEW"
+    assert error["details"]["last_import"]["request_id"] == result["request_id"]
+    assert error["details"]["last_import"]["name"] == result["name"]
+    handle = result["request_id"].removeprefix("request_")[:8]
+    assert f"djlib requests get {handle}" in error["message"]
 
 
 def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypatch):
