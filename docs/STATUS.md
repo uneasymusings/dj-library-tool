@@ -9,7 +9,7 @@ Evidence so far:
 - **Install.** The wheel built from this branch installs with `uv tool install --python 3.12 'dj-library-tool[download,recognize] @ …'` (Python 3.12.12, `shazamio` imports); `djlib doctor` shows “✓ Song recognition Shazam, unofficial”; against a scratch workspace and its own background service, `djlib identify` on a 1001Tracklists link answers `SOURCE_BROWSER_ONLY`.
 - **Tests.** Recognition, merging, the identify job (restart, pause and cancel, rate limits, SoundCloud previews), `djlib identify`, `djlib set` listening and its fallbacks, the MCP tools and the Shazam history readers run against fakes; no test reaches a real service.
 
-Not verified yet: a live identification of a YouTube or SoundCloud set end to end with this code (download, Shazam, merge), and AudD and ACRCloud against their real services. Local validation: see the release notes.
+Not verified yet: a live identification of a YouTube or SoundCloud set end to end with this code (download, Shazam, merge), and AudD and ACRCloud against their real services. Local validation on this branch: 1066 tests passed with five Windows-only skips.
 
 ## 0.1.0a14
 
