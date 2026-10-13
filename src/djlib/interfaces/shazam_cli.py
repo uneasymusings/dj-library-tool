@@ -153,7 +153,8 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
             which = f"the first {plural(remaining, 'song')} in {where}"
         warnings.append(f"A list holds {MAX_SONGS} songs, so this one leaves out {which}.")
     first_times = [item["shazamed_at"] for item in used if item["shazamed_at"]]
-    # With songs left over, shazam:new continues after the last first Shazam in this list.
+    # With songs left over, shazam:new continues after the last first Shazam in this list,
+    # skipping repeats of its songs up to newest_in_history (shazam_history.unseen).
     newest = (
         max(first_times, default=None) if remaining and continues else shazam_history.newest(used)
     )
@@ -167,6 +168,7 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
         "songs_in_history": loaded["total"],
         "first_shazamed_at": min(first_times, default=None),
         "newest_shazamed_at": newest,
+        "newest_in_history": loaded["newest_in_history"],
         "left_out": left_out,
         "remaining": remaining,
     }

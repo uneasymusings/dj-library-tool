@@ -520,6 +520,50 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     )
 
 
+def test_the_next_list_skips_repeats_of_songs_a_full_list_already_checked(home, tmp_path):
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.root.mkdir()
+    start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
+
+    def hour(n):
+        return datetime.fromtimestamp(start + 3600 * n).isoformat()
+
+    mac_history(
+        home,
+        *((hour(n), f"Artist {n}", f"Song {n}") for n in range(2003)),
+        # Shazamed again before the first import, after the songs that end lists 1 and 2.
+        (hour(1500.5), "Artist 0", "Song 0"),
+        (hour(2001.5), "Artist 1200", "Song 1200"),
+        (hour(2003), "Artist 5", "Song 5"),  # the newest Shazam of all
+    )
+    body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
+    assert body.items[-1].title == "Song 999"
+    assert any("for the other 1003" in warning for warning in warnings)
+    shazam_history.remember_import(workspace, summary)
+    assert shazam_history.status(workspace)["new_since_last_import"] == 1003
+
+    body, warnings, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    # Song 0 and Song 5 were in the first list, so their repeats don't bring them back.
+    assert [item.title for item in body.items] == [f"Song {n}" for n in range(1000, 2000)]
+    assert any("for the other 3" in warning for warning in warnings)
+    shazam_history.remember_import(workspace, summary)
+    body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    assert [item.title for item in body.items] == ["Song 2000", "Song 2001", "Song 2002"]
+    shazam_history.remember_import(workspace, summary)
+
+    # Song 5's repeat is newer than any song in the last list, and still not new.
+    assert shazam_history.status(workspace)["new_since_last_import"] == 0
+    with pytest.raises(AppError) as nothing:
+        shazam_cli.set_request("shazam:new", None, workspace)
+    assert nothing.value.code == "SHAZAM_NOTHING_NEW"
+    # Shazamed again after the import: new again.
+    mac_history(home, (hour(2004), "Artist 5", "Song 5"))
+    body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    assert [item.title for item in body.items] == ["Song 5"]
+    shazam_history.remember_import(workspace, summary)
+    assert shazam_history.last_import(workspace)["held"] == []
+
+
 def test_a_long_list_from_apple_music_or_a_file_keeps_your_newest_shazams(
     home, tmp_path, monkeypatch
 ):

@@ -635,10 +635,7 @@ def merge(records: list[dict]) -> list[dict]:
     merged: list[dict] = []
     seen: dict = {}
     for _, item in ordered:
-        labels = (item["artist"] or "", item["title"])
-        keys = [("label", label_form(*labels)), ("credit", credit_form(*labels))]
-        if item["isrc"]:
-            keys.insert(0, ("isrc", item["isrc"].replace("-", "")))
+        keys = song_keys(item)
         found = next((seen[key] for key in keys if key in seen), None)
         if found is None:
             found = {**item, "count": 0}
@@ -654,6 +651,15 @@ def merge(records: list[dict]) -> list[dict]:
     return merged
 
 
+def song_keys(item: dict) -> list[tuple]:
+    """What makes two Shazams the same song: the ISRC, or equivalent artist and title."""
+    labels = (item["artist"] or "", item["title"])
+    keys = [("label", label_form(*labels)), ("credit", credit_form(*labels))]
+    if item["isrc"]:
+        keys.insert(0, ("isrc", item["isrc"].replace("-", "")))
+    return keys
+
+
 def after(records: list[dict], moment: datetime, *, inclusive: bool = True) -> list[dict]:
     """Records Shazamed at or after ``moment`` (strictly after unless ``inclusive``)."""
     kept = []
@@ -663,6 +669,44 @@ def after(records: list[dict], moment: datetime, *, inclusive: bool = True) -> l
         at = datetime.fromisoformat(item["shazamed_at"])
         if at > moment or (inclusive and at == moment):
             kept.append(item)
+    return kept
+
+
+def unseen(records: list[dict], previous: dict | None) -> list[dict]:
+    """``records`` without the repeat Shazams that a list cut at 1000 songs already checked.
+
+    Such a list (an entry of ``held`` in the last import) ends at the first Shazam of its last
+    song (``through``), so repeats of its songs can come after that. The ones already in the
+    history when the list was made (up to ``until``) were checked with it and are left out;
+    a song Shazamed again later is new again.
+    """
+    kept = records
+    for cut in (previous or {}).get("held") or []:
+        if not (isinstance(cut, dict) and cut.get("through") and cut.get("until")):
+            continue
+        through = datetime.fromisoformat(cut["through"])
+        until = datetime.fromisoformat(cut["until"])
+        since = cut.get("since")
+        window = (
+            after(kept, datetime.fromisoformat(since), inclusive=cut.get("inclusive", True))
+            if since
+            else kept
+        )
+        listed = {
+            key
+            for item in window
+            if item["shazamed_at"] and datetime.fromisoformat(item["shazamed_at"]) <= through
+            for key in song_keys(item)
+        }
+        kept = [
+            item
+            for item in kept
+            if not (
+                item["shazamed_at"]
+                and through < datetime.fromisoformat(item["shazamed_at"]) <= until
+                and listed.intersection(song_keys(item))
+            )
+        ]
     return kept
 
 
@@ -700,21 +744,47 @@ def from_this_mac(summary: dict) -> bool:
 def remember_import(workspace, summary: dict, request_id: str | None = None) -> dict | None:
     """Keep the newest Shazam time imported from this Mac's history, so shazam:new starts
     after it. It never moves back, and imports from a file or Apple Music leave it alone
-    (None)."""
+    (None). Lists cut at 1000 songs are kept in ``held`` (see ``unseen``)."""
     if not from_this_mac(summary):
         return None
-    previous = (last_import(workspace) or {}).get("newest_shazamed_at")
-    marks = [mark for mark in (previous, summary.get("newest_shazamed_at")) if mark]
+    previous = last_import(workspace) or {}
+    marks = (previous.get("newest_shazamed_at"), summary.get("newest_shazamed_at"))
+    mark = max(filter(None, marks), key=datetime.fromisoformat, default=None)
     entry = {
         "imported_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "newest_shazamed_at": max(marks, key=datetime.fromisoformat, default=None),
+        "newest_shazamed_at": mark,
         "songs": summary.get("songs"),
         "name": summary.get("name"),
         "request_id": request_id,
         "sources": [source.get("source") for source in summary.get("sources") or []],
+        "held": held(previous, summary, mark),
     }
     atomic_json(state_file(workspace), {"last_import": entry})
     return entry
+
+
+def held(previous: dict, summary: dict, mark: str | None) -> list[dict]:
+    """The cut lists shazam:new keeps skipping repeats for, after this import.
+
+    A list cut at 1000 songs that set the mark joins the cut lists shazam:new continued
+    through, or replaces them when it read the history from the start or a date. All are
+    dropped once the mark reaches the newest Shazam any of them was made with.
+    """
+    cuts = [cut for cut in previous.get("held") or [] if isinstance(cut, dict) and cut.get("until")]
+    through = summary.get("newest_shazamed_at")
+    if summary.get("remaining") and summary.get("newest_in_history") and through == mark:
+        cut = {
+            "since": summary.get("since"),
+            "inclusive": not summary.get("new"),
+            "through": through,
+            "until": summary["newest_in_history"],
+        }
+        cuts = [*cuts, cut] if summary.get("new") else [cut]
+    if mark and all(
+        datetime.fromisoformat(cut["until"]) <= datetime.fromisoformat(mark) for cut in cuts
+    ):
+        return []
+    return cuts
 
 
 # -- loading -----------------------------------------------------------------------------------
@@ -885,7 +955,9 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
         entry.setdefault("songs", total)  # songs, like every count here, not single Shazams
     moment, inclusive, previous = since_moment(since, workspace)
     # Filter single Shazams before merging, so a song Shazamed again later counts as new.
-    chosen = records if moment is None else after(records, moment, inclusive=inclusive)
+    chosen = (
+        records if moment is None else after(unseen(records, previous), moment, inclusive=inclusive)
+    )
     return {
         # No ":" in names: rekordbox names a playlist after its file.
         "name": "Shazam" if moment is None else f"Shazam since {moment.astimezone():%Y-%m-%d}",
@@ -895,6 +967,7 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
         "sources": sources,
         "problems": problems,
         "total": total,
+        "newest_in_history": newest(records),
         "records": merge(chosen),
     }
 
@@ -987,7 +1060,7 @@ def status(workspace=None) -> dict:
     if previous:
         mark = previous.get("newest_shazamed_at")
         fresh = (
-            len(merge(after(raw, datetime.fromisoformat(mark), inclusive=False)))
+            len(merge(after(unseen(raw, previous), datetime.fromisoformat(mark), inclusive=False)))
             if mark
             else len(history)
         )
