@@ -14,14 +14,15 @@ import math
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
+from contextlib import aclosing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
 import httpx
 
-from djlib.audio.windows import duration, window_wav
+from djlib.audio.windows import SetAudio, duration
 from djlib.domain.errors import AppError
 
 RECOGNIZERS = ("shazam", "audd", "acrcloud")
@@ -587,7 +588,8 @@ async def scan(
     would repeat for every window (rate limits, refused keys, a service that stopped
     answering) end the scan. A recognizer with ``scan_file`` handles the whole file itself.
     Windows starting at a time in ``skip`` (heard before an interruption) are not asked
-    again; progress counts them as done, and only new probes are returned.
+    again; progress counts them as done, and only new probes are returned. The set is
+    decoded once, and the next window is cut while the recognizer hears the current one.
     """
     if (scan_file := getattr(recognizer, "scan_file", None)) is not None:
         return await scan_file(Path(audio_path), on_probe=on_probe, should_stop=should_stop)
@@ -596,13 +598,13 @@ async def scan(
     heard = {round(at, 3) for at in skip}
     left = [start for start in starts if start not in heard]
     probes: list[Probe] = []
-    for start in left:
-        if should_stop is not None and await _maybe(should_stop()):
-            break
-        probes.append(await _probe(audio_path, recognizer, start, window))
-        if on_probe is not None:
-            done = len(starts) - len(left) + len(probes)
-            await _maybe(on_probe(probes[-1], done, len(starts)))
+    with SetAudio(Path(audio_path)) as audio:
+        async with aclosing(_probes(audio, recognizer, left, window, should_stop)) as each:
+            async for probe in each:
+                probes.append(probe)
+                if on_probe is not None:
+                    done = len(starts) - len(left) + len(probes)
+                    await _maybe(on_probe(probe, done, len(starts)))
     return probes
 
 
@@ -627,32 +629,62 @@ async def refine(
     found = sorted(probes, key=lambda p: p.at)
     budget = len(probes) if limit is None else max(0, limit)
     done = 0
-    while done < budget:
-        gaps = [
-            (a.at + b.at) / 2
-            for a, b in zip(found, found[1:], strict=False)
-            if not _agree(a, b) and (b.at - a.at) / 2 >= min_spacing
-        ]
-        if not gaps:
-            break
-        if len(gaps) > (left := budget - done):
-            gaps = [gaps[(2 * k + 1) * len(gaps) // (2 * left)] for k in range(left)]
-        planned = done + len(gaps)
-        for at in gaps:
-            if should_stop is not None and await _maybe(should_stop()):
-                return sorted(found, key=lambda p: p.at)
-            found.append(await _probe(audio_path, recognizer, round(at, 3), window))
-            done += 1
-            if on_probe is not None:
-                await _maybe(on_probe(found[-1], done, planned))
-        found.sort(key=lambda p: p.at)
+    with SetAudio(Path(audio_path)) as audio:
+        while done < budget:
+            gaps = [
+                round((a.at + b.at) / 2, 3)
+                for a, b in zip(found, found[1:], strict=False)
+                if not _agree(a, b) and (b.at - a.at) / 2 >= min_spacing
+            ]
+            if not gaps:
+                break
+            if len(gaps) > (left := budget - done):
+                gaps = [gaps[(2 * k + 1) * len(gaps) // (2 * left)] for k in range(left)]
+            planned = done + len(gaps)
+            async with aclosing(_probes(audio, recognizer, gaps, window, should_stop)) as each:
+                async for probe in each:
+                    found.append(probe)
+                    done += 1
+                    if on_probe is not None:
+                        await _maybe(on_probe(probe, done, planned))
+            found.sort(key=lambda p: p.at)
+            if done < planned:  # stopped
+                break
     return found
 
 
-async def _probe(audio_path: Path, recognizer: Recognizer, at: float, window: float) -> Probe:
+async def _probes(
+    audio: SetAudio,
+    recognizer: Recognizer,
+    starts: list[float],
+    window: float,
+    should_stop: ShouldStop | None,
+) -> AsyncIterator[Probe]:
+    """Each window's probe, in order; the next window is cut while this one is recognized.
+
+    Requests stay one at a time, so the recognizer's pacing is unchanged.
+    """
+    upcoming: asyncio.Future[bytes] | None = None
     try:
-        wav = await asyncio.to_thread(window_wav, Path(audio_path), at, window)
-        return Probe(at, window, await recognizer.recognize(wav))
+        for k, at in enumerate(starts):
+            if should_stop is not None and await _maybe(should_stop()):
+                return
+            cut = upcoming if upcoming is not None else _cut(audio, at, window)
+            upcoming = _cut(audio, starts[k + 1], window) if k + 1 < len(starts) else None
+            yield await _probe(cut, recognizer, at, window)
+    finally:
+        if upcoming is not None:
+            upcoming.cancel()
+            await asyncio.gather(upcoming, return_exceptions=True)
+
+
+def _cut(audio: SetAudio, at: float, window: float) -> asyncio.Future[bytes]:
+    return asyncio.ensure_future(asyncio.to_thread(audio.window, at, window))
+
+
+async def _probe(cut: Awaitable[bytes], recognizer: Recognizer, at: float, window: float) -> Probe:
+    try:
+        return Probe(at, window, await recognizer.recognize(await cut))
     except AppError as error:
         if error.code in FATAL:
             raise
