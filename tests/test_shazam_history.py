@@ -482,6 +482,42 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     )
 
 
+def test_a_long_list_from_apple_music_or_a_file_keeps_your_newest_shazams(
+    home, tmp_path, monkeypatch
+):
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.root.mkdir()
+    start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
+    tracks = [
+        {
+            "name": f"Song {n}",
+            "artist": f"Artist {n}",
+            "added": datetime.fromtimestamp(start + 3600 * n).astimezone().isoformat(),
+        }
+        for n in range(1500)
+    ]
+    music(monkeypatch, stdout=json.dumps(tracks))
+    # shazam:new reads only this Mac's history, so it can't continue these lists.
+    body, warnings, summary = shazam_cli.set_request("shazam:apple-music", None, workspace)
+    assert len(body.items) == 1000
+    assert (body.items[0].title, body.items[-1].title) == ("Song 500", "Song 1499")
+    assert (summary["songs"], summary["remaining"]) == (1000, 500)
+    assert summary["newest_shazamed_at"] == shazam_history.when(tracks[-1]["added"])
+    assert not any("shazam:new" in warning for warning in warnings)
+    assert any("your 500 oldest Shazams" in warning for warning in warnings)
+    assert not shazam_history.from_this_mac(summary)
+
+    undated = tmp_path / "undated.csv"
+    undated.write_text(
+        "Artist,Title\n" + "".join(f"Artist {n},Song {n}\n" for n in range(1003)),
+        encoding="utf-8",
+    )
+    body, warnings, summary = shazam_cli.set_request(f"shazam:{undated}", None, workspace)
+    assert (body.items[0].title, body.items[-1].title) == ("Song 3", "Song 1002")
+    assert any("the first 3 songs in undated.csv" in warning for warning in warnings)
+    assert not any("shazam:new" in warning for warning in warnings)
+
+
 def test_only_imports_from_this_macs_history_move_the_shazam_new_mark(home, tmp_path, monkeypatch):
     workspace = Workspace(tmp_path / "workspace")
     workspace.root.mkdir()
@@ -570,7 +606,7 @@ def invoke(workspace, *arguments, pretty=False):
 
 
 def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
-    application, library_http, audio_factory, monkeypatch, home
+    application, library_http, audio_factory, monkeypatch, home, tmp_path
 ):
     owned = [audio_factory(f"shazam-{n}.wav", frequency=350 + 50 * n) for n in range(3)]
     build(
@@ -645,6 +681,15 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
     assert pretty.exit_code == 0, pretty.output
     assert "Shazam: Music Recognition on this Mac, 5 songs" in pretty.stdout
     assert "set shazam:new" in pretty.stdout
+
+    # An old export: its songs are checked, but shazam:new still means this Mac's history.
+    mark = shazam_history.last_import(workspace)["newest_shazamed_at"]
+    export = tmp_path / "old.csv"
+    export.write_text("TagTime,Title,Artist\n2019-01-01T20:00:00Z,Halo,Lumen\n", encoding="utf-8")
+    old = invoke(workspace, "set", f"shazam:{export}", "--no-rekordbox", pretty=True)
+    assert old.exit_code == 0, old.output
+    assert "Shazam: CSV file, 1 song" in old.stdout and "shazam:new" not in old.stdout
+    assert shazam_history.last_import(workspace)["newest_shazamed_at"] == mark
 
 
 def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypatch):

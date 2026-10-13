@@ -1850,7 +1850,11 @@ def set_view(term: Terminal, result: dict) -> None:
         report = ("requests", "report", result.get("request_id", ""))
         steps.append(("Save the missing songs as a list", report))
     if result.get("shazam"):
-        steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
+        from djlib.sources.shazam_history import from_this_mac
+
+        # shazam:new reads this Mac's history only, never a file or Apple Music.
+        if from_this_mac(result["shazam"]):
+            steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
 
 
