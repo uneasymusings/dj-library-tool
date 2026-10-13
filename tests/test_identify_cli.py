@@ -4,6 +4,7 @@ Everything runs through the real coordinator (its identification runner included
 the download and the recognizer are the fakes of tests/test_identification.py.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -155,6 +156,10 @@ def test_ctrl_c_cancels_the_identification(application, library_http, setup, mon
             raise KeyboardInterrupt
         return real(self, method, path, **kwargs)
 
+    async def slowly(at):
+        await asyncio.sleep(0.2)  # still listening when Ctrl-C comes
+
+    setup.listener.hook = slowly
     monkeypatch.setattr(LocalClient, "request", interrupted)
     reply = invoke(application, "identify", URL)
     assert reply.exit_code == 130
