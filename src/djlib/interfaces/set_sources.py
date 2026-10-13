@@ -1,8 +1,9 @@
 """`djlib set` helpers: a tracklist from a set's URL, comment hints for IDs, fetch planning.
 
 These run in the CLI process against the coordinator; network work happens in the
-coordinator's source endpoints. Nothing here identifies audio: comments and search results
-are evidence, and only confident search matches are offered for download.
+coordinator's source endpoints. Nothing here listens to a set (`djlib identify` does):
+comments and search results are evidence, and only confident search matches are offered
+for download.
 """
 
 import hashlib

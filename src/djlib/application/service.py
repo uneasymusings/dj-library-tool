@@ -154,7 +154,7 @@ class Application:
             ],
             "identity_method": (
                 "exact artist/title/version labels from tags or file names, hash-checked; "
-                "no acoustic identification"
+                "the user's own files are never matched by sound"
             ),
             "native_automation_available": native,
             "delivery_default": (

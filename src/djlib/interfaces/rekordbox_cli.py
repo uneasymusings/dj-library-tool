@@ -588,7 +588,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             None, help="Set name; defaults to the tracklist's heading, file name or upload title."
         ),
         source: str | None = typer.Option(
-            None, help="With a file: HTTPS link to the set, kept as evidence for unknown IDs."
+            None,
+            help="With a file: the set's link, kept as evidence for unknown IDs; with "
+            "--identify or --tracklist, djlib also listens to it.",
         ),
         fetch: bool = typer.Option(
             False,
@@ -628,15 +630,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         tracklists: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="With a link: a tracklist for the set (e.g. copied from 1001Tracklists), "
-            "merged with what djlib hears; repeatable.",
+            help="With a link or --source: a tracklist for the set (e.g. copied from "
+            "1001Tracklists), merged with what djlib hears; repeatable.",
         ),
     ) -> None:
         """Tracklist → owned songs → rekordbox playlist → USB.
 
         Takes a text file, or a YouTube/SoundCloud set link.
 
-        A set whose description lacks a full tracklist is listened to, so every song is found.
+        A set link whose tracklist is missing or has IDs is listened to (see djlib identify).
 
         djlib set shazam takes the songs you Shazamed; shazam:new only those since last time.
 
