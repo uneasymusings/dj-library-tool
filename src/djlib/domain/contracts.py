@@ -113,6 +113,28 @@ class SourceRequest(Contract):
     comments: int = Field(default=0, ge=0, le=2000)
 
 
+class IdentifyTracklist(Contract):
+    """A tracklist to merge with what djlib hears, e.g. text copied from 1001Tracklists."""
+
+    source: str = Field(
+        default="file", min_length=1, max_length=40, pattern=r"^[a-z0-9][a-z0-9_.-]*$"
+    )
+    text: str = Field(min_length=1, max_length=200_000)
+
+
+class IdentifyRequest(Contract):
+    """Track down every song in a YouTube or SoundCloud set (a background job)."""
+
+    url: str = Field(min_length=1, max_length=4096)
+    # Given tracklists are remembered for the set; giving tracklists again replaces them.
+    tracklists: list[IdentifyTracklist] = Field(default_factory=list, max_length=5)
+    recognizer: Literal["shazam", "audd", "acrcloud"] | None = None
+    # Listen again even when this set was identified before.
+    again: bool = False
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
 class SourceSearch(Contract):
     artist: str = Field(min_length=1, max_length=500)
     title: str = Field(min_length=1, max_length=1000)
