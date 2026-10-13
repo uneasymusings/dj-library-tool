@@ -352,19 +352,21 @@ def _cluster(run: _Run) -> dict:
         entry["url"] = entry["url"] or hit["url"]
     providers = []
     for provider in dict.fromkeys(hit["provider"] for hit in counted):
-        mine = [hit for hit in counted if hit["provider"] == provider]
+        mine = [hit for hit in run.hits if hit["provider"] == provider]
         providers.append(
             {
                 "provider": provider,
-                "hits": _heard_in(mine),
+                "hits": _heard_in([hit for hit in counted if hit["provider"] == provider]),
                 "at": min(hit["at"] for hit in mine),
                 "until": max(hit["until"] for hit in mine),
             }
         )
     hits = _heard_in(counted)
+    # A window out of line still heard the song (a loop, a repeated part): it places the song,
+    # but only windows in line count towards its strength.
     return {
-        "start": windows[0],
-        "end": max(hit["until"] for hit in counted),
+        "start": min(hit["at"] for hit in run.hits),
+        "end": max(hit["until"] for hit in run.hits),
         "hits": hits,
         "inconsistent": len(run.hits) - len(counted),
         "strength": "strong" if hits >= STRONG else "medium" if hits == 2 else "weak",
@@ -418,9 +420,9 @@ def segments(
     inside it are bridged, and windows where recognition failed do not count. Probes at the
     same time (two providers, a retry), or between two windows (``recognition.refine``), share
     one window; pass the first listen's ``stride`` when such probes are mixed in, or the
-    spacing is guessed from them. Windows whose song offset disagrees
-    with the rest do not count towards its strength: "strong" (3+ windows), "medium" (2) or
-    "weak" (1).
+    spacing is guessed from them. Windows whose song offset disagrees with the rest (a loop,
+    a repeated part) still say when the song played, but do not count towards its strength:
+    "strong" (3+ windows), "medium" (2) or "weak" (1).
     """
     return [_cluster(run) for run in _runs(probes, window, stride)]
 
