@@ -67,7 +67,9 @@ def test_windows_refuse_bad_ranges_and_need_ffmpeg(audio_factory, monkeypatch):
 def yt_dlp_saves(tmp_path, seen, *, name="set.webm", output=None):
     async def fake(args, **options):
         seen.append((args, options))
-        (tmp_path / name).write_bytes(b"opus")
+        # Like yt-dlp: a file already there is kept (and reported as saved), never replaced.
+        if not (tmp_path / name).exists():
+            (tmp_path / name).write_bytes(args[-1].encode())
         info = {
             "id": "keinemusik",
             "title": "Keinemusik live",
@@ -97,11 +99,15 @@ async def test_set_audio_is_kept_as_published_with_a_receipt(tmp_path, monkeypat
         "path": str(tmp_path / "set.webm"),
     }
     assert json.loads((tmp_path / "receipt.json").read_text()) == receipt
+    assert not (tmp_path / "fetching.json").exists()
     (args, options) = seen[0]
     assert args[args.index("--format") + 1] == "bestaudio/best"
     assert "--extract-audio" not in args and "--audio-format" not in args
     assert args[args.index("--max-filesize") + 1] == "2G"
-    assert args[args.index("--match-filters") + 1] == "duration <= 21600 & !is_live"
+    assert args[args.index("--match-filters") + 1] == (
+        "duration <= 21600 & !is_live & !playlist_id"
+    )
+    assert args[args.index("--playlist-items") + 1] == "1"
     assert args[args.index("--output") + 1] == str(tmp_path / "set.%(ext)s")
     assert args[-2:] == ["--", SET_URL]
     assert options["timeout"] == 1800 and options["download_dir"] == tmp_path
@@ -116,12 +122,42 @@ async def test_set_audio_reuses_the_saved_file(tmp_path, monkeypatch):
     assert await web.fetch_set_audio(SET_URL, tmp_path) == first
     assert len(seen) == 1
     # Another set, a missing file or an unreadable receipt mean fetching again.
-    await web.fetch_set_audio("https://soundcloud.com/keinemusik/live", tmp_path)
+    other = "https://soundcloud.com/keinemusik/live"
+    (tmp_path / "set.m4a.part").write_bytes(b"half of the first set")
+    await web.fetch_set_audio(other, tmp_path)
+    assert (tmp_path / "set.webm").read_bytes() == other.encode()
+    assert not (tmp_path / "set.m4a.part").exists()
     (tmp_path / "set.webm").unlink()
-    await web.fetch_set_audio("https://soundcloud.com/keinemusik/live", tmp_path)
+    await web.fetch_set_audio(other, tmp_path)
     (tmp_path / "receipt.json").write_text("broken")
-    await web.fetch_set_audio("https://soundcloud.com/keinemusik/live", tmp_path)
+    await web.fetch_set_audio(other, tmp_path)
     assert len(seen) == 4
+    assert (tmp_path / "set.webm").read_bytes() == other.encode()
+
+
+async def test_set_audio_resumes_only_its_own_interrupted_download(tmp_path, monkeypatch):
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+
+    async def cancelled(args, **options):
+        (tmp_path / "set.webm.part").write_bytes(b"first half")
+        raise AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True)
+
+    monkeypatch.setattr(web, "run", cancelled)
+    with pytest.raises(AppError):
+        await web.fetch_set_audio(SET_URL, tmp_path)
+    kept = []
+
+    async def resumed(args, **options):
+        kept.append(sorted(p.name for p in tmp_path.glob("set.*")))
+        return b""
+
+    monkeypatch.setattr(web, "run", resumed)
+    with pytest.raises(AppError):
+        await web.fetch_set_audio(SET_URL, tmp_path)
+    with pytest.raises(AppError):
+        await web.fetch_set_audio("https://soundcloud.com/keinemusik/live", tmp_path)
+    # The same set picks up its part file; another set starts clean.
+    assert kept == [["set.webm.part"], []]
 
 
 async def test_set_audio_skipped_by_the_limits_is_reported(tmp_path, monkeypatch):
@@ -131,6 +167,7 @@ async def test_set_audio_skipped_by_the_limits_is_reported(tmp_path, monkeypatch
     with pytest.raises(AppError) as skipped:
         await web.fetch_set_audio(SET_URL, tmp_path)
     assert skipped.value.code == "DOWNLOAD_UNAVAILABLE" and "six hours" in skipped.value.message
+    assert "playlist" in skipped.value.message
     assert not (tmp_path / "receipt.json").exists()
     with pytest.raises(AppError) as unsupported:
         await web.fetch_set_audio("https://example.com/set", tmp_path)
