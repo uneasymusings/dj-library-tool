@@ -33,7 +33,8 @@ if [ -z "$wheel" ]; then
 fi
 
 say "Installing djlib from $wheel"
-uv tool install --force --compile-bytecode --python 3.13 "dj-library-tool[download] @ $wheel"
+# Python 3.12: song recognition (shazamio) has macOS and Windows wheels there, not on 3.13.
+uv tool install --force --compile-bytecode --python 3.12 "dj-library-tool[download,recognize] @ $wheel"
 uv tool update-shell >/dev/null 2>&1 || true
 
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then

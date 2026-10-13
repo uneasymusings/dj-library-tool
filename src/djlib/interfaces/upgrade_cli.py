@@ -144,9 +144,10 @@ def register_upgrade(app, client, emit, handled, panel=None):
             "tool",
             "install",
             "--force",
+            # Song recognition (shazamio) has macOS and Windows wheels for 3.12, not 3.13.
             "--python",
-            "3.13",
-            f"dj-library-tool[download] @ {latest['url']}",
+            "3.12",
+            f"dj-library-tool[download,recognize] @ {latest['url']}",
         ]
         if not uv or not installed_by_uv():
             raise AppError(
