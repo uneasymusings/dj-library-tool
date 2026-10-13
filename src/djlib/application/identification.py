@@ -352,7 +352,12 @@ class IdentifyRunner:
     async def run(self) -> None:
         self.recover()
         while True:
-            attempt = self.claim()
+            try:
+                attempt = self.claim()
+            except Exception:  # noqa: BLE001 - a busy catalog must not end identification for good
+                logger.exception("Could not pick the next identification")
+                attempt = None
+                await asyncio.sleep(1.0)
             if attempt is None:
                 await asyncio.sleep(0.25)
                 continue

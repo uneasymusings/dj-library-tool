@@ -505,3 +505,29 @@ async def test_the_keinemusik_set_end_to_end(application, setup, monkeypatch):
 
     items, skipped = parse_tracklist("\n".join(lines))
     assert skipped == [(1, lines[0], HEADING)] and len(items) == 13
+
+
+async def test_the_runner_survives_a_busy_catalog_and_runs_queued_identifications(
+    application, setup, monkeypatch
+):
+    runner = IdentifyRunner(application)
+    claim, calls = runner.claim, []
+
+    def busy_once():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("database is locked")
+        return claim()
+
+    monkeypatch.setattr(runner, "claim", busy_once)
+    job_id = submit(application)
+    task = asyncio.create_task(runner.run())
+    try:
+        for _ in range(200):
+            if application.job(job_id)["state"] == "completed":
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert application.job(job_id)["state"] == "completed" and len(calls) >= 2
