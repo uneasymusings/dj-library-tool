@@ -183,6 +183,12 @@ def list_result(
     """
     loaded = shazam_history.load(source, since, workspace)
     records = loaded["records"]
+    # Newest first; songs without a time go last, in the order of the file.
+    newest_first = sorted(
+        records,
+        key=lambda item: (item["shazamed_at"] is not None, item["shazamed_at"] or ""),
+        reverse=True,
+    )
     return {
         "spec": f"shazam:{source or since}" if source or since else "shazam",
         "query": {"since": since, "from": source},
@@ -193,7 +199,7 @@ def list_result(
         "sources": loaded["sources"],
         "problems": loaded["problems"],
         "newest_shazamed_at": shazam_history.newest(records),
-        "records": list(reversed(records))[:limit],
+        "records": newest_first[:limit],
     }
 
 
