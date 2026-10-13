@@ -1037,6 +1037,29 @@ def test_only_the_audio_confirms_a_listed_song():
     ]
 
 
+def test_comments_naming_the_song_beside_an_id_are_not_its_candidates():
+    # Kaytranada's SoundCloud set: the ID at 19:51 came after Sharam Jey & Sirus Hood -
+    # Picture Picture, and a listener wrote that song back to front, with the name misspelt.
+    comments = [
+        {"text": "picture picture - cyrus", "start_time": 1195, "like_count": 4},
+        {"text": "snowfall - Bo", "start_time": 1290, "like_count": 1},
+        {"text": "Ana - Rain", "start_time": 1200, "like_count": 2},
+    ]
+    probes = [
+        *song(900, 8, "Sharam Jey & Sirus Hood", "Picture Picture"),
+        *map(silence, range(1140, 1440, 30)),
+        *song(1440, 6, "Bo", "Snowfall"),
+    ]
+    tracks = build_tracklist(duration=1650, probes=probes, comments=comments)["tracks"]
+    assert summary(tracks) == [
+        ("00:00", "ID", "unidentified", False),
+        ("15:00", "Picture Picture", "confirmed", False),
+        ("18:42", "ID", "weak", False),
+        ("24:00", "Snowfall", "confirmed", False),
+    ]
+    assert [c["title"] for c in tracks[2]["candidates"]] == ["Rain"]
+
+
 def test_comments_suggest_ids_but_not_songs_already_listed():
     comments = [
         {"text": "ID at 48:40 is Chris Fortier & Neil Kolo - All I Got", "like_count": 3},
