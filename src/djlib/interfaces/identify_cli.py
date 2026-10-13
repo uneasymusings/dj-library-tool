@@ -207,11 +207,13 @@ def warnings_of(result: dict) -> list[str]:
     """Notices first, then the tracklist lines djlib could not read."""
     from djlib.application.set_identification import SOURCE_NAMES
 
-    lines = [
-        f"{SOURCE_NAMES.get(line['source'], line['source'])}, line {line['line']} skipped "
-        f"({line['reason']}): {line['text']}"
-        for line in result.get("skipped_lines") or []
-    ]
+    lines = []
+    for line in result.get("skipped_lines") or []:
+        where = SOURCE_NAMES.get(line["source"], line["source"])
+        lines.append(
+            f"{where[:1].upper()}{where[1:]}, line {line['line']} skipped ({line['reason']}): "
+            f"{line['text']}"
+        )
     return [*(result.get("notices") or []), *lines]
 
 
