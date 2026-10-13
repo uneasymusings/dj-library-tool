@@ -313,10 +313,10 @@ def related_prefixes(artist: str, title: str) -> list[str]:
     return [base, base.removesuffix("|") + " "]
 
 
-# Credit separators between artist names: "A, B", "A & B", "A x B", "A feat. B", "A vs B".
-# A lowercase "x" only, so a capital X inside a name is left alone.
+# Credit separators between artist names: "A, B", "A & B", "A x B" or "A X B" (as tracklists
+# write collaborations: "Busta Rhymes X Janet Jackson"), "A feat. B", "A vs B".
 CREDIT_SEPARATOR = re.compile(
-    r"\s*[,;/]\s*|\s+&\s+|\s+x\s+|\s+(?i:featuring|feat\.?|ft\.?|vs\.?)\s+"
+    r"\s*[,;/]\s*|\s+&\s+|\s+(?i:x)\s+|\s+(?i:featuring|feat\.?|ft\.?|vs\.?)\s+"
 )
 _FEATURING = r"(?i:featuring\s+|feat(?:\.\s*|\s+)|ft(?:\.\s*|\s+))"
 # "Title (feat. X)" / "Title [ft. X]" anywhere in the title, or a bare "Title feat. X" that

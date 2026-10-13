@@ -115,8 +115,10 @@ async def test_an_identification_merges_the_sets_mixesdb_tracklist(application, 
     found = identification.summary(result)
     assert found["mixesdb"] == MONTREAL and found["listed"] is True
     tracks = {track["n"]: track for track in found["tracks"]}
-    assert (tracks[2]["title"], tracks[2]["status"]) == (
-        "Move Love (Kaytranada Edition)",
+    # "Edition" names a version, like "Edit" or "Mix".
+    assert (tracks[2]["title"], tracks[2]["version"], tracks[2]["status"]) == (
+        "Move Love",
+        "Kaytranada Edition",
         "confirmed",
     )
     assert tracks[2]["evidence"] == "Shazam: 4 windows from 00:54; also in MixesDB"

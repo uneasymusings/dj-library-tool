@@ -117,12 +117,12 @@ djlib download --file downloads.json
 `identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition, listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
 
 - **confirmed**: djlib heard the song, where a tracklist lists it or in three or more windows;
-- **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other) or two listening windows;
+- **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other), two listening windows, or a listed song djlib heard under another name (the Why column says what each side has);
 - **weak**: only a listener's comment, or a single window;
 - **conflict**: the tracklist names one song where djlib heard another;
 - **unidentified**: an ID nothing named.
 
-An ID stays an ID: the song djlib most likely heard there is shown as a candidate (“ID — likely …”), never as its name. Songs heard in one window that fit nowhere are listed apart, not as tracks. The coverage line says how much of the set has a named song.
+When djlib heard a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), it uses the spelling it heard, so your files are found, and notes how the tracklist wrote it. An ID stays an ID: the song djlib most likely heard there is shown as a candidate (“ID — likely …”), never as its name; a long stretch nobody named says about how many songs it holds. Songs heard in one window that fit nowhere are listed apart, not as tracks. The coverage line says how much of the set has a named song.
 
 `set URL` does this by itself when the set's published tracklist is missing or has IDs (`--no-identify` uses the published list only) and reuses an earlier identification for free. Without song recognition installed, it uses the published list and says so. 1001Tracklists only serves browsers: copy its tracklist into a file and add it with `--tracklist FILE` to `identify` or `set` with the set's own link; djlib merges it with what it hears.
 

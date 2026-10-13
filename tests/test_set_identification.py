@@ -18,6 +18,7 @@ from djlib.application.set_identification import (
     listed_tracklist,
     request_items,
     segments,
+    track_notes,
     tracklist_text,
 )
 from djlib.application.source_matching import tracklist_from_source
@@ -308,7 +309,9 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     assert items[11]["version"] == "Antdot & Maz Edit"
     heard_only = request_items(keinemusik_heard_only, SET_URL)
     valid_request(heard_only)
-    assert heard_only[8]["notes"].startswith("Not identified from 39:12 to 50:30; possibly Q-Force")
+    assert heard_only[8]["notes"].startswith(
+        "Not identified from 39:12 to 50:30, about 2 songs at this set's pace; possibly Q-Force"
+    )
     # An ID needs a time or a link to listen to.
     timeless = {"tracks": [{**keinemusik["tracks"][0], "start": None}]}
     assert request_items(timeless) == []
@@ -1084,3 +1087,150 @@ def test_comments_suggest_ids_but_not_songs_already_listed():
     assert result["sources"][-1] == {"source": "comments", "comments": 4, "suggestions": 2}
     notes = request_items(result, SET_URL)[0]["notes"]
     assert notes == "Listed as an ID in the description; listeners named Keinemusik - Intro Edit"
+
+
+def rows(result: dict) -> list[tuple]:
+    return [(t["artist"], t["title"], t["version"], t["status"]) for t in result["tracks"]]
+
+
+def test_audio_heard_in_two_windows_corrects_misspelled_listed_credits():
+    """Kaytranada at Boiler Room Montreal: MixesDB's spellings against Shazam's (live probes).
+
+    The library check compares credited names exactly, so a misspelt listing would report
+    owned files as missing."""
+    probes = [
+        *song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Edition)"),
+        *song(180, 3, "Sharam Jey & Sirus Hood", "Picture Picture"),
+        *song(360, 2, "Armand Van Helden", "Full Moon (feat. Common)"),
+        *song(480, 3, "Busta Rhymes & Janet Jackson", "What Its Gonna Be (Kaytranada Edition)"),
+    ]
+    listed = listing(
+        "mixesdb",
+        "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)",
+        "2. [03:00] Sharam Jay & Sirus Hood - Picture Picture]",
+        "3. [06:00] Armand Val Helden Feat. Common - Full Moon",
+        "4. [08:00] Busta Rhymes X Janet Jackson - What It's Gonna Be (Kaytranada Edition)",
+    )
+    result = build_tracklist(duration=660, probes=probes, listed=[listed])
+    assert rows(result) == [
+        ("Robert Glasper Experiment", "Move Love", "Kaytranada Edition", "confirmed"),
+        ("Sharam Jey & Sirus Hood", "Picture Picture", "", "confirmed"),
+        ("Armand Van Helden", "Full Moon (feat. Common)", "", "confirmed"),
+        ("Busta Rhymes X Janet Jackson", "What It's Gonna Be", "Kaytranada Edition", "confirmed"),
+    ]
+    notes = [track_notes(track) for track in result["tracks"]]
+    assert notes[0] == (
+        "Shazam: 3 windows from 00:00; also in MixesDB; "
+        "listed in MixesDB as Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+    assert notes[3] == "Shazam: 3 windows from 08:00; also in MixesDB"
+    # Heard in one window only, the listing's spelling stays, and the heard one is noted.
+    once = build_tracklist(duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"))
+    assert once["tracks"] == [] or once["tracks"][0]["kind"] == "unknown"
+    listed_once = listing("mixesdb", "1. [00:00] Armand Val Helden - Full Moon")
+    kept = build_tracklist(
+        duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"), listed=[listed_once]
+    )
+    assert rows(kept) == [("Armand Val Helden", "Full Moon", "", "confirmed")]
+    assert track_notes(kept["tracks"][0]) == (
+        "Shazam: 1 window at 00:00; also in MixesDB; Shazam named it Armand Van Helden - Full Moon"
+    )
+
+
+def test_heard_and_listed_under_other_names_says_what_each_side_has():
+    """A remix heard as its sample: likely, and the notes don't read as agreement."""
+    probes = song(0, 3, "Kerri Chandler", "Rain")
+    listed = listing("mixesdb", "1. [00:00] Lumen - Rain")
+    (track,) = build_tracklist(duration=200, probes=probes, listed=[listed])["tracks"]
+    assert (track["artist"], track["status"]) == ("Lumen", "likely")
+    assert track_notes(track) == (
+        "MixesDB lists it; Shazam heard Kerri Chandler - Rain here (3 windows from 00:00)"
+    )
+
+
+def test_a_listed_mix_name_is_not_doubled_by_the_heard_one():
+    probes = song(0, 6, "Azealia Banks", "Atm Jam (Kaytranada Alternate Mix)")
+    listed = listing(
+        "mixesdb", "1. [00:00] Azealia Banks Feat. Pharrell Williams - ATM Jam (Kaytranada Edition)"
+    )
+    assert rows(build_tracklist(duration=200, probes=probes, listed=[listed])) == [
+        ("Azealia Banks Feat. Pharrell Williams", "ATM Jam", "Kaytranada Edition", "confirmed"),
+    ]
+    # "[Silent Treatment Intro]" is a version, not a record label.
+    (item,) = parse_tracklist("Kaytranada - Roots [Silent Treatment Intro]")[0]
+    assert item.title == "Roots [Silent Treatment Intro]"
+
+
+def test_one_id_listed_by_two_listings_with_different_or_no_times_is_one_id():
+    probes = [
+        *song(0, 6, "Lumen", "Halo"),
+        *map(silence, range(180, 600, 30)),
+        *song(600, 6, "Ana", "Rain"),
+    ]
+    description = listing("description", "00:00 Lumen - Halo", "04:00 ID - ID", "10:00 Ana - Rain")
+    for line in ("2. [06:00] ?", "2. ?"):  # MixesDB: a minute cue ("[06]"), or "[0?]"
+        text = "\n".join(["1. [00:00] Lumen - Halo", line, "3. [10:00] Ana - Rain"])
+        mixesdb = listed_tracklist("mixesdb", text, "https://www.mixesdb.com/w/Set")
+        result = build_tracklist(duration=800, probes=probes, listed=[description, mixesdb])
+        assert [(t["title"] or "ID", t["start"]) for t in result["tracks"]] == [
+            ("Halo", 0.0),
+            ("ID", 240.0),
+            ("Rain", 600.0),
+        ]
+        assert "Listed as an ID in the description and MixesDB" in track_notes(result["tracks"][1])
+
+
+def test_a_listener_naming_a_song_in_a_short_unheard_stretch_makes_it_an_id():
+    """Kaytranada: nothing heard 06:36-08:24 (108 s); four listeners wrote "sebastiAn -
+    arabest" at 06:38, which MixesDB lists at 06:37."""
+    probes = [
+        *song(0, 5, "Flume", "Holdin On (Kaytranada Remix)"),
+        *map(silence, range(150, 270, 30)),
+        *song(270, 4, "Full Crate", "L'Afrique"),
+    ]
+    comments = [{"text": "sebastiAn - arabest", "start_time": 160.0, "like_count": 0}]
+    result = build_tracklist(duration=400, probes=probes, comments=comments)
+    assert [(t["title"] or "ID", t["start"]) for t in result["tracks"]] == [
+        ("Holdin On", 0.0),
+        ("ID", 132.0),
+        ("L'Afrique", 270.0),
+    ]
+    assert [(c["artist"], c["title"]) for c in result["tracks"][1]["candidates"]] == [
+        ("sebastiAn", "arabest")
+    ]
+    # Praise is not a song, and naming the song before is not another one.
+    for text in ("KAYTRANADA - IS AWESOME", "Flume - Holdin On"):
+        quiet = [{"text": text, "start_time": 160.0, "like_count": 0}]
+        tracks = build_tracklist(duration=400, probes=probes, comments=quiet)["tracks"]
+        assert [t["title"] for t in tracks] == ["Holdin On", "L'Afrique"]
+
+
+def test_a_long_stretch_nobody_heard_says_about_how_many_songs_it_holds():
+    probes = [
+        *song(0, 6, "A", "One"),
+        *song(180, 6, "B", "Two"),
+        *song(360, 6, "C", "Three"),
+        *map(silence, range(540, 1260, 30)),
+        *song(1260, 6, "D", "Four"),
+    ]
+    result = build_tracklist(duration=1440, probes=probes)
+    unknown = [t for t in result["tracks"] if t["kind"] == "unknown"]
+    assert [(t["start"], t["songs_estimate"]) for t in unknown] == [(522.0, 4)]
+    assert "about 4 songs at this set's pace" in track_notes(unknown[0])
+
+
+def test_an_ids_candidates_put_a_song_a_listener_also_named_first():
+    probes = [
+        *song(0, 6, "Lumen", "Halo"),
+        *map(silence, range(180, 450, 30)),
+        *song(450, 6, "Ana", "Rain"),
+    ]
+    probes[7] = heard(210, "Kaipanta", "Gritando")
+    probes[8] = heard(240, "Pomo", "So Fine")
+    comments = [{"text": "Pomo - So Fine", "start_time": 236.0, "like_count": 0}]
+    (_, the_id, _) = build_tracklist(duration=600, probes=probes, comments=comments)["tracks"]
+    assert [(c["source"], c["title"]) for c in the_id["candidates"]] == [
+        ("audio", "So Fine"),
+        ("audio", "Gritando"),
+        ("comments", "So Fine"),
+    ]
