@@ -47,10 +47,13 @@ Issues = "https://github.com/uneasymusings/dj-library-tool/issues"
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
 
 [tool.uv]
-# shazamio 0.8.1 pins shazamio-core 1.1.2, which has no macOS or Windows wheels for Python 3.13
-# (building it needs Rust). 2.x keeps the same API with wheels everywhere; tool installs of the
-# recognize extra need the same override (uv tool install --overrides).
-override-dependencies = ["shazamio-core>=2.0.0,<3"]
+# shazamio 0.8.1 pins shazamio-core 1.1.2, which has macOS and Windows wheels only up to Python
+# 3.12 (building it needs Rust), so tool installs with the recognize extra use --python 3.12 and
+# get exactly what 3.12 locks here. On 3.13, development uses 2.x: same API, wheels everywhere.
+override-dependencies = [
+  "shazamio-core==1.1.2; python_version < '3.13'",
+  "shazamio-core>=2.0.0,<3; python_version >= '3.13'",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/djlib"]
