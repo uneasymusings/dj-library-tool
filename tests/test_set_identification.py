@@ -509,6 +509,49 @@ def test_text_out_of_order_follows_the_audio():
     }
 
 
+def test_a_song_heard_again_soon_after_is_one_track():
+    stray = [
+        *song(0, 5, "Lumen", "Halo"),
+        *song(180, 6, "Ana", "Rain"),
+        *map(silence, (360, 390, 420)),
+        heard(450, "Ana", "Rain"),
+        *map(silence, (480, 510)),
+        *song(540, 5, "Bo", "Snow"),
+    ]
+    again = [*stray[:11], *map(silence, (360, 390, 420, 450)), *song(480, 2, "Ana", "Rain")]
+    again += stray[-5:]
+    listed = listing("description", "Lumen - Halo", "Ana - Rain", "Bo - Snow")
+    for probes in (stray, again):
+        assert [s["title"] for s in segments(probes)] == ["Halo", "Rain", "Rain", "Snow"]
+        for tracklists in ([listed], []):
+            result = build_tracklist(duration=720, probes=probes, listed=tracklists)
+            assert [(clock(t["start"]), t["title"]) for t in result["tracks"]] == [
+                ("00:00", "Halo"),
+                ("03:00", "Rain"),
+                ("09:00", "Snow"),
+            ]
+    rain = build_tracklist(duration=720, probes=stray, listed=[listed])["tracks"][1]
+    assert [(e["source"], e.get("hits")) for e in rain["evidence"]] == [
+        ("audio", 7),
+        ("description", None),
+    ]
+    # Played again after another song: two plays, and the listing takes the one at its time.
+    twice = [
+        *song(0, 2, "Lumen", "Halo"),
+        *song(60, 4, "Ana", "Rain"),
+        *song(180, 3, "Lumen", "Halo"),
+    ]
+    for line, listed_at in (("[00:00] Lumen - Halo", "00:00"), ("Lumen - Halo", "03:00")):
+        tracks = build_tracklist(duration=360, probes=twice, listed=[listing("file", line)])
+        assert [(clock(t["start"]), t["title"]) for t in tracks["tracks"]] == [
+            ("00:00", "Halo"),
+            ("01:00", "Rain"),
+            ("03:00", "Halo"),
+        ]
+        (from_text,) = (t for t in tracks["tracks"] if len(t["evidence"]) == 2)
+        assert clock(from_text["start"]) == listed_at
+
+
 def test_two_listings_confirm_each_other_and_fill_ids():
     description_ = listing("description", "Lumen - Halo", "[02:00] ID - ID", "Ana - Rain")
     tracklists = listing(
