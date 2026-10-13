@@ -575,8 +575,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         tracklist: Annotated[
             str,
             typer.Argument(
-                help="Text file with one “Artist - Title (Mix)” per line, or a YouTube or "
-                "SoundCloud set whose description lists its tracks."
+                help="Text file with one “Artist - Title (Mix)” per line, a YouTube or "
+                "SoundCloud set whose description lists its tracks, or shazam for the songs "
+                "you Shazamed (shazam:new, shazam:2026-10-01, shazam:apple-music, shazam:FILE)."
             ),
         ],
         name: str | None = typer.Option(
@@ -619,13 +620,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         Takes a text file, or a YouTube/SoundCloud set whose description lists its tracks.
 
+        djlib set shazam takes the songs you Shazamed; shazam:new only those since last time.
+
         Matches exact artist/title/version; other versions are never swapped in.
 
         --fetch downloads clear matches for missing songs as MP3.
 
         --usb exports the playlist to your stick and checks every file.
         """
-        from djlib.interfaces import set_sources
+        from djlib.interfaces import set_sources, shazam_cli
         from djlib.interfaces.library_cli import (
             all_items,
             created,
@@ -655,8 +658,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
-        page = None
-        if set_sources.is_url(tracklist):
+        page = shazam = None
+        if shazam_cli.is_spec(tracklist):
+            if source:
+                raise AppError(
+                    "INPUT_INVALID", "--source only applies to a tracklist file; leave it out."
+                )
+            with status("Reading your Shazam history…"):
+                body, warnings, shazam = shazam_cli.set_request(tracklist, name, workspace)
+        elif set_sources.is_url(tracklist):
             with status("Reading the set's description and listener comments…"):
                 text, page = set_sources.tracklist_from_url(local, tracklist)
             if not text.strip():
@@ -738,6 +748,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "usb": None,
             "database_modified_directly": False,
         }
+        if shazam is not None:
+            result["source"] = {
+                "url": None,
+                "provider": "Shazam",
+                "title": shazam["description"],
+                "uploader": None,
+            }
+            result["shazam"] = shazam
         if owned:
             collection_id = build_crate(local, request["request_id"])
             with status("Checking the crate's files…"):
@@ -768,6 +786,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             unfinished.append(f"djlib rekordbox usb {handle}")
         result["complete"] = not unfinished
         result["next"] = unfinished
+        if shazam is not None:
+            from djlib.sources.shazam_history import remember_import
+
+            # Only now: when a step above fails, rerunning shazam:new rebuilds the same list
+            # (same idempotency key) and finishes it.
+            remember_import(workspace, shazam, request["request_id"])
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
