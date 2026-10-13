@@ -762,8 +762,10 @@ def source_inspect(
         0, "--comments", min=0, max=2000, help="Also read up to this many listener comments."
     ),
 ) -> None:
-    """Read a set's description and chapters, and optionally its comments."""
-    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url, "comments": comments}))
+    """Read a set's description and chapters (else its MixesDB tracklist), and optionally its
+    comments."""
+    data = {"url": url, "comments": comments, "mixesdb": True}
+    emit(client(ctx).request("POST", "/sources/inspect", data=data))
 
 
 @app.command(rich_help_panel=LIBRARY)

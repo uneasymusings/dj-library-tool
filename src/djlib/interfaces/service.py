@@ -236,14 +236,16 @@ def create_app(
 
     @app.post("/sources/inspect")
     async def source(body: SourceRequest):
-        from djlib.application.identification import remember_page
+        from djlib.application.identification import mixesdb_tracklist, remember_page
+        from djlib.interfaces.set_sources import comment_list, page_tracklist
 
         result = await inspect_source(body.url, body.comments)
+        if body.mixesdb:
+            listed = page_tracklist(result)
+            result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
         # `djlib set` reads the page first; an identification it starts then reuses it.
         remember_page(result, body.comments)
         if body.comments:
-            from djlib.interfaces.set_sources import comment_list
-
             # What listeners named, in set order: the useful part of hundreds of comments.
             result["named_in_comments"] = comment_list(result.get("comments") or [])
         return envelope(result)

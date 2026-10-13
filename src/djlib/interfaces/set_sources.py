@@ -49,15 +49,40 @@ def seconds(timestamp: str | None) -> float | None:
 
 
 def tracklist_from_url(local, url: str) -> tuple[str, dict]:
-    """The set's tracklist text (description or chapters) plus what was read from the page."""
-    from djlib.application.source_matching import tracklist_from_source
-
+    """The set's tracklist text (description or chapters, else MixesDB's) plus what was read
+    from the page."""
     check_set_url(url)
-    source = local.request("POST", "/sources/inspect", data={"url": url, "comments": COMMENTS})[
-        "result"
-    ]
-    text = tracklist_from_source(source.get("description") or "", source.get("chapters") or [])
+    source = local.request(
+        "POST", "/sources/inspect", data={"url": url, "comments": COMMENTS, "mixesdb": True}
+    )["result"]
+    text = page_tracklist(source)
+    if not text and (found := from_mixesdb(source)):
+        text = found["text"]
     return text, source
+
+
+def page_tracklist(page: dict) -> str:
+    """The tracklist a set's page publishes (its chapters, else its description), or "" when
+    no line of it reads as a track: YouTube names some sets' chapters itself, such as
+    "Opening performance"."""
+    from djlib.application.source_matching import tracklist_from_source
+    from djlib.application.tracklists import parse_tracklist
+
+    description, chapters = page.get("description") or "", page.get("chapters") or []
+    for text in (
+        tracklist_from_source(description, chapters),
+        tracklist_from_source(description, []),
+    ):
+        if text and parse_tracklist(text, page.get("url"))[0]:
+            return text
+    return ""
+
+
+def from_mixesdb(page: dict) -> dict | None:
+    """The MixesDB lookup a set's tracklist comes from: the coordinator looks MixesDB up only
+    when the description and chapters list no tracklist."""
+    found = page.get("mixesdb")
+    return found if isinstance(found, dict) and isinstance(found.get("text"), str) else None
 
 
 def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:

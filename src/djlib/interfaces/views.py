@@ -1813,6 +1813,7 @@ def set_view(term: Terminal, result: dict) -> None:
         rows.append(("USB", marked(term, glyph, f"{stick}: {usb_tracks(usb)}")))
         rows.append(("Key/BPM", device_analysis(usb)))
     fields(term, rows)
+    mixesdb_source(term, result.get("mixesdb"))
     if usb_bad:
         unmatched(term, usb)
     missing = result.get("missing") or []
@@ -1901,6 +1902,18 @@ def set_view(term: Terminal, result: dict) -> None:
         if from_this_mac(result["shazam"]):
             steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
+
+
+def mixesdb_source(term: Terminal, page: dict | None) -> None:
+    """ "Tracklist from MixesDB: <page title>" and the page's link, so the DJ can check it."""
+    if not page:
+        return
+    line = Text.assemble("Tracklist from MixesDB: ", (str(page.get("page_title") or ""), "heading"))
+    if page.get("tracklist") == "incomplete":
+        line.append("  marked incomplete", style="warn")
+    term.out.print(indented(line))
+    # One unbroken line, so the link stays clickable and copyable.
+    term.out.print(Text("  " + str(page.get("page_url") or ""), style="path"), soft_wrap=True)
 
 
 def identified_line(term: Terminal, identified: dict) -> Text:
@@ -2137,6 +2150,7 @@ def identify_view(term: Terminal, result: dict) -> None:
             ("Saved to", path_text(result.get("tracklist_file"))),
         ],
     )
+    mixesdb_source(term, result.get("mixesdb"))
     if tracks:
         term.out.print()
         grid = table(

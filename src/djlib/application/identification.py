@@ -4,7 +4,8 @@ Identification jobs run one at a time beside the Worker, never in it: listening 
 takes minutes, and Shazam limits requests per address, so downloads and scans keep going
 meanwhile. Each set has a folder, ``<workspace>/sets/<key>/``:
 
-- page.json: what the page said (description, chapters, listener comments);
+- page.json: what the page said (description, chapters, listener comments) and the set's
+  MixesDB tracklist, looked up while reading the page;
 - listings.json: tracklists given for the set (e.g. copied from 1001Tracklists);
 - probes.jsonl: one line per listening window, written the moment it is heard;
 - tracklist.json and tracklist.txt: the merged result (the text works with `djlib set FILE`);
@@ -41,6 +42,7 @@ from djlib.application.set_identification import (
     build_tracklist,
     clock,
     listed_tracklist,
+    mixesdb_listing,
     segments,
     track_notes,
     tracklist_text,
@@ -51,7 +53,7 @@ from djlib.audio import windows
 from djlib.domain.contracts import IdentifyRequest
 from djlib.domain.errors import AppError
 from djlib.persistence.models import Job, timestamp
-from djlib.sources import recognition, web
+from djlib.sources import mixesdb, recognition, web
 from djlib.sources.recognition import Probe
 from djlib.workspace import Workspace, atomic_json
 
@@ -200,6 +202,23 @@ def finished(workspace: Workspace, url: str) -> dict | None:
 # -- pages read moments ago --------------------------------------------------------------------
 
 PAGES: dict[str, tuple[float, dict]] = {}
+# MixesDB lookups by set link; None when MixesDB had no page that is surely the set.
+MIXESDB_LOOKUPS: dict[str, tuple[float, dict | None]] = {}
+
+
+def _keep(cache: dict, key: str, value) -> None:
+    """Store ``value`` under ``key`` and forget what is older than PAGE_SECONDS."""
+    now = time.monotonic()
+    for old in [old for old, (at, _) in cache.items() if now - at > PAGE_SECONDS]:
+        del cache[old]
+    cache[key] = (now, value)
+
+
+def _recent(cache: dict, key: str):
+    found = cache.get(key)
+    if found is None or time.monotonic() - found[0] > PAGE_SECONDS:
+        return None
+    return found
 
 
 def remember_page(page: dict, comments: int) -> None:
@@ -210,17 +229,54 @@ def remember_page(page: dict, comments: int) -> None:
         url = canonical_url(page.get("url") or "")
     except AppError:
         return
-    now = time.monotonic()
-    for key in [key for key, (at, _) in PAGES.items() if now - at > PAGE_SECONDS]:
-        del PAGES[key]
-    PAGES[url] = (now, page)
+    _keep(PAGES, url, page)
 
 
 def recent_page(url: str) -> dict | None:
-    found = PAGES.get(url)
-    if found is None or time.monotonic() - found[0] > PAGE_SECONDS:
+    found = _recent(PAGES, url)
+    return None if found is None else found[1]
+
+
+def mixesdb_lookup(**wanted) -> Awaitable[dict | None]:
+    """Look a set up on MixesDB (tests replace it; see conftest)."""
+    return mixesdb.lookup(**wanted)
+
+
+async def mixesdb_tracklist(page: dict) -> dict | None:
+    """MixesDB's tracklist of the set on ``page`` (``mixesdb.lookup``), or None.
+
+    A lookup made in the last 15 minutes, such as the one `djlib set` made a moment before
+    the identification it starts, is reused.
+    """
+    try:
+        url = canonical_url(page.get("url") or "")
+    except AppError:
+        url = None
+    if url and (found := _recent(MIXESDB_LOOKUPS, url)) is not None:
+        return found[1]
+    duration = page.get("duration_seconds")
+    try:
+        found = await mixesdb_lookup(
+            title=str(page.get("title") or ""),
+            uploader=str(page.get("uploader") or ""),
+            duration=duration if isinstance(duration, int | float) else None,
+            url=url or page.get("url"),
+        )
+    except Exception:  # noqa: BLE001 - MixesDB only adds to a set; it never makes one fail
+        logger.warning("MixesDB lookup failed", exc_info=True)
+        found = None
+    if url:
+        _keep(MIXESDB_LOOKUPS, url, found)
+    return found
+
+
+def mixesdb_page(found: dict | None) -> dict | None:
+    """The MixesDB page a tracklist came from, for the DJ to check: ``page_title``,
+    ``page_url``, ``tracklist`` (complete, incomplete or unknown) and ``match``."""
+    if not isinstance(found, dict) or not found.get("page_url"):
         return None
-    return found[1]
+    keys = ("page_title", "page_url", "tracklist", "match")
+    return {key: found.get(key) for key in keys}
 
 
 # -- song recognition setup ----------------------------------------------------------------------
@@ -557,7 +613,8 @@ class IdentifyRunner:
         page = recent_page(url)
         if page is None:
             page = await self.watch(attempt, web.inspect_source(url, COMMENTS))
-        page = self.keep_page(folder, url, page)
+        found = await self.watch(attempt, mixesdb_tracklist({**page, "url": url}))
+        page = self.keep_page(folder, url, page, found)
 
         self.enter(attempt, "downloading", windows_done=0)
         audio = folder / "audio"
@@ -643,7 +700,8 @@ class IdentifyRunner:
         saved = _json(folder / "listings.json").get("listings")
         return [t for t in saved if isinstance(t, dict)] if isinstance(saved, list) else []
 
-    def keep_page(self, folder: Path, url: str, page: dict) -> dict:
+    def keep_page(self, folder: Path, url: str, page: dict, found: dict | None) -> dict:
+        """page.json: the page, with its MixesDB tracklist so a reuse doesn't ask again."""
         duration = page.get("duration_seconds")
         kept = {
             "url": url,
@@ -655,6 +713,7 @@ class IdentifyRunner:
             "description": str(page.get("description") or ""),
             "chapters": [c for c in page.get("chapters") or [] if isinstance(c, dict)],
             "comments": [c for c in page.get("comments") or [] if isinstance(c, dict)],
+            "mixesdb": found if isinstance(found, dict) else None,
             "read_at": _now(),
         }
         atomic_json(folder / "page.json", kept)
@@ -692,10 +751,18 @@ class IdentifyRunner:
         listed = [listed_tracklist(t["source"], t["text"], url) for t in listings]
         description = tracklist_from_source(page.get("description") or "", [])
         chapters = tracklist_from_source("", page.get("chapters") or [])
-        if description:
-            listed.append(listed_tracklist("description", description, url))
+        published = [listed_tracklist("description", description, url)] if description else []
         if chapters and not _same_lines(chapters, description):
-            listed.append(listed_tracklist("chapters", chapters, url))
+            published.append(listed_tracklist("chapters", chapters, url))
+        # Without one track it is no tracklist, such as chapters YouTube named itself
+        # ("Opening performance"), so its lines are not reported as skipped.
+        listed += [source for source in published if source["entries"]]
+        # A MixesDB tracklist the DJ gave is used instead of the one djlib looked up.
+        found = _usable(page.get("mixesdb"))
+        if found and not any(t["source"] == "mixesdb" for t in listings):
+            listed.append(mixesdb_listing(found))
+        else:
+            found = None
         skipped = [
             {"source": source["source"], **line}
             for source in listed
@@ -713,6 +780,9 @@ class IdentifyRunner:
             window=WINDOW,
             stride=_stride(probes),
         )
+        for entry in tracklist["sources"]:
+            if found and entry["source"] == "mixesdb":
+                entry.update(mixesdb_page(found))  # which page, so the DJ can check it
         counts = Counter(track["status"] for track in tracklist["tracks"])
         source = {
             "url": url,
@@ -834,6 +904,15 @@ def _same_lines(chapters: str, description: str) -> bool:
     return len(first & second) >= 0.8 * min(len(first), len(second))
 
 
+def _usable(found) -> dict | None:
+    """A MixesDB lookup kept in page.json, when it still reads as a listing."""
+    if isinstance(found, dict) and all(
+        isinstance(found.get(key), str) and found[key] for key in ("text", "page_url")
+    ):
+        return found
+    return None
+
+
 def _heading(title: str, text: str) -> str:
     """The set's title as the tracklist's first line, which `djlib set FILE` uses as its name.
 
@@ -905,6 +984,14 @@ def compact_track(track: dict) -> dict:
     return compact
 
 
+def mixesdb_used(result: dict) -> dict | None:
+    """The MixesDB page whose tracklist an identification merged (``mixesdb_page``), or None."""
+    for entry in (result.get("tracklist") or {}).get("sources") or []:
+        if entry.get("source") == "mixesdb" and entry.get("page_url"):
+            return mixesdb_page(entry)
+    return None
+
+
 def summary(result: dict) -> dict:
     """A finished identification without the raw evidence (tracklist_json keeps all of it)."""
     tracklist = result.get("tracklist") or {}
@@ -945,6 +1032,7 @@ def summary(result: dict) -> dict:
         ],
         "sources": tracklist.get("sources") or [],
         "listed": bool(listed),
+        "mixesdb": mixesdb_used(result),
         "tracklist_file": result.get("tracklist_file"),
         "tracklist_json": result.get("tracklist_json"),
         "reused": bool(result.get("reused")),

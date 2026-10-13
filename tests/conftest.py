@@ -62,6 +62,19 @@ def no_song_recognition(monkeypatch):
     monkeypatch.delenv("DJLIB_KEEP_SET_AUDIO", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def offline_mixesdb(monkeypatch):
+    """Set pages are never looked up on mixesdb.com: MixesDB has no page for any set unless a
+    test answers with recorded replies (tests/data/mixesdb, see tests/test_mixesdb.py)."""
+    from djlib.application import identification
+
+    async def nothing(**wanted):
+        return None
+
+    monkeypatch.setattr(identification, "mixesdb_lookup", nothing)
+    monkeypatch.setattr(identification, "MIXESDB_LOOKUPS", {})
+
+
 @pytest.fixture
 def full_mcp_tools(monkeypatch):
     """Serve every MCP tool (DJLIB_MCP_TOOLS=full) instead of the default core profile."""
