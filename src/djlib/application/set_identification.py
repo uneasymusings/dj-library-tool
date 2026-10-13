@@ -239,11 +239,12 @@ class _Run:
 
 @dataclass(frozen=True)
 class _Windows:
-    """Listening windows by distinct time; several probes (providers, retries) share one."""
+    """Listening windows, one per stride; several probes (providers, retries) share one."""
 
     times: list[float]
     failed: list[int]  # failed[n]: windows before the nth where every probe failed
     stride: float
+    number: dict[float, int] = field(default_factory=dict)  # probe time → its window
 
     def close(self, earlier: int, later: int, skipped: int) -> bool:
         """At most ``skipped`` windows heard between two windows, within BRIDGE_SECONDS.
@@ -258,13 +259,27 @@ class _Windows:
 
 
 def _listening(timeline: list[dict], stride: float | None) -> _Windows:
+    """Windows every ``stride`` seconds from the first probe.
+
+    A probe between two windows (a second listen where songs change, or around a failed
+    window) belongs to the window before it: it can fill that window or place a change more
+    exactly, but never counts as a window of its own.
+    """
     times = sorted({probe["at"] for probe in timeline})
-    answered = {probe["at"] for probe in timeline if not probe.get("error")}
-    failed = [0]
-    for at in times:
-        failed.append(failed[-1] + (at not in answered))
     steps = [b - a for a, b in pairwise(times)]
-    return _Windows(times, failed, stride or (statistics.median(steps) if steps else STRIDE))
+    stride = stride or (statistics.median(steps) if steps else STRIDE)
+    origin = times[0] if times else 0.0
+    slot = {at: math.floor((at - origin) / stride + 1e-6) for at in times}
+    first: dict[int, float] = {}
+    for at in times:
+        first.setdefault(slot[at], at)
+    order = {key: index for index, key in enumerate(first)}
+    answered = {slot[probe["at"]] for probe in timeline if not probe.get("error")}
+    failed = [0]
+    for key in first:
+        failed.append(failed[-1] + (key not in answered))
+    number = {at: order[slot[at]] for at in times}
+    return _Windows(list(first.values()), failed, stride, number)
 
 
 def _bridge(merged: list[_Run], run: _Run, windows: _Windows) -> bool:
@@ -329,12 +344,12 @@ def _cluster(run: _Run) -> dict:
         providers.append(
             {
                 "provider": provider,
-                "hits": len({hit["at"] for hit in mine}),
+                "hits": len({hit["window"] for hit in mine}),
                 "at": min(hit["at"] for hit in mine),
                 "until": max(hit["until"] for hit in mine),
             }
         )
-    hits = len(windows)
+    hits = len({hit["window"] for hit in counted})
     return {
         "start": windows[0],
         "end": max(hit["until"] for hit in counted),
@@ -363,12 +378,11 @@ def _runs(probes: list[dict] | None, window: float, stride: float | None) -> lis
     ]
     timeline.sort(key=lambda probe: probe["at"])
     windows = _listening(timeline, stride)
-    number = {at: index for index, at in enumerate(windows.times)}
     runs: list[_Run] = []
     for probe in timeline:
         if (hit := _hit(probe, window)) is None:
             continue
-        index = number[hit["at"]]
+        index = hit["window"] = windows.number[hit["at"]]
         if runs and windows.close(runs[-1].last, index, 0) and runs[-1].joins([hit]):
             runs[-1].hits.append(hit)
             runs[-1].last = index
@@ -389,7 +403,9 @@ def segments(
     Neighbouring windows naming the same song (same provider ID or ISRC, or labels naming the
     same song in any version) form one segment; up to two windows of silence or other songs
     inside it are bridged, and windows where recognition failed do not count. Probes at the
-    same time (two providers, a retry) are one window. Windows whose song offset disagrees
+    same time (two providers, a retry), or between two windows (``recognition.refine``), share
+    one window; pass the first listen's ``stride`` when such probes are mixed in, or the
+    spacing is guessed from them. Windows whose song offset disagrees
     with the rest do not count towards its strength: "strong" (3+ windows), "medium" (2) or
     "weak" (1).
     """
@@ -1197,6 +1213,11 @@ def _notes(track: dict) -> str:
         parts.append("the time is approximate")
     text = _clean("; ".join(parts))
     return (text[:1].upper() + text[1:])[:4000]
+
+
+def track_notes(track: dict) -> str:
+    """Why a track is in the tracklist, in a sentence or two (the notes of its request item)."""
+    return _notes(track)
 
 
 def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:

@@ -93,6 +93,27 @@ def keinemusik_heard_only() -> dict:
     return build_tracklist(duration=SET_LENGTH, probes=scan_probes(), listed=[])
 
 
+def test_a_second_listen_between_windows_never_counts_as_a_window():
+    """recognition.refine listens between windows where songs change or a window failed."""
+    probes = [
+        *song(0, 3, "Lumen", "Halo"),
+        heard(90, "Q-Force", "Slacker"),
+        heard(105, "Q-Force", "Slacker"),  # checking the change: still one window
+        failed(120),
+        heard(135, "Nia Okoro", "Slow Burn"),  # fills the failed window and places the change
+        *song(150, 3, "Nia Okoro", "Slow Burn"),
+    ]
+    found = segments(probes, stride=30)
+    assert [(s["title"], s["hits"], s["strength"], s["start"]) for s in found] == [
+        ("Halo", 3, "strong", 0.0),
+        ("Slacker", 1, "weak", 90.0),
+        ("Slow Burn", 4, "strong", 135.0),
+    ]
+    assert found[2]["times"] == [135.0, 150.0, 180.0, 210.0]
+    tracks = build_tracklist(probes=probes, stride=30)["tracks"]
+    assert [t["title"] for t in tracks] == ["Halo", "Slow Burn"]
+
+
 def test_keinemusik_scan_groups_into_songs():
     found = segments(scan_probes())
     labels = [(clock(s["start"]), s["artist"], s["title"], s["strength"]) for s in found]
