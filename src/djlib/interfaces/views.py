@@ -1240,6 +1240,8 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "optional; appears once rekordbox has analyzed tracks",
             ),
         ]
+    if recognition := result.get("song_recognition"):
+        checks.append(("Song recognition", *recognition_check(recognition)))
     if shazam := result.get("shazam_history"):
         checks.append(("Shazam history", *shazam_check(shazam)))
     fixes = result.get("fixes") or {}
@@ -1289,8 +1291,25 @@ DOCTOR_FIXES = {
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
     "Shazam history": "shazam",
+    "Song recognition": "song_recognition",
     "Claude Code plugin": "claude_plugin",
 }
+
+
+def recognition_check(recognition: dict) -> tuple[bool, str, str]:
+    """(passed, value, hint) of doctor's song recognition row, for djlib identify."""
+    label = str(recognition.get("label") or recognition.get("recognizer") or "")
+    if recognition.get("ready"):
+        if recognition.get("licensed"):
+            return True, f"{label}, licensed", ""
+        return (
+            True,
+            f"{label}, unofficial",
+            "may slow down or stop working; AudD or ACRCloud are licensed",
+        )
+    if not recognition.get("installed"):
+        return False, "not installed", "needed to listen to sets (djlib identify)"
+    return False, f"{label}: {recognition.get('problem') or 'not set up'}", ""
 
 
 def shazam_check(shazam: dict) -> tuple[bool, str, str]:

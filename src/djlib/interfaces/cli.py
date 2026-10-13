@@ -515,12 +515,13 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, rekordbox and the background service.
+    """Check FFmpeg, song recognition, rekordbox and the service.
 
     Works before init too. Changes nothing in DJ apps or on devices. Exits 1 when FFmpeg is missing.
     """
     import shutil
 
+    from djlib.application.identification import recognition_status
     from djlib.exporting.rekordbox_anlz import default_root
     from djlib.interfaces.client import version_key
     from djlib.interfaces.upgrade_cli import PLUGIN_UPDATE, claude_plugin_version
@@ -542,6 +543,8 @@ def doctor(ctx: typer.Context) -> None:
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     runtimes = javascript_runtimes()
     plugin = claude_plugin_version()
+    # Which service listens to sets (djlib identify), and whether it can here.
+    recognition = recognition_status()
 
     fixes = {}
     if not initialized:
@@ -556,6 +559,8 @@ def doctor(ctx: typer.Context) -> None:
         fixes["screen"] = "Unlock your Mac; rekordbox can't be driven while it is locked."
     if shazam and shazam["fix"]:
         fixes["shazam"] = shazam["fix"]  # optional: only `djlib set shazam` needs it
+    if recognition["fix"]:
+        fixes["song_recognition"] = recognition["fix"]
     # The plugin brings the skill; one from another release describes other commands.
     if plugin and version_key(plugin) < version_key(__version__):
         fixes["claude_plugin"] = PLUGIN_UPDATE
@@ -581,6 +586,7 @@ def doctor(ctx: typer.Context) -> None:
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
             # The Mac's Music Recognition history, for `djlib set shazam` (macOS only).
             "shazam_history": shazam,
+            "song_recognition": recognition,
             "native_app_compatibility": "not_verified",
             "claude_plugin": plugin,
             "required_checks_passed": required,
