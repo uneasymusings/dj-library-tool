@@ -528,6 +528,13 @@ def follow(term: Terminal, client, job: dict, timeout: float | None = None) -> F
                     detail = "queued · " + detail if term.unicode else "queued, " + detail
                 if failed:
                     detail = f"{failed} failed"
+                steps = (job.get("result") or {}).get("progress") or {}
+                if job.get("kind") == "identify" and steps:
+                    # An identification has no items; its listening windows show how far it got.
+                    from djlib.interfaces.identify_cli import progress_line
+
+                    done, total = steps.get("windows_done") or 0, steps.get("windows_total") or 0
+                    detail = progress_line(job)
                 progress.update(task, total=total or None, completed=done, detail=detail)
                 if job.get("state") not in ACTIVE_STATES:
                     return Followed(job)
