@@ -475,6 +475,12 @@ def test_words_and_dates_win_over_files_of_the_same_name(home, tmp_path, monkeyp
     with pytest.raises(AppError) as missing:
         parse("shazam:2026-10-02.csv")
     assert missing.value.code == "FILE_UNAVAILABLE"
+    # Dates written the European or US way are not paths.
+    for date in ("01/10/2026", "1.10.26", "01-10-2026", "2026/10/01"):
+        with pytest.raises(AppError) as written:
+            parse(f"shazam:{date}")
+        assert written.value.code == "INPUT_INVALID", date
+        assert "YYYY-MM-DD, e.g. shazam:2026-10-01" in written.value.message
 
     # --from never means new or a date, so there the folder counts.
     mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
