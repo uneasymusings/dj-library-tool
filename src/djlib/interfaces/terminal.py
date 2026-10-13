@@ -435,7 +435,13 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     "SOURCE_BROWSER_ONLY": ("Paste the tracklist into a text file, then", ("set", "FILE")),
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
-    "RECOGNIZER_NOT_CONFIGURED": ("See what is missing", ("doctor",)),
+    "RECOGNITION_FAILING": ("Run the same command later; it continues", None),
+    "RECOGNIZER_REJECTED": ("Try again later; or see other services", ("doctor",)),
+    "DISK_FULL": ("Free some space, then run the same command again; it continues", None),
+    "RECOGNIZER_NOT_CONFIGURED": (
+        "Restart the background service so it reads your settings",
+        ("service", "stop"),
+    ),
     "SHAZAM_HISTORY_NOT_FOUND": ("See what djlib finds on this Mac", ("shazam", "status")),
 }
 

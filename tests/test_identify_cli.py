@@ -213,9 +213,9 @@ def test_progress_lines_say_what_djlib_is_doing():
     )
     downloading = job("downloading", downloaded_bytes=45_200_000)
     assert identify_cli.progress_line(downloading) == "Downloading the set's audio… 45 MB"
-    assert identify_cli.progress_line({"state": "queued", "result": {}}) == (
-        "Waiting for the set before it to finish…"
-    )
+    assert identify_cli.progress_line({"state": "queued", "result": {}}) == "Starting…"
+    waiting = {"state": "queued", "result": {"progress": {"phase": "queued", "ahead": 1}}}
+    assert identify_cli.progress_line(waiting) == "Waiting for the set before it to finish…"
 
 
 def test_watching_an_identify_job_shows_its_windows():

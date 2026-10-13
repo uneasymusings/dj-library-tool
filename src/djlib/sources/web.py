@@ -12,7 +12,10 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -129,10 +132,14 @@ async def run(
     output_limit: int,
     download_dir: Path | None = None,
     max_bytes: int | None = None,
+    stall_seconds: float | None = None,
+    on_start: Callable[[int], object] | None = None,
 ) -> bytes:
     """Bound streams, runtime, and growth; cancellation also terminates decoder children.
 
-    ``download_dir`` may hold at most ``max_bytes`` (MAX_DOWNLOAD_BYTES by default).
+    ``download_dir`` may hold at most ``max_bytes`` (MAX_DOWNLOAD_BYTES by default), and with
+    ``stall_seconds`` it must grow at least that often. ``on_start`` gets the process ID,
+    which is also its process group on POSIX.
     """
     process = await asyncio.create_subprocess_exec(
         *args,
@@ -140,6 +147,8 @@ async def run(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=os.name == "posix",
     )
+    if on_start is not None:
+        on_start(process.pid)
     output = bytearray()
     diagnostics = bytearray()
 
@@ -160,12 +169,25 @@ async def run(
 
     async def monitor() -> None:
         limit = max_bytes or MAX_DOWNLOAD_BYTES
+        size, grew = -1, time.monotonic()
         while process.returncode is None:
-            if download_dir and _folder_bytes(download_dir) > limit:
-                raise AppError(
-                    "DOWNLOAD_SIZE_LIMIT",
-                    f"The selected audio exceeded {limit // (1024 * 1024)} MiB.",
-                )
+            if download_dir:
+                now, current = time.monotonic(), _folder_bytes(download_dir)
+                if current > limit:
+                    raise AppError(
+                        "DOWNLOAD_SIZE_LIMIT",
+                        f"The selected audio exceeded {limit // (1024 * 1024)} MiB.",
+                    )
+                if current != size:
+                    size, grew = current, now
+                elif stall_seconds and now - grew > stall_seconds:
+                    raise AppError(
+                        "SOURCE_TIMEOUT",
+                        "The download stopped making progress; what arrived is kept, so trying "
+                        "again continues it.",
+                        504,
+                        True,
+                    )
             await asyncio.sleep(0.25)
 
     reader = asyncio.create_task(read())
@@ -351,6 +373,9 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
 
 SET_AUDIO_BYTES = 2200 * 1024 * 1024  # yt-dlp stops at 2 GiB; the rest is room for part files
 SET_FIELDS = "%(.{id,title,uploader,duration,extractor_key,filepath})j"
+# A six-hour set over a slow link takes a while; a download that stops growing fails sooner.
+SET_DOWNLOAD_SECONDS = 4 * 3600
+SET_STALL_SECONDS = 300
 
 
 async def fetch_set_audio(url: str, destination: Path) -> dict:
@@ -365,12 +390,21 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
     if cached := _saved_set(destination, url):
         return cached
     pending = destination / "fetching.json"
-    if _json_file(pending).get("url") != url:
+    state = _json_file(pending)
+    if state.get("url") != url:
         # yt-dlp keeps and resumes files already there, so another set's audio must go first.
         for stale in destination.glob("set.*"):
             stale.unlink(missing_ok=True)
         (destination / "receipt.json").unlink(missing_ok=True)
         atomic_json(pending, {"url": url})
+    else:
+        # A download left running by a service that was killed would write into the same
+        # part file as this one.
+        _stop_orphan(state.get("pid"), destination)
+
+    def started(pid: int) -> None:
+        atomic_json(pending, {"url": url, "pid": pid})
+
     # Stable output names cannot be influenced by a publisher's title or template.
     raw = await run(
         [
@@ -379,6 +413,9 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
             "bestaudio/best",
             "--max-filesize",
             "2G",
+            # A missing piece would shorten the set and shift every later time; failing lets
+            # a retry fetch it.
+            "--abort-on-unavailable-fragments",
             # One set: a playlist or channel page saves nothing (and is not walked).
             "--playlist-items",
             "1",
@@ -391,10 +428,12 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
             "--",
             url,
         ],
-        timeout=1800,
+        timeout=SET_DOWNLOAD_SECONDS,
         output_limit=1024 * 1024,
         download_dir=destination,
         max_bytes=SET_AUDIO_BYTES,
+        stall_seconds=SET_STALL_SECONDS,
+        on_start=started,
     )
     lines = [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()]
     try:
@@ -423,6 +462,22 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
     atomic_json(destination / "receipt.json", receipt)
     pending.unlink(missing_ok=True)
     return receipt
+
+
+def _stop_orphan(pid: object, destination: Path) -> None:
+    """Stop a yt-dlp that still writes this set's audio after the service that ran it died."""
+    if os.name != "posix" or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return
+    try:
+        reply = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    # The set's own output path, as fetch_set_audio passes it.
+    if "yt_dlp" in reply.stdout and str(destination / "set.%(ext)s") in reply.stdout:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signal.SIGKILL)
 
 
 def _saved_set(destination: Path, url: str) -> dict | None:

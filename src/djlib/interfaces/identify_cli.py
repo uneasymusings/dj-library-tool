@@ -21,7 +21,7 @@ from djlib.interfaces.envelope import envelope
 from djlib.interfaces.terminal import plural
 
 PHASES = {
-    "queued": "Waiting for the set before it to finish",
+    "queued": "Starting",
     "reading_page": "Reading the set's page and comments",
     "downloading": "Downloading the set's audio",
     "listening": "Listening to the set",
@@ -104,11 +104,25 @@ def _minutes(seconds) -> str:
     return f"about {round(seconds / 60)} min left"
 
 
+def waiting_text(waiting: dict) -> str:
+    """ "Shazam asked djlib to slow down; trying again in 20 s (gives up after 14 min)"."""
+    service = waiting.get("service") or "Song recognition"
+    seconds = max(int(waiting.get("retry_in") or 0), 1)
+    if waiting.get("reason") == "rate_limited":
+        text = f"{service} asked djlib to slow down; trying again in {seconds} s"
+        if isinstance(left := waiting.get("gives_up_in"), int | float):
+            text += f" (gives up after {max(round(left / 60), 1)} min more)"
+        return text
+    return f"{service} didn't answer; trying again in {seconds} s"
+
+
 def progress_line(job: dict) -> str:
     """ "Listening to the set… 34 of 124 windows · 6 songs so far · about 2 min left"."""
     progress = (job.get("result") or {}).get("progress") or {}
     phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
     text = PHASES.get(phase or "", "Identifying the set") + "…"
+    if phase == "queued" and progress.get("ahead"):
+        text = "Waiting for the set before it to finish…"
     parts = []
     if phase in {"listening", "checking_gaps"} and progress.get("windows_total"):
         parts.append(f"{progress.get('windows_done') or 0} of {progress['windows_total']} windows")
@@ -116,7 +130,9 @@ def progress_line(job: dict) -> str:
         parts.append(f"{progress['downloaded_bytes'] / 1_000_000:.0f} MB")
     if phase in {"listening", "checking_gaps", "merging"} and progress.get("songs_heard"):
         parts.append(f"{plural(int(progress['songs_heard']), 'song')} so far")
-    if phase in {"listening", "checking_gaps"} and (eta := _minutes(progress.get("eta_seconds"))):
+    if phase in {"listening", "checking_gaps"} and isinstance(progress.get("waiting"), dict):
+        parts.append(waiting_text(progress["waiting"]))
+    elif phase in {"listening", "checking_gaps"} and (eta := _minutes(progress.get("eta_seconds"))):
         parts.append(eta)
     return f"{text} {' · '.join(parts)}" if parts else text
 

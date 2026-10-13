@@ -59,8 +59,9 @@ djlib never edits rekordbox's database and never writes the USB stick itself; re
 | --- | --- |
 | `DEPENDENCY_REQUIRED` | Song recognition, FFmpeg or yt-dlp is missing. Rerun the one-line installer (it installs djlib with song recognition on Python 3.12); `djlib doctor` shows what is missing. |
 | `RECOGNIZER_NOT_CONFIGURED` | AudD or ACRCloud is chosen without its keys. Set them (see [song recognition](INSTALL.md#song-recognition)), run `djlib service stop`, then try again. |
-| `RECOGNIZER_REJECTED` | The service refused your key, or its quota is used up. Check the key in your account. |
-| `RECOGNITION_RATE_LIMITED`, `RECOGNITION_UNAVAILABLE` | The recognition service is turning requests away or can't be reached. What djlib heard so far is saved: run the same command later and it continues. |
+| `RECOGNIZER_REJECTED` | Shazam refused djlib's requests (try again later, or `djlib upgrade`), or a licensed service refused your key or its quota is used up (check the key in your account). What djlib heard is saved. |
+| `RECOGNITION_RATE_LIMITED`, `RECOGNITION_UNAVAILABLE`, `RECOGNITION_FAILING` | The recognition service is turning requests away, can't be reached, or failed on many windows. What djlib heard so far is saved: run the same command later and it continues, asking the failed windows again. |
+| `DISK_FULL` | The disk with djlib's workspace is full; the message says how much a set needs. Free some space and run the same command again. |
 | `SET_PREVIEW_ONLY` | Only a preview of the set plays (SoundCloud gives 30 seconds of Go+ uploads). Copy its tracklist into a file and run `djlib set FILE --source LINK`. |
 | `SINGLE_SOURCE_REQUIRED`, `SOURCE_UNSUPPORTED` | Use the link of one YouTube video or SoundCloud set, not a playlist, channel or another site. |
 | `TRACKLIST_NOT_FOUND` | The upload has no tracklist and djlib couldn't listen; the message says why and what listeners named. |

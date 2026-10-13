@@ -50,7 +50,7 @@ class Listener:
 class Cuts:
     """Stands in for ``recognition.SetAudio``: windows carry their start time, not audio."""
 
-    def __init__(self, path):
+    def __init__(self, path, seconds=None):
         self.path = path
 
     def __enter__(self):
@@ -325,7 +325,12 @@ async def test_cancelling_stops_listening_at_once(application, setup):
     job = await asyncio.wait_for(run(application, job_id), timeout=5)
     assert job["state"] == "cancelled"
     assert [p["at"] for p in probes(application)] == [9.0]  # kept for the next try
-    assert not (folder(application) / "audio").exists()
+    # So is the audio: running the same command again continues without downloading again.
+    assert (folder(application) / "audio").exists()
+    setup.listener.hook = None
+    done = await run(application, submit(application))
+    assert done["state"] == "completed" and setup.fetched == [URL, URL]
+    assert setup.listener.heard.count(9.0) == 1 and setup.inspected == [URL]
 
 
 async def test_pausing_keeps_the_audio_and_resume_continues(application, setup):
@@ -378,7 +383,7 @@ async def test_a_soundcloud_preview_is_refused_in_plain_words(application, setup
     error = job["result"]["error"]
     assert job["state"] == "failed" and error["code"] == "SET_PREVIEW_ONLY"
     assert "00:30 of this 1:00:00 set" in error["message"] and "Go+" in error["message"]
-    assert "djlib set FILE --source " + URL in error["message"]
+    assert error["details"]["next"] == f"djlib set FILE --source '{URL}'"
     assert setup.listener.heard == [] and not (folder(application) / "audio").exists()
 
 
@@ -434,7 +439,7 @@ async def test_a_set_identified_before_is_reused_and_new_tracklists_merge(applic
 async def test_the_unofficial_shazam_notice_comes_once_per_workspace(application, setup):
     first = (await run(application, submit(application)))["result"]
     assert first["notices"] == [identification.UNOFFICIAL_SHAZAM]
-    assert "DJLIB_AUDD_TOKEN" in first["notices"][0] and "$" not in first["notices"][0]
+    assert "djlib doctor" in first["notices"][0] and "$" not in first["notices"][0]
     second = (await run(application, submit(application, again=True)))["result"]
     assert second["notices"] == []
 
@@ -547,3 +552,270 @@ async def test_the_runner_survives_a_busy_catalog_and_runs_queued_identification
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     assert application.job(job_id)["state"] == "completed" and len(calls) >= 2
+
+
+# -- staying honest and robust -------------------------------------------------------------------
+
+
+async def test_a_set_identified_before_takes_a_tracklist_published_since(application, setup):
+    await run(application, submit(application))
+    setup.page["description"] = (
+        "Tracklist:\n1. Lumen - Halo\n2. Nia Okoro - Slow Burn\n3. Bicep - Glue"
+    )
+    # `djlib set LINK` reads the page again (POST /sources/inspect) before it identifies.
+    identification.remember_page({**setup.page, "url": URL}, 1000)
+    reused = (await run(application, submit(application)))["result"]
+    assert reused["reused"] is True and setup.fetched == [URL]
+    assert [t["title"] for t in reused["tracklist"]["tracks"]] == ["Halo", "Slow Burn", "Glue"]
+    assert (
+        "Bicep - Glue" in json.loads((folder(application) / "page.json").read_text())["description"]
+    )
+
+
+async def test_a_mixesdb_lookup_that_failed_is_asked_again(application, setup, monkeypatch):
+    found = {
+        "source": "mixesdb",
+        "page_title": "2026-10-01 - Lumen @ Friday",
+        "page_url": "https://www.mixesdb.com/w/2026-10-01_-_Lumen_@_Friday",
+        "text": "1. Lumen - Halo\n2. Nia Okoro - Slow Burn\n3. Bicep - Glue\n",
+        "complete": True,
+    }
+    answers = [AppError("SOURCE_TIMEOUT", "MixesDB did not answer in time.", 504, True), found]
+
+    async def lookup(**wanted):
+        assert wanted["strict"] is True
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(identification, "mixesdb_lookup", lookup)
+    first = (await run(application, submit(application)))["result"]
+    assert identification.mixesdb_used(first) is None
+    page = json.loads((folder(application) / "page.json").read_text())
+    assert page["mixesdb"] is None and page["mixesdb_checked_at"] is None
+    # Nothing of a failed lookup is kept, so the next run asks MixesDB again.
+    reused = (await run(application, submit(application)))["result"]
+    assert identification.mixesdb_used(reused)["page_url"] == found["page_url"]
+    assert [t["title"] for t in reused["tracklist"]["tracks"]][-1] == "Glue" and not answers
+
+
+async def test_recognition_failing_on_most_windows_is_no_tracklist(application, setup):
+    broken = AppError("RECOGNITION_FAILED", "Shazam could not read this part of the set.", 502)
+    for at in (39.0, 99.0, 159.0, 219.0):
+        setup.listener.failures[at] = broken
+    job_id = submit(application)
+    failed = await run(application, job_id)
+    error = failed["result"]["error"]
+    assert failed["state"] == "failed" and error["code"] == "RECOGNITION_FAILING"
+    assert error["retryable"] and error["details"]["resumes"] is True
+    assert "failed on 4 of 10 listening windows" in error["message"]
+    assert identification.finished(application.workspace, URL) is None
+    assert (folder(application) / "audio").exists()  # kept for the retry
+    # Trying again asks only the windows that failed.
+    setup.listener.failures.clear()
+    setup.listener.heard.clear()
+    application.control(job_id, "retry")
+    done = await run(application, job_id)
+    assert done["state"] == "completed"
+    assert [at for at in setup.listener.heard if (at - 9) % 30 == 0] == [39.0, 99.0, 159.0, 219.0]
+    assert done["result"]["tracklist"]["sources"][0]["errors"] == 0
+
+
+async def test_a_few_failed_windows_are_reported(application, setup):
+    setup.listener.failures[99.0] = AppError("RECOGNITION_FAILED", "Shazam could not read.", 502)
+    result = (await run(application, submit(application)))["result"]
+    assert any("Shazam failed on 1 of " in n for n in result["notices"])
+
+
+async def test_retryable_download_errors_keep_the_partial_download(application, setup):
+    async def failing(url, destination):
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "set.webm.part").write_bytes(b"half a set")
+        raise AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True)
+
+    web.fetch_set_audio = failing
+    job = await run(application, submit(application))
+    assert job["result"]["error"]["code"] == "SOURCE_TIMEOUT"
+    assert (folder(application) / "audio" / "set.webm.part").exists()
+
+    async def gone(url, destination):
+        raise AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
+
+    web.fetch_set_audio = gone
+    job = await run(application, submit(application))
+    assert not (folder(application) / "audio").exists()
+
+
+async def test_a_download_that_came_out_short_leaves_the_rest_unheard(application, setup):
+    setup.seconds = 200.0  # the page says 300
+    result = (await run(application, submit(application)))["result"]
+    assert result["source"]["duration_seconds"] == 300.0
+    gaps = result["tracklist"]["coverage"]["gaps"]
+    assert gaps[-1]["end"] == 300.0 and gaps[-1]["start"] <= 200.0
+    assert any("only 03:20 of this 05:00 set" in n for n in result["notices"])
+
+
+async def test_no_room_for_the_set_fails_before_downloading(application, setup, monkeypatch):
+    usage = identification.shutil.disk_usage(application.workspace.root)
+    monkeypatch.setattr(
+        identification.shutil,
+        "disk_usage",
+        lambda path: type(usage)(usage.total, usage.total - 1000, 1000),
+    )
+    job = await run(application, submit(application))
+    error = job["result"]["error"]
+    assert error["code"] == "DISK_FULL" and error["retryable"] and setup.fetched == []
+    assert "Listening to this set needs about" in error["message"]
+
+
+async def test_the_runner_reports_a_full_disk_and_outlives_a_catalog_it_cannot_write(
+    application, setup, monkeypatch
+):
+    import sqlite3
+
+    first = submit(application)
+    second = submit(application, url="https://soundcloud.com/lumen/other-set")
+    runner = IdentifyRunner(application)
+    real_heard, real_fail = runner.heard, runner.fail
+    failed_once = []
+
+    def heard(attempt, done, total):
+        if attempt.job_id == first and done == 3:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real_heard(attempt, done, total)
+
+    def fail(job_id, generation, error):
+        if not failed_once:
+            failed_once.append(error.code)
+            raise sqlite3.OperationalError("database is locked")
+        return real_fail(job_id, generation, error)
+
+    monkeypatch.setattr(runner, "heard", heard)
+    monkeypatch.setattr(runner, "fail", fail)
+    task = asyncio.create_task(runner.run())
+    try:
+        for _ in range(300):
+            if application.job(second)["state"] == "completed":
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert failed_once == ["DISK_FULL"]
+    job = application.job(first)
+    assert job["state"] == "failed" and job["result"]["error"]["code"] == "DISK_FULL"
+    assert application.job(second)["state"] == "completed"
+
+
+async def test_waiting_on_the_recognizer_shows_in_progress(application, setup):
+    from types import SimpleNamespace
+
+    from djlib.interfaces.identify_cli import progress_line
+
+    setup.listener.pace = SimpleNamespace(on_wait=None)
+    job_id = submit(application)
+    seen = []
+
+    async def throttled(at):
+        if at == 39.0:
+            setup.listener.pace.on_wait(20.0, "rate_limited", 880.0)
+            seen.append(application.job(job_id))
+
+    setup.listener.hook = throttled
+    await run(application, job_id)
+    assert seen[0]["result"]["progress"]["waiting"] == {
+        "service": "Shazam",
+        "reason": "rate_limited",
+        "retry_in": 20,
+        "gives_up_in": 880,
+    }
+    line = progress_line(seen[0])
+    assert "Shazam asked djlib to slow down; trying again in 20 s" in line
+    assert setup.listener.pace.on_wait is None  # only while this job listens
+
+
+async def test_a_given_tracklist_with_an_unknown_source_is_a_tracklist_file(application, setup):
+    listing = {"source": "audio", "text": "Lumen - Halo\nNia Okoro - Slow Burn"}
+    job = await run(application, submit(application, tracklists=[listing]))
+    assert job["state"] == "completed"
+    saved = json.loads((folder(application) / "listings.json").read_text())["listings"]
+    assert saved[0]["source"] == "file"
+
+
+async def test_listening_again_keeps_the_earlier_tracklist_until_it_finishes(application, setup):
+    first = (await run(application, submit(application)))["result"]
+    setup.listener.failures[9.0] = AppError(
+        "RECOGNIZER_REJECTED", "Shazam refused djlib's requests (HTTP 403).", 502, True
+    )
+    again = await run(application, submit(application, again=True))
+    error = again["result"]["error"]
+    assert again["state"] == "failed" and "earlier tracklist is kept" in error["message"]
+    kept = identification.finished(application.workspace, URL)
+    assert kept["tracklist"] == first["tracklist"]
+    # A plain run uses the earlier tracklist again, without listening.
+    setup.listener.failures.clear()
+    heard = len(setup.listener.heard)
+    reused = (await run(application, submit(application)))["result"]
+    assert reused["reused"] is True and len(setup.listener.heard) == heard
+    assert reused["tracklist"] == first["tracklist"]
+    assert not (folder(application) / identification.PREVIOUS).exists()
+    # A finished listen replaces it.
+    done = (await run(application, submit(application, again=True)))["result"]
+    assert done["reused"] is False and not (folder(application) / "previous").exists()
+
+
+async def test_listener_comments_that_take_too_long_are_skipped(application, setup, monkeypatch):
+    import djlib.interfaces.service as service_module
+
+    asked = []
+
+    async def slow_comments(url, comments=0):
+        asked.append(comments)
+        if comments:
+            raise AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True)
+        return {**setup.page, "url": url}
+
+    monkeypatch.setattr(web, "inspect_source", slow_comments)
+    monkeypatch.setattr(service_module, "inspect_source", slow_comments)
+    result = (await run(application, submit(application)))["result"]
+    assert asked == [identification.COMMENTS, 0]
+    assert any("comments took too long" in notice for notice in result["notices"])
+
+
+async def test_audio_left_behind_goes_after_a_day(application, setup):
+    import os
+    import time
+
+    job_id = submit(application)
+
+    async def pause(at):
+        if at == 39.0:
+            application.control(job_id, "pause")
+            await asyncio.sleep(1)
+
+    setup.listener.hook = pause
+    await run(application, job_id)
+    audio = folder(application) / "audio"
+    assert identification.sweep_audio(application) == [] and audio.exists()
+    old = time.time() - 2 * identification.AUDIO_SECONDS
+    for path in [audio, *audio.iterdir()]:
+        os.utime(path, (old, old))
+    application.control(job_id, "resume")  # queued again: its audio stays
+    assert identification.sweep_audio(application) == [] and audio.exists()
+    application.control(job_id, "cancel")
+    assert identification.sweep_audio(application) == [folder(application).name]
+    assert not audio.exists() and (folder(application) / "probes.jsonl").exists()
+
+
+def test_settings_the_service_did_not_read_say_to_restart_it(application, monkeypatch):
+    def unconfigured(name=None):
+        raise AppError(
+            "RECOGNIZER_NOT_CONFIGURED", "AudD needs an API token: set DJLIB_AUDD_TOKEN."
+        )
+
+    monkeypatch.setattr(identification, "recognizer", unconfigured)
+    with pytest.raises(AppError) as refused:
+        submit(application, recognizer="audd")
+    assert refused.value.code == "RECOGNIZER_NOT_CONFIGURED"
+    assert "run djlib service stop, then try again" in refused.value.message
