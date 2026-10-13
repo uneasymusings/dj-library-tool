@@ -230,3 +230,13 @@ def test_watching_an_identify_job_shows_its_windows():
 
     followed = terminal.follow(terminal.Terminal(json=False), Jobs(), running)
     assert followed.job["state"] == "completed" and not followed.detached
+
+
+def test_lines_a_tracklist_could_not_use_are_warnings(application, library_http, setup, tmp_path):
+    listing = tmp_path / "friday.txt"
+    listing.write_text("Friday at Fabric\n" + LISTED + "just a note\n", encoding="utf-8")
+    envelope = json.loads(invoke(application, "identify", URL, "--tracklist", listing).stdout)
+    # The heading names the set; the note is reported.
+    assert envelope["warnings"][1:] == [
+        "The tracklist file, line 5 skipped (no “Artist - Title” separator): just a note"
+    ]
