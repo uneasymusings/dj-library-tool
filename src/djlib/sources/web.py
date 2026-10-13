@@ -357,12 +357,20 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
     """A whole DJ set's audio, for song recognition only; it never enters the catalog.
 
     The provider's audio is kept as published (FFmpeg reads WebM, M4A and Opus). A receipt
-    beside it lets a later scan of the same set reuse the file.
+    beside it lets a later scan of the same set reuse the file, and an interrupted download
+    of the same set resumes.
     """
     validate_url(url)
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     if cached := _saved_set(destination, url):
         return cached
+    pending = destination / "fetching.json"
+    if _json_file(pending).get("url") != url:
+        # yt-dlp keeps and resumes files already there, so another set's audio must go first.
+        for stale in destination.glob("set.*"):
+            stale.unlink(missing_ok=True)
+        (destination / "receipt.json").unlink(missing_ok=True)
+        atomic_json(pending, {"url": url})
     # Stable output names cannot be influenced by a publisher's title or template.
     raw = await run(
         [
@@ -371,8 +379,11 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
             "bestaudio/best",
             "--max-filesize",
             "2G",
+            # One set: a playlist or channel page saves nothing (and is not walked).
+            "--playlist-items",
+            "1",
             "--match-filters",
-            "duration <= 21600 & !is_live",
+            "duration <= 21600 & !is_live & !playlist_id",
             "--print",
             f"after_move:{SET_FIELDS}",
             "--output",
@@ -396,7 +407,8 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
     if not path.name.startswith("set.") or not path.is_file():
         raise AppError(
             "DOWNLOAD_UNAVAILABLE",
-            "No audio was saved; the set may be live, longer than six hours or over 2 GB.",
+            "No audio was saved; the set may be live, longer than six hours or over 2 GB. "
+            "Select one set, not a playlist or channel page.",
         )
     duration = info.get("duration")
     receipt = {
@@ -409,20 +421,27 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
         "path": str(path),
     }
     atomic_json(destination / "receipt.json", receipt)
+    pending.unlink(missing_ok=True)
     return receipt
 
 
 def _saved_set(destination: Path, url: str) -> dict | None:
-    try:
-        receipt = json.loads((destination / "receipt.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None  # a cache, not a record: an unreadable receipt means fetch again
-    if not isinstance(receipt, dict) or receipt.get("url") != url:
+    receipt = _json_file(destination / "receipt.json")
+    if receipt.get("url") != url:
         return None
     path = destination / Path(str(receipt.get("path") or "")).name
     if not path.name.startswith("set.") or not path.is_file():
         return None
     return {**receipt, "path": str(path)}
+
+
+def _json_file(path: Path) -> dict:
+    """A small cache file's object; an unreadable one counts as missing."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 SEARCH_PREFIX = {"youtube": "ytsearch", "soundcloud": "scsearch"}
