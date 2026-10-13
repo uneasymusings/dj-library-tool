@@ -1946,10 +1946,14 @@ def shazam_status(term: Terminal, result: dict) -> None:
         backups = next(
             (s.get("backups") for s in result.get("sources") or [] if s.get("backups")), None
         )
+        # Ways around iCloud: the first says "instead", the others start with "Or".
+        music = "Or Apple Music's “My Shazam Tracks”"
         if backups:
-            steps.append(("Or read your iPhone backup", ("set", f"shazam:{backups[0]}")))
+            steps.append(("Read your iPhone backup instead", ("set", f"shazam:{backups[0]}")))
+        else:
+            music = "Use Apple Music's “My Shazam Tracks” instead"
         steps += [
-            ("Or Apple Music's “My Shazam Tracks”", ("set", "shazam:apple-music")),
+            (music, ("set", "shazam:apple-music")),
             ("Or a Shazam CSV export", ("set", "shazam:FILE.csv")),
         ]
     elif last and result.get("new_since_last_import"):
