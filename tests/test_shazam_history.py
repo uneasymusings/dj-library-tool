@@ -330,16 +330,22 @@ def test_apple_music_my_shazam_tracks(monkeypatch):
     for stderr, code in (
         ("execution error: Error: Error: Can't get object. (-1728)", "SHAZAM_PLAYLIST_NOT_FOUND"),
         ("Not authorized to send Apple events to Music. (-1743)", "SHAZAM_MUSIC_NOT_ALLOWED"),
-        ("something else", "APP_AUTOMATION_FAILED"),
+        ("something else", "SHAZAM_MUSIC_FAILED"),
     ):
         music(monkeypatch, returncode=1, stderr=stderr)
         with pytest.raises(AppError) as failed:
             shazam_history.load(shazam_history.APPLE_MUSIC)
         assert failed.value.code == code
+    assert failed.value.retryable  # Music didn't answer: try again
+    music(monkeypatch, stdout="not JSON")
+    with pytest.raises(AppError) as unreadable:
+        shazam_history.read_apple_music()
+    assert unreadable.value.code == "SHAZAM_MUSIC_FAILED"
     monkeypatch.setattr(sys, "platform", "linux")
     with pytest.raises(AppError) as elsewhere:
         shazam_history.read_apple_music()
-    assert elsewhere.value.code == "APP_AUTOMATION_UNSUPPORTED"
+    # Music's own codes: rekordbox's (APP_AUTOMATION_*) have titles that name rekordbox.
+    assert elsewhere.value.code == "SHAZAM_MUSIC_UNSUPPORTED"
 
 
 # -- merging, filters and specs ----------------------------------------------------------------

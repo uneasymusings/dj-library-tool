@@ -390,6 +390,8 @@ ERROR_TITLES = {
     "SHAZAM_BACKUP_ENCRYPTED": "That iPhone backup is encrypted",
     "SHAZAM_NOTHING_NEW": "Nothing new Shazamed",
     "SHAZAM_MUSIC_NOT_ALLOWED": "macOS hasn't allowed djlib to control Music yet",
+    "SHAZAM_MUSIC_UNSUPPORTED": "Reading Apple Music needs a Mac",
+    "SHAZAM_MUSIC_FAILED": "Music didn't respond",
     "SHAZAM_PLAYLIST_NOT_FOUND": "Music has no “My Shazam Tracks” playlist",
 }
 ACCESSIBILITY_SETTINGS = (

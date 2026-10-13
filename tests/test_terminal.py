@@ -453,6 +453,10 @@ def indents(text: str) -> list[int]:
         ("SOURCE_BROWSER_ONLY", "Open this one in your browser"),
         ("TRACKLIST_NOT_FOUND", "No tracklist on that page"),
         ("DEPENDENCY_REQUIRED", "Something needs installing"),
+        ("APP_AUTOMATION_FAILED", "rekordbox didn't respond"),
+        ("APP_AUTOMATION_UNSUPPORTED", "Driving rekordbox needs a Mac"),
+        ("SHAZAM_MUSIC_FAILED", "Music didn't respond"),
+        ("SHAZAM_MUSIC_UNSUPPORTED", "Reading Apple Music needs a Mac"),
         ("SOME_NEW_CODE", "Some new code"),
     ],
 )
