@@ -384,6 +384,13 @@ ERROR_TITLES = {
     "DELIVERY_STALE": "The delivery changed since you last looked",
     "REVIEW_STALE": "The review changed since you last looked",
     "PLAN_STALE": "The plan is out of date",
+    "SHAZAM_HISTORY_NOT_FOUND": "No Shazam history found",
+    "SHAZAM_ACCESS_DENIED": "djlib can't open your Shazam history yet",
+    "SHAZAM_HISTORY_UNREADABLE": "That Shazam library can't be read",
+    "SHAZAM_BACKUP_ENCRYPTED": "That iPhone backup is encrypted",
+    "SHAZAM_NOTHING_NEW": "Nothing new Shazamed",
+    "SHAZAM_MUSIC_NOT_ALLOWED": "macOS hasn't allowed djlib to control Music yet",
+    "SHAZAM_PLAYLIST_NOT_FOUND": "Music has no “My Shazam Tracks” playlist",
 }
 ACCESSIBILITY_SETTINGS = (
     'open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"'
@@ -427,6 +434,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
     "RECOGNIZER_NOT_CONFIGURED": ("See what is missing", ("doctor",)),
+    "SHAZAM_HISTORY_NOT_FOUND": ("See what djlib finds on this Mac", ("shazam", "status")),
 }
 
 
