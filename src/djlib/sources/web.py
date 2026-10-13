@@ -123,9 +123,17 @@ def provider_error(stderr: bytes) -> AppError:
 
 
 async def run(
-    args: list[str], *, timeout: int, output_limit: int, download_dir: Path | None = None
+    args: list[str],
+    *,
+    timeout: int,
+    output_limit: int,
+    download_dir: Path | None = None,
+    max_bytes: int | None = None,
 ) -> bytes:
-    """Bound streams, runtime, and growth; cancellation also terminates decoder children."""
+    """Bound streams, runtime, and growth; cancellation also terminates decoder children.
+
+    ``download_dir`` may hold at most ``max_bytes`` (MAX_DOWNLOAD_BYTES by default).
+    """
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
@@ -151,13 +159,16 @@ async def run(
             del diagnostics[:-65536]
 
     async def monitor() -> None:
+        limit = max_bytes or MAX_DOWNLOAD_BYTES
         while process.returncode is None:
             if (
                 download_dir
-                and sum(p.stat().st_size for p in download_dir.iterdir() if p.is_file())
-                > MAX_DOWNLOAD_BYTES
+                and sum(p.stat().st_size for p in download_dir.iterdir() if p.is_file()) > limit
             ):
-                raise AppError("DOWNLOAD_SIZE_LIMIT", "The selected audio exceeded 500 MiB.")
+                raise AppError(
+                    "DOWNLOAD_SIZE_LIMIT",
+                    f"The selected audio exceeded {limit // (1024 * 1024)} MiB.",
+                )
             await asyncio.sleep(0.25)
 
     reader = asyncio.create_task(read())
@@ -326,6 +337,82 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
     }
     atomic_json(receipt_path, receipt)
     return path, receipt
+
+
+SET_AUDIO_BYTES = 2200 * 1024 * 1024  # yt-dlp stops at 2 GiB; the rest is room for part files
+SET_FIELDS = "%(.{id,title,uploader,duration,extractor_key,filepath})j"
+
+
+async def fetch_set_audio(url: str, destination: Path) -> dict:
+    """A whole DJ set's audio, for song recognition only; it never enters the catalog.
+
+    The provider's audio is kept as published (FFmpeg reads WebM, M4A and Opus). A receipt
+    beside it lets a later scan of the same set reuse the file.
+    """
+    validate_url(url)
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if cached := _saved_set(destination, url):
+        return cached
+    # Stable output names cannot be influenced by a publisher's title or template.
+    raw = await run(
+        [
+            *command(),
+            "--format",
+            "bestaudio/best",
+            "--max-filesize",
+            "2G",
+            "--match-filters",
+            "duration <= 21600 & !is_live",
+            "--print",
+            f"after_move:{SET_FIELDS}",
+            "--output",
+            str(destination / "set.%(ext)s"),
+            "--",
+            url,
+        ],
+        timeout=1800,
+        output_limit=1024 * 1024,
+        download_dir=destination,
+        max_bytes=SET_AUDIO_BYTES,
+    )
+    lines = [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()]
+    try:
+        info = json.loads(lines[-1]) if lines else {}
+        if not isinstance(info, dict):
+            raise ValueError("A metadata object is required.")
+    except ValueError as exc:
+        raise AppError("SOURCE_INVALID", "The source returned invalid metadata.") from exc
+    path = destination / Path(str(info.get("filepath") or "")).name
+    if not path.name.startswith("set.") or not path.is_file():
+        raise AppError(
+            "DOWNLOAD_UNAVAILABLE",
+            "No audio was saved; the set may be live, longer than six hours or over 2 GB.",
+        )
+    duration = info.get("duration")
+    receipt = {
+        "url": url,
+        "provider": info.get("extractor_key"),
+        "source_id": info.get("id"),
+        "title": str(info.get("title") or "")[:2000],
+        "uploader": str(info.get("uploader") or "")[:1000],
+        "duration_seconds": float(duration) if isinstance(duration, int | float) else None,
+        "path": str(path),
+    }
+    atomic_json(destination / "receipt.json", receipt)
+    return receipt
+
+
+def _saved_set(destination: Path, url: str) -> dict | None:
+    try:
+        receipt = json.loads((destination / "receipt.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None  # a cache, not a record: an unreadable receipt means fetch again
+    if not isinstance(receipt, dict) or receipt.get("url") != url:
+        return None
+    path = destination / Path(str(receipt.get("path") or "")).name
+    if not path.name.startswith("set.") or not path.is_file():
+        return None
+    return {**receipt, "path": str(path)}
 
 
 SEARCH_PREFIX = {"youtube": "ytsearch", "soundcloud": "scsearch"}
