@@ -82,6 +82,8 @@ class Application:
                 "local_tracklist_collection",
                 "set_command",
                 "set_link_tracklists",
+                "set_identification",
+                "shazam_history",
                 "listener_comment_id_hints",
                 "web_source_search",
                 "selected_web_audio_download",
@@ -114,7 +116,6 @@ class Application:
             ],
             "planned": [
                 "soulseek",
-                "set_recognition",
                 "artist_catalogs",
                 "native_serato",
                 "standalone_chat",
@@ -133,6 +134,17 @@ class Application:
                 "set_links": (
                     "YouTube and SoundCloud set descriptions or chapters become the tracklist; "
                     "listener comments near each ID are hints, not identifications"
+                ),
+                "set_identification": (
+                    "djlib identify LINK (MCP: djlib_identify_set) reads a YouTube or SoundCloud "
+                    "set's description, chapters and comments, listens to it with song "
+                    "recognition (Shazam, unofficial; or licensed AudD or ACRCloud) and merges "
+                    "one timestamped tracklist with a status and evidence per track; djlib set "
+                    "LINK uses it when the published tracklist is missing or has IDs"
+                ),
+                "shazam_history": (
+                    "djlib set shazam (MCP: djlib_shazam_history lists them) reads the songs "
+                    "the user Shazamed: this Mac's history, an iPhone backup, a CSV or Apple Music"
                 ),
             },
             "cli_only": [
