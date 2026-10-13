@@ -815,10 +815,25 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert "No Shazam history on this Mac yet" in pretty and "Turn on Shazam sync" in pretty
     assert "set shazam:apple-music" in pretty
 
+    def next_labels(output: str) -> list[str]:
+        lines = [line.strip() for line in output.splitlines()]
+        steps = lines[lines.index("Next") + 1 :]
+        return [line.split("  ")[0] for line in steps if line.startswith("→")]
+
+    # Nothing comes before the first way around iCloud, so it can't start with "Or".
+    assert next_labels(pretty) == [
+        "→ Use Apple Music's “My Shazam Tracks” instead",
+        "→ Or a Shazam CSV export",
+    ]
     iphone_backup(
         home / "Library/Application Support/MobileSync/Backup/00008110",
         ("2026-09-01T12:00:00+00:00", "Lumen", "Halo"),
     )
+    assert next_labels(invoke(workspace, "shazam", "status", pretty=True).stdout) == [
+        "→ Read your iPhone backup instead",
+        "→ Or Apple Music's “My Shazam Tracks”",
+        "→ Or a Shazam CSV export",
+    ]
     mac_history(
         home,
         ("2026-09-28T12:00:00+00:00", "Nia Okoro", "Slow Burn"),
