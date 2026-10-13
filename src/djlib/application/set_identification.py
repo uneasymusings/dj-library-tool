@@ -462,6 +462,13 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     return {"source": source, "entries": entries, "skipped": left}
 
 
+def mixesdb_listing(found: dict) -> dict:
+    """A page ``sources.mixesdb.lookup`` found, as a ``listed`` tracklist that also keeps the
+    page's address and whether its editors call the tracklist complete."""
+    listed = listed_tracklist("mixesdb", found["text"], found["page_url"])
+    return {**listed, "url": found["page_url"], "complete": bool(found.get("complete"))}
+
+
 def _entries(listed: dict) -> tuple[str, list[dict]]:
     name = str(listed.get("source") or "file")
     entries = []
