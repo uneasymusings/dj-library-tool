@@ -580,8 +580,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             str,
             typer.Argument(
                 help="Text file with one “Artist - Title (Mix)” per line, a YouTube or "
-                "SoundCloud set whose description lists its tracks, or shazam for the songs "
-                "you Shazamed (shazam:new, shazam:2026-10-01, shazam:apple-music, shazam:FILE)."
+                "SoundCloud set link, or shazam for the songs you Shazamed (shazam:new, "
+                "shazam:2026-10-01, shazam:apple-music, shazam:FILE)."
             ),
         ],
         name: str | None = typer.Option(

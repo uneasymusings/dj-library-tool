@@ -7,11 +7,11 @@ tracklist is missing or has IDs.
 
 import time
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-import click
 import typer
 
 from djlib.domain.errors import AppError
@@ -32,6 +32,16 @@ POLL_SECONDS = 0.5
 # Below this share of the set named, and with no published or given tracklist, a tracklist
 # from 1001Tracklists is the best next step.
 LOW_COVERAGE = 70
+
+
+class Recognizer(StrEnum):
+    """Song recognition services: Shazam (unofficial), or licensed AudD and ACRCloud."""
+
+    shazam = "shazam"
+    audd = "audd"
+    acrcloud = "acrcloud"
+
+
 # Why djlib can't listen on this computer at all; `djlib set` then uses the published list.
 UNAVAILABLE = frozenset({"DEPENDENCY_REQUIRED", "RECOGNIZER_NOT_CONFIGURED"})
 
@@ -309,10 +319,9 @@ def register_identify(app, client, emit, handled, panel=None):
         again: bool = typer.Option(
             False, "--again", help="Listen again even if djlib identified this set before."
         ),
-        recognizer: str | None = typer.Option(
+        recognizer: Recognizer | None = typer.Option(
             None,
             "--recognizer",
-            click_type=click.Choice(["shazam", "audd", "acrcloud"]),
             help="Song recognition service: shazam (default), or licensed audd or acrcloud "
             "(they need API keys).",
         ),
@@ -336,7 +345,7 @@ def register_identify(app, client, emit, handled, panel=None):
             url,
             tracklists=read_tracklists(tracklist),
             again=again,
-            recognizer=recognizer,
+            recognizer=recognizer.value if recognizer else None,
             name=name,
         )
         job = follow(local, job, url)

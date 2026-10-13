@@ -182,3 +182,14 @@ def test_identify_needs_song_recognition(application, library_http):
         invoke(application, "identify", "https://www.1001tracklists.com/tracklist/1/x").stdout
     )["error"]
     assert browser["code"] == "SOURCE_BROWSER_ONLY"
+
+
+def test_identify_listens_with_the_chosen_recognizer(application, library_http, setup):
+    setup.listener.name, setup.listener.licensed = "audd", True
+    reply = invoke(application, "identify", URL, "--recognizer", "audd")
+    assert reply.exit_code == 0, reply.output
+    envelope = json.loads(reply.stdout)
+    assert envelope["result"]["recognizer"] == {"name": "audd", "licensed": True}
+    assert set(setup.made) == {"audd"} and envelope["warnings"] == []
+    wrong = invoke(application, "identify", URL, "--recognizer", "acr")
+    assert wrong.exit_code == 2 and "acrcloud" in wrong.output
