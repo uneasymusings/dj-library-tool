@@ -36,6 +36,8 @@ djlib = "djlib.interfaces.cli:main"
 
 [project.optional-dependencies]
 download = ["yt-dlp[default]>=2026.1.1"]
+# Song recognition of DJ sets; pydub (via shazamio) needs the audioop backport on 3.13+.
+recognize = ["shazamio>=0.8.1,<0.9", "audioop-lts>=0.2.1; python_version >= '3.13'"]
 
 [project.urls]
 Repository = "https://github.com/uneasymusings/dj-library-tool"
@@ -43,6 +45,12 @@ Issues = "https://github.com/uneasymusings/dj-library-tool/issues"
 
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
+
+[tool.uv]
+# shazamio 0.8.1 pins shazamio-core 1.1.2, which has no macOS or Windows wheels for Python 3.13
+# (building it needs Rust). 2.x keeps the same API with wheels everywhere; tool installs of the
+# recognize extra need the same override (uv tool install --overrides).
+override-dependencies = ["shazamio-core>=2.0.0,<3"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/djlib"]
