@@ -68,6 +68,7 @@ FULL_DISK_ACCESS = (
 FULL_DISK_SETTINGS = (
     'open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"'
 )
+SETUP_COMMAND = "djlib shazam status"  # shows SETUP when there is no history
 
 
 def library() -> Path:
@@ -908,7 +909,8 @@ def newest(records: list[dict]) -> str | None:
 
 
 def mac_summary() -> dict:
-    """The Mac's Music Recognition history at a glance, with the fix when it has no songs."""
+    """The Mac's Music Recognition history at a glance, with the command that fixes it when
+    it has no songs: SETUP_COMMAND shows the setup steps."""
     path = mac_history()
     summary = {
         "path": str(path),
@@ -916,7 +918,7 @@ def mac_summary() -> dict:
         "songs": None,
         "newest_shazamed_at": None,
         "problem": None,
-        "fix": SETUP[1],
+        "fix": SETUP_COMMAND,
     }
     present = exists(path)
     if present is None:
@@ -933,7 +935,7 @@ def mac_summary() -> dict:
         "found": True,
         "songs": len(records),
         "newest_shazamed_at": newest(records),
-        "fix": None if records else SETUP[2],
+        "fix": None if records else SETUP_COMMAND,
     }
 
 
