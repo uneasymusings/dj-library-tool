@@ -376,7 +376,7 @@ def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
     assert len(fake.imported) == 1
 
 
-def test_set_without_owned_songs_builds_nothing(application, monkeypatch, tmp_path):
+def test_set_without_owned_songs_builds_nothing(application, library_http, monkeypatch, tmp_path):
     tracklist = tmp_path / "nothing.txt"
     tracklist.write_text("Someone - Not Owned\nOther - Missing Too\n", encoding="utf-8")
     fake = FakeRekordbox(monkeypatch)
