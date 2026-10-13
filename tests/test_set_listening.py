@@ -37,8 +37,9 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     assert (result["name"], result["songs"], result["owned"]) == ("Friday Set", 3, 1)
     identified = result["identified"]
     assert identified["counts"]["likely"] == 1 and identified["reused"] is False
-    # An ID is not a named song, even a likely one.
+    # An ID is not a named song, even a likely one, though its song was heard.
     assert identified["coverage"]["percent"] == 67
+    assert identified["coverage"]["percent_heard"] == 92
     assert identified["tracklist_file"].endswith("tracklist.txt") and identified["job_id"]
     missing = {item["position"]: item for item in result["missing"]}
     assert missing[2]["label"].startswith("ID @ ")

@@ -85,7 +85,7 @@ To find tracks, use `djlib_library` with `query` and `limit: 10`. To find saved 
 ## Report
 
 - `owned` of `songs`, each missing song with its `you_own` versions, unknown IDs with any hints, and the playlist name (plus `replaces` when it is a "Name (2)").
-- For a set djlib listened to: `coverage.percent` (IDs never count) and the counts by status. Show an ID as “ID, likely X” with its evidence, never as X; give `conflict` tracks both songs, and suggest a listen for `likely` and `weak` ones. `unplaced` songs were heard once and are not tracks.
+- For a set djlib listened to: `coverage.percent` named (IDs never count), `percent_heard` and the counts by status; a listing can name a stretch djlib didn't hear, which `gaps` lists. Show an ID as “ID, likely X” with its evidence, never as X; give `conflict` tracks both songs, and suggest a listen for `likely` and `weak` ones. `unplaced` songs were heard once and are not tracks.
 - For a stick: `found` of `expected` and `in_order`. Also say that playback on the player is not verified, and suggest testing the stick there before a gig.
 - For downloads: how many arrived, which need the user's pick, and that their quality is unverified.
 - Skipped steps with their reason, for example rekordbox not available or `--no-rekordbox`.

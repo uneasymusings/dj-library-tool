@@ -1904,10 +1904,13 @@ def set_view(term: Terminal, result: dict) -> None:
 
 
 def identified_line(term: Terminal, identified: dict) -> Text:
-    """ "85% of the set named · 8 confirmed, 4 likely, 1 unidentified" for `djlib set`."""
+    """ "85% of the set named, 70% heard · 8 confirmed, 4 likely, 1 unidentified" for `djlib
+    set`."""
     coverage = identified.get("coverage") or {}
     percent = coverage.get("percent")
     line = Text(f"{percent}% of the set named" if percent is not None else "tracklist made")
+    if percent is not None and coverage.get("percent_heard") is not None:
+        line.append(f", {coverage['percent_heard']}% heard")
     counts = identified_counts(identified.get("counts") or {})
     if counts:
         line.append(f"  {counts}", style="muted")
@@ -2119,6 +2122,8 @@ def identify_view(term: Terminal, result: dict) -> None:
     named = Text(f"{plural(int(counts.get('tracks') or len(tracks)), 'track')}")
     if percent is not None:
         named.append(f", {percent}% of the set named")
+        if coverage.get("percent_heard") is not None:
+            named.append(f", {coverage['percent_heard']}% heard")
     if detail := identified_counts(counts):
         named.append(f"  {detail}", style="muted")
     recognizer = result.get("recognizer") or {}
