@@ -443,10 +443,12 @@ def _read_line(raw: str) -> bool:
 
 
 def listed_tracklist(source: str, text: str, source_url: str | None = None) -> dict:
-    """A ``listed`` tracklist (``{"source", "entries"}``) from text, through ``parse_tracklist``.
+    """A ``listed`` tracklist (``{"source", "entries", "skipped"}``) from text, through
+    ``parse_tracklist``.
 
     Entries are request items as dicts; named ones also keep the time written on their line
-    ("[06:00] Antdot - Mirage"), which request items leave out.
+    ("[06:00] Antdot - Mirage"), which request items leave out. ``skipped`` lists the lines
+    left out (``{"line", "text", "reason"}``).
     """
     items, skipped = parse_tracklist(text, source_url)
     entries = [item.model_dump() for item in items]
@@ -456,7 +458,8 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     if len(lines) == len(entries):
         for entry, raw in zip(entries, lines, strict=True):
             entry["timestamp"] = entry["timestamp"] or _line_time(raw)
-    return {"source": source, "entries": entries}
+    left = [{"line": number, "text": raw, "reason": reason} for number, raw, reason in skipped]
+    return {"source": source, "entries": entries, "skipped": left}
 
 
 def _entries(listed: dict) -> tuple[str, list[dict]]:
