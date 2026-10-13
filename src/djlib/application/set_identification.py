@@ -396,6 +396,32 @@ def segments(
     return [_cluster(run) for run in _runs(probes, window, stride)]
 
 
+def _fold(runs: list[_Run]) -> list[_Run]:
+    """The same song heard again within FOLD_SECONDS is still the same play.
+
+    A breakdown the recognizer missed, or a stray window later on; unless another song was
+    heard in two or more windows in between.
+    """
+    kept: list[_Run] = []
+    for run in runs:
+        owner = None
+        for earlier in reversed(kept):
+            if run.hits[0]["at"] - max(hit["until"] for hit in earlier.hits) > FOLD_SECONDS:
+                break
+            if earlier.joins(run.hits, SAME):
+                owner = earlier
+                break
+            if _cluster(earlier)["strength"] != "weak":
+                break
+        if owner:
+            owner.hits += run.hits
+            owner.interruptions += run.interruptions
+            owner.last = run.last
+        else:
+            kept.append(run)
+    return kept
+
+
 # Text tracklists
 
 
@@ -502,20 +528,36 @@ def _fit(entry: dict, slot: _Slot) -> float:
     return max((_likeness(entry["song"], song) for song in slot.songs()), default=0.0)
 
 
-def _align(scores: list[list[float]]) -> dict[int, int]:
-    """Entry → slot pairs in order, with the most likeness in total (``JOIN`` at least)."""
+def _tiebreak(entry: dict, slot: _Slot) -> float:
+    """Between equally likely slots: the song heard longer, and nearer the listed time."""
+    hits = min(sum(cluster["hits"] for cluster in slot.clusters), 10)
+    at = slot.time
+    if at is None:
+        at = next((text["seconds"] for text in slot.texts if text["seconds"] is not None), None)
+    if at is None or entry["seconds"] is None:
+        return hits
+    return hits - min(abs(at - entry["seconds"]), 600) / 60
+
+
+def _align(scores: list[list[float]], ties: list[list[float]]) -> dict[int, int]:
+    """Entry → slot pairs in order, with the most likeness in total (``JOIN`` at least), then
+    the best ``ties`` in total."""
     rows, columns = len(scores), len(scores[0]) if scores else 0
-    table = [[0.0] * (columns + 1) for _ in range(rows + 1)]
+    table = [[(0, 0.0)] * (columns + 1) for _ in range(rows + 1)]
+
+    def pair(i: int, j: int) -> tuple[int, float]:
+        likeness, tie = table[i][j]
+        return likeness + round(scores[i][j] * 100), tie + ties[i][j]
+
     for i in range(rows):
         for j in range(columns):
             best = max(table[i][j + 1], table[i + 1][j])
             if scores[i][j] >= JOIN:
-                best = max(best, table[i][j] + scores[i][j])
+                best = max(best, pair(i, j))
             table[i + 1][j + 1] = best
     pairs, i, j = {}, rows, columns
     while i and j:
-        score = scores[i - 1][j - 1]
-        if score >= JOIN and table[i][j] == table[i - 1][j - 1] + score:
+        if scores[i - 1][j - 1] >= JOIN and table[i][j] == pair(i - 1, j - 1):
             pairs[i - 1] = j - 1
             i, j = i - 1, j - 1
         elif table[i][j] == table[i - 1][j]:
@@ -528,7 +570,8 @@ def _align(scores: list[list[float]]) -> dict[int, int]:
 def _place(seq: list[_Slot], name: str, entries: list[dict]) -> list[_Slot]:
     """Lay one listing over the timeline so far; returns the new timeline."""
     scores = [[_fit(entry, slot) for slot in seq] for entry in entries]
-    pairs = _align(scores)
+    ties = [[_tiebreak(entry, slot) for slot in seq] for entry in entries]
+    pairs = _align(scores, ties)
     taken = set(pairs.values())
     moved = {}
     # Listed out of order: a sure match to a heard song still takes the heard song's time.
@@ -541,7 +584,7 @@ def _place(seq: list[_Slot], name: str, entries: list[dict]) -> list[_Slot]:
             if slot.clusters and j not in taken and scores[i][j] >= SAME
         ]
         if options:
-            moved[i] = max(options, key=lambda j: scores[i][j])
+            moved[i] = max(options, key=lambda j: (scores[i][j], ties[i][j]))
             taken.add(moved[i])
     after: dict[int, list[_Slot]] = defaultdict(list)
     cursor = -1
@@ -980,7 +1023,7 @@ def build_tracklist(
     Returns ``{"tracks", "coverage", "sources", "unplaced"}``; ``unplaced`` holds songs heard
     once that fit no ID.
     """
-    clusters = segments(probes, window=window, stride=stride)
+    clusters = [_cluster(run) for run in _fold(_runs(probes, window, stride))]
     total = _number(duration)
     if not total or total <= 0:
         total = max((cluster["end"] for cluster in clusters), default=None)
