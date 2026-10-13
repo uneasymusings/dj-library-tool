@@ -440,7 +440,13 @@ def test_specs_dates_and_new(home, tmp_path):
         "Slow Burn",
     ]
     shazam_history.remember_import(
-        workspace, {"newest_shazamed_at": "2026-10-06T12:00:00+00:00", "songs": 2, "name": "S"}
+        workspace,
+        {
+            "newest_shazamed_at": "2026-10-06T12:00:00+00:00",
+            "songs": 2,
+            "name": "S",
+            "sources": [{"source": "mac"}],
+        },
     )
     mac_history(home, ("2026-10-08T12:00:00+00:00", "Overmono", "Gem Lingo"))
     fresh = shazam_history.load(None, "new", workspace)
@@ -474,6 +480,47 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
         again.idempotency_key
         == shazam_cli.set_request("shazam", None, workspace)[0].idempotency_key
     )
+
+
+def test_only_imports_from_this_macs_history_move_the_shazam_new_mark(home, tmp_path, monkeypatch):
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.root.mkdir()
+    mac_history(
+        home,
+        ("2026-10-01T12:00:00+00:00", "Lumen", "Halo"),
+        ("2026-10-05T12:00:00+00:00", "Nia Okoro", "Slow Burn"),
+    )
+
+    def mark():
+        return shazam_history.last_import(workspace)["newest_shazamed_at"]
+
+    _, _, summary = shazam_cli.set_request("shazam", None, workspace)
+    assert shazam_history.from_this_mac(summary)
+    shazam_history.remember_import(workspace, summary, "request_" + "a" * 32)
+    assert mark() == "2026-10-05T12:00:00+00:00"
+
+    old = tmp_path / "old.csv"
+    old.write_text(
+        "TagTime,Title,Artist\n2019-01-01T20:00:00Z,Gem Lingo,Overmono\n", encoding="utf-8"
+    )
+    undated = tmp_path / "undated.csv"
+    undated.write_text("Artist,Title\nVelvet Static,Night Bus\n", encoding="utf-8")
+    music(monkeypatch, stdout=json.dumps([{"name": "Rain", "artist": "Lumen", "added": None}]))
+    for spec in (f"shazam:{old}", f"shazam:{undated}", "shazam:apple-music"):
+        _, _, summary = shazam_cli.set_request(spec, None, workspace)
+        assert shazam_history.remember_import(workspace, summary, "request_" + "b" * 32) is None
+        assert mark() == "2026-10-05T12:00:00+00:00", spec
+
+    # An older Mac import (an earlier date range) never moves the mark back.
+    _, _, older = shazam_cli.set_request("shazam:2026-09-01", None, workspace)
+    shazam_history.remember_import(
+        workspace, {**older, "newest_shazamed_at": "2026-10-01T12:00:00+00:00"}
+    )
+    assert mark() == "2026-10-05T12:00:00+00:00"
+    assert shazam_history.status(workspace)["new_since_last_import"] == 0
+    with pytest.raises(AppError) as nothing:
+        shazam_cli.set_request("shazam:new", None, workspace)
+    assert nothing.value.code == "SHAZAM_NOTHING_NEW"
 
 
 def test_no_history_explains_how_to_turn_on_sync(home, monkeypatch):
