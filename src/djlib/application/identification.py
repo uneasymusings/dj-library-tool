@@ -979,9 +979,14 @@ def compact_track(track: dict) -> dict:
         "status": track.get("status"),
         "evidence": track_notes(track),
     }
-    candidates = [_candidate(c) for c in (track.get("candidates") or [])[:3]]
+    every = track.get("candidates") or []
+    # The best three, and up to two listener suggestions after them.
+    shown = every[:3] + [c for c in every[3:] if c.get("source") == "comments"][:2]
+    candidates = [_candidate(c) for c in shown]
     if candidates:
         compact["candidates"] = candidates
+    if track.get("songs_estimate"):
+        compact["songs_estimate"] = track["songs_estimate"]
     return compact
 
 

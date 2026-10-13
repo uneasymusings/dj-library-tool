@@ -13,6 +13,7 @@ import re
 import statistics
 import unicodedata
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from itertools import pairwise
@@ -88,10 +89,17 @@ def _number(value) -> float | None:
     return float(value)
 
 
+OPENERS = {")": "(", "]": "["}
+
+
 def _clean(value) -> str:
-    """Text on one line without control characters ("Halo\\tExtended" → "Halo Extended")."""
+    """Text on one line without control characters ("Halo\\tExtended" → "Halo Extended"),
+    and without a closing bracket nothing opened ("Picture Picture]", a listing's typo)."""
     text = "".join(c for c in str(value or "") if c.isspace() or unicodedata.category(c) != "Cc")
-    return " ".join(text.split())
+    text = " ".join(text.split())
+    while text and text[-1] in OPENERS and text.count(text[-1]) > text.count(OPENERS[text[-1]]):
+        text = text[:-1].rstrip()
+    return text
 
 
 # Labels
@@ -167,11 +175,29 @@ def _adds_names(short: str, long: str, names: frozenset[str]) -> bool:
     return _inside(short, long) and set(extra) <= {word for name in names for word in name.split()}
 
 
+@functools.lru_cache(maxsize=65536)
+def _same_name(one: str, other: str) -> bool:
+    """One credited name spelled two ways: "armand val helden" and "armand van helden" (same
+    words, nearly the same letters), or "robert glasper" and "robert glasper experiment" (a
+    name of two or more words that starts the other)."""
+    if one == other:
+        return True
+    short, long = sorted((one.split(), other.split()), key=len)
+    if len(short) >= 2 and long[: len(short)] == short:
+        return True
+    return len(short) == len(long) and SequenceMatcher(None, one, other).ratio() >= 0.85
+
+
+def _shared(first: frozenset[str], second: frozenset[str]) -> set[str]:
+    """The names in ``first`` that ``second`` credits too, however either spells them."""
+    return {name for name in first if any(_same_name(name, other) for other in second)}
+
+
 def _likeness(first: Song, second: Song) -> float:
     """How surely two labels name the same song in any version (see SAME, CLOSE, JOIN)."""
     if not first.core or not second.core:
         return 0.0
-    shared = first.names & second.names
+    shared = first.names & second.names or _shared(first.names, second.names)
     if first.core == second.core:
         return 1.0 if first.names == second.names else 0.9 if shared else JOIN
     credited = (
@@ -376,6 +402,8 @@ def _cluster(run: _Run) -> dict:
         "artist": best[0],
         "title": best[1],
         "version": best[2],
+        # Heard only as a DJ-mix compilation's copy, which credits the mix, not the song.
+        "mixed": best in mixed,
         "labels": [
             {"artist": a, "title": t, "version": v, "hits": n}
             for (a, t, v), n in every.most_common()
@@ -561,14 +589,15 @@ class _Slot:
 
 def _fit(entry: dict, slot: _Slot) -> float:
     if entry["kind"] == "unknown":
-        # Two listings' IDs at about the same time are the same ID.
-        near = entry["seconds"] is not None and any(
-            text["kind"] == "unknown"
-            and text["seconds"] is not None
-            and abs(text["seconds"] - entry["seconds"]) <= GAP_SECONDS
-            for text in slot.texts
-        )
-        return JOIN if near and slot.kind == "unknown" else 0.0
+        # Two listings' IDs between the same songs are the same ID: at about the same time,
+        # or untimed in either (MixesDB writes "[4?] ?" when nobody knows the minute).
+        if slot.kind != "unknown" or not slot.texts:
+            return 0.0
+        times = [text["seconds"] for text in slot.texts if text["kind"] == "unknown"]
+        if entry["seconds"] is None or all(at is None for at in times):
+            return JOIN
+        near = any(at is not None and abs(at - entry["seconds"]) <= FOLD_SECONDS for at in times)
+        return JOIN if near else 0.0
     return max((_likeness(entry["song"], song) for song in slot.songs()), default=0.0)
 
 
@@ -644,12 +673,23 @@ def _place(seq: list[_Slot], name: str, entries: list[dict]) -> list[_Slot]:
 
 
 def _interpolate(seq: list[_Slot], total: float | None) -> None:
-    """Times for listed songs: the heard time, the listed time, or one between neighbours."""
+    """Times for listed songs: the heard time, the listed time, or one between neighbours.
+
+    A heard song starts at its listed time when that is shortly before the first window that
+    heard it and after the song before: windows come every stride, so the first one to hear a
+    song is up to a stride late ("[00:00] Roots" first heard at 00:09).
+    """
+    edge: float | None = 0.0
     for slot in seq:
+        listed = next((t["seconds"] for t in slot.texts if t["seconds"] is not None), None)
         if slot.clusters:
             slot.time = slot.clusters[0]["start"]
+            fits = listed is not None and edge is not None and edge <= listed <= slot.time
+            if fits and slot.time - listed <= STRIDE + WINDOW:
+                slot.time = listed
         else:
-            slot.time = next((t["seconds"] for t in slot.texts if t["seconds"] is not None), None)
+            slot.time = listed
+        edge = slot.edge()
     listed = [slot for slot in seq if slot.texts]
     index = 0
     while index < len(listed):
@@ -872,9 +912,12 @@ def _stretches(
     *,
     between: bool,
     opening: bool,
+    named: Callable[[float, float, list[_Slot]], bool] | None = None,
 ) -> list[_Slot]:
     """The slots in time order, with an ID wherever nothing was heard for SONG_SECONDS or more
-    after a heard song (``between``) or from the start of the set (``opening``).
+    after a heard song (``between``) or from the start of the set (``opening``), or for
+    GAP_SECONDS or more where ``named(start, end, neighbours)`` says a listener named another
+    song.
 
     A listed song plays for as long as its listing says, so no stretch follows one. Songs
     heard once go to the nearest stretch as candidates, or to ``unplaced``; an ID lists those
@@ -885,8 +928,10 @@ def _stretches(
     for slot in [*_ordered(slots), None]:
         until = slot.time if slot else total
         allowed = between if found else opening
-        if allowed and edge is not None and until is not None and until - edge >= SONG_SECONDS:
-            found.append(_Slot(kind="unknown", time=edge, until=until))
+        if allowed and edge is not None and until is not None and until - edge >= GAP_SECONDS:
+            beside = found[-1:] + ([slot] if slot else [])
+            if until - edge >= SONG_SECONDS or (named and named(edge, until, beside)):
+                found.append(_Slot(kind="unknown", time=edge, until=until))
         if slot is None:
             break
         found.append(slot)
@@ -959,9 +1004,29 @@ def _merge(
     return _stretches(tracks, total, weak, unplaced, between=False, opening=not opens)
 
 
-def _recognized(clusters: list[dict], total: float | None, unplaced: list[dict]) -> list[_Slot]:
+def _listener_named(comments: list[dict]) -> Callable[[float, float, list[_Slot]], bool]:
+    """Whether a listener named a song, other than the ones either side, inside a stretch
+    nothing was heard in: "sebastiAn - arabest" at 06:38 in a 108-second stretch."""
+
+    def named(start: float, end: float, neighbours: list[_Slot]) -> bool:
+        songs = [song for slot in neighbours for song in slot.songs()]
+        for hint in comment_hints(comments, start, before=0, after=end - start):
+            at = hint.get("at_seconds")
+            if at is None or not start <= at < end or _beside(hint, songs):
+                continue
+            heard = _song(hint["artist"], hint["title"])
+            if all(_likeness(heard, song) < JOIN for song in songs):
+                return True
+        return False
+
+    return named
+
+
+def _recognized(
+    clusters: list[dict], total: float | None, unplaced: list[dict], comments: list[dict]
+) -> list[_Slot]:
     """No listing: songs heard in two or more windows, and IDs where nothing was heard for
-    SONG_SECONDS or more.
+    SONG_SECONDS or more, or for GAP_SECONDS or more where a listener named another song.
 
     A song heard again after a stretch where nothing else was heard is still the same play.
     """
@@ -974,7 +1039,8 @@ def _recognized(clusters: list[dict], total: float | None, unplaced: list[dict])
         else:
             songs.append(_Slot(clusters=[cluster], time=cluster["start"]))
     weak = [c for c in clusters if c["strength"] == "weak" and not _echoes(songs, c)]
-    return _stretches(songs, total, weak, unplaced, between=True, opening=True)
+    named = _listener_named(comments) if comments else None
+    return _stretches(songs, total, weak, unplaced, between=True, opening=True, named=named)
 
 
 # Tracks
@@ -1009,16 +1075,42 @@ def _status(slot: _Slot) -> str:
     return "confirmed" if any(c["strength"] == "strong" for c in slot.clusters) else "likely"
 
 
+def _repairs(text: dict, cluster: dict) -> bool:
+    """Whether a song heard in two or more windows spells the credits a listing misspells:
+    the same title, and the same names one for one, some written differently ("Armand Val
+    Helden" listed, "Armand Van Helden" heard). Other or extra credits, a single window or a
+    DJ-mix compilation's copy leave the listing's label alone."""
+    if cluster["hits"] < 2 or cluster.get("mixed"):
+        return False
+    heard = _song(cluster["artist"], cluster["title"], cluster["version"])
+    listed = text["song"]
+    if heard.core != listed.core or heard.names == listed.names:
+        return False
+    return len(heard.names) == len(listed.names) and all(
+        any(_same_name(name, other) for other in heard.names) for name in listed.names
+    )
+
+
+def _named_from(slot: _Slot) -> tuple[dict | None, dict | None, bool]:
+    """The slot's best heard song, its first listed name, and whether the heard label is the
+    one shown (a listing's misspelt credits, see ``_repairs``)."""
+    best = max(slot.clusters, key=lambda cluster: cluster["hits"]) if slot.clusters else None
+    text = next((text for text in slot.texts if text["kind"] == "named"), None)
+    return best, text, bool(best and text and _repairs(text, best))
+
+
 def _names(slot: _Slot) -> tuple[str | None, str | None, str]:
     if slot.kind == "unknown":
         return None, None, ""
-    best = max(slot.clusters, key=lambda cluster: cluster["hits"]) if slot.clusters else None
-    text = next((text for text in slot.texts if text["kind"] == "named"), None)
+    best, text, repaired = _named_from(slot)
     if not text:
         return best["artist"], best["title"], best["version"]
+    if repaired:
+        return best["artist"], best["title"], best["version"] or text["version"]
     version = text["version"]
-    # The listing names the song; the audio may know which version was played.
-    if not version and best and best["version"]:
+    # The listing names the song; the audio may know which version was played, unless the
+    # listed title already ends in one ("ATM Jam (Kaytranada Edition)").
+    if not version and best and best["version"] and _trailing(text["title"]) is None:
         played = _song(best["artist"], best["title"], best["version"])
         if _likeness(text["song"], played) >= SAME:
             version = best["version"]
@@ -1097,9 +1189,56 @@ def _hints(
     return found
 
 
+def _also_named(slot: _Slot, shown: Song) -> dict | None:
+    """The other spelling of a track heard and listed under different names: the listing's,
+    when the audio's label is shown (``_repairs``), else the audio's when it credits other
+    names or another title."""
+    best, text, repaired = _named_from(slot)
+    if not best or not text:
+        return None
+    if repaired:
+        label = _label(text["artist"], text["title"], text["version"])
+        return {"source": text["source"], "label": label}
+    heard = _song(best["artist"], best["title"], best["version"])
+    if heard.names == shown.names and heard.core == shown.core:
+        return None
+    main = max(best["providers"], key=lambda provider: provider["hits"])
+    label = _label(best["artist"], best["title"], best["version"])
+    return {"source": "audio", "provider": main["provider"], "label": label}
+
+
+def _pace(ordered: list[_Slot], total: float | None) -> float | None:
+    """How long this set's named songs play, in the middle (None with fewer than three)."""
+    ends = [slot.time for slot in ordered[1:]] + [total]
+    lengths = [
+        end - slot.time
+        for slot, end in zip(ordered, ends, strict=False)
+        if slot.kind == "named" and slot.time is not None and end is not None and end > slot.time
+    ]
+    return statistics.median(lengths) if len(lengths) >= 3 else None
+
+
+def _backed_first(candidates: list[dict], candidate: dict) -> tuple[bool, bool]:
+    """An ID's candidates: a song heard in two or more windows first, then one heard once that
+    a listener also named within a minute of it, then the rest as they were."""
+    if candidate["source"] != "audio":
+        return True, True
+    strong = candidate["strength"] != "weak"
+    song = _song(candidate["artist"], candidate["title"])
+    backed = any(
+        other["source"] == "comments"
+        and other.get("at") is not None
+        and abs(other["at"] - candidate["at"]) <= 60
+        and _likeness(song, _song(other["artist"], other["title"])) >= SAME
+        for other in candidates
+    )
+    return not strong, not backed
+
+
 def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> list[dict]:
     ordered = _ordered(slots)
     named = [song for slot in ordered if slot.kind == "named" for song in slot.songs()]
+    pace = _pace(ordered, total)
     tracks = []
     for position, slot in enumerate(ordered, 1):
         start = slot.time
@@ -1110,22 +1249,28 @@ def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> li
             beside = ordered[max(position - 2, 0) : position - 1] + ordered[position : position + 1]
             neighbours = [song for other in beside for song in other.songs()]
             slot.candidates += _hints(comments, start, end, named, neighbours)
+            slot.candidates.sort(key=functools.partial(_backed_first, list(slot.candidates)))
         artist, title, version = _names(slot)
-        tracks.append(
-            {
-                "position": position,
-                "start": start,
-                "end": end,
-                "approx": slot.approx,
-                "kind": slot.kind,
-                "artist": artist,
-                "title": title,
-                "version": version,
-                "status": _status(slot),
-                "evidence": _evidence(slot),
-                "candidates": slot.candidates,
-            }
-        )
+        track = {
+            "position": position,
+            "start": start,
+            "end": end,
+            "approx": slot.approx,
+            "kind": slot.kind,
+            "artist": artist,
+            "title": title,
+            "version": version,
+            "status": _status(slot),
+            "evidence": _evidence(slot),
+            "candidates": slot.candidates,
+        }
+        if slot.kind == "named" and (also := _also_named(slot, _song(artist, title, version))):
+            track["also_named"] = also
+        # A long stretch nobody heard or listed likely holds several songs.
+        stretch = slot.kind == "unknown" and not slot.texts and pace and start is not None
+        if stretch and end and (songs := round((end - start) / pace)) >= 2:
+            track["songs_estimate"] = songs
+        tracks.append(track)
     return tracks
 
 
@@ -1262,7 +1407,7 @@ def build_tracklist(
     if lists:
         slots = _merge(clusters, lists, total, unplaced)
     else:
-        slots = _recognized(clusters, total, unplaced)
+        slots = _recognized(clusters, total, unplaced, comments)
     tracks = _tracks(slots, total, comments)
     return {
         "tracks": tracks,
@@ -1314,6 +1459,8 @@ def _notes(track: dict) -> str:
             parts.append(f"listed as an ID in {ids}")
         elif track["start"] is not None and track["end"] is not None:
             parts.append(f"not identified from {clock(track['start'])} to {clock(track['end'])}")
+            if track.get("songs_estimate"):
+                parts[-1] += f", about {track['songs_estimate']} songs at this set's pace"
         parts += [
             f"possibly {_candidate_label(c)} ({_provider(c['provider'])}, "
             f"{_windows(c['hits'], c['at'])})"
@@ -1322,8 +1469,25 @@ def _notes(track: dict) -> str:
         if fans:
             parts.append("listeners named " + "; ".join(_candidate_label(c) for c in fans))
     else:
-        if places:
+        also = track.get("also_named") or {}
+        if heard and places and track["status"] == "likely" and also.get("source") == "audio":
+            # Heard and listed under other names: say what each side has, not "also in".
+            verb = "list" if " and " in places else "lists"
+            parts = [
+                f"{places[:1].upper()}{places[1:]} {verb} it",
+                *(
+                    f"{_provider(e['provider'])} heard {also['label']} here "
+                    f"({_windows(e['hits'], e['at'])})"
+                    for e in heard
+                ),
+            ]
+        elif places:
             parts.append(f"also in {places}" if heard else f"from {places}")
+        if also.get("source") == "audio" and track["status"] != "likely":
+            parts.append(f"{_provider(also['provider'])} named it {also['label']}")
+        elif also and also.get("source") != "audio":
+            where = SOURCE_NAMES.get(also["source"], also["source"])
+            parts.append(f"listed in {where} as {also['label']}")
         if ids:
             parts.append(f"an ID in {ids}")
         if track["status"] == "conflict":

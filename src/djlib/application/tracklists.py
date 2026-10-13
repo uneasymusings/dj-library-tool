@@ -29,7 +29,8 @@ TRAILING_TIMESTAMP = re.compile(
 )
 TRAILING_LABEL = re.compile(r"\s*\[([^\]]*)\]\s*$")
 VERSION_WORDS = re.compile(
-    r"\b(?:mix|edit|remix|dub|version|vip|rework|bootleg|instrumental|remaster(?:ed)?|live)\b",
+    r"\b(?:mix|edit|remix|dub|version|vip|rework|bootleg|instrumental|remaster(?:ed)?|live"
+    r"|edition|intro|outro|rmx|refix)\b",
     re.IGNORECASE,
 )
 # "[ft. Ana]" is a featured artist, which request matching reads, not a record label.

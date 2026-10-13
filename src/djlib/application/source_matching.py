@@ -464,13 +464,14 @@ CHAT = _terms(
     "is was part drop starts starting goes hits kicks moment section stretch transition bit"
 )
 PRAISE = _terms(
-    "absolute absolutely amazing banger bangers beautiful best chills choon crazy damn fire goat "
+    "absolute absolutely amazing awesome banger bangers beautiful best chills choon crazy damn "
+    "fire goat "
     "goated good goosebumps great heater huge incredible insane love magic massive mmm omg "
     "perfect sick tune tunes unreal vibe vibes wow"
 )
 SMALL_TALK = _terms(
-    "a all bro ever haha holy it its lol mate mix of pure set so song such that the this time "
-    "track what yes"
+    "a all are bro ever haha holy is it its just lol mate mix of pure really set so song such "
+    "that the this time track was what yes"
 )
 QUESTION = re.compile(r"(?i)^(?:what|whats|who|anyone|does|any|track\s*id|song\s*id|id\b)")
 

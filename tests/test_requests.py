@@ -180,7 +180,8 @@ async def test_different_version_is_only_a_candidate_and_cannot_be_selected(
         ("Max Dean, Luke Dean & Jamie Jones", ("jamie jones", "luke dean", "max dean")),
         ("A; B / C", ("a", "b", "c")),
         ("A x B", ("a", "b")),
-        ("A X B", ("a x b",)),  # only a lowercase "x" separates credits
+        ("Busta Rhymes X Janet Jackson", ("busta rhymes", "janet jackson")),
+        ("Malcolm X", ("malcolm x",)),  # an X that ends a name is part of it
         ("A feat. B", ("a", "b")),
         ("A Ft B", ("a", "b")),
         ("A featuring B", ("a", "b")),
