@@ -119,9 +119,10 @@ class Unreachable(Exception):
 class Pace:
     """Spacing between a service's requests, and patience when it pushes back or drops out.
 
-    On a rate limit, back-off starts at 10 s and doubles up to 5 minutes. It carries over from
-    one window to the next and eases off after answers; after about 15 minutes of waiting
-    without an answer the scan gives up rather than hammer the service. One address, no
+    On a rate limit, back-off starts at 5 s and doubles up to 40 s: Shazam's refusals last
+    about 5 to 50 seconds, so longer waits only stack on top of them. It carries over from one
+    window to the next and halves after answers; after about 15 minutes of waiting without an
+    answer the scan gives up rather than hammer the service. One address, no
     rotation. A dropped connection or server error is asked again shortly after; when several
     windows in a row get no answer at all, the service counts as unreachable.
     """
@@ -132,8 +133,8 @@ class Pace:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
-        first: float = 10.0,
-        longest: float = 300.0,
+        first: float = 5.0,
+        longest: float = 40.0,
         budget: float = 900.0,
     ):
         self.interval, self.clock, self.sleep = interval, clock, sleep

@@ -444,15 +444,15 @@ async def test_shazam_backs_off_and_carries_the_back_off_over(shazamio):
         environ={"DJLIB_SHAZAM_INTERVAL": "1"}, clock=clock, sleep=clock.sleep
     )
     assert (await shazam.recognize(b"wav")).track_id == "692620240"
-    assert clock.slept == [10.0, 20.0]
+    assert clock.slept == [5.0, 10.0]
     # The next push-back starts from where the last one eased off to, not from scratch.
     clock.now += 60
     assert (await shazam.recognize(b"wav")).track_id == "692620240"
-    assert clock.slept == [10.0, 20.0, 20.0]
+    assert clock.slept == [5.0, 10.0, 10.0]
 
 
 async def test_shazam_gives_up_after_about_fifteen_minutes_of_back_off(shazamio):
-    shazamio.extend([Throttled()] * 20)
+    shazamio.extend([Throttled()] * 30)
     clock = Clock()
     shazam = recognition.ShazamRecognizer(
         environ={"DJLIB_SHAZAM_INTERVAL": "1"}, clock=clock, sleep=clock.sleep
@@ -460,20 +460,21 @@ async def test_shazam_gives_up_after_about_fifteen_minutes_of_back_off(shazamio)
     with pytest.raises(AppError) as error:
         await shazam.recognize(b"wav")
     assert error.value.code == "RECOGNITION_RATE_LIMITED" and error.value.retryable
-    assert clock.slept == [10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 300.0]
+    # Refusals last seconds, not minutes: the wait never grows past 40 s.
+    assert clock.slept == [5.0, 10.0, 20.0] + [40.0] * 22
     assert 840 <= sum(clock.slept) <= 960
     assert shazam.pace.waited == 0  # a later scan gets its own quarter of an hour
 
 
 async def test_shazam_isolated_rate_limits_never_add_up_to_giving_up(shazamio):
-    shazamio.extend([Throttled(), SHAZAM_REPLY] * 120)
+    shazamio.extend([Throttled(), SHAZAM_REPLY] * 200)
     clock = Clock()
     shazam = recognition.ShazamRecognizer(
         environ={"DJLIB_SHAZAM_INTERVAL": "0"}, clock=clock, sleep=clock.sleep
     )
-    for _ in range(120):
+    for _ in range(200):
         assert (await shazam.recognize(b"wav")).track_id == "692620240"
-    assert clock.slept == [10.0] * 120 and sum(clock.slept) > 900
+    assert clock.slept == [5.0] * 200 and sum(clock.slept) > 900
 
 
 async def test_shazam_http_status_reaches_the_pacing(shazamio):
@@ -491,7 +492,7 @@ async def test_shazam_http_status_reaches_the_pacing(shazamio):
         environ={}, transport=httpx.MockTransport(handler), clock=clock, sleep=clock.sleep
     )
     assert (await shazam.recognize(b"wav")).title == "Corpo e Canção (Club Mix)"
-    assert clock.slept == [10.0] and len(seen) == 2
+    assert clock.slept == [5.0] and len(seen) == 2
     assert seen[1].headers["X-Shazam-Platform"] == "IPHONE"
     assert json.loads(seen[1].content)["signature"]["uri"].startswith("data:")
 
@@ -685,7 +686,7 @@ async def test_audd_window_recognition(monkeypatch):
         None,
         "https://lis.tn/BadLove",
     )
-    assert clock.slept == [10.0]
+    assert clock.slept == [5.0]
     assert str(seen[1].url) == "https://api.audd.io/"
     fields = form(seen[1])
     assert fields["api_token"] == b"token" and fields["file"] == b"RIFF"
@@ -694,7 +695,7 @@ async def test_audd_window_recognition(monkeypatch):
         with pytest.raises(AppError) as error:
             await audd.recognize(b"RIFF")
         assert error.value.code == code
-    assert clock.slept == [10.0, 3.0, 10.0] and not replies
+    assert clock.slept == [5.0, 3.0, 10.0] and not replies
 
 
 async def test_audd_scans_a_whole_set_in_one_upload(tmp_path, monkeypatch):
@@ -802,7 +803,7 @@ async def test_acrcloud_signs_each_request(monkeypatch):
     assert await acr.recognize(b"RIFFwav") is None
     # A requests-per-second limit backs off, then the window is asked again.
     assert await acr.recognize(b"RIFFwav") is None
-    assert clock.slept == [10.0]
+    assert clock.slept == [5.0]
     with pytest.raises(AppError) as rejected:
         await acr.recognize(b"RIFFwav")
     assert rejected.value.code == "RECOGNIZER_REJECTED"
