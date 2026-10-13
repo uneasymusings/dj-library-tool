@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import time
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -88,7 +90,8 @@ def test_minute_cues_standard_shows_and_chapter_headings():
     old, new, selection = (
         page("ben-ufo-essential-mix.json", title).parsed for title in ("2013", "2021", "2012")
     )
-    assert old["duration_seconds"] == 7200.0  # {{StandardShow2h}}
+    assert old["duration_seconds"] == 7200.0  # {{StandardShow2h}}, the show's slot
+    assert old["radio_show"] and old["lengths"] == []
     assert (old["tracklist"], new["tracklist"], selection["tracklist"]) == (
         "complete",
         "incomplete",
@@ -125,7 +128,8 @@ def test_list_blocks_gaps_and_tracks_played_over_another():
     ]
     black_coffee = page("mayan-warrior.json", "2025-08-26").parsed
     assert (None, "Roland Clark - I Get Deep (Acapella) [S&S]") in black_coffee["tracks"]
-    assert black_coffee["duration_seconds"] == 12760.0
+    assert black_coffee["duration_seconds"] == 12760.0 and black_coffee["lengths"] == [12760.0]
+    assert not black_coffee["radio_show"]
 
 
 def test_wiki_markup_headings_and_other_sections_are_left_out():
@@ -140,11 +144,12 @@ def test_wiki_markup_headings_and_other_sections_are_left_out():
         ("1:02:03", "Kerri Chandler - Rain & Shine (Bar A Thym)"),
         ("1:10:00", "Unknown - Untitled"),
         ("1:12:30", "Robert Hood - Minus (M-Plant)"),
-        ("00:30", "DJ Sprinkles - Grand Central Pt. 1 [Mule Musiq]"),
+        # CD2 starts again at 0, so its times would put its tracks among CD1's.
+        (None, "DJ Sprinkles - Grand Central Pt. 1 [Mule Musiq]"),
         (None, "Jeff Mills - The Bells"),
-        ("1:05:20", "Artist - ?"),
+        (None, "Artist - ?"),
         (None, "Lil Louis - French Kiss"),
-        ("1:20:00", "Kevin Saunderson - Good Life [KMS]"),
+        (None, "Kevin Saunderson - Good Life [KMS]"),
     ]
     assert parsed["duration_seconds"] == 7090.0
     # The commented-out player is not one of the page's links.
@@ -162,6 +167,57 @@ def test_a_page_without_a_tracklist_section_or_category():
     assert parsed["duration_seconds"] is None
 
 
+def test_a_table_of_parts_gives_their_total_and_every_recording_counts():
+    daft_punk = page("coachella.json", "2006").parsed  # Pt. 1 0:44:29, Pt. 2 0:33:43, 1:18:12
+    assert daft_punk["lengths"] == [4692.0] and daft_punk["duration_seconds"] == 4692.0
+    bjork = page("coachella.json", "2007").parsed  # Version 1 and Version 2
+    assert bjork["lengths"] == [4228.0, 4542.0] and bjork["duration_seconds"] == 4228.0
+    parts_only = mixesdb.parse_page(
+        "== File details ==\n{|\n! Pt. !! dur\n|-\n| 1 || 0:44:29\n|-\n| 2 || 0:33:43\n|}"
+    )
+    assert parts_only["lengths"] == [4692.0]
+
+
+def test_times_that_start_again_on_the_next_cd_are_left_out():
+    parsed = mixesdb.parse_page(
+        "== Tracklist ==\n=== CD1 ===\n# [00:00] A1 - One\n# [30:00] A2 - Two\n"
+        "# [60:00] A3 - Three\n=== CD2 ===\n# [00:00] B1 - Four\n# [30:00] B2 - Five\n"
+        "# [60:00] B3 - Six\n"
+    )
+    assert [time for time, _ in parsed["tracks"]] == ["00:00", "30:00", "1:00:00", None, None, None]
+    found = {"text": mixesdb.tracklist_text(parsed["tracks"]), "page_url": MONTREAL}
+    built = build_tracklist(duration=9000, listed=[mixesdb_listing(found)])
+    assert [track["artist"] for track in built["tracks"]] == ["A1", "A2", "A3", "B1", "B2", "B3"]
+
+
+def test_format_characters_are_left_out_of_labels():
+    parsed = mixesdb.parse_page(
+        "== Tracklist ==\n# [00:00] Evil\u202e Artist - Ti\u200btle\u00ad\n"
+    )
+    assert parsed["tracks"] == [("00:00", "Evil Artist - Title")]
+
+
+@pytest.mark.parametrize(
+    "wikitext",
+    [
+        "=" * 8000 + "x",
+        "== Tracklist ==\n# " + "[" * 20000,
+        "{{Player|" * 8000,
+        "[[Category:Tracklist: none|" * 10000,
+        "== Tracklist ==\n" + ("# " + "<ref>" * 400 + "\n") * 150,
+        "== Tracklist ==\n" + ("# " + "{{" * 500 + "}}" * 500 + "\n") * 150,
+        "== Tracklist ==\n" + ("# " + "[//a " * 400 + "\n") * 150,
+        "== Tracklist ==\n" + ("# " + "[[a|" * 500 + "\n") * 150,
+    ],
+    ids=["heading", "brackets", "player", "category", "refs", "templates", "web", "wiki links"],
+)
+def test_hostile_wikitext_parses_at_once(wikitext):
+    # MixesDB is an open wiki, and parsing runs on the event loop, which no timeout can stop.
+    started = time.perf_counter()
+    mixesdb.Page(1, "2013 - A @ B", wikitext)
+    assert time.perf_counter() - started < 1.0
+
+
 @pytest.mark.parametrize(
     "name,title",
     [
@@ -172,6 +228,10 @@ def test_a_page_without_a_tracklist_section_or_category():
         ("cappadocia.json", "2023"),
         ("mayan-warrior.json", "2025"),
         ("fred-again-boiler-room.json", "2022"),
+        ("coachella.json", "2007"),
+        ("diynamic.json", "2009-09-18"),
+        ("rinse-fm.json", "2017"),  # its last times go back, so they are left out
+        ("nts-radio.json", "2016"),
     ],
 )
 def test_the_text_reads_back_as_a_listing_with_every_track(name, title):
@@ -201,7 +261,7 @@ def test_markup_text_reads_back_whole_with_ids_kept():
     listed = mixesdb_listing({"text": text, "page_url": MONTREAL})
     assert listed["skipped"] == [] and len(listed["entries"]) == 14
     unknown = [e["timestamp"] for e in listed["entries"] if e["kind"] == "unknown"]
-    assert unknown == ["12:00", "15:45", "1:10:00", "1:05:20"]
+    assert unknown == ["12:00", "15:45", "1:10:00", None]
     assert listed["entries"][0]["artist"] == "Moodymann"
     assert listed["entries"][0]["title"] == "Shades Of Jae"
     assert listed["complete"] is False
@@ -246,6 +306,9 @@ def test_the_listing_merges_into_a_tracklist():
             "soundcloud.com/platform/kaytranada-boiler-room",
         ),
         ("https://www.mixcloud.com/dj/set-name/", "mixcloud.com/dj/set-name"),
+        # A parameter that names the video stays.
+        ("https://www.facebook.com/watch/?v=111&ref=share", "facebook.com/watch?v=111"),
+        ("https://drive.google.com/open?id=1AbC", "drive.google.com/open?id=1AbC"),
         ("https://www.youtube.com/watch?v=short", None),
         ("https://www.youtube.com/@BoilerRoom", None),
         ("https://soundcloud.com/", None),
@@ -256,6 +319,21 @@ def test_the_listing_merges_into_a_tracklist():
 )
 def test_upload_links_share_one_spelling(url, key):
     assert mixesdb.url_key(url) == key
+
+
+def test_links_are_asked_for_as_written_then_with_or_without_www():
+    assert mixesdb.link_spellings(
+        "https://www.mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016/?utm_source=x"
+    ) == [
+        "www.mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016",
+        "mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016",
+    ]
+    assert mixesdb.link_spellings("https://m.soundcloud.com/Platform/Set") == [
+        "soundcloud.com/Platform/Set",
+        "www.soundcloud.com/Platform/Set",
+    ]
+    assert mixesdb.link_spellings("https://youtu.be/-5EQIiabJvk") == ["youtube:-5EQIiabJvk"]
+    assert mixesdb.link_spellings("not a link") == []
 
 
 def test_page_addresses():
@@ -280,8 +358,14 @@ def test_searches_go_from_every_key_word_to_any_to_the_uploader_with_the_dj():
     ]
     boiler_room = mixesdb.Wanted("Kaytranada | Boiler Room: Montreal 🔥 (DJ Set) 2013")
     assert boiler_room.queries() == [
-        "kaytranada boiler room montreal",
+        "kaytranada boiler room montreal 2013",  # the year finds that year's pages
         "kaytranada OR boiler OR room OR montreal",
+    ]
+    dated = mixesdb.Wanted("&ME - Keinemusik Radio Show (30 Aug 2019)", "Keinemusik")
+    assert dated.queries() == [
+        "me keinemusik radio show 2019",
+        "me OR keinemusik OR radio OR show",
+        "keinemusik me",
     ]
 
 
@@ -405,6 +489,44 @@ async def test_another_dj_at_the_same_place_is_no_match(fixture, title, duration
     assert await lookup(wiki, title=title, duration=duration) is None
 
 
+async def test_every_dj_the_upload_names_must_be_on_the_page():
+    wiki = Wiki(lambda query: reply("rinse-fm.json"))
+    found = await lookup(wiki, title="Mumdance b2b Ben UFO - Rinse FM 2017-12-12", duration=7190)
+    assert found["page_title"] == "2017-12-12 - Mumdance b2b Ben UFO - Rinse FM"
+    for title in (
+        "Mumdance b2b Ben UFO b2b Pearson Sound - Rinse FM 2017-12-12",
+        "Ben UFO b2b Pearson Sound - SaveFabric, Rinse FM 2016-09-03",
+    ):
+        assert await lookup(wiki, title=title, duration=7190) is None
+
+
+async def test_the_uploader_stands_in_for_the_dj_only_when_the_title_names_none():
+    wiki = Wiki(lambda query: reply("mayan-warrior.json"))
+    channel = {"uploader": "Keinemusik", "duration": 8987}
+    found = await lookup(wiki, title="Mayan Warrior - Burning Man 2022", **channel)
+    assert found["page_title"].startswith("2022-08-31 - Keinemusik")
+    # One member's set on the collective's channel is not the collective's set.
+    assert await lookup(wiki, title="Rampa | Mayan Warrior - Burning Man 2022", **channel) is None
+
+
+PART_TWO = "https://soundcloud.com/blogos4/daft-punk-live-coachella-festival-2006-04-29-pt-2"
+
+
+async def test_one_part_of_a_set_is_no_match():
+    wiki = Wiki(lambda query: reply("coachella.json"))
+    # The page links part 2, but lists the tracks of both parts.
+    part_two = await lookup(
+        wiki, title="Daft Punk Coachella 2006 pt 2", duration=2023, url=PART_TWO
+    )
+    assert part_two is None and len(wiki.asked) == 1
+    assert await lookup(wiki, title="Daft Punk - Live at Coachella 2006", duration=2669) is None
+    whole = await lookup(wiki, title="Daft Punk - Live at Coachella 2006 (Full Set)", duration=4692)
+    assert whole["match"] == {"by": "title_duration", "score": 1.0}
+    assert whole["duration_seconds"] == 4692.0 and whole["tracks"] == 12
+    later_version = await lookup(wiki, title="Björk @ Coachella 2007", duration=4540)
+    assert later_version["page_title"].startswith("2007-04-27 - Björk")
+
+
 async def test_without_a_length_only_a_near_exact_title_matches():
     wiki = Wiki(lambda query: reply("kaytranada-montreal.json", "kaytranada-los-angeles.json"))
     found = await lookup(wiki, title="Kaytranada | Boiler Room: Montreal")
@@ -413,13 +535,99 @@ async def test_without_a_length_only_a_near_exact_title_matches():
     assert await lookup(wiki, title="Kaytranada Boiler Room Montreal live with friends") is None
 
 
-async def test_the_same_show_in_two_years_needs_the_year():
-    wiki = Wiki(lambda query: reply("ben-ufo-essential-mix.json"))
-    assert await lookup(wiki, title="Ben UFO - Essential Mix", duration=7190) is None
-    assert await lookup(wiki, title="Ben UFO - Essential Mix") is None
-    found = await lookup(wiki, title="Ben UFO – Essential Mix (2013)", duration=7190)
-    assert found["page_title"] == "2013-10-05 - Ben UFO - Essential Mix"
-    assert found["match"]["by"] == "title_duration"
+@pytest.mark.parametrize(
+    "title,days",
+    [
+        ("&ME - Keinemusik Radio Show (2019-08-30)", {date(2019, 8, 30)}),
+        ("Solomun - Diynamic (Proton Radio) 16.12.2011", {date(2011, 12, 16)}),
+        ("Solomun | 16 Dec 2011", {date(2011, 12, 16)}),
+        ("Solomun | December 16th, 2011", {date(2011, 12, 16)}),
+        ("Ben UFO 05/10/2013", {date(2013, 10, 5), date(2013, 5, 10)}),  # either way round
+        ("Ben UFO 31.02.2013", set()),
+        ("Ben UFO @ Fabric 25 (2011)", set()),
+    ],
+)
+def test_days_in_upload_titles(title, days):
+    assert mixesdb.Wanted(title).days == days
+
+
+@pytest.mark.parametrize(
+    "fixture,title,duration",
+    [
+        # Another day's episode of the show, at the show's length.
+        ("diynamic.json", "Solomun - Diynamic Radio Show (Proton Radio) 16.12.2011", 3598),
+        ("keinemusik-radio-show.json", "&ME - Keinemusik Radio Show (2019-08-30)", 3598),
+        # No day: every episode has the show's slot ({{StandardShow1h}}) as its length.
+        ("diynamic.json", "Solomun - Diynamic, Proton Radio", 3601),
+        ("diynamic.json", "Solomun - Diynamic, Proton Radio", None),
+        ("keinemusik-radio-show.json", "&ME | Keinemusik Radio Show", 3600),
+        ("ben-ufo-essential-mix.json", "Ben UFO – Essential Mix (2013)", 7190),
+        ("ben-ufo-essential-mix.json", "Ben UFO - Essential Mix", 7190),
+        ("ben-ufo-essential-mix.json", "Ben UFO - Essential Mix", None),
+    ],
+)
+async def test_a_radio_show_episode_needs_its_day(fixture, title, duration):
+    wiki = Wiki(lambda query: reply(fixture))
+    assert await lookup(wiki, title=title, duration=duration) is None
+
+
+@pytest.mark.parametrize(
+    "fixture,title,page_title",
+    [
+        (
+            "diynamic.json",
+            "Solomun - Diynamic Radio Show (Proton Radio) 18.11.2011",
+            "2011-11-18 - Solomun - Diynamic, Proton Radio",
+        ),
+        (
+            "diynamic.json",
+            "Solomun - Hello Weekend (Diynamic, Proton Radio) 18th September 2009",
+            "2009-09-18 - Solomun - Hello Weekend! (Diynamic, Proton Radio)",
+        ),
+        (
+            "keinemusik-radio-show.json",
+            "&ME - Keinemusik Radio Show (26/04/2019)",
+            "2019-04-26 - &ME - Keinemusik Radio Show",
+        ),
+        (
+            "ben-ufo-essential-mix.json",
+            "Ben UFO – Essential Mix 05.10.2013",
+            "2013-10-05 - Ben UFO - Essential Mix",
+        ),
+    ],
+)
+async def test_a_radio_show_episode_with_its_day_matches(fixture, title, page_title):
+    found = await lookup(Wiki(lambda query: reply(fixture)), title=title)
+    assert found["page_title"] == page_title
+    assert found["match"]["by"] == "title_date" and found["match"]["score"] >= 0.9
+
+
+async def test_a_day_that_disagrees_rules_a_page_out_and_is_no_number():
+    wiki = Wiki(lambda query: reply("kaytranada-montreal.json"))
+    title = "Kaytranada Boiler Room Montreal"
+    found = await lookup(wiki, title=f"{title} 2013-09-27", duration=2526)
+    assert found["match"] == {"by": "title_date", "score": 1.0}  # "09" and "27" are no numbers
+    assert (await lookup(wiki, title=f"{title} 28.09.2013"))["match"]["by"] == "title_date"
+    assert await lookup(wiki, title=f"{title} 2013-09-29", duration=2526) is None
+
+
+def episode(title: str, length: str, pageid: int) -> dict:
+    """A reply page for one episode of a show, with its file's length and two tracks."""
+    details = "== File details ==\n{|{{NormalTableFormat}}\n! dur\n|-\n| " + length + "\n|}\n"
+    wikitext = details + "== Tracklist ==\n# [00:00] A - One\n# [30:00] B - Two\n"
+    return wikitext_reply(title, wikitext, pageid)["query"]["pages"][0]
+
+
+async def test_another_episode_of_the_same_show_is_a_rival_whatever_its_score():
+    episodes = [
+        episode("2019-04-26 - &ME - Keinemusik Radio Show", "1:00:00", 1),
+        episode("2019-05-24 - &ME - Hello Weekend (Keinemusik Radio Show)", "1:00:20", 2),
+    ]
+    wiki = Wiki(lambda query: {"batchcomplete": True, "query": {"pages": episodes}})
+    # The second page scores too low to count as a match, but it may be the upload.
+    assert await lookup(wiki, title="&ME | Keinemusik Radio Show", duration=3600) is None
+    found = await lookup(wiki, title="&ME | Keinemusik Radio Show 26.04.2019", duration=3600)
+    assert found["page_title"] == "2019-04-26 - &ME - Keinemusik Radio Show"
 
 
 async def test_a_linked_page_without_tracks_ends_the_lookup():
@@ -444,6 +652,21 @@ async def test_two_pages_linking_the_upload_are_no_answer():
     wiki = Wiki(answer)
     assert await lookup(wiki, title="A @ B", url="https://youtu.be/-5EQIiabJvk") is None
     assert len(wiki.asked) == 1
+
+
+async def test_a_link_stored_with_www_is_asked_for_with_a_spare_request():
+    stored = "www.mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016"
+    wiki = Wiki(lambda query: reply("nts-radio.json") if query == stored else EMPTY)
+    url = "https://mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016/"
+    found = await lookup(wiki, title="Mr. Beatnick NTS", url=url)
+    assert wiki.asked == [
+        "mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016",
+        "mr beatnick nts",
+        "mr OR beatnick OR nts",
+        stored,
+    ]
+    assert found["page_title"] == "2016-05-24 - Mr. Beatnick - NTS Radio"
+    assert found["match"] == {"by": "url", "score": 1.0}
 
 
 async def test_requests_are_capped():
@@ -486,6 +709,33 @@ async def test_network_failures_are_no_tracklist(kind, caplog):
     )
     assert found is None and len(wiki.asked) == 1  # the first failure ends the lookup
     assert "MixesDB lookup stopped" in caplog.text
+
+
+@pytest.mark.parametrize("digit", ["\u1369", "\U00010a40", "\u19da"])
+async def test_digits_that_are_no_numbers_do_not_stop_a_lookup(digit):
+    wiki = Wiki(lambda query: reply("kaytranada-montreal.json"))
+    found = await lookup(wiki, title=f"Kaytranada | Boiler Room: Montreal {digit}", duration=2526)
+    assert found["page_url"] == MONTREAL
+
+
+def entry(title: str, index, pageid: int = 1) -> dict:
+    content = {"slots": {"main": {"content": "== Tracklist ==\n# A - B"}}}
+    return {"pageid": pageid, "title": title, "index": index, "revisions": [content]}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "[" * 100_000 + "]" * 100_000,
+        json.dumps({"query": {"pages": [entry("2013 - C @ D", "1"), entry("2013 - C @ E", 2, 2)]}}),
+        json.dumps({"query": {"pages": 5}}),
+        json.dumps({"query": {"pages": [entry("2013 - A @ B \ud800", 1)]}}),
+    ],
+    ids=["deeply nested", "an index that is text", "pages that are a number", "lone surrogate"],
+)
+async def test_broken_replies_are_no_tracklist(body):
+    wiki = Wiki(lambda query: httpx.Response(200, text=body))
+    assert await lookup(wiki, title="A @ B", url="https://youtu.be/-5EQIiabJvk") is None
 
 
 async def test_a_slow_lookup_gives_up(monkeypatch):
