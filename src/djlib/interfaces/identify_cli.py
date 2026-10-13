@@ -285,10 +285,9 @@ def identified_summary(job_id: str, result: dict) -> dict:
 
     found = summary(result)
     coverage = found["coverage"]
+    kept = ("seconds_identified", "duration_seconds", "percent", "seconds_heard", "percent_heard")
     return {
-        "coverage": {
-            key: coverage[key] for key in ("seconds_identified", "duration_seconds", "percent")
-        },
+        "coverage": {key: coverage[key] for key in kept},
         "counts": found["counts"],
         "tracklist_file": found["tracklist_file"],
         "job_id": job_id,

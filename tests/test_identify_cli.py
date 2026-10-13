@@ -138,7 +138,7 @@ def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_h
     assert reply.exit_code == 0, reply.output
     text = reply.stdout
     assert "Friday Set" in text and "YouTube · 05:00" in text
-    assert "3 tracks, 67% of the set named" in text and "2 confirmed, 1 likely" in text
+    assert "3 tracks, 67% of the set named, 92% heard" in text and "2 confirmed, 1 likely" in text
     rows = [line for line in text.splitlines() if "Halo" in line or "Glue" in line]
     assert "✓ confirmed" in rows[0] and "Lumen - Halo" in rows[0]
     assert "ID — likely Bicep - Glue" in rows[1]
