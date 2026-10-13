@@ -1,0 +1,49 @@
+[[File:2019-05-04 - Example.jpg|right|360px]]
+
+== File details ==
+
+{|{{NormalTableFormat}}
+! dur
+! MB
+! kbps
+|-
+| 1:58:10
+| 162
+| 192
+|}
+
+<!-- Broken player:
+https://youtu.be/AAAAAAAAAAA -->
+{{Player|mode=mirrors
+ |https://www.youtube.com/watch?v=dQw4w9WgXcQ
+ |https://soundcloud.com/someone/some-set/
+}}
+
+== Tracklist ==
+
+=== CD1 ===
+# [00:00] [[Moodymann]] - '''Shades Of Jae''' [KDJ]
+# [04:30] [[Theo Parrish|T. Parrish]] - Falling Up (Carl Craig Remix)<ref>Confirmed by the DJ.</ref> [Third Ear]
+# [08:15] Floorplan - Never Grow Old {{Tl|Unreleased}} [M-Plant]
+# ...
+# [12:00] ?
+# [15:45] ID - ID
+# Mr. Fingers - Can You Feel It (Spoken Word Mix)
+#: The acapella of the vocal version played over it.
+# [1:02:03] Kerri Chandler - Rain &amp; Shine <small>(Bar A Thym)</small>
+'''Part 2'''
+# [1:10:00] ''Unknown - Untitled''
+# [1:12:30] Robert Hood - Minus<ref name="label" /> ([https://example.com/label M-Plant])
+=== CD2 ===
+# [00:30] DJ Sprinkles - Grand Central Pt. 1 [Mule Musiq]
+# [0??] Jeff Mills - The Bells
+# [01:05:20] Artist - ?
+# [1:15:??] Lil Louis - French Kiss
+# [080] Kevin Saunderson - Good Life [KMS]
+
+== Comments ==
+
+# [10:00] Some Listener - Not A Track
+
+[[Category:2019]]
+[[Category:Tracklist: complete]]
