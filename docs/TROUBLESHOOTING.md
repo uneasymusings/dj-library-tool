@@ -6,7 +6,7 @@ Every command reports errors as `error.code` and a message in its JSON envelope 
 
 - **`djlib: command not found`.** `uv tool dir --bin` shows where uv put it; `uv tool update-shell` adds that folder to PATH. Open a new terminal afterwards. See [uv's tool guide](https://docs.astral.sh/uv/guides/tools/#installing-tools).
 - **Use a persistent install for assistants.** An MCP registration or generated session stores the path of the installed `djlib`. An ephemeral `uvx` environment or a deleted developer checkout breaks it; reinstall with `uv tool install` and create a new session.
-- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, rekordbox, the Accessibility permission and the background service without starting it, and flags a Claude Code plugin from another release.
+- **`djlib doctor`** checks FFmpeg/ffprobe, yt-dlp, Deno or Node, song recognition, rekordbox, the Accessibility permission and the background service without starting it, shows your Mac's Shazam history, and flags a Claude Code plugin from another release.
 - **Release files** come with `SHA256SUMS` to verify downloads. The source checkout's `uv.lock` is the exact dependency record for contributors and CI.
 
 ## Workspace
@@ -52,6 +52,23 @@ Then open or reconnect Claude Code or Codex. `COORDINATOR_START_REQUIRED` means 
 | Exit code 4 | The USB check found missing or out-of-order files. Don't play from that stick; export again. |
 
 djlib never edits rekordbox's database and never writes the USB stick itself; rekordbox does the export. Playback on CDJ/XDJ players is not verified by the tool, so test the stick before a gig.
+
+## Listening to sets and Shazam history
+
+| Error | What to do |
+| --- | --- |
+| `DEPENDENCY_REQUIRED` | Song recognition, FFmpeg or yt-dlp is missing. Rerun the one-line installer (it installs djlib with song recognition on Python 3.12); `djlib doctor` shows what is missing. |
+| `RECOGNIZER_NOT_CONFIGURED` | AudD or ACRCloud is chosen without its keys. Set them (see [song recognition](INSTALL.md#song-recognition)), run `djlib service stop`, then try again. |
+| `RECOGNIZER_REJECTED` | The service refused your key, or its quota is used up. Check the key in your account. |
+| `RECOGNITION_RATE_LIMITED`, `RECOGNITION_UNAVAILABLE` | The recognition service is turning requests away or can't be reached. What djlib heard so far is saved: run the same command later and it continues. |
+| `SET_PREVIEW_ONLY` | Only a preview of the set plays (SoundCloud gives 30 seconds of Go+ uploads). Copy its tracklist into a file and run `djlib set FILE --source LINK`. |
+| `SINGLE_SOURCE_REQUIRED`, `SOURCE_UNSUPPORTED` | Use the link of one YouTube video or SoundCloud set, not a playlist, channel or another site. |
+| `TRACKLIST_NOT_FOUND` | The upload has no tracklist and djlib couldn't listen; the message says why and what listeners named. |
+| `SHAZAM_HISTORY_NOT_FOUND` | No Shazam history on this Mac. On your iPhone, Settings → your name → iCloud → turn on Shazam; on the Mac, System Settings → Apple Account → iCloud → See All → turn on Music Recognition; open Control Center → Music Recognition once and wait a few minutes. Or read an iPhone backup or CSV with `djlib set shazam:PATH`. |
+| `SHAZAM_ACCESS_DENIED` | macOS keeps the history private. Allow your terminal app under System Settings → Privacy & Security → Full Disk Access, quit and reopen it. |
+| `SHAZAM_NOTHING_NEW` | Nothing was Shazamed since your last `djlib set shazam:new`. |
+
+The first identification that uses Shazam says once that djlib uses Shazam's service unofficially, so it may slow down or stop working; AudD and ACRCloud are the licensed options.
 
 ## Downloads
 
