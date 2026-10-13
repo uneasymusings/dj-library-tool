@@ -241,6 +241,17 @@ async def test_an_identification_reads_listens_checks_gaps_and_merges(applicatio
     assert json.loads((saved / "page.json").read_text())["title"] == "Friday Set"
 
 
+async def test_the_audio_can_be_kept_and_a_page_just_read_is_not_read_again(
+    application, setup, monkeypatch
+):
+    monkeypatch.setenv("DJLIB_KEEP_SET_AUDIO", "1")
+    # `djlib set` read the page with its comments a moment ago (POST /sources/inspect).
+    identification.remember_page({**setup.page, "url": "https://youtu.be/fridayset1"}, 1000)
+    assert (await run(application, submit(application)))["state"] == "completed"
+    assert setup.inspected == []
+    assert (folder(application) / "audio" / "set.webm").is_file()
+
+
 async def test_progress_counts_windows_and_songs(application, setup):
     seen = []
     job_id = submit(application)
