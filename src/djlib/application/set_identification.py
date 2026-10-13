@@ -39,6 +39,9 @@ FOLD_SECONDS = 300.0
 OFFSET_SLACK = 10.0
 STRONG = 3
 GAP_SECONDS = 90.0
+# Nothing heard for less than a song's length is the song before ending (a breakdown, a long
+# blend, an outro the recognizer can't lock on to), not a song of its own.
+SONG_SECONDS = 180.0
 ID_REACH = 180.0
 WEAK_REACH = 60.0
 HINTS = 3
@@ -352,19 +355,21 @@ def _cluster(run: _Run) -> dict:
         entry["url"] = entry["url"] or hit["url"]
     providers = []
     for provider in dict.fromkeys(hit["provider"] for hit in counted):
-        mine = [hit for hit in counted if hit["provider"] == provider]
+        mine = [hit for hit in run.hits if hit["provider"] == provider]
         providers.append(
             {
                 "provider": provider,
-                "hits": _heard_in(mine),
+                "hits": _heard_in([hit for hit in counted if hit["provider"] == provider]),
                 "at": min(hit["at"] for hit in mine),
                 "until": max(hit["until"] for hit in mine),
             }
         )
     hits = _heard_in(counted)
+    # A window out of line still heard the song (a loop, a repeated part): it places the song,
+    # but only windows in line count towards its strength.
     return {
-        "start": windows[0],
-        "end": max(hit["until"] for hit in counted),
+        "start": min(hit["at"] for hit in run.hits),
+        "end": max(hit["until"] for hit in run.hits),
         "hits": hits,
         "inconsistent": len(run.hits) - len(counted),
         "strength": "strong" if hits >= STRONG else "medium" if hits == 2 else "weak",
@@ -418,9 +423,9 @@ def segments(
     inside it are bridged, and windows where recognition failed do not count. Probes at the
     same time (two providers, a retry), or between two windows (``recognition.refine``), share
     one window; pass the first listen's ``stride`` when such probes are mixed in, or the
-    spacing is guessed from them. Windows whose song offset disagrees
-    with the rest do not count towards its strength: "strong" (3+ windows), "medium" (2) or
-    "weak" (1).
+    spacing is guessed from them. Windows whose song offset disagrees with the rest (a loop,
+    a repeated part) still say when the song played, but do not count towards its strength:
+    "strong" (3+ windows), "medium" (2) or "weak" (1).
     """
     return [_cluster(run) for run in _runs(probes, window, stride)]
 
@@ -831,20 +836,56 @@ def _ordered(slots: list[_Slot]) -> list[_Slot]:
     return [slot for *_, slot in sorted(keyed, key=lambda item: item[:2])]
 
 
+def _agrees(slot: _Slot, cluster: dict, least: float) -> bool:
+    """Whether a heard song names one of the slot's songs (SAME), or its sample (JOIN)."""
+    heard = [_song(label["artist"], label["title"]) for label in cluster["labels"]]
+    return any(_likeness(song, mine) >= least for song in slot.songs() for mine in heard)
+
+
+def _echoes(slots: list[_Slot], cluster: dict) -> bool:
+    """A song heard once that names the song just before or after it (its sample, another
+    version of it) is that song playing, not another one."""
+    timed = [slot for slot in _ordered(slots) if slot.time is not None and slot.songs()]
+    before = [slot for slot in timed if slot.time <= cluster["start"]][-1:]
+    after = [slot for slot in timed if slot.time > cluster["start"]][:1]
+    return any(_agrees(slot, cluster, JOIN) for slot in before + after)
+
+
+def _drop_echoes(seq: list[_Slot]) -> list[_Slot]:
+    """The slots without songs heard once that only echo a neighbour (see ``_echoes``)."""
+    tracks = [slot for slot in seq if slot.texts or slot.clusters[0]["strength"] != "weak"]
+    return [slot for slot in seq if slot in tracks or not _echoes(tracks, slot.clusters[0])]
+
+
+def _by_region(region: tuple[float, float], candidate: dict) -> tuple:
+    """An ID's likely song first, then songs heard once while it plays, then the nearest."""
+    start, end = region
+    away = max(start - candidate["at"], candidate["at"] - end, 0.0)
+    return candidate["strength"] == "weak", away, candidate["at"]
+
+
 def _stretches(
-    slots: list[_Slot], total: float | None, weak: list[dict], unplaced: list[dict]
+    slots: list[_Slot],
+    total: float | None,
+    weak: list[dict],
+    unplaced: list[dict],
+    *,
+    between: bool,
+    opening: bool,
 ) -> list[_Slot]:
-    """The slots in time order, with an ID wherever nothing was heard or listed for
-    GAP_SECONDS or more after a heard song (or the start of the set).
+    """The slots in time order, with an ID wherever nothing was heard for SONG_SECONDS or more
+    after a heard song (``between``) or from the start of the set (``opening``).
 
     A listed song plays for as long as its listing says, so no stretch follows one. Songs
-    heard once go to the nearest stretch as candidates, or to ``unplaced``.
+    heard once go to the nearest stretch as candidates, or to ``unplaced``; an ID lists those
+    heard while it plays first.
     """
     found: list[_Slot] = []
     edge: float | None = 0.0
     for slot in [*_ordered(slots), None]:
         until = slot.time if slot else total
-        if edge is not None and until is not None and until - edge >= GAP_SECONDS:
+        allowed = between if found else opening
+        if allowed and edge is not None and until is not None and until - edge >= SONG_SECONDS:
             found.append(_Slot(kind="unknown", time=edge, until=until))
         if slot is None:
             break
@@ -857,6 +898,11 @@ def _stretches(
             owner.candidates.append(_heard(cluster))
         else:
             unplaced.append(_heard(cluster))
+    for index, slot in enumerate(found):
+        if slot.kind == "unknown" and slot.time is not None:
+            end = next((s.time for s in found[index + 1 :] if s.time is not None), total)
+            region = (slot.time, math.inf if end is None else end)
+            slot.candidates.sort(key=functools.partial(_by_region, region))
     return found
 
 
@@ -876,12 +922,10 @@ def _rejoin(seq: list[_Slot]) -> list[_Slot]:
     for slot in seq:
         cluster = slot.clusters[0] if slot.clusters and not slot.texts else None
         if cluster:
-            heard = [_song(label["artist"], label["title"]) for label in cluster["labels"]]
             owners = [
                 anchor
                 for anchor in anchors
-                if apart(anchor, cluster) <= FOLD_SECONDS
-                and any(_likeness(song, mine) >= SAME for song in anchor.songs() for mine in heard)
+                if apart(anchor, cluster) <= FOLD_SECONDS and _agrees(anchor, cluster, SAME)
             ]
             if owners:
                 min(owners, key=lambda anchor: apart(anchor, cluster)).clusters.append(cluster)
@@ -898,19 +942,39 @@ def _merge(
         seq = _place(seq, name, entries)
     seq = _rejoin(seq)
     _interpolate(seq, total)
+    seq = _drop_echoes(seq)
     _fill_ids(seq)
     anchors = [i for i, slot in enumerate(seq) if slot.clusters and slot.texts]
     weak: list[dict] = []
     for left, right in pairwise([-1, *anchors, len(seq)]):
         _settle(seq, seq[left + 1 : right], total, weak)
-    return _stretches([slot for slot in seq if slot.track], total, weak, unplaced)
+    # The listing says what plays: a stretch nobody heard belongs to the track before it, and
+    # only an opening the listing leaves out can be an ID.
+    opens = any(
+        entry["seconds"] is not None and entry["seconds"] < GAP_SECONDS
+        for _, entries in lists
+        for entry in entries
+    )
+    tracks = [slot for slot in seq if slot.track]
+    return _stretches(tracks, total, weak, unplaced, between=False, opening=not opens)
 
 
 def _recognized(clusters: list[dict], total: float | None, unplaced: list[dict]) -> list[_Slot]:
-    """No listing: songs heard in two or more windows, and IDs where nothing was heard."""
-    songs = [_Slot(clusters=[c], time=c["start"]) for c in clusters if c["strength"] != "weak"]
-    weak = [cluster for cluster in clusters if cluster["strength"] == "weak"]
-    return _stretches(songs, total, weak, unplaced)
+    """No listing: songs heard in two or more windows, and IDs where nothing was heard for
+    SONG_SECONDS or more.
+
+    A song heard again after a stretch where nothing else was heard is still the same play.
+    """
+    songs: list[_Slot] = []
+    for cluster in clusters:
+        if cluster["strength"] == "weak":
+            continue
+        if songs and _agrees(songs[-1], cluster, SAME):
+            songs[-1].clusters.append(cluster)
+        else:
+            songs.append(_Slot(clusters=[cluster], time=cluster["start"]))
+    weak = [c for c in clusters if c["strength"] == "weak" and not _echoes(songs, c)]
+    return _stretches(songs, total, weak, unplaced, between=True, opening=True)
 
 
 # Tracks
@@ -1039,21 +1103,32 @@ def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> li
     return tracks
 
 
+def _hearing(tracks: list[dict], total: float | None) -> tuple[float, list[dict]]:
+    """Seconds where the audio heard the song a track names (or an ID's likely song), and the
+    stretches of GAP_SECONDS or more where it heard none, whatever a listing names there."""
+    spans = []
+    for track in tracks:
+        heard = [e for e in track["evidence"] if e["source"] == "audio"]
+        # An ID's likely song was heard there too, though it is not the ID's name.
+        heard += [
+            c for c in track["candidates"] if c["source"] == "audio" and c["strength"] != "weak"
+        ]
+        spans += [(e["at"], e["until"]) for e in heard]
+    seconds, gaps, edge = 0.0, [], 0.0
+    for start, end in sorted(spans):
+        end = min(end, total) if total is not None else end
+        if start - edge >= GAP_SECONDS:
+            gaps.append({"start": edge, "end": start})
+        seconds += max(end - max(start, edge), 0.0)
+        edge = max(edge, end)
+    if total is not None and total - edge >= GAP_SECONDS:
+        gaps.append({"start": edge, "end": total})
+    return round(seconds, 1), gaps
+
+
 def _coverage(tracks: list[dict], total: float | None) -> dict:
     named = [track for track in tracks if track["kind"] == "named"]
-    gaps, edge, unknown = [], 0.0, False
-    for track in tracks:
-        if track["start"] is None:
-            continue
-        if track["kind"] == "unknown":
-            unknown = True
-            continue
-        if track["start"] > edge and (unknown or track["start"] - edge >= GAP_SECONDS):
-            gaps.append({"start": edge, "end": track["start"]})
-        edge = max(edge, track["end"] if track["end"] is not None else track["start"])
-        unknown = False
-    if total is not None and total > edge and (unknown or total - edge >= GAP_SECONDS):
-        gaps.append({"start": edge, "end": total})
+    heard, gaps = _hearing(tracks, total)
     return {
         "duration": total,
         "seconds_identified": sum(
@@ -1061,6 +1136,7 @@ def _coverage(tracks: list[dict], total: float | None) -> dict:
             for track in named
             if track["start"] is not None and track["end"] is not None
         ),
+        "seconds_heard": heard,
         "tracks": len(tracks),
         "named": len(named),
         "unknown": len(tracks) - len(named),
@@ -1131,11 +1207,16 @@ def build_tracklist(
     takes the heard song's start and keeps its own nicer label. Listed songs nobody heard get
     a time between their neighbours (``approx``). Songs heard in 2+ windows that no listing
     names fill the nearest listed ID in their stretch ("likely"), disagree with a listed song
-    there ("conflict", 3+ windows) or become tracks of their own. Stretches of 90 s or more
-    where nothing was heard or listed become IDs.
+    there ("conflict", 3+ windows) or become tracks of their own. The listing says what plays,
+    so a stretch where nothing was heard belongs to the track before it; only an opening of
+    3 minutes or more that the listing leaves out becomes an ID. Without a listing, stretches
+    of 3 minutes or more where nothing was heard become IDs, unless the song before them is
+    heard again after them.
 
     Returns ``{"tracks", "coverage", "sources", "unplaced"}``; ``unplaced`` holds songs heard
-    once that fit no ID.
+    once that fit no ID. ``coverage`` keeps the seconds inside named tracks
+    (``seconds_identified``) apart from those where the audio heard the song placed there
+    (``seconds_heard``); ``gaps`` are the stretches of 90 s or more where it heard none.
     """
     clusters = [_cluster(run) for run in _fold(_runs(probes, window, stride))]
     total = _number(duration)

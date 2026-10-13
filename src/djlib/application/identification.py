@@ -999,9 +999,12 @@ def summary(result: dict) -> dict:
     source = result.get("source") or {}
     duration = coverage.get("duration") or source.get("duration_seconds")
     identified = coverage.get("seconds_identified") or 0
-    percent = None
+    heard = coverage.get("seconds_heard")  # None in a tracklist merged before it was kept
+    percent = percent_heard = None
     if isinstance(duration, int | float) and duration > 0:
         percent = min(100, round(100 * identified / duration))
+        if isinstance(heard, int | float):
+            percent_heard = min(100, round(100 * heard / duration))
     listed = [
         entry
         for entry in tracklist.get("sources") or []
@@ -1015,6 +1018,8 @@ def summary(result: dict) -> dict:
             "duration_seconds": duration,
             "seconds_identified": identified,
             "percent": percent,
+            "seconds_heard": heard,
+            "percent_heard": percent_heard,
             "gaps": [
                 {"start": _clock(gap.get("start")), "end": _clock(gap.get("end"))}
                 for gap in coverage.get("gaps") or []

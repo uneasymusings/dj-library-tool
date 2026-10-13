@@ -1,7 +1,9 @@
 """One tracklist from audio recognition, published tracklists and comments.
 
 The regression data is a real scan of a 62-minute Keinemusik set: Shazam on a 12 s window
-every 30 s (tests/data/keinemusik-scan.jsonl) and the set's published description.
+every 30 s (tests/data/keinemusik-scan.jsonl) and the set's published description. A later
+live run of `djlib identify` on the same show (keinemusik-live-probes.jsonl: 124 windows, then
+33 more where songs change) comes with the upload's whole description.
 """
 
 import json
@@ -18,6 +20,7 @@ from djlib.application.set_identification import (
     segments,
     tracklist_text,
 )
+from djlib.application.source_matching import tracklist_from_source
 from djlib.application.tracklists import parse_tracklist
 from djlib.domain.request_contracts import RequestCreate
 
@@ -25,6 +28,8 @@ DATA = Path(__file__).parent / "data"
 SET_LENGTH = 62 * 60
 SET_URL = "https://www.youtube.com/watch?v=keinemusik"
 SINGLE_WINDOW = {"Slacker", "128 MB of Netsex", "Taj", "People Say (Tech House Edit)"}
+LIVE_LENGTH = 3729.121
+LIVE_URL = "https://www.youtube.com/watch?v=cmgN8X7Pp_0"
 
 
 def scan_probes() -> list[dict]:
@@ -91,6 +96,21 @@ def keinemusik() -> dict:
 @pytest.fixture(scope="module")
 def keinemusik_heard_only() -> dict:
     return build_tracklist(duration=SET_LENGTH, probes=scan_probes(), listed=[])
+
+
+def live_probes() -> list[dict]:
+    rows = (DATA / "keinemusik-live-probes.jsonl").read_text(encoding="utf-8").splitlines()
+    return [json.loads(row) for row in rows]
+
+
+def live_listing() -> dict:
+    """The upload's description as the identification reads it."""
+    text = (DATA / "keinemusik-live-description.txt").read_text(encoding="utf-8")
+    return listed_tracklist("description", tracklist_from_source(text, []), LIVE_URL)
+
+
+def live_run(listed: list[dict]) -> dict:
+    return build_tracklist(duration=LIVE_LENGTH, probes=live_probes(), listed=listed, stride=30)
 
 
 def test_a_second_listen_between_windows_never_counts_as_a_window():
@@ -211,15 +231,22 @@ def test_keinemusik_set_with_its_description(keinemusik):
         "Taj",
         "People Say (Tech House Edit)",
     }
+    # Named is not heard: nothing was heard of the opening ID, Deixa Passar, or from Back To
+    # Life until the 48:30 ID's likely song.
     assert keinemusik["coverage"] == {
         "duration": 3720.0,
         "seconds_identified": 3180.0,
+        "seconds_heard": 2238.0,
         "tracks": 13,
         "named": 11,
         "unknown": 2,
         "from_audio": 8,
         "from_text": 13,
-        "gaps": [{"start": 0.0, "end": 360.0}, {"start": 2910.0, "end": 3090.0}],
+        "gaps": [
+            {"start": 0.0, "end": 360.0},
+            {"start": 1302.0, "end": 1560.0},
+            {"start": 2352.0, "end": 3030.0},
+        ],
     }
     audio, listed = keinemusik["sources"]
     assert (audio["windows"], audio["matched"], audio["errors"], audio["songs"]) == (124, 83, 0, 9)
@@ -312,6 +339,130 @@ def test_tracklist_text_reads_back_the_same(which, request):
         duration=SET_LENGTH, probes=scan_probes(), listed=[listing("file", text)]
     )
     assert [t["title"] for t in again["tracks"]] == [t["title"] for t in result["tracks"]]
+
+
+def test_keinemusik_live_run_keeps_to_the_description():
+    """The live run listed 17 tracks for the description's 13: four "IDs" where Shazam could
+    not lock on, between two listed songs or after the last one."""
+    result = live_run([live_listing()])
+    tracks = result["tracks"]
+    # Shazam heard Inner Wars from 12:54, Wish I Didn't Miss You from 56:54 (and its sample,
+    # Angie Stone's original), with song offsets out of line; the live run started them at
+    # 13:54 and 58:09.
+    assert summary(tracks) == [
+        ("00:00", "ID", "unidentified", False),
+        ("05:39", "Mirage", "confirmed", False),
+        ("12:54", "Inner Wars", "confirmed", False),
+        ("16:54", "Bad Love", "confirmed", False),
+        ("21:40", "Deixa Passar", "likely", False),
+        ("26:09", "Corpo e Canção", "confirmed", False),
+        ("31:39", "Stay", "confirmed", False),
+        ("34:39", "Emotions", "confirmed", False),
+        ("39:00", "Back To Life", "likely", False),
+        ("43:40", "One Step At The Time", "likely", False),
+        ("48:30", "ID", "weak", False),
+        ("51:24", "Celebration", "confirmed", False),
+        ("56:54", "Wish I Didn't Miss You", "confirmed", False),
+    ]
+    late_id = tracks[10]
+    assert [(c["artist"], c["title"], clock(c["at"])) for c in late_id["candidates"]] == [
+        ("Chris Fortier & Neil Kolo", "All I Got", "50:09"),
+        ("BR1S4", "THIS IS BRAZIL", "51:09"),
+    ]
+    # Songs heard once between Celebration and Wish I Didn't Miss You are no ID of their own.
+    assert [(u["title"], clock(u["at"])) for u in result["unplaced"]] == [
+        ("U Sure Do", "55:39"),
+        ("New Millenium (feat. Topazz)", "55:54"),
+        ("Salva Mea", "56:09"),
+        ("All I Got", "56:24"),
+        ("THIS IS BRAZIL", "56:39"),
+    ]
+    # Named is not heard: the opening ID, Deixa Passar, and Back To Life to Celebration.
+    coverage = result["coverage"]
+    assert coverage["gaps"] == [
+        {"start": 0.0, "end": 339.0},
+        {"start": 1296.0, "end": 1569.0},
+        {"start": 2376.0, "end": 3084.0},
+    ]
+    assert (round(coverage["seconds_identified"]), coverage["seconds_heard"]) == (3216, 2301.0)
+    assert (coverage["named"], coverage["unknown"], coverage["from_audio"]) == (11, 2, 8)
+    items = request_items(result, LIVE_URL)
+    assert len(valid_request(items).items) == 13
+    assert [item["kind"] for item in items].count("unknown") == 2
+    text = tracklist_text(result)
+    assert text.splitlines()[-1] == "[56:54] Antdot & Mozambo - Wish I Didn't Miss You"
+    assert [t["title"] for t in live_run([listing("file", text)])["tracks"]] == [
+        t["title"] for t in tracks
+    ]
+
+
+def test_keinemusik_live_stretches_nobody_heard_stay_with_the_song_before():
+    """The live run's four "IDs", as if Shazam had heard nothing of the songs there."""
+    quiet = [(711, 834), (921, 1014), (3291, 3489), (3591, LIVE_LENGTH)]
+    songs = ("Mirage", "Inner Wars", "Celebration", "Wish I Didn't Miss You")
+    probes = []
+    for probe in live_probes():
+        match = probe["match"]
+        if match and any(a <= probe["at"] < b for a, b in quiet):
+            match = None if any(title in match["title"] for title in songs) else match
+        probes.append({**probe, "match": match})
+    result = build_tracklist(
+        duration=LIVE_LENGTH, probes=probes, listed=[live_listing()], stride=30
+    )
+    tracks = result["tracks"]
+    assert [(clock(t["start"]), t["title"] or "ID") for t in tracks] == [
+        ("00:00", "ID"),
+        ("05:39", "Mirage"),
+        ("13:54", "Inner Wars"),
+        ("16:54", "Bad Love"),
+        ("21:40", "Deixa Passar"),
+        ("26:09", "Corpo e Canção"),
+        ("31:39", "Stay"),
+        ("34:39", "Emotions"),
+        ("39:00", "Back To Life"),
+        ("43:40", "One Step At The Time"),
+        ("48:30", "ID"),
+        ("51:24", "Celebration"),
+        ("58:09", "Wish I Didn't Miss You"),
+    ]
+    assert (tracks[-1]["end"], tracks[10]["candidates"][0]["title"]) == (LIVE_LENGTH, "All I Got")
+    # Still not heard, and said so.
+    assert [(clock(g["start"]), clock(g["end"])) for g in result["coverage"]["gaps"]] == [
+        ("00:00", "05:39"),
+        ("11:51", "13:54"),
+        ("15:21", "16:54"),
+        ("21:36", "26:09"),
+        ("39:36", "51:24"),
+        ("54:51", "58:09"),
+        ("59:51", "1:02:09"),
+    ]
+
+
+def test_keinemusik_live_run_heard_without_a_tracklist():
+    """Only the long stretches nobody heard are IDs: the opening, Deixa Passar, and Back To
+    Life to Celebration (two songs and the 48:30 ID)."""
+    result = live_run([])
+    assert [(clock(t["start"]), t["title"] or "ID", t["status"]) for t in result["tracks"]] == [
+        ("00:00", "ID", "unidentified"),
+        ("05:39", "Mirage", "confirmed"),
+        ("12:54", "Inner Wars (feat. Rona Ray)", "confirmed"),
+        ("16:54", "Bad Love", "confirmed"),
+        ("21:36", "ID", "unidentified"),
+        ("26:09", "Corpo e Canção", "confirmed"),
+        ("31:39", "Stay", "confirmed"),
+        ("34:39", "Emotions", "confirmed"),
+        ("39:36", "ID", "weak"),
+        ("51:24", "Celebration", "confirmed"),
+        ("56:54", "Wish I Didn't Miss You", "confirmed"),
+    ]
+    assert result["coverage"]["gaps"] == [
+        {"start": 0.0, "end": 339.0},
+        {"start": 1296.0, "end": 1569.0},
+        {"start": 2376.0, "end": 3084.0},
+    ]
+    long_id = result["tracks"][8]
+    assert [c["title"] for c in long_id["candidates"]] == ["All I Got", "THIS IS BRAZIL"]
+    assert len(valid_request(request_items(result, LIVE_URL)).items) == 11
 
 
 def test_listed_tracklist_keeps_the_times_on_named_lines():
@@ -440,7 +591,9 @@ def test_song_offsets_out_of_line_do_not_count():
     steady = [heard(at, "Lumen", "Halo", track_id="1", song_offset=at + 20) for at in (0, 30, 60)]
     jumped = heard(90, "Lumen", "Halo", track_id="1", song_offset=300)
     (halo,) = segments([*steady, jumped])
-    assert (halo["hits"], halo["inconsistent"], halo["end"]) == (3, 1, 72.0)
+    # The song was still playing there (a loop, a repeated part): it counts for the time only.
+    assert (halo["hits"], halo["inconsistent"], halo["end"]) == (3, 1, 102.0)
+    assert halo["times"] == [0.0, 30.0, 60.0]
     disagree = [
         heard(0, "Lumen", "Halo", song_offset=20),
         heard(30, "Lumen", "Halo", song_offset=200),
@@ -490,26 +643,115 @@ def test_no_audio_keeps_the_listing_with_approximate_times():
     assert nothing["coverage"]["duration"] is None and tracklist_text(nothing) == ""
 
 
-def test_stretches_nobody_heard_or_listed_are_ids():
+def test_a_long_stretch_nobody_heard_is_an_id_only_without_a_listing():
     probes = [
         *song(0, 6, "Lumen", "Halo"),
         *map(silence, range(180, 1380, 30)),
         *song(1380, 6, "Ana", "Rain"),
     ]
     probes[20] = heard(600, "Bo", "Snow")
+    result = build_tracklist(duration=1600, probes=probes)
+    tracks = result["tracks"]
+    assert [(t["start"], t["end"], t["title"]) for t in tracks] == [
+        (0.0, 162.0, "Halo"),
+        (162.0, 1380.0, None),
+        (1380.0, 1600.0, "Rain"),
+    ]
+    assert [c["title"] for c in tracks[1]["candidates"]] == ["Snow"]
+    coverage = result["coverage"]
+    assert coverage["gaps"] == [{"start": 162.0, "end": 1380.0}]
+    assert (coverage["seconds_identified"], coverage["seconds_heard"]) == (382.0, 324.0)
+    assert coverage["unknown"] == 1
+    # The listing says Rain follows Halo, so the stretch is Halo's, and still not heard. A song
+    # heard once there fits no listed ID.
     listed = listing("description", "Lumen - Halo", "Ana - Rain")
-    for tracklists in ([listed], []):
-        result = build_tracklist(duration=1600, probes=probes, listed=tracklists)
-        tracks = result["tracks"]
-        assert [(t["start"], t["end"], t["title"]) for t in tracks] == [
-            (0.0, 162.0, "Halo"),
-            (162.0, 1380.0, None),
-            (1380.0, 1600.0, "Rain"),
+    result = build_tracklist(duration=1600, probes=probes, listed=[listed])
+    assert [(t["start"], t["end"], t["title"]) for t in result["tracks"]] == [
+        (0.0, 1380.0, "Halo"),
+        (1380.0, 1600.0, "Rain"),
+    ]
+    assert [u["title"] for u in result["unplaced"]] == ["Snow"]
+    coverage = result["coverage"]
+    assert coverage["gaps"] == [{"start": 162.0, "end": 1380.0}]
+    assert (coverage["seconds_identified"], coverage["seconds_heard"]) == (1600.0, 324.0)
+    assert coverage["unknown"] == 0
+
+
+def test_without_a_listing_a_short_stretch_is_the_song_before_ending():
+    def heard_with_quiet(windows: int) -> list[dict]:
+        quiet = 180 + 30 * windows
+        return [
+            *song(0, 6, "Lumen", "Halo"),
+            *map(silence, range(180, quiet, 30)),
+            *song(quiet, 6, "Ana", "Rain"),
         ]
-        assert [c["title"] for c in tracks[1]["candidates"]] == ["Snow"]
-        coverage = result["coverage"]
-        assert coverage["gaps"] == [{"start": 162.0, "end": 1380.0}]
-        assert (coverage["seconds_identified"], coverage["unknown"]) == (382.0, 1)
+
+    # Five windows (2:48) where nothing was heard: Halo's breakdown or outro, not a song.
+    result = build_tracklist(probes=heard_with_quiet(5))
+    assert summary(result["tracks"]) == [
+        ("00:00", "Halo", "confirmed", False),
+        ("05:30", "Rain", "confirmed", False),
+    ]
+    coverage = result["coverage"]
+    assert coverage["gaps"] == [{"start": 162.0, "end": 330.0}]
+    assert (coverage["seconds_identified"], coverage["seconds_heard"]) == (492.0, 324.0)
+    # Six (3:18) is long enough to be a song nobody recognized.
+    result = build_tracklist(probes=heard_with_quiet(6))
+    assert summary(result["tracks"])[1] == ("02:42", "ID", "unidentified", False)
+    # Nor is it a song when Halo is heard again after it: Halo was still playing.
+    again = [*song(0, 6, "Lumen", "Halo"), *map(silence, range(180, 600, 30))]
+    again += [*song(600, 4, "Lumen", "Halo"), *song(720, 6, "Ana", "Rain")]
+    result = build_tracklist(probes=again)
+    assert summary(result["tracks"]) == [
+        ("00:00", "Halo", "confirmed", False),
+        ("12:00", "Rain", "confirmed", False),
+    ]
+    assert [e["at"] for e in result["tracks"][0]["evidence"]] == [0.0, 600.0]
+    assert result["coverage"]["gaps"] == [{"start": 162.0, "end": 600.0}]
+
+
+def test_with_a_listing_only_an_opening_it_leaves_out_is_an_id():
+    probes = [*map(silence, range(0, 300, 30)), *song(300, 6, "Lumen", "Halo")]
+    probes += song(480, 6, "Ana", "Rain")
+    untimed = listing("description", "Lumen - Halo", "Ana - Rain")
+    result = build_tracklist(duration=660, probes=probes, listed=[untimed])
+    assert summary(result["tracks"]) == [
+        ("00:00", "ID", "unidentified", False),
+        ("05:00", "Halo", "confirmed", False),
+        ("08:00", "Rain", "confirmed", False),
+    ]
+    # A listing that starts at 00:00 says the first song is the opening.
+    timed = listing("description", "[00:00] Lumen - Halo", "Ana - Rain")
+    result = build_tracklist(duration=660, probes=probes, listed=[timed])
+    assert [t["title"] for t in result["tracks"]] == ["Halo", "Rain"]
+    assert result["coverage"]["gaps"] == [{"start": 0.0, "end": 300.0}]
+    # So does a first song heard less than three minutes in.
+    sooner = [*map(silence, range(0, 150, 30)), *song(150, 6, "Lumen", "Halo")]
+    sooner += song(330, 6, "Ana", "Rain")
+    result = build_tracklist(duration=650, probes=sooner, listed=[untimed])
+    assert [t["title"] for t in result["tracks"]] == ["Halo", "Rain"]
+    assert result["tracks"][0]["start"] == 150.0
+
+
+def test_a_song_heard_once_that_names_a_neighbour_is_that_song():
+    """A sample or another version of the track before or after it is no other song."""
+    probes = [
+        *song(0, 6, "Lumen", "Halo"),
+        *map(silence, (180, 210, 240, 270)),
+        heard(300, "Angie Stone", "Wish I Didn't Miss You"),
+        *map(silence, (330, 360, 390, 420)),
+        *song(450, 6, "Mozambo & Antdot", "Wish I Didn't Miss You"),
+    ]
+    probes += map(silence, range(630, 1200, 30))
+    for tracklists in ([listing("description", "Lumen - Halo", "[07:30] ID - ID")], []):
+        result = build_tracklist(duration=1200, probes=probes, listed=tracklists)
+        candidates = [c["artist"] for t in result["tracks"] for c in t["candidates"]]
+        assert "Angie Stone" not in candidates and result["unplaced"] == []
+    # Another song heard once there is still a candidate for the ID nothing was heard in.
+    probes[10] = heard(300, "Bo", "Snow")
+    result = build_tracklist(duration=1200, probes=probes)
+    assert summary(result["tracks"])[1] == ("02:42", "ID", "weak", False)
+    assert [c["title"] for c in result["tracks"][1]["candidates"]] == ["Snow"]
 
 
 def test_single_window_songs_alone_make_one_id():
@@ -542,15 +784,17 @@ def test_each_listed_id_takes_the_song_heard_nearest_it():
         *song(660, 4, "Ana", "Rain"),
     ]
     listed = listing("description", "Lumen - Halo", "[10:00] ID - ID", "Ana - Rain")
-    tracks = build_tracklist(duration=800, probes=probes, listed=[listed])["tracks"]
+    result = build_tracklist(duration=800, probes=probes, listed=[listed])
+    tracks = result["tracks"]
+    # The listing goes from Halo to the 10:00 ID: nothing heard from 04:12 is no other ID.
     assert summary(tracks) == [
         ("00:00", "Halo", "confirmed", False),
         ("02:30", "Sky", "confirmed", False),
-        ("04:12", "ID", "unidentified", False),
         ("10:00", "ID", "likely", False),
         ("11:00", "Rain", "confirmed", False),
     ]
-    assert [c["title"] for c in tracks[3]["candidates"]] == ["Snow"]
+    assert [c["title"] for c in tracks[2]["candidates"]] == ["Snow"]
+    assert result["coverage"]["gaps"] == [{"start": 252.0, "end": 600.0}]
     # IDs listed without a time take the songs heard in order, and their times.
     probes = [
         *song(0, 4, "Lumen", "Halo"),
@@ -572,6 +816,20 @@ def test_each_listed_id_takes_the_song_heard_nearest_it():
     assert [t["candidates"][0]["title"] for t in tracks[1:3]] == ["Sky", "Snow"]
 
 
+def test_an_ids_songs_heard_once_while_it_plays_come_first():
+    probes = [*song(0, 4, "Lumen", "Halo"), *map(silence, range(120, 900, 30))]
+    probes += song(900, 4, "Ana", "Rain")
+    probes[6], probes[21] = heard(180, "Bo", "Snow"), heard(630, "Kettama", "Sky")
+    listed = listing("description", "Lumen - Halo", "[10:00] ID - ID", "Ana - Rain")
+    result = build_tracklist(duration=1020, probes=probes, listed=[listed])
+    late_id = result["tracks"][1]
+    assert (clock(late_id["start"]), late_id["status"]) == ("10:00", "weak")
+    assert [(c["title"], clock(c["at"])) for c in late_id["candidates"]] == [
+        ("Sky", "10:30"),
+        ("Snow", "03:00"),
+    ]
+
+
 def test_a_song_heard_far_from_the_listed_id_stays_a_track():
     # Q-Force's Slacker, heard once at 40:00, now heard for three windows.
     probes = scan_probes()
@@ -585,15 +843,15 @@ def test_a_song_heard_far_from_the_listed_id_stays_a_track():
     result = build_tracklist(
         duration=SET_LENGTH, probes=probes, listed=[listing("description", shorter)]
     )
+    # Nothing heard from 41:12 is still Slacker: the listing's next song is the 48:30 ID.
     assert summary(result["tracks"])[7:] == [
         ("35:00", "Emotions", "confirmed", False),
         ("40:00", "Slacker", "confirmed", False),
-        ("41:12", "ID", "unidentified", False),
         ("48:30", "ID", "likely", False),
         ("51:30", "Celebration", "confirmed", False),
         ("57:00", "Wish I Didn't Miss You", "confirmed", False),
     ]
-    late_id = result["tracks"][10]
+    late_id = result["tracks"][9]
     assert [(c["title"], c["strength"]) for c in late_id["candidates"]] == [
         ("All I Got", "medium"),
         ("128 MB of Netsex", "weak"),
