@@ -507,6 +507,7 @@ def job_headline(kind: str, job: dict) -> str:
             "delivery": "Working copies prepared",
             "delivery_check": "Delivery check recorded",
             "reconcile": "Changes reconciled",
+            "identify": "Set identified",
         }.get(kind, f"{JOB_LABELS.get(kind, humanize(kind)).split(' ', 1)[0]} finished")
     if job.get("outcome") == "completed_with_gaps":
         gaps = [f"{counts[state]} {state}" for state in ("failed", "skipped") if counts.get(state)]
@@ -572,6 +573,14 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
     if not isinstance(result, dict):
         return []
     rows: list[tuple[str, object]] = []
+    if kind == "identify" and isinstance(result.get("tracklist"), dict):
+        tracks = len(result["tracklist"].get("tracks") or [])
+        counts = identified_counts(result.get("counts") or {})
+        rows += [
+            ("Set", Text((result.get("source") or {}).get("title") or "")),
+            ("Tracklist", Text(plural(tracks, "track")).append(f"  {counts}", style="muted")),
+            ("Saved to", path_text(result.get("tracklist_file"))),
+        ]
     if kind == "export":
         rows += [
             ("Tracks", result.get("track_count")),
@@ -642,7 +651,9 @@ def job_next_steps(
     elif state == "failed":
         steps.append(("Try again", retry))
     if state == "completed":
-        if kind == "scan":
+        if kind == "identify" and (result.get("source") or {}).get("url"):
+            steps.append(("Check it against your music", ("set", result["source"]["url"])))
+        elif kind == "scan":
             steps.append(("Browse your library", ("library",)))
             steps.append(("Check a set's tracklist against it", ("set", "TRACKLIST.txt")))
         elif result.get("collection_id"):
@@ -1995,6 +2006,123 @@ def shazam_list(term: Terminal, result: dict) -> None:
                 more[2:2] = [f"--{option}", str(query[option])]
         more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
     next_steps(term, [("Check them against your music", ("set", result.get("spec") or "shazam"))])
+
+
+# -- identify ----------------------------------------------------------------------------------
+
+# Track status → (glyph, tone, label): how sure djlib is of each line of a tracklist.
+TRACK_STATUSES = {
+    "confirmed": ("ok", "ok", "confirmed"),
+    "likely": ("run", "info", "likely"),
+    "weak": ("warn", "warn", "weak"),
+    "conflict": ("bad", "bad", "conflict"),
+    "unidentified": ("todo", "todo", "unidentified"),
+}
+
+
+def identified_counts(counts: dict) -> str:
+    """ "8 confirmed, 4 likely, 1 unidentified" (statuses with none are left out)."""
+    return ", ".join(
+        f"{counts[status]} {status}" for status in TRACK_STATUSES if counts.get(status)
+    )
+
+
+def provider_name(value: str | None) -> str:
+    """ "YouTube" for yt-dlp's "Youtube" (or "YoutubeTab"), "SoundCloud" for "Soundcloud"."""
+    name = (value or "").removesuffix("Tab")
+    return {"Youtube": "YouTube", "Soundcloud": "SoundCloud"}.get(name, name)
+
+
+def identified_track(term: Terminal, track: dict) -> Text:
+    """A named track, or "ID — likely X": a candidate is never shown as the ID's name."""
+    if track.get("kind") != "unknown":
+        return track_label(track)
+    text = Text("ID", style="heading")
+    candidates = track.get("candidates") or []
+    if candidates:
+        best = candidates[0]
+        word = "likely" if track.get("status") == "likely" else "maybe"
+        if best.get("source") == "comments":
+            word = "listeners say"
+        dash = "—" if term.unicode else "-"
+        text.append(f" {dash} {word} {best.get('label') or ''}", style="muted")
+    return text
+
+
+def recognizer_name(name: str) -> str:
+    return {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}.get(name, name)
+
+
+@view("identify")
+def identify_view(term: Terminal, result: dict) -> None:
+    source = result.get("source") or {}
+    counts = result.get("counts") or {}
+    coverage = result.get("coverage") or {}
+    subtitle = " · ".join(
+        part for part in (provider_name(source.get("provider")), result.get("duration")) if part
+    )
+    header(term, source.get("title") or source.get("url") or "Set", subtitle)
+    tracks = result.get("tracks") or []
+    percent = coverage.get("percent")
+    named = Text(f"{plural(int(counts.get('tracks') or len(tracks)), 'track')}")
+    if percent is not None:
+        named.append(f", {percent}% of the set named")
+    if detail := identified_counts(counts):
+        named.append(f"  {detail}", style="muted")
+    recognizer = result.get("recognizer") or {}
+    heard_by = None
+    if recognizer.get("name"):
+        heard_by = Text(recognizer_name(recognizer["name"]))
+        if not recognizer.get("licensed"):
+            heard_by.append("  unofficial; may slow down or stop working", style="muted")
+        if result.get("reused"):
+            heard_by.append("  (saved from an earlier listen)", style="muted")
+    fields(
+        term,
+        [
+            ("Tracklist", named),
+            ("Heard by", heard_by),
+            ("Saved to", path_text(result.get("tracklist_file"))),
+        ],
+    )
+    if tracks:
+        term.out.print()
+        grid = table(
+            ("#", {"justify": "right", "style": "muted"}),
+            ("Time", {}),
+            ("Status", {"min_width": 12}),
+            ("Track", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+            ("Why", {"overflow": "ellipsis", "drop": 1, "style": "muted"}),
+        )
+        for track in tracks:
+            glyph, tone, label = TRACK_STATUSES.get(
+                track.get("status") or "", ("todo", "todo", track.get("status") or "")
+            )
+            start = track.get("start") or ""
+            grid.add_row(
+                str(track.get("n") or ""),
+                Text(f"~{start}" if track.get("approx") and start else start, style=""),
+                marked(term, glyph, label, tone),
+                identified_track(term, track),
+                track.get("evidence") or "",
+            )
+        term.out.print(grid)
+    unplaced = result.get("unplaced") or []
+    if unplaced:
+        term.out.print()
+        shown = "; ".join(f"{song['label']} @ {song.get('at') or '?'}" for song in unplaced[:5])
+        more = f" and {len(unplaced) - 5} more" if len(unplaced) > 5 else ""
+        note(term, f"Heard once, not placed: {shown}{more}.")
+    term.out.print()
+    note(term, "Likely and weak lines are worth a listen; an ID's candidates are guesses.")
+    if result.get("reused"):
+        note(term, "Reused the earlier listen; --again listens to the set again.")
+    url = source.get("url") or "LINK"
+    steps: list[Step] = [("Check it against your music", ("set", url))]
+    if any("--tracklist" in step for step in result.get("next") or []):
+        tracklist = ("identify", url, "--tracklist", "FILE")
+        steps.append(("Add a tracklist, e.g. from 1001Tracklists", tracklist))
+    next_steps(term, steps)
 
 
 @view("rekordbox sync")

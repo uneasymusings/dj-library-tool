@@ -46,7 +46,7 @@ from djlib.application.set_identification import (
     tracklist_text,
 )
 from djlib.application.source_matching import tracklist_from_source
-from djlib.application.tracklists import SEPARATOR
+from djlib.application.tracklists import HEADING, SEPARATOR
 from djlib.audio import windows
 from djlib.domain.contracts import IdentifyRequest
 from djlib.domain.errors import AppError
@@ -71,7 +71,7 @@ KEEP_AUDIO_ENV = "DJLIB_KEEP_SET_AUDIO"
 RESUMABLE = frozenset({"RECOGNITION_RATE_LIMITED", "RECOGNITION_UNAVAILABLE"})
 STATUSES = ("confirmed", "likely", "weak", "conflict", "unidentified")
 SET_HOSTS = ("youtube.com", "youtu.be", "soundcloud.com")
-YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 NOTICE_FILE = "notices.json"
 INSTALLER = (
     "curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh"
@@ -692,7 +692,10 @@ class IdentifyRunner:
         if chapters and not _same_lines(chapters, description):
             listed.append(listed_tracklist("chapters", chapters, url))
         skipped = [
-            {"source": source["source"], **line} for source in listed for line in source["skipped"]
+            {"source": source["source"], **line}
+            for source in listed
+            for line in source["skipped"]
+            if line["reason"] != HEADING  # the set's name above its tracklist
         ][:50]
         listed = [source for source in listed if source["entries"]]
         if not isinstance(duration, int | float) or duration <= 0:
