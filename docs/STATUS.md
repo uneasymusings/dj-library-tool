@@ -1,5 +1,16 @@
 # Implementation status
 
+## Unreleased
+
+Adds set identification (`djlib identify LINK`, `djlib_identify_set`, and `djlib set LINK` listening when a set's tracklist is missing or has IDs) and Shazam history (`djlib set shazam[:new|DATE|apple-music|PATH]`, `djlib shazam status|list`, `djlib_shazam_history`), with song recognition installed by default on Python 3.12. See the [changelog](../CHANGELOG.md#unreleased).
+
+Evidence so far:
+- **A real set, replayed.** A 62-minute Keinemusik set (Antdot & Maz at Cercle) was scanned with Shazam during development, one 12-second window every 30 s, and that scan is test data. Replayed through the identification job with the set's description, it gives 13 tracks with 85% of the set named: 8 confirmed (e.g. Antdot – Mirage at 06:00, from 11 windows and the description), 4 likely and the opening ID unidentified. The ID at 48:30 stays an ID, likely Chris Fortier & Neil Kolo – All I Got (Chris Fortier 20yr Dub), heard in 2 windows, and three songs heard once stay out of the tracklist. Two engine faults found this way are fixed: windows from the gap check counted as full windows, and a description that times only its IDs lost its other tracks.
+- **Install.** The wheel built from this branch installs with `uv tool install --python 3.12 'dj-library-tool[download,recognize] @ …'` (Python 3.12.12, `shazamio` imports); `djlib doctor` shows “✓ Song recognition Shazam, unofficial”; against a scratch workspace and its own background service, `djlib identify` on a 1001Tracklists link answers `SOURCE_BROWSER_ONLY`.
+- **Tests.** Recognition, merging, the identify job (restart, pause and cancel, rate limits, SoundCloud previews), `djlib identify`, `djlib set` listening and its fallbacks, the MCP tools and the Shazam history readers run against fakes; no test reaches a real service.
+
+Not verified yet: a live identification of a YouTube or SoundCloud set end to end with this code (download, Shazam, merge), and AudD and ACRCloud against their real services. Local validation: see the release notes.
+
 ## 0.1.0a14
 
 Fixes from a second end-to-end plugin test on the user's Mac (rekordbox 7.2.19, stick RICARDO_AM), whose USB step timed out three times, imported a duplicate “Name (3)” playlist and then stopped on `APP_MENU_DISABLED`; `--fetch` chose the official Phoenix – Lasso upload, which had become DRM-only, and did not fall back; and the assistant's MCP tools broke after an engine update. Root causes and fixes are in the [changelog](../CHANGELOG.md#010a14). Live on 2026-10-07 with the 0.1.0a14 code:
@@ -174,6 +185,6 @@ Do not call the milestone ready for unattended personal-library use until the de
 
 ## Still planned
 
-Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation/acoustic recognition; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
+Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation (blends, repeats, edits) beyond the unreleased set identification; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
 
 See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria. No frontend has started.
