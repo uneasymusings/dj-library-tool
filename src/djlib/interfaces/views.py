@@ -1994,7 +1994,8 @@ def shazam_list(term: Terminal, result: dict) -> None:
             if query.get(option):
                 more[2:2] = [f"--{option}", str(query[option])]
         more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
-    next_steps(term, [("Check them against your music", ("set", result.get("spec") or "shazam"))])
+    if result.get("spec"):  # none for a file or Apple Music with --since (see the warning)
+        next_steps(term, [("Check them against your music", ("set", result["spec"]))])
 
 
 @view("rekordbox sync")

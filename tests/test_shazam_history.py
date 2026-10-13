@@ -848,6 +848,18 @@ def test_shazam_status_and_list(application, home, tmp_path):
     newest = json.loads(invoke(workspace, "shazam", "list", "--from", mixed, "--limit", "1").stdout)
     assert titles(newest["result"]["records"]) == ["B"]
 
+    # set takes a file or a date, not both: never offer a command for a different list.
+    dated = invoke(workspace, "shazam", "list", "--from", mixed, "--since", "2026-10-01")
+    reply = json.loads(dated.stdout)
+    assert titles(reply["result"]["records"]) == ["B"] and reply["result"]["spec"] is None
+    assert "can't combine a file or Apple Music with a date" in reply["warnings"][0]
+    pretty = invoke(
+        workspace, "shazam", "list", "--from", mixed, "--since", "2026-10-01", pretty=True
+    ).output
+    assert "can't combine a file" in pretty and "set shazam" not in pretty
+    mac_only = json.loads(invoke(workspace, "shazam", "list", "--since", "2026-10-01").stdout)
+    assert mac_only["result"]["spec"] == "shazam:2026-10-01" and not mac_only["warnings"]
+
 
 def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     from djlib.native import rekordbox_mac
