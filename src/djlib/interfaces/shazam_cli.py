@@ -67,6 +67,10 @@ def describe(loaded: dict, songs: int) -> str:
 def set_request(spec: str, name: str | None, workspace) -> tuple:
     """(request body, warnings, summary) for ``djlib set shazam[:SPEC]``.
 
+    A list holds MAX_SONGS songs. From this Mac's history it takes the oldest and
+    ``summary["remaining"]`` newer ones come next with ``shazam:new``; from a file or Apple
+    Music it takes the newest and leaves out the ``remaining`` oldest.
+
     The summary goes into the set's result and, once the list exists, into
     ``shazam_history.remember_import`` so ``shazam:new`` starts after its newest song.
     """
@@ -105,7 +109,14 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     if not items:
         raise AppError("INPUT_INVALID", "None of these Shazams has both an artist and a title.")
     remaining = max(0, len(items) - MAX_SONGS)
-    items, used = items[:MAX_SONGS], used[:MAX_SONGS]
+    # shazam:new continues this Mac's history after a full list; nothing continues a file or
+    # Apple Music, so those keep their newest songs.
+    continues = source is None
+    left = [] if continues else used[:remaining]
+    if continues:
+        items, used = items[:MAX_SONGS], used[:MAX_SONGS]
+    else:
+        items, used = items[remaining:], used[remaining:]
     title = (name or loaded["name"])[:300]
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
     digest = hashlib.sha256(f"{title}\n{parsed}".encode()).hexdigest()[:16]
@@ -116,14 +127,27 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     ]
     if left_out:
         warnings.append(f"Left out {plural(left_out, 'Shazam')} without an artist or title.")
-    if remaining:
+    if remaining and continues:
         warnings.append(
             f"This list has your first {MAX_SONGS} Shazams; run djlib set shazam:new "
             f"afterwards for the other {remaining}."
         )
+    elif remaining:
+        if all(item["shazamed_at"] for item in left):
+            which = f"your {remaining} oldest Shazam{'s' if remaining != 1 else ''}"
+        else:
+            where = (
+                shazam_history.LABELS["apple_music"]
+                if source == shazam_history.APPLE_MUSIC
+                else Path(source).name
+            )
+            which = f"the first {plural(remaining, 'song')} in {where}"
+        warnings.append(f"A list holds {MAX_SONGS} songs, so this one leaves out {which}.")
     first_times = [item["shazamed_at"] for item in used if item["shazamed_at"]]
     # With songs left over, shazam:new continues after the last first Shazam in this list.
-    newest = max(first_times, default=None) if remaining else shazam_history.newest(used)
+    newest = (
+        max(first_times, default=None) if remaining and continues else shazam_history.newest(used)
+    )
     summary = {
         "name": title,
         "description": describe(loaded, len(items)),
