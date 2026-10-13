@@ -602,15 +602,23 @@ def test_no_history_explains_how_to_turn_on_sync(home, monkeypatch):
         shazam_history.load()
     error = missing.value
     assert error.code == "SHAZAM_HISTORY_NOT_FOUND"
-    for words in (
-        "Settings → [your name] → iCloud → turn on Shazam",
-        "System Settings → Apple Account → iCloud → See All",
-        "Music Recognition",
-        "Control Center",
-        "djlib set shazam:apple-music",
-        "djlib set shazam:BACKUP_OR_CSV",
+    # One step per line, numbered, so the terminal shows a list rather than a paragraph.
+    lines = error.message.splitlines()
+    assert lines[0] == "No Shazam history was found on this Mac. To bring your Shazams here:"
+    for line, words in zip(
+        lines[1:],
+        (
+            "1. On your iPhone: Settings → [your name] → iCloud → turn on Shazam / Music "
+            "Recognition",
+            "2. On this Mac: System Settings → Apple Account → iCloud → See All → turn on "
+            "Music Recognition",
+            "3. Open Control Center → Music Recognition once",
+            "Or run djlib set shazam:apple-music",
+            "Or run djlib set shazam:BACKUP_OR_CSV",
+        ),
+        strict=True,
     ):
-        assert words in error.message, words
+        assert line.startswith(words), line
     assert error.details["setup"] == shazam_history.SETUP
 
     mac_db(home).close()  # Music Recognition is on but nothing has synced yet
@@ -788,8 +796,12 @@ def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypat
     assert error["details"]["setup"] == shazam_history.SETUP
     source = invoke(application.workspace, "set", "shazam", "--source", "https://youtu.be/x")
     assert json.loads(source.stdout)["error"]["code"] == "INPUT_INVALID"
-    pretty = invoke(application.workspace, "set", "shazam", pretty=True)
-    assert "Shazam history not found" in pretty.output and "iCloud" in pretty.output
+    pretty = invoke(application.workspace, "set", "shazam", pretty=True).output
+    assert "No Shazam history found" in pretty
+    steps = [line.strip() for line in pretty.splitlines()]
+    assert any(line.startswith("1. On your iPhone: Settings") for line in steps)
+    assert any(line.startswith("3. Open Control Center") for line in steps)
+    assert "See what djlib finds on this Mac" in pretty and "shazam status" in pretty
 
 
 def test_shazam_status_and_list(application, home, tmp_path):

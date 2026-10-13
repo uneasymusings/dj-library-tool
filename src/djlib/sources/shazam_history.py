@@ -53,8 +53,7 @@ LABELS = {
     "sqlite": "Shazam database file",
 }
 SETUP = [
-    "On your iPhone: Settings → [your name] → iCloud → turn on Shazam "
-    "(in the Shazam app, also let it sync with iCloud).",
+    "On your iPhone: Settings → [your name] → iCloud → turn on Shazam / Music Recognition.",
     "On this Mac: System Settings → Apple Account → iCloud → See All → turn on Music Recognition.",
     "Open Control Center → Music Recognition once, then wait a few minutes for it to sync.",
 ]
@@ -109,8 +108,11 @@ def no_access(path: Path) -> AppError:
 
 
 def setup_message(start: str) -> str:
-    steps = " ".join(f"{number}. {step}" for number, step in enumerate(SETUP, 1))
-    return f"{start} To bring your Shazams here: {steps} Or run " + " or ".join(ALTERNATIVES) + "."
+    """``start``, then the setup steps and the alternatives, one per line."""
+    lines = [f"{start} To bring your Shazams here:"]
+    lines += [f"{number}. {step}" for number, step in enumerate(SETUP, 1)]
+    lines += [f"Or run {alternative}." for alternative in ALTERNATIVES]
+    return "\n".join(lines)
 
 
 def not_found(start: str = "No Shazam history was found on this Mac.") -> AppError:
