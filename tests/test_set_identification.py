@@ -297,6 +297,7 @@ def test_listed_tracklist_keeps_the_times_on_named_lines():
         "w/ Maz - Emotions",
         "03. ID - ID [48:30]",
         "04. Supermini & Frankie Romano - Celebration",
+        "Thanks for listening",
     )
     assert listed["source"] == "1001tracklists"
     assert [(e["kind"], e["title"], e["timestamp"]) for e in listed["entries"]] == [
@@ -305,6 +306,10 @@ def test_listed_tracklist_keeps_the_times_on_named_lines():
         ("named", "Emotions", None),
         ("unknown", None, "48:30"),
         ("named", "Celebration", None),
+    ]
+    # Lines left out are reported, so the caller can say which ones were not read.
+    assert listed["skipped"] == [
+        {"line": 7, "text": "Thanks for listening", "reason": "no “Artist - Title” separator"}
     ]
 
 
