@@ -117,7 +117,7 @@ def progress_line(job: dict) -> str:
         parts.append(f"{plural(int(progress['songs_heard']), 'song')} so far")
     if phase in {"listening", "checking_gaps"} and (eta := _minutes(progress.get("eta_seconds"))):
         parts.append(eta)
-    return " · ".join([text, *parts]) if parts else text
+    return f"{text} {' · '.join(parts)}" if parts else text
 
 
 def follow(local, job: dict, url: str | None = None) -> dict:

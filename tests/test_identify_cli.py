@@ -193,3 +193,40 @@ def test_identify_listens_with_the_chosen_recognizer(application, library_http, 
     assert set(setup.made) == {"audd"} and envelope["warnings"] == []
     wrong = invoke(application, "identify", URL, "--recognizer", "acr")
     assert wrong.exit_code == 2 and "acrcloud" in wrong.output
+
+
+def test_progress_lines_say_what_djlib_is_doing():
+    def job(phase, state="running", **progress):
+        return {"state": state, "result": {"progress": {"phase": phase, **progress}}}
+
+    listening = job("listening", windows_done=34, windows_total=124, songs_heard=6, eta_seconds=130)
+    assert identify_cli.progress_line(listening) == (
+        "Listening to the set… 34 of 124 windows · 6 songs so far · about 2 min left"
+    )
+    assert identify_cli.progress_line(job("checking_gaps", windows_total=30, eta_seconds=40)) == (
+        "Listening again where songs change… 0 of 30 windows · less than a minute left"
+    )
+    downloading = job("downloading", downloaded_bytes=45_200_000)
+    assert identify_cli.progress_line(downloading) == "Downloading the set's audio… 45 MB"
+    assert identify_cli.progress_line({"state": "queued", "result": {}}) == (
+        "Waiting for the set before it to finish…"
+    )
+
+
+def test_watching_an_identify_job_shows_its_windows():
+    from djlib.interfaces import terminal
+
+    running = {
+        "job_id": "job_1",
+        "kind": "identify",
+        "state": "running",
+        "result": {"progress": {"phase": "listening", "windows_done": 3, "windows_total": 10}},
+    }
+    done = {**running, "state": "completed", "result": {}}
+
+    class Jobs:
+        def request(self, method, path, **kwargs):
+            return {"result": done}
+
+    followed = terminal.follow(terminal.Terminal(json=False), Jobs(), running)
+    assert followed.job["state"] == "completed" and not followed.detached
