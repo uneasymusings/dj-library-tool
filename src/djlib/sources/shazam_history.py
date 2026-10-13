@@ -835,7 +835,7 @@ def read_automatic() -> tuple[list[dict], list[dict], list[dict]]:
             continue
         records += found
         sources.append({"source": source, "label": LABELS[source], "path": str(path)})
-        sources[-1]["songs"] = len(found)
+        sources[-1]["songs"] = len(merge(found))
     return records, sources, problems
 
 
@@ -877,8 +877,9 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
             raise not_found(f"{LABELS[sources[0]['source']]} has no songs yet.")
     if not records:
         raise AppError("SHAZAM_HISTORY_NOT_FOUND", f"{sources[0]['label']} has no Shazams.")
+    total = len(merge(records))
     for entry in sources:
-        entry.setdefault("songs", len(records))
+        entry.setdefault("songs", total)  # songs, like every count here, not single Shazams
     moment, inclusive, previous = since_moment(since, workspace)
     # Filter single Shazams before merging, so a song Shazamed again later counts as new.
     chosen = records if moment is None else after(records, moment, inclusive=inclusive)
@@ -890,7 +891,7 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
         "last_import": previous,
         "sources": sources,
         "problems": problems,
-        "total": len(merge(records)),
+        "total": total,
         "records": merge(chosen),
     }
 
