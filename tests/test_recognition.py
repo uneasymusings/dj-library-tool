@@ -150,6 +150,34 @@ async def test_size_guard_takes_a_larger_bound_for_sets(tmp_path):
     assert output.strip() == b"ok"
 
 
+def test_size_guard_skips_files_that_vanish_while_it_counts(tmp_path, monkeypatch):
+    (tmp_path / "set.webm.part").write_bytes(b"x" * 20)
+    (tmp_path / "parts").mkdir()
+    real = web.os.scandir
+
+    class Gone:
+        name = "set.webm.part-Frag7"
+
+        def is_file(self):
+            return True
+
+        def stat(self):
+            raise FileNotFoundError(self.name)
+
+    class Listing:
+        def __init__(self, folder):
+            self.entries = [*real(folder), Gone()]
+
+        def __enter__(self):
+            return iter(self.entries)
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(web.os, "scandir", Listing)
+    assert web._folder_bytes(tmp_path) == 20
+
+
 class Clock:
     """A fake monotonic clock whose sleeps pass instantly."""
 

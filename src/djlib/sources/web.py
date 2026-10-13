@@ -161,10 +161,7 @@ async def run(
     async def monitor() -> None:
         limit = max_bytes or MAX_DOWNLOAD_BYTES
         while process.returncode is None:
-            if (
-                download_dir
-                and sum(p.stat().st_size for p in download_dir.iterdir() if p.is_file()) > limit
-            ):
+            if download_dir and _folder_bytes(download_dir) > limit:
                 raise AppError(
                     "DOWNLOAD_SIZE_LIMIT",
                     f"The selected audio exceeded {limit // (1024 * 1024)} MiB.",
@@ -216,6 +213,19 @@ async def run(
             task.cancel()
         await asyncio.gather(reader, error_reader, monitor_task, waiter, return_exceptions=True)
     return bytes(output)
+
+
+def _folder_bytes(folder: Path) -> int:
+    """Bytes in the folder's files; yt-dlp's fragment and part files come and go meanwhile."""
+    total = 0
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            try:
+                if entry.is_file():
+                    total += entry.stat().st_size
+            except FileNotFoundError:
+                continue
+    return total
 
 
 async def inspect_source(url: str, comments: int = 0) -> dict:
