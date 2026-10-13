@@ -606,7 +606,7 @@ def _interpolate(seq: list[_Slot], total: float | None) -> None:
     """Times for listed songs: the heard time, the listed time, or one between neighbours."""
     for slot in seq:
         if slot.clusters:
-            slot.time = min(cluster["start"] for cluster in slot.clusters)
+            slot.time = slot.clusters[0]["start"]
         else:
             slot.time = next((t["seconds"] for t in slot.texts if t["seconds"] is not None), None)
     listed = [slot for slot in seq if slot.texts]
@@ -712,6 +712,7 @@ def _claims(slot: _Slot, reach: tuple[float, float], cluster: dict, slack: float
 
 
 def _closest(pair: tuple[_Slot, _Slot]) -> tuple:
+    """A heard song and a listed slot: nearest first, then the song heard best."""
     heard, listed = pair
     cluster = heard.clusters[0]
     return _apart(listed, heard.time), RANK[cluster["strength"]], -cluster["hits"], heard.time
@@ -823,12 +824,43 @@ def _stretches(
     return found
 
 
+def _rejoin(seq: list[_Slot]) -> list[_Slot]:
+    """A listed song heard again soon before or after, even past another song, is one play.
+
+    Those windows within FOLD_SECONDS become more evidence for it, not a second track; it
+    keeps the time of the windows the listing matched.
+    """
+    anchors = [slot for slot in seq if slot.clusters and slot.texts]
+
+    def apart(anchor: _Slot, cluster: dict) -> float:
+        first = min(heard["start"] for heard in anchor.clusters)
+        return max(cluster["start"] - anchor.edge(), first - cluster["end"], 0.0)
+
+    kept = []
+    for slot in seq:
+        cluster = slot.clusters[0] if slot.clusters and not slot.texts else None
+        if cluster:
+            heard = [_song(label["artist"], label["title"]) for label in cluster["labels"]]
+            owners = [
+                anchor
+                for anchor in anchors
+                if apart(anchor, cluster) <= FOLD_SECONDS
+                and any(_likeness(song, mine) >= SAME for song in anchor.songs() for mine in heard)
+            ]
+            if owners:
+                min(owners, key=lambda anchor: apart(anchor, cluster)).clusters.append(cluster)
+                continue
+        kept.append(slot)
+    return kept
+
+
 def _merge(
     clusters: list[dict], lists: list[tuple[str, list[dict]]], total, unplaced
 ) -> list[_Slot]:
     seq = [_Slot(clusters=[cluster], time=cluster["start"]) for cluster in clusters]
     for name, entries in lists:
         seq = _place(seq, name, entries)
+    seq = _rejoin(seq)
     _interpolate(seq, total)
     _fill_ids(seq)
     anchors = [i for i, slot in enumerate(seq) if slot.clusters and slot.texts]
