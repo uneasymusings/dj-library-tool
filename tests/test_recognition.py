@@ -222,7 +222,10 @@ async def test_set_audio_is_kept_as_published_with_a_receipt(tmp_path, monkeypat
     assert args[args.index("--playlist-items") + 1] == "1"
     assert args[args.index("--output") + 1] == str(tmp_path / "set.%(ext)s")
     assert args[-2:] == ["--", SET_URL]
-    assert options["timeout"] == 1800 and options["download_dir"] == tmp_path
+    # A missing piece fails the download (a retry fetches it) instead of shortening the set.
+    assert "--abort-on-unavailable-fragments" in args
+    assert options["timeout"] == web.SET_DOWNLOAD_SECONDS and options["download_dir"] == tmp_path
+    assert options["stall_seconds"] == web.SET_STALL_SECONDS
     assert options["max_bytes"] == web.SET_AUDIO_BYTES > 2 * 1024**3 > web.MAX_DOWNLOAD_BYTES
 
 
@@ -836,7 +839,7 @@ class Cuts:
         self.hook = None  # runs in the worker thread that cuts the window
         self.opened = self.closed = 0
 
-    def __call__(self, path):
+    def __call__(self, path, seconds=None):
         self.opened += 1
         return self
 
@@ -1132,3 +1135,105 @@ async def test_refine_looks_again_around_failed_windows(set_audio):
     found = await recognition.refine(set_audio, timeline, first)
     assert timeline.heard == [15.0, 45.0, 75.0]
     assert [p.at for p in found] == [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0]
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+async def test_shazam_refusing_djlib_ends_the_scan_instead_of_failing_every_window(
+    shazamio, status
+):
+    """A 403 is Shazam refusing this computer, not one part of the set: every window would get
+    it, so the scan stops (the identify job keeps what was heard) instead of finishing a
+    tracklist from nothing."""
+    shazamio.extend(["http"])
+    clock = Clock()
+    shazam = recognition.ShazamRecognizer(
+        environ={},
+        transport=httpx.MockTransport(lambda request: httpx.Response(status)),
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    with pytest.raises(AppError) as refused:
+        await shazam.recognize(b"wav")
+    assert refused.value.code == "RECOGNIZER_REJECTED" in recognition.FATAL
+    assert f"HTTP {status}" in refused.value.message and refused.value.retryable
+
+
+async def test_a_scan_stops_when_every_window_fails_in_a_row(monkeypatch, tmp_path, cuts):
+    monkeypatch.setattr(recognition, "duration", lambda _: 1000.0)
+    broken = AppError("RECOGNITION_FAILED", "Shazam could not read this part of the set.", 502)
+    failures = {9.0 + 30 * n: broken for n in range(40)}
+    probes = []
+    with pytest.raises(AppError) as failing:
+        await recognition.scan(
+            tmp_path / "set.webm",
+            Timeline([], failures=failures),
+            on_probe=lambda probe, *_: probes.append(probe),
+        )
+    assert failing.value.code == "RECOGNITION_FAILING" and failing.value.retryable
+    assert "10 listening windows in a row" in failing.value.message
+    assert "could not read this part of the set" in failing.value.message
+    assert len(probes) == recognition.FAILING_WINDOWS
+    # Failures broken up by answers are the set, not the service: the scan goes on.
+    some = {at: broken for n, at in enumerate(failures) if n % 3}
+    finished = await recognition.scan(tmp_path / "set.webm", Timeline([], failures=some))
+    assert len(finished) == 33
+
+
+async def test_waiting_on_a_rate_limit_is_reported(shazamio):
+    shazamio.extend([Throttled(), Throttled(), SHAZAM_REPLY])
+    clock = Clock()
+    shazam = recognition.ShazamRecognizer(
+        environ={"DJLIB_SHAZAM_INTERVAL": "0"}, clock=clock, sleep=clock.sleep
+    )
+    waits = []
+    shazam.pace.on_wait = lambda *wait: waits.append(wait)
+    assert (await shazam.recognize(b"wav")).track_id == "692620240"
+    assert waits == [(5.0, "rate_limited", 895.0), (10.0, "rate_limited", 885.0)]
+
+
+def test_a_decoding_that_would_not_fit_on_the_disk_is_not_made(tmp_path, monkeypatch):
+    """A six-hour set decodes to about 700 MB; with less room than that and some to spare
+    for the catalog, windows are cut straight from the recording."""
+    path = ramp(tmp_path / "set.wav", 3.0)
+    usage = windows.shutil.disk_usage(tmp_path)
+    room = 3 * 16000 * 2 + windows.SPARE_BYTES - 1
+    monkeypatch.setattr(
+        windows.shutil, "disk_usage", lambda _: type(usage)(usage.total, usage.total - room, room)
+    )
+    with windows.SetAudio(path, seconds=3.0) as audio:
+        assert samples(audio.window(1.0, 0.5)) == indices(16000, 24000)
+        assert audio.process is None
+    assert not list(tmp_path.glob("set.wav.pcm*"))
+
+
+async def test_a_download_that_stops_growing_fails_and_can_resume(tmp_path):
+    slow = [sys.executable, "-c", "import time; time.sleep(30)"]
+    began = time.monotonic()
+    with pytest.raises(AppError) as stalled:
+        await web.run(slow, timeout=60, output_limit=1024, download_dir=tmp_path, stall_seconds=0.5)
+    assert stalled.value.code == "SOURCE_TIMEOUT" and stalled.value.retryable
+    assert time.monotonic() - began < 10
+
+
+def test_a_download_left_running_by_a_killed_service_is_stopped(tmp_path):
+    import subprocess
+
+    other = tmp_path / "other"
+    sleeper = "import sys, time; time.sleep(30)"
+    mine = subprocess.Popen(
+        [sys.executable, "-c", sleeper, "yt_dlp", "--output", str(tmp_path / "set.%(ext)s")],
+        start_new_session=True,
+    )
+    theirs = subprocess.Popen(
+        [sys.executable, "-c", sleeper, "yt_dlp", "--output", str(other / "set.%(ext)s")],
+        start_new_session=True,
+    )
+    try:
+        web._stop_orphan(theirs.pid, tmp_path)  # another set's download is left alone
+        web._stop_orphan(mine.pid, tmp_path)
+        assert mine.wait(10) != 0
+        assert theirs.poll() is None
+    finally:
+        for process in (mine, theirs):
+            process.kill()
+            process.wait()

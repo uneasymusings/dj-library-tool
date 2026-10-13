@@ -44,9 +44,15 @@ FATAL = frozenset(
 )
 RETRY_WAITS = (3.0, 10.0)  # a window is asked again after a dropped connection or server error
 OUTAGE_WINDOWS = 5  # windows in a row without any answer before a scan stops
+# Windows in a row the service failed to read before a scan stops: five minutes of a set.
+FAILING_WINDOWS = 10
+LABELS = {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}
 
 OnProbe = Callable[["Probe", int, int], object]
 ShouldStop = Callable[[], object]
+# Told when a service makes djlib wait: seconds until the next try, why ("rate_limited" or
+# "unreachable"), and seconds of waiting left before the scan gives up (None: no limit).
+OnWait = Callable[[float, str, float | None], object]
 
 
 @dataclass(frozen=True)
@@ -143,6 +149,11 @@ class Pace:
         self.waited = 0.0
         self.missed = 0
         self.ready_at: float | None = None
+        self.on_wait: OnWait | None = None
+
+    def _waiting(self, reason: str, left: float | None) -> None:
+        if self.on_wait is not None and self.ready_at is not None:
+            self.on_wait(max(self.ready_at - self.clock(), 0.0), reason, left)
 
     async def call(
         self,
@@ -165,26 +176,26 @@ class Pace:
                     self.waited = 0.0  # a later scan gets its own quarter of an hour
                     raise AppError(
                         "RECOGNITION_RATE_LIMITED",
-                        f"{service} is turning away requests from this computer for now; "
-                        "try the scan again later.",
+                        f"{service} is turning away requests from this computer for now.",
                         502,
                         True,
                     ) from None
                 self.ready_at = max(self.ready_at, self.clock() + self.delay)
                 self.waited += self.delay
                 self.delay = min(self.delay * 2, self.longest)
+                self._waiting("rate_limited", max(self.budget - self.waited, 0.0))
                 continue
             except Unreachable as exc:
                 if (wait := next(waits, None)) is not None:
                     self.ready_at = max(self.ready_at, self.clock() + wait)
+                    self._waiting("unreachable", None)
                     continue
                 self.missed += 1
                 if self.missed >= OUTAGE_WINDOWS:
                     self.missed = 0
                     raise AppError(
                         "RECOGNITION_UNAVAILABLE",
-                        f"{service} could not be reached; check the internet connection and "
-                        "run the scan again.",
+                        f"{service} could not be reached; check the internet connection.",
                         502,
                         True,
                     ) from exc
@@ -270,8 +281,22 @@ class ShazamHttp:
             raise RateLimited
         if response.status_code >= 500:
             raise Unreachable
+        if response.status_code in REFUSED:
+            # Refused for this computer or this djlib, not for one part of the set: every
+            # window would get the same answer.
+            raise AppError(
+                "RECOGNIZER_REJECTED",
+                f"Shazam refused djlib's requests (HTTP {response.status_code}). It may let "
+                "djlib back in later; a newer djlib (djlib upgrade) or a licensed service "
+                "(djlib doctor) may also help.",
+                502,
+                True,
+            )
         response.raise_for_status()
         return response.json()
+
+
+REFUSED = frozenset({401, 403, 404, 410})
 
 
 def shazam_match(reply: object) -> Match | None:
@@ -599,14 +624,30 @@ async def scan(
     heard = {round(at, 3) for at in skip}
     left = [start for start in starts if start not in heard]
     probes: list[Probe] = []
-    with SetAudio(Path(audio_path)) as audio:
+    failing = 0
+    with SetAudio(Path(audio_path), seconds=total) as audio:
         async with aclosing(_probes(audio, recognizer, left, window, should_stop)) as each:
             async for probe in each:
                 probes.append(probe)
                 if on_probe is not None:
                     done = len(starts) - len(left) + len(probes)
                     await _maybe(on_probe(probe, done, len(starts)))
+                failing = failing + 1 if probe.error else 0
+                if failing >= FAILING_WINDOWS:
+                    # Every window failing in a row is the service, not the set.
+                    raise failing_error(recognizer, failing, probe.error)
     return probes
+
+
+def failing_error(recognizer: Recognizer, windows: int, last: str | None) -> AppError:
+    label = LABELS.get(recognizer.name, recognizer.name)
+    reason = f" ({last.rstrip('.')})" if last else ""
+    return AppError(
+        "RECOGNITION_FAILING",
+        f"{label} failed on {windows} listening windows in a row{reason}.",
+        502,
+        True,
+    )
 
 
 async def refine(

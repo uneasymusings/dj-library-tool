@@ -118,10 +118,15 @@ class SourceRequest(Contract):
 class IdentifyTracklist(Contract):
     """A tracklist to merge with what djlib hears, e.g. text copied from 1001Tracklists."""
 
-    source: str = Field(
-        default="file", min_length=1, max_length=40, pattern=r"^[a-z0-9][a-z0-9_.-]*$"
-    )
+    # 1001tracklists, mixesdb, file or comments; anything else is a tracklist file.
+    source: str = Field(default="file", max_length=40)
     text: str = Field(min_length=1, max_length=200_000)
+
+    @field_validator("source")
+    @classmethod
+    def known_source(cls, value: str) -> str:
+        name = value.strip().lower()
+        return name if name in {"1001tracklists", "mixesdb", "file", "comments"} else "file"
 
 
 class IdentifyRequest(Contract):

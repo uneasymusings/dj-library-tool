@@ -721,11 +721,14 @@ async def lookup(
     duration: float | None = None,
     url: str | None = None,
     client: httpx.AsyncClient | None = None,
+    strict: bool = False,
 ) -> dict | None:
     """The MixesDB tracklist of the set at ``url`` (titled ``title``), or None.
 
-    At most MAX_REQUESTS requests within DEADLINE seconds; no answer, an error or a doubtful
-    page is None. Returns ``{"source": "mixesdb", "page_title", "page_url", "text",
+    At most MAX_REQUESTS requests within DEADLINE seconds; no page, or a doubtful one, is
+    None. So is an error or no answer in time, unless ``strict``: then that raises (an
+    AppError, or TimeoutError), so callers can ask again later instead of keeping None.
+    Returns ``{"source": "mixesdb", "page_title", "page_url", "text",
     "complete", "tracklist" ("complete", "incomplete" or "unknown"), "tracks",
     "duration_seconds", "players", "match": {"by", "score"}}``. ``match.by`` is "url" when the
     page links the upload (and the upload is not just one part of the set), "title_date"
@@ -742,6 +745,10 @@ async def lookup(
                 return await _find(Api(own), wanted)
     except AppError as error:
         logger.debug("MixesDB lookup stopped: %s (%s)", error.message, error.code)
+        if strict:
+            raise
     except TimeoutError:
         logger.debug("MixesDB lookup stopped after %s seconds", DEADLINE)
+        if strict:
+            raise
     return None

@@ -515,10 +515,13 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     items, skipped = parse_tracklist(text, source_url)
     entries = [item.model_dump() for item in items]
     left_out = {number for number, *_ in skipped}
-    lines = [raw for number, raw in enumerate(text.splitlines(), 1) if number not in left_out]
-    lines = [raw for raw in lines if _read_line(raw)]
+    lines = [
+        (number, raw)
+        for number, raw in enumerate(text.splitlines(), 1)
+        if number not in left_out and _read_line(raw)
+    ]
     if len(lines) == len(entries):
-        for entry, raw in zip(entries, lines, strict=True):
+        for entry, (_, raw) in zip(entries, lines, strict=True):
             entry["timestamp"] = entry["timestamp"] or _line_time(raw)
     left = [{"line": number, "text": raw, "reason": reason} for number, raw, reason in skipped]
     return {"source": source, "entries": entries, "skipped": left}
@@ -1324,13 +1327,18 @@ def _sources(probes, clusters, lists, tracks, comments) -> list[dict]:
         matches = [
             p["match"] for p in probes if not p.get("error") and isinstance(p.get("match"), dict)
         ]
+        # A window asked again after it failed counts once, as failed only if every try did.
+        tries: dict[float, list[dict]] = defaultdict(list)
+        for probe in probes:
+            if (at := _number(probe.get("at"))) is not None:
+                tries[round(at, 3)].append(probe)
         found.append(
             {
                 "source": "audio",
                 "providers": sorted({str(m.get("provider") or "audio") for m in matches}),
-                "windows": len(probes),
+                "windows": len(tries),
                 "matched": len(matches),
-                "errors": sum(1 for probe in probes if probe.get("error")),
+                "errors": sum(1 for found in tries.values() if all(p.get("error") for p in found)),
                 "songs": sum(1 for cluster in clusters if cluster["strength"] != "weak"),
             }
         )

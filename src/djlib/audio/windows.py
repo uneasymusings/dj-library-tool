@@ -22,6 +22,8 @@ CHUNK = 1 << 16
 # A window further than this past the decoded audio is cut on its own instead of waiting.
 LEAD_SECONDS = 600.0
 WAIT_SECONDS = 60.0  # the longest a window waits for the decoding to reach it
+# Room left on the disk beside a decoding (the catalog and the rest of the workspace need it).
+SPARE_BYTES = 200 * 1024 * 1024
 
 
 def _tools() -> None:
@@ -131,12 +133,13 @@ class SetAudio:
 
     FFmpeg decodes in the background from the first window asked for; a window waits only
     for its own samples. A finished decoding is kept for the next pass (until the recording
-    changes); an unfinished one is deleted on ``close``. When decoding fails, stalls or is
-    far behind, a window is cut straight from the recording instead.
+    changes); an unfinished one is deleted on ``close``. When decoding fails, stalls, is far
+    behind or would not fit on the disk (``seconds`` of audio take 32 kB a second), a window
+    is cut straight from the recording instead.
     """
 
-    def __init__(self, path: Path, rate: int = 16000):
-        self.path, self.rate = Path(path), rate
+    def __init__(self, path: Path, rate: int = 16000, seconds: float | None = None):
+        self.path, self.rate, self.seconds = Path(path), rate, seconds
         self.pcm = self.path.with_name(self.path.name + ".pcm")
         self.part = self.path.with_name(self.path.name + ".pcm.part")
         self.changed = threading.Condition()
@@ -207,6 +210,9 @@ class SetAudio:
                 self.decoded, self.finished = self.pcm.stat().st_size, True
                 self.complete = True
                 return
+            if not self._room():
+                self.finished = True
+                return
             sink = self.part.open("wb")
         except OSError:
             self.finished = True
@@ -225,6 +231,15 @@ class SetAudio:
         self.thread = threading.Thread(target=self._pump, args=(sink,), daemon=True)
         self.thread.start()
 
+    def _room(self) -> bool:
+        """Whether the whole decoding fits on the disk with SPARE_BYTES to spare."""
+        try:
+            seconds = self.seconds or duration(self.path)
+            free = shutil.disk_usage(self.part.parent).free
+        except (OSError, AppError):
+            return True
+        return free >= seconds * self.rate * 2 + SPARE_BYTES
+
     def _pump(self, sink) -> None:
         process, written = self.process, False
         try:
@@ -238,6 +253,9 @@ class SetAudio:
             written = True
         except OSError:  # e.g. a full disk: windows are then cut on their own
             process.kill()
+            # Free the space at once: the catalog shares this disk.
+            with contextlib.suppress(OSError):
+                self.part.unlink(missing_ok=True)
         finally:
             process.stdout.close()
             complete = process.wait() == 0 and written
