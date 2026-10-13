@@ -45,6 +45,7 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     assert missing[2]["notes"].startswith("ID (likely Bicep - Glue)")
     assert fake.imported[-1].name == "Friday Set.m3u8"
     assert identification.UNOFFICIAL_SHAZAM in envelope["warnings"]
+    assert len(setup.inspected) == 1  # the identification reused the page djlib set read
 
     # Once identified, the same set reuses what djlib heard.
     again = json.loads(invoke(application, "set", URL).stdout)["result"]
