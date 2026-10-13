@@ -717,11 +717,23 @@ def remember_import(workspace, summary: dict, request_id: str | None = None) -> 
 # -- loading -----------------------------------------------------------------------------------
 
 
+def looks_like_path(value: str) -> bool:
+    """Written as a path: ``./new``, ``~/x``, ``a/b`` or ``history.csv``, never just ``new``."""
+    return "/" in value or value.startswith(("~", ".")) or bool(Path(value).suffix)
+
+
+def is_date(value: str) -> bool:
+    """``2026-10-01`` or a date and time; ``2026-10-01.csv`` is a file name."""
+    named = re.search(r"\.[a-z]\w*$", value, re.IGNORECASE)
+    return bool(re.match(r"\d{4}-\d{2}-\d{2}", value)) and not named
+
+
 def parse_spec(value: str) -> tuple[str | None, str | None]:
     """``shazam[:SPEC]`` → (source, since).
 
     SPEC is an existing path (an iPhone backup folder, a .sqlite or a .csv), ``apple-music``,
-    ``new`` (since the last import) or a date such as ``2026-10-01``.
+    ``new`` (since the last import) or a date such as ``2026-10-01``. The words and dates win
+    over a file or folder of the same name here; ``./new`` means that folder.
     """
     head, _, rest = value.partition(":")
     if head.strip().lower() != "shazam":
@@ -729,13 +741,16 @@ def parse_spec(value: str) -> tuple[str | None, str | None]:
     rest = rest.strip()
     if not rest:
         return None, None
-    if exists(Path(rest).expanduser()) is not False:
+    found = exists(Path(rest).expanduser()) is not False
+    if found and looks_like_path(rest):
         return rest, None
     if rest.lower() in {APPLE_MUSIC, "applemusic", "music"}:
         return APPLE_MUSIC, None
-    if rest.lower() == "new" or re.match(r"^\d{4}-\d{2}-\d{2}", rest):
+    if rest.lower() == "new" or is_date(rest):
         return None, rest
-    if "/" in rest or Path(rest).suffix:
+    if found:
+        return rest, None
+    if looks_like_path(rest):
         raise AppError("FILE_UNAVAILABLE", f"Can't find {rest}. Check the path.")
     raise AppError(
         "INPUT_INVALID",

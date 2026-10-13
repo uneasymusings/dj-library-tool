@@ -457,6 +457,33 @@ def test_specs_dates_and_new(home, tmp_path):
     assert fresh["new"] is True and fresh["last_import"]["songs"] == 2
 
 
+def test_words_and_dates_win_over_files_of_the_same_name(home, tmp_path, monkeypatch):
+    # A music folder with folders named like the words and dates shazam: takes.
+    for name in ("new", "music", "2026-10-01", "Backup"):
+        (tmp_path / name).mkdir()
+    monkeypatch.chdir(tmp_path)
+    parse = shazam_history.parse_spec
+    assert parse("shazam:new") == (None, "new")
+    assert parse("shazam:music") == ("apple-music", None)
+    assert parse("shazam:2026-10-01") == (None, "2026-10-01")
+    # Written as a path, it is the folder.
+    assert parse("shazam:./new") == ("./new", None)
+    assert parse(f"shazam:{tmp_path / 'new'}") == (str(tmp_path / "new"), None)
+    assert parse("shazam:Backup") == ("Backup", None)  # no word of that name
+    (tmp_path / "2026-10-01.csv").write_text("Artist,Title\nLumen,Halo\n", encoding="utf-8")
+    assert parse("shazam:2026-10-01.csv") == ("2026-10-01.csv", None)
+    with pytest.raises(AppError) as missing:
+        parse("shazam:2026-10-02.csv")
+    assert missing.value.code == "FILE_UNAVAILABLE"
+
+    # --from never means new or a date, so there the folder counts.
+    mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
+    shutil.copyfile(mac_path(home), tmp_path / "new" / "ShazamLibrary.sqlite")
+    listed = invoke(Workspace(tmp_path / "workspace"), "shazam", "list", "--from", "new")
+    assert listed.exit_code == 0, listed.output
+    assert titles(json.loads(listed.stdout)["result"]["records"]) == ["Halo"]
+
+
 def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     workspace = Workspace(tmp_path / "workspace")
     workspace.root.mkdir()

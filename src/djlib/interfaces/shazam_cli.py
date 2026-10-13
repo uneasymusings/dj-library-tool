@@ -231,7 +231,11 @@ def register_shazam(app, client, emit, handled, panel=None):
         Load them into a set with djlib set shazam (or shazam:new, shazam:2026-10-01).
         """
         if source is not None:
-            source, _ = shazam_history.parse_spec(f"shazam:{source}")
-            if source is None:
+            parsed, _ = shazam_history.parse_spec(f"shazam:{source}")
+            # --from never takes new or a date, so a folder named like one is meant here.
+            if parsed is None and shazam_history.exists(Path(source).expanduser()):
+                parsed = source
+            if parsed is None:
                 raise AppError("INPUT_INVALID", "--from takes apple-music or a file or folder.")
+            source = parsed
         emit(envelope(list_result(source, since, limit, ctx.obj)))
