@@ -25,9 +25,11 @@ from djlib.audio.windows import duration, window_wav
 from djlib.domain.errors import AppError
 
 RECOGNIZERS = ("shazam", "audd", "acrcloud")
+# Python 3.12: shazamio pins shazamio-core 1.1.2, which has no macOS or Windows wheels for 3.13.
 INSTALL = (
     "Song recognition is not installed. Rerun the djlib installer, or run: "
-    "uv tool install --force 'dj-library-tool[download,recognize] @ <release wheel URL>'"
+    "uv tool install --force --python 3.12 "
+    "'dj-library-tool[download,recognize] @ <release wheel URL>'"
 )
 # These would repeat for every window, so a scan stops instead of recording each one.
 FATAL = frozenset(

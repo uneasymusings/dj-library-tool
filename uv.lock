@@ -8,7 +8,10 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "shazamio-core", specifier = ">=2.0.0,<3" }]
+overrides = [
+    { name = "shazamio-core", marker = "python_full_version < '3.13'", specifier = "==1.1.2" },
+    { name = "shazamio-core", marker = "python_full_version >= '3.13'", specifier = ">=2.0.0,<3" },
+]
 
 [[package]]
 name = "aiofiles"
@@ -1913,7 +1916,8 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pydub" },
-    { name = "shazamio-core" },
+    { name = "shazamio-core", version = "1.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "shazamio-core", version = "2.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/2f/66/31ecae67c373421db10f250a83d80653d6908f7d95080c46816102bd1fda/shazamio-0.8.1.tar.gz", hash = "sha256:5d60222735ccda4d792fd7dfe3faafaa65d15fa15b6a63de87115fb1a155b5fc", size = 26827, upload-time = "2025-06-11T09:39:15.092Z" }
 wheels = [
@@ -1922,8 +1926,31 @@ wheels = [
 
 [[package]]
 name = "shazamio-core"
+version = "1.1.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.13'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/96/973f87fbb5d9b1384b0495475af28a688f7ea353ac137ea9fa03fd3f2f56/shazamio_core-1.1.2.tar.gz", hash = "sha256:e26e6b967286eca82e3fb90a20695d5e13f163e30c57e2543fe2ca98ec6dfa51", size = 36815, upload-time = "2025-02-04T03:08:42.713Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/d2/8b33c1cd90c83dda7c0bf1011d18c34b34eaafb89a5c96a508cb79200f0e/shazamio_core-1.1.2-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:05e4b9e810c135467f89ac490b98d7dbe81e944604dd4c2efdae244414428f3d", size = 978188, upload-time = "2025-02-04T03:08:03.53Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/56/5ee02044550d30744668edf1a96e1699124f7c3dbe93fadf422708ba9f07/shazamio_core-1.1.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:2d85467441d71d690a998528fdda9113edd08a962e79c591a5e3842ec90f1865", size = 948140, upload-time = "2025-02-04T03:08:07.454Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/62/be1a42af48d3d61ca5c9dab06c7b4aba6f49f34aea149e6e2cc8b6382d05/shazamio_core-1.1.2-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:87878fd8b432fcf79859d7edbd9e16f52c599f7e76bba06e2909c8a07e47b15f", size = 1490345, upload-time = "2025-02-04T03:08:09.757Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/b1/c0e2e3b0d25c458f360922e9222cea5febbae06e550870f87e39282f6248/shazamio_core-1.1.2-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:a900b9147d294137c07525d05051ccc7b02910838a4bc28ef804b60b42356383", size = 1525380, upload-time = "2025-02-04T03:08:12.179Z" },
+    { url = "https://files.pythonhosted.org/packages/df/ee/04a30c112261ae54ffea99b55e7039c2c26e2fa08934209ac7853fb544a9/shazamio_core-1.1.2-cp312-cp312-win32.whl", hash = "sha256:c1af715d173ecf2e592b8fbaf4906dfe3b54e6f2237d2de776a87eef1601523f", size = 781930, upload-time = "2025-02-04T03:08:15.985Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/80/1623a733760244b04fd90574210a3991368eaf78bc2de94f564f5c1668fd/shazamio_core-1.1.2-cp312-cp312-win_amd64.whl", hash = "sha256:74474df5c5e1429f60d162482a4b6d3a255d60c9ceaed47370fe9369e0818347", size = 817812, upload-time = "2025-02-04T03:08:18.364Z" },
+    { url = "https://files.pythonhosted.org/packages/62/ce/e8c70b088d82e2d7a294221eb297ae3ba94cd1a98f8c1a3d90f40c623b92/shazamio_core-1.1.2-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:78e37b1cca701296f842f9069a05c71ae970dbebe28f9650469126912e77d5e7", size = 1490344, upload-time = "2025-02-04T03:08:20.164Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/6d/05c3c5dab6d7f33720a0d2fcc5ac6b9fdedc30628ad7cbcb728251e92edb/shazamio_core-1.1.2-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:da3a5ebaae69da6d898be42a39919049ee99825ec49bfb29ca35b9c3af5ab36d", size = 1525381, upload-time = "2025-02-04T03:08:23.905Z" },
+]
+
+[[package]]
+name = "shazamio-core"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14'",
+    "python_full_version == '3.13.*'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/6a/32ee3fd095df7bb03419657b064d50e9053b95dc05cf04ca64dcdef5e27c/shazamio_core-2.0.0.tar.gz", hash = "sha256:9849276a3a4795683e29218cd8aac14acdcc8bae66df13304b8ce5d7b9077a12", size = 1517584, upload-time = "2026-10-11T15:00:14.434Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/59/67/f9256e37808e6ae61fa8f037bef97464ec4188f7be888527fb6e482d3177/shazamio_core-2.0.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:dd20b534563a12fc3f6e1f38fd91b2edc3941f583295c60f806fb0ff26ba55cb", size = 1759831, upload-time = "2026-10-11T15:00:00.942Z" },

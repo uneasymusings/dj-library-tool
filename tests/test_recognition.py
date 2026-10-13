@@ -413,6 +413,8 @@ def test_recognizer_choice_and_configuration(shazamio, monkeypatch):
         recognition.recognizer(environ={})
     assert missing.value.code == "DEPENDENCY_REQUIRED"
     assert "installer" in missing.value.message and "recognize" in missing.value.message
+    # shazamio's signing library has macOS and Windows wheels up to Python 3.12 only.
+    assert "--python 3.12" in missing.value.message
 
 
 def form(request: httpx.Request) -> dict:
