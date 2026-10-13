@@ -586,11 +586,13 @@ def run_music_script(script: str) -> subprocess.CompletedProcess:
 def read_apple_music() -> list[dict]:
     """Apple Music's “My Shazam Tracks” playlist, which Shazam fills when it is connected."""
     if sys.platform != "darwin":
-        raise AppError("APP_AUTOMATION_UNSUPPORTED", "Apple Music can only be read on a Mac.")
+        raise AppError("SHAZAM_MUSIC_UNSUPPORTED", "Apple Music can only be read on a Mac.")
     try:
         done = run_music_script(MUSIC_SCRIPT)
     except (OSError, subprocess.SubprocessError) as exc:
-        raise AppError("APP_AUTOMATION_FAILED", "Music didn't answer; try again.") from exc
+        raise AppError(
+            "SHAZAM_MUSIC_FAILED", "Music didn't answer; try again.", retryable=True
+        ) from exc
     if done.returncode != 0:
         error = done.stderr or ""
         if "-1743" in error or "Not authorized" in error or "not allowed" in error:
@@ -606,11 +608,11 @@ def read_apple_music() -> list[dict]:
                 "open Settings and connect Apple Music so it saves your Shazams there, then "
                 "wait for the playlist to appear in Music on this Mac.",
             )
-        raise AppError("APP_AUTOMATION_FAILED", "Music didn't answer; try again.")
+        raise AppError("SHAZAM_MUSIC_FAILED", "Music didn't answer; try again.", retryable=True)
     try:
         tracks = json.loads(done.stdout or "[]")
     except ValueError as exc:
-        raise AppError("APP_AUTOMATION_FAILED", "Music's answer couldn't be read.") from exc
+        raise AppError("SHAZAM_MUSIC_FAILED", "Music's answer couldn't be read.") from exc
     return [
         record(track.get("name"), track.get("artist"), when(track.get("added")), "apple_music")
         for track in tracks

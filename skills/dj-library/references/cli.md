@@ -78,7 +78,7 @@ djlib --json set shazam:~/Backups/IPHONE_BACKUP # an unencrypted iPhone backup, 
 - `SHAZAM_ACCESS_DENIED`: macOS keeps the history private; allow the terminal app under Privacy & Security → Full Disk Access, quit and reopen it.
 - `SHAZAM_NOTHING_NEW`: nothing since the last import (`details.last_import` names that list).
 - `SHAZAM_BACKUP_ENCRYPTED`: use iCloud sync or an unencrypted Finder backup. `SHAZAM_HISTORY_UNREADABLE`: not a Shazam library djlib can read.
-- `SHAZAM_MUSIC_NOT_ALLOWED`: allow the terminal app to control Music under Privacy & Security → Automation. `SHAZAM_PLAYLIST_NOT_FOUND`: Music has no “My Shazam Tracks”; connect Apple Music in the Shazam app.
+- `SHAZAM_MUSIC_NOT_ALLOWED`: allow the terminal app to control Music under Privacy & Security → Automation. `SHAZAM_PLAYLIST_NOT_FOUND`: Music has no “My Shazam Tracks”; connect Apple Music in the Shazam app. `SHAZAM_MUSIC_UNSUPPORTED`: Apple Music is read on a Mac only. `SHAZAM_MUSIC_FAILED`: Music didn't answer; try again.
 
 ```bash
 djlib --json rekordbox sync                    # BPM and cues from rekordbox's analysis files, no window
