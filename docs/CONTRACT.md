@@ -1,6 +1,6 @@
 # Version-one command contract
 
-This document describes the CLI, the authenticated local HTTP routes and 45 MCP tools. `djlib mcp serve` exposes 21 core tools by default (tracklists, request lists, crates, set links and their identification, Shazam history, web sources, downloads, jobs and rekordbox analysis) and all 45 with `DJLIB_MCP_TOOLS=full`; `djlib.interfaces.tool_manifest` lists both. rekordbox and USB steps (`set`, `rekordbox push|usb|pull`) are CLI-only. The response envelope is schema version `1`. See [status](STATUS.md) for validation and publication evidence.
+This document describes the CLI, the authenticated local HTTP routes and 45 MCP tools. `djlib mcp serve` exposes 22 core tools by default (tracklists, request lists, crates, set links and their identification, Shazam history, web sources, downloads, jobs and their control, and rekordbox analysis) and all 45 with `DJLIB_MCP_TOOLS=full`; `djlib.interfaces.tool_manifest` lists both. rekordbox and USB steps (`set`, `rekordbox push|usb|pull`) are CLI-only. The response envelope is schema version `1`. See [status](STATUS.md) for validation and publication evidence.
 
 ## Envelope
 

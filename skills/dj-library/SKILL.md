@@ -49,7 +49,7 @@ Ask before `--fetch --yes`. Downloads are public YouTube or SoundCloud uploads s
 
 ## Every track in a set
 
-`djlib identify URL` finds the songs in one YouTube or SoundCloud set: it reads the description, chapters and comments, listens to the set and merges one timestamped tracklist, saved as `tracklist_file`. It takes a few minutes per hour of audio, so run it in the background and pass on its `identify_progress` events. A set identified before comes back at once (`--again` listens again); after Ctrl-C or `RECOGNITION_RATE_LIMITED`, the same command continues later from what was heard. Over MCP: `djlib_identify_set`, then `djlib_job` every 10–20 s.
+`djlib identify URL` finds the songs in one YouTube or SoundCloud set: it reads the description, chapters and comments, listens to the set and merges one timestamped tracklist, saved as `tracklist_file`. It takes a few minutes per hour of audio, so run it in the background and pass on its `identify_progress` events. A set identified before comes back at once (`--again` listens again); after Ctrl-C or `RECOGNITION_RATE_LIMITED`, the same command continues later from what was heard. Over MCP: `djlib_identify_set`, then `djlib_job` every 10–20 s; `djlib_control` with `cancel` stops it.
 
 - `set URL` listens by itself when the published tracklist is missing or has IDs, and reuses an earlier identification (`--no-identify` skips both). Without song recognition it uses the published list and says why in `warnings`; `djlib doctor` shows the fix.
 - Each track's `status`: `confirmed` (two sources agree, e.g. heard and listed), `likely` (one good source), `weak` (one listen or a listener's comment), `conflict` (listed as one song, heard as another), `unidentified` (an ID nothing named). `evidence` says why.

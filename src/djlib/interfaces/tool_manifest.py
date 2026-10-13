@@ -67,7 +67,8 @@ TOOL_NAMES = (
 )
 
 # What `djlib mcp serve` exposes by default: tracklist → owned/missing → crate, set links and
-# their identification, Shazam history, web sources and rekordbox analysis.
+# their identification, Shazam history, web sources, rekordbox analysis, and job control (to
+# stop an identification).
 # DJLIB_MCP_TOOLS=full adds delivery, organization, plans, exports and reconciliation
 # (TOOL_NAMES).
 PROFILE_ENV = "DJLIB_MCP_TOOLS"
@@ -93,6 +94,7 @@ CORE_PROFILE = frozenset(
         "djlib_download",
         "djlib_job",
         "djlib_items",
+        "djlib_control",
         "djlib_import_rekordbox_analysis",
     }
 )

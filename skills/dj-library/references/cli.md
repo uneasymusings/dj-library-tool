@@ -50,7 +50,7 @@ The result has `job_id`, `source` (`url`, `provider`, `title`, `uploader`, `dura
 
 Each track: `n`, `start` (`mm:ss`), `approx` (time guessed between neighbours), `kind` (`named` or `unknown`), `artist`, `title`, `version`, `status`, `evidence` (one line: who heard it in how many windows, where it is listed) and up to three `candidates`: `{source: "audio", label, heard_by, windows, at, strength}`, `{source: "comments", label, mentions, likes, at}`, or for a conflict the listing's song (`listed_in`). Statuses: `confirmed` two sources agree (heard and listed, two listings, or heard in 3+ windows); `likely` one good source (one listing, or heard in 2 windows; for an ID, a song heard there in 2+ windows); `weak` only listeners' comments or a single window; `conflict` a listing names one song where djlib heard another; `unidentified` an ID nothing named. An ID keeps `artist: null`; its candidates are guesses.
 
-MCP: `djlib_identify_set` (`url`, `idempotency_key`, optional `tracklist_text` with `tracklist_source` `1001tracklists`|`mixesdb`|`file`, `again`) returns the job; poll `djlib_job` every 10–20 s (`result.progress` while it runs, then the result above without `next`). After a failure, call again with a new key: it continues. To stop it, `djlib jobs control JOB_ID cancel`.
+MCP: `djlib_identify_set` (`url`, `idempotency_key`, optional `tracklist_text` with `tracklist_source` `1001tracklists`|`mixesdb`|`file`, `again`) returns the job; poll `djlib_job` every 10–20 s (`result.progress` while it runs, then the result above without `next`). After a failure, call again with a new key: it continues. To stop it, `djlib jobs control JOB_ID cancel` (MCP: `djlib_control` with `cancel`).
 
 Errors:
 - `DEPENDENCY_REQUIRED`: song recognition, FFmpeg or yt-dlp is missing; `djlib doctor` shows how to install it (song recognition: rerun the djlib installer).
@@ -88,7 +88,7 @@ djlib --json status                            # library, request lists, crates 
 djlib schemas                                  # strict JSON inputs
 ```
 
-MCP equivalents: `djlib_source_inspect` (`comments: 200` adds listener comments), `djlib_identify_set`, `djlib_shazam_history`, `djlib_find_sources` (ranked YouTube/SoundCloud uploads for one song), `djlib_download`, `djlib_create_request`, `djlib_collect_request`, `djlib_import_rekordbox_analysis`. The rekordbox and USB steps are CLI-only.
+MCP equivalents: `djlib_source_inspect` (`comments: 200` adds listener comments), `djlib_identify_set`, `djlib_control`, `djlib_shazam_history`, `djlib_find_sources` (ranked YouTube/SoundCloud uploads for one song), `djlib_download`, `djlib_create_request`, `djlib_collect_request`, `djlib_import_rekordbox_analysis`. The rekordbox and USB steps are CLI-only.
 
 ## Request lists step by step
 
