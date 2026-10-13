@@ -66,7 +66,11 @@ class Setup:
         self.fetched: list[str] = []
         self.made: list[str | None] = []
         self.listener = Listener([(0, 150, "Lumen", "Halo"), (150, 300, "Nia Okoro", "Slow Burn")])
+        import djlib.interfaces.service as service_module
+
+        # The identify job reads the page, and so does `djlib set` (POST /sources/inspect).
         monkeypatch.setattr(web, "inspect_source", self.inspect)
+        monkeypatch.setattr(service_module, "inspect_source", self.inspect)
         monkeypatch.setattr(web, "fetch_set_audio", self.fetch)
         monkeypatch.setattr(recognition, "duration", lambda path: self.seconds)
         monkeypatch.setattr(windows, "duration", lambda path: self.seconds)

@@ -90,6 +90,7 @@ JOB_LABELS = {
     "organize": "Organizing collection",
     "organization": "Organizing collection",
     "reconcile": "Reconciling changed files",
+    "identify": "Identifying a set",
 }
 
 
@@ -360,6 +361,14 @@ ERROR_TITLES = {
     "SOURCE_UNAVAILABLE": "That recording isn't available",
     "SOURCE_FAILED": "Couldn't read that page",
     "TRACKLIST_NOT_FOUND": "No tracklist on that page",
+    "SINGLE_SOURCE_REQUIRED": "Use the link of one set",
+    "SET_PREVIEW_ONLY": "Only a preview of that set plays",
+    "RECOGNITION_RATE_LIMITED": "Song recognition is turning requests away",
+    "RECOGNITION_UNAVAILABLE": "Song recognition can't be reached",
+    "RECOGNIZER_NOT_CONFIGURED": "Song recognition isn't set up",
+    "RECOGNIZER_REJECTED": "The recognition service refused djlib's key",
+    "JOB_CANCELLED": "Stopped",
+    "JOB_PAUSED": "Paused",
     "DEPENDENCY_REQUIRED": "Something needs installing",
     "JAVASCRIPT_RUNTIME_REQUIRED": "Something needs installing",
     "COLLECTION_EMPTY": "Nothing to put in the crate",
@@ -415,6 +424,9 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
     "SOURCE_BROWSER_ONLY": ("Paste the tracklist into a text file, then", ("set", "FILE")),
+    "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
+    "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
+    "RECOGNIZER_NOT_CONFIGURED": ("See what is missing", ("doctor",)),
 }
 
 

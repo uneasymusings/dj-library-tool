@@ -19,7 +19,7 @@ from tests.test_delivery_transports import assert_envelope
 from tests.test_headline_workflow import build
 
 PANELS = {
-    "Start here": ["init", "scan", "set", "status", "doctor"],
+    "Start here": ["init", "scan", "set", "identify", "status", "doctor"],
     "Your library": ["library", "crates", "crate", "requests", "shazam", "ui"],
     "rekordbox and USB": ["rekordbox"],
     "Settings": ["use", "roots", "upgrade"],

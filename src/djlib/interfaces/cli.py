@@ -54,7 +54,7 @@ EPILOG = (
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "scan", "set", "status", "doctor"),
+    *("init", "scan", "set", "identify", "status", "doctor"),
     *("library", "crates", "crate", "requests", "shazam", "ui"),
     "rekordbox",
     *("use", "roots", "upgrade"),
@@ -1283,6 +1283,10 @@ register_upgrade(app, client, emit, handled, panel=SETTINGS)
 from djlib.interfaces.shazam_cli import register_shazam  # noqa: E402
 
 register_shazam(app, client, emit, handled, panel=LIBRARY)
+
+from djlib.interfaces.identify_cli import register_identify  # noqa: E402
+
+register_identify(app, client, emit, handled, panel=START)
 
 
 def hoisted(arguments: list[str]) -> list[str]:
