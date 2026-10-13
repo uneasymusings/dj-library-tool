@@ -1318,13 +1318,16 @@ def shazam_check(shazam: dict) -> tuple[bool, str, str]:
     if songs:
         newest = shazam_day(shazam.get("newest_shazamed_at"))
         return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
+    # What to do in a few words; the fix under the row is the command.
     if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
-        value = "no access"
+        value, hint = "no access", "allow your terminal under Full Disk Access"
     elif shazam.get("problem"):
-        value = "can't be read"
+        value, hint = "can't be read", "for djlib set shazam"
+    elif shazam.get("found"):
+        value, hint = "no songs yet", "open Music Recognition in Control Center once"
     else:
-        value = "no songs yet" if shazam.get("found") else "not set up"
-    return False, value, "optional; for djlib set shazam"
+        value, hint = "not set up", "turn on Shazam in iCloud on your iPhone and this Mac"
+    return False, value, f"optional; {hint}"
 
 
 def shazam_day(value: str | None) -> str:
@@ -1998,10 +2001,14 @@ def shazam_status(term: Terminal, result: dict) -> None:
         backups = next(
             (s.get("backups") for s in result.get("sources") or [] if s.get("backups")), None
         )
+        # Ways around iCloud: the first says "instead", the others start with "Or".
+        music = "Or Apple Music's “My Shazam Tracks”"
         if backups:
-            steps.append(("Or read your iPhone backup", ("set", f"shazam:{backups[0]}")))
+            steps.append(("Read your iPhone backup instead", ("set", f"shazam:{backups[0]}")))
+        else:
+            music = "Use Apple Music's “My Shazam Tracks” instead"
         steps += [
-            ("Or Apple Music's “My Shazam Tracks”", ("set", "shazam:apple-music")),
+            (music, ("set", "shazam:apple-music")),
             ("Or a Shazam CSV export", ("set", "shazam:FILE.csv")),
         ]
     elif last and result.get("new_since_last_import"):
@@ -2049,7 +2056,8 @@ def shazam_list(term: Terminal, result: dict) -> None:
             if query.get(option):
                 more[2:2] = [f"--{option}", str(query[option])]
         more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
-    next_steps(term, [("Check them against your music", ("set", result.get("spec") or "shazam"))])
+    if result.get("spec"):  # none for a file or Apple Music with --since (see the warning)
+        next_steps(term, [("Check them against your music", ("set", result["spec"]))])
 
 
 # -- identify ----------------------------------------------------------------------------------

@@ -153,7 +153,8 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
             which = f"the first {plural(remaining, 'song')} in {where}"
         warnings.append(f"A list holds {MAX_SONGS} songs, so this one leaves out {which}.")
     first_times = [item["shazamed_at"] for item in used if item["shazamed_at"]]
-    # With songs left over, shazam:new continues after the last first Shazam in this list.
+    # With songs left over, shazam:new continues after the last first Shazam in this list,
+    # skipping repeats of its songs up to newest_in_history (shazam_history.unseen).
     newest = (
         max(first_times, default=None) if remaining and continues else shazam_history.newest(used)
     )
@@ -167,6 +168,7 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
         "songs_in_history": loaded["total"],
         "first_shazamed_at": min(first_times, default=None),
         "newest_shazamed_at": newest,
+        "newest_in_history": loaded["newest_in_history"],
         "left_out": left_out,
         "remaining": remaining,
     }
@@ -179,12 +181,19 @@ def list_result(
     """The newest ``limit`` Shazams (newest first) since ``since``, with the total.
 
     ``source`` and ``since`` are as in ``shazam_history.load``; ``spec`` is the matching
-    ``djlib set`` argument.
+    ``djlib set`` argument, or None when there is none: set takes a file or a date, not both.
     """
     loaded = shazam_history.load(source, since, workspace)
     records = loaded["records"]
+    spec = f"shazam:{source or since}" if source or since else "shazam"
+    # Newest first; songs without a time go last, in the order of the file.
+    newest_first = sorted(
+        records,
+        key=lambda item: (item["shazamed_at"] is not None, item["shazamed_at"] or ""),
+        reverse=True,
+    )
     return {
-        "spec": f"shazam:{source or since}" if source or since else "shazam",
+        "spec": None if source and since else spec,
         "query": {"since": since, "from": source},
         "songs": len(records),
         "songs_in_history": loaded["total"],
@@ -193,7 +202,7 @@ def list_result(
         "sources": loaded["sources"],
         "problems": loaded["problems"],
         "newest_shazamed_at": shazam_history.newest(records),
-        "records": list(reversed(records))[:limit],
+        "records": newest_first[:limit],
     }
 
 
@@ -231,7 +240,18 @@ def register_shazam(app, client, emit, handled, panel=None):
         Load them into a set with djlib set shazam (or shazam:new, shazam:2026-10-01).
         """
         if source is not None:
-            source, _ = shazam_history.parse_spec(f"shazam:{source}")
-            if source is None:
+            parsed, _ = shazam_history.parse_spec(f"shazam:{source}")
+            # --from never takes new or a date, so a folder named like one is meant here.
+            if parsed is None and shazam_history.exists(Path(source).expanduser()):
+                parsed = source
+            if parsed is None:
                 raise AppError("INPUT_INVALID", "--from takes apple-music or a file or folder.")
-        emit(envelope(list_result(source, since, limit, ctx.obj)))
+            source = parsed
+        result = list_result(source, since, limit, ctx.obj)
+        reply = envelope(result)
+        if result["records"] and result["spec"] is None:
+            reply["warnings"] = [
+                "djlib set can't combine a file or Apple Music with a date, so no single "
+                "command checks just these songs."
+            ]
+        emit(reply)

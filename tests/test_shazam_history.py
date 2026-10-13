@@ -289,6 +289,10 @@ def test_csv_exports_from_shazam_and_elsewhere(tmp_path):
         ("Lumen", "Halo", None),
         ("Nia Okoro", "Slow Burn", None),
     ]
+    twice = tmp_path / "twice.csv"
+    twice.write_text("Artist,Title\nLumen,Halo\nLumen,Halo\n", encoding="utf-8")
+    loaded = shazam_history.load(str(twice))
+    assert (loaded["sources"][0]["songs"], loaded["total"], len(loaded["records"])) == (1, 1, 1)
     other = tmp_path / "other.csv"
     other.write_text("Name,Size\nx,1\n", encoding="utf-8")
     with pytest.raises(AppError) as columns:
@@ -457,6 +461,39 @@ def test_specs_dates_and_new(home, tmp_path):
     assert fresh["new"] is True and fresh["last_import"]["songs"] == 2
 
 
+def test_words_and_dates_win_over_files_of_the_same_name(home, tmp_path, monkeypatch):
+    # A music folder with folders named like the words and dates shazam: takes.
+    for name in ("new", "music", "2026-10-01", "Backup"):
+        (tmp_path / name).mkdir()
+    monkeypatch.chdir(tmp_path)
+    parse = shazam_history.parse_spec
+    assert parse("shazam:new") == (None, "new")
+    assert parse("shazam:music") == ("apple-music", None)
+    assert parse("shazam:2026-10-01") == (None, "2026-10-01")
+    # Written as a path, it is the folder.
+    assert parse("shazam:./new") == ("./new", None)
+    assert parse(f"shazam:{tmp_path / 'new'}") == (str(tmp_path / "new"), None)
+    assert parse("shazam:Backup") == ("Backup", None)  # no word of that name
+    (tmp_path / "2026-10-01.csv").write_text("Artist,Title\nLumen,Halo\n", encoding="utf-8")
+    assert parse("shazam:2026-10-01.csv") == ("2026-10-01.csv", None)
+    with pytest.raises(AppError) as missing:
+        parse("shazam:2026-10-02.csv")
+    assert missing.value.code == "FILE_UNAVAILABLE"
+    # Dates written the European or US way are not paths.
+    for date in ("01/10/2026", "1.10.26", "01-10-2026", "2026/10/01"):
+        with pytest.raises(AppError) as written:
+            parse(f"shazam:{date}")
+        assert written.value.code == "INPUT_INVALID", date
+        assert "YYYY-MM-DD, e.g. shazam:2026-10-01" in written.value.message
+
+    # --from never means new or a date, so there the folder counts.
+    mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
+    shutil.copyfile(mac_path(home), tmp_path / "new" / "ShazamLibrary.sqlite")
+    listed = invoke(Workspace(tmp_path / "workspace"), "shazam", "list", "--from", "new")
+    assert listed.exit_code == 0, listed.output
+    assert titles(json.loads(listed.stdout)["result"]["records"]) == ["Halo"]
+
+
 def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     workspace = Workspace(tmp_path / "workspace")
     workspace.root.mkdir()
@@ -481,6 +518,50 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
         again.idempotency_key
         == shazam_cli.set_request("shazam", None, workspace)[0].idempotency_key
     )
+
+
+def test_the_next_list_skips_repeats_of_songs_a_full_list_already_checked(home, tmp_path):
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.root.mkdir()
+    start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
+
+    def hour(n):
+        return datetime.fromtimestamp(start + 3600 * n).isoformat()
+
+    mac_history(
+        home,
+        *((hour(n), f"Artist {n}", f"Song {n}") for n in range(2003)),
+        # Shazamed again before the first import, after the songs that end lists 1 and 2.
+        (hour(1500.5), "Artist 0", "Song 0"),
+        (hour(2001.5), "Artist 1200", "Song 1200"),
+        (hour(2003), "Artist 5", "Song 5"),  # the newest Shazam of all
+    )
+    body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
+    assert body.items[-1].title == "Song 999"
+    assert any("for the other 1003" in warning for warning in warnings)
+    shazam_history.remember_import(workspace, summary)
+    assert shazam_history.status(workspace)["new_since_last_import"] == 1003
+
+    body, warnings, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    # Song 0 and Song 5 were in the first list, so their repeats don't bring them back.
+    assert [item.title for item in body.items] == [f"Song {n}" for n in range(1000, 2000)]
+    assert any("for the other 3" in warning for warning in warnings)
+    shazam_history.remember_import(workspace, summary)
+    body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    assert [item.title for item in body.items] == ["Song 2000", "Song 2001", "Song 2002"]
+    shazam_history.remember_import(workspace, summary)
+
+    # Song 5's repeat is newer than any song in the last list, and still not new.
+    assert shazam_history.status(workspace)["new_since_last_import"] == 0
+    with pytest.raises(AppError) as nothing:
+        shazam_cli.set_request("shazam:new", None, workspace)
+    assert nothing.value.code == "SHAZAM_NOTHING_NEW"
+    # Shazamed again after the import: new again.
+    mac_history(home, (hour(2004), "Artist 5", "Song 5"))
+    body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    assert [item.title for item in body.items] == ["Song 5"]
+    shazam_history.remember_import(workspace, summary)
+    assert shazam_history.last_import(workspace)["held"] == []
 
 
 def test_a_long_list_from_apple_music_or_a_file_keeps_your_newest_shazams(
@@ -565,15 +646,23 @@ def test_no_history_explains_how_to_turn_on_sync(home, monkeypatch):
         shazam_history.load()
     error = missing.value
     assert error.code == "SHAZAM_HISTORY_NOT_FOUND"
-    for words in (
-        "Settings → [your name] → iCloud → turn on Shazam",
-        "System Settings → Apple Account → iCloud → See All",
-        "Music Recognition",
-        "Control Center",
-        "djlib set shazam:apple-music",
-        "djlib set shazam:BACKUP_OR_CSV",
+    # One step per line, numbered, so the terminal shows a list rather than a paragraph.
+    lines = error.message.splitlines()
+    assert lines[0] == "No Shazam history was found on this Mac. To bring your Shazams here:"
+    for line, words in zip(
+        lines[1:],
+        (
+            "1. On your iPhone: Settings → [your name] → iCloud → turn on Shazam / Music "
+            "Recognition",
+            "2. On this Mac: System Settings → Apple Account → iCloud → See All → turn on "
+            "Music Recognition",
+            "3. Open Control Center → Music Recognition once",
+            "Or run djlib set shazam:apple-music",
+            "Or run djlib set shazam:BACKUP_OR_CSV",
+        ),
+        strict=True,
     ):
-        assert words in error.message, words
+        assert line.startswith(words), line
     assert error.details["setup"] == shazam_history.SETUP
 
     mac_db(home).close()  # Music Recognition is on but nothing has synced yet
@@ -642,6 +731,7 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
     assert result["source"]["title"] == "Music Recognition on this Mac, 3 songs"
     summary = result["shazam"]
     assert (summary["songs"], summary["songs_in_history"]) == (3, 3)
+    assert summary["sources"][0]["songs"] == 3  # songs, not the 4 Shazams
     assert summary["newest_shazamed_at"] == "2026-10-03T02:00:00+00:00"
     request = library_http.get(f"/requests/{result['request_id']}").json()["result"]
     inputs = [item["input"] for item in request["items"]]
@@ -750,8 +840,12 @@ def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypat
     assert error["details"]["setup"] == shazam_history.SETUP
     source = invoke(application.workspace, "set", "shazam", "--source", "https://youtu.be/x")
     assert json.loads(source.stdout)["error"]["code"] == "INPUT_INVALID"
-    pretty = invoke(application.workspace, "set", "shazam", pretty=True)
-    assert "Shazam history not found" in pretty.output and "iCloud" in pretty.output
+    pretty = invoke(application.workspace, "set", "shazam", pretty=True).output
+    assert "No Shazam history found" in pretty
+    steps = [line.strip() for line in pretty.splitlines()]
+    assert any(line.startswith("1. On your iPhone: Settings") for line in steps)
+    assert any(line.startswith("3. Open Control Center") for line in steps)
+    assert "See what djlib finds on this Mac" in pretty and "shazam status" in pretty
 
 
 def test_shazam_status_and_list(application, home, tmp_path):
@@ -765,10 +859,25 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert "No Shazam history on this Mac yet" in pretty and "Turn on Shazam sync" in pretty
     assert "set shazam:apple-music" in pretty
 
+    def next_labels(output: str) -> list[str]:
+        lines = [line.strip() for line in output.splitlines()]
+        steps = lines[lines.index("Next") + 1 :]
+        return [line.split("  ")[0] for line in steps if line.startswith("→")]
+
+    # Nothing comes before the first way around iCloud, so it can't start with "Or".
+    assert next_labels(pretty) == [
+        "→ Use Apple Music's “My Shazam Tracks” instead",
+        "→ Or a Shazam CSV export",
+    ]
     iphone_backup(
         home / "Library/Application Support/MobileSync/Backup/00008110",
         ("2026-09-01T12:00:00+00:00", "Lumen", "Halo"),
     )
+    assert next_labels(invoke(workspace, "shazam", "status", pretty=True).stdout) == [
+        "→ Read your iPhone backup instead",
+        "→ Or Apple Music's “My Shazam Tracks”",
+        "→ Or a Shazam CSV export",
+    ]
     mac_history(
         home,
         ("2026-09-28T12:00:00+00:00", "Nia Okoro", "Slow Burn"),
@@ -799,6 +908,29 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert titles(from_csv["records"]) == ["Gem Lingo"]
     assert from_csv["spec"] == f"shazam:{csv}"
 
+    # Shazams without a time are the oldest you know of, so they come last.
+    mixed = tmp_path / "mixed.csv"
+    mixed.write_text(
+        "TagTime,Title,Artist\n2026-09-01T10:00:00Z,A,X\n,C,X\n2026-10-05T10:00:00Z,B,X\n,D,X\n",
+        encoding="utf-8",
+    )
+    listed = json.loads(invoke(workspace, "shazam", "list", "--from", mixed).stdout)["result"]
+    assert titles(listed["records"]) == ["B", "A", "C", "D"]
+    newest = json.loads(invoke(workspace, "shazam", "list", "--from", mixed, "--limit", "1").stdout)
+    assert titles(newest["result"]["records"]) == ["B"]
+
+    # set takes a file or a date, not both: never offer a command for a different list.
+    dated = invoke(workspace, "shazam", "list", "--from", mixed, "--since", "2026-10-01")
+    reply = json.loads(dated.stdout)
+    assert titles(reply["result"]["records"]) == ["B"] and reply["result"]["spec"] is None
+    assert "can't combine a file or Apple Music with a date" in reply["warnings"][0]
+    pretty = invoke(
+        workspace, "shazam", "list", "--from", mixed, "--since", "2026-10-01", pretty=True
+    ).output
+    assert "can't combine a file" in pretty and "set shazam" not in pretty
+    mac_only = json.loads(invoke(workspace, "shazam", "list", "--since", "2026-10-01").stdout)
+    assert mac_only["result"]["spec"] == "shazam:2026-10-01" and not mac_only["warnings"]
+
 
 def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     from djlib.native import rekordbox_mac
@@ -816,10 +948,19 @@ def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     assert reply.exit_code == 0, reply.output  # never a required check
     result = json.loads(reply.stdout)["result"]
     assert result["shazam_history"]["found"] is False
-    assert result["fixes"]["shazam"] == shazam_history.SETUP[1]
+    # The fix is a command, like every fix under a row; it shows all the setup steps.
+    assert result["fixes"]["shazam"] == "djlib shazam status"
+    pretty = invoke(workspace, "doctor", pretty=True).stdout.splitlines()
+    at = next(n for n, line in enumerate(pretty) if "Shazam history" in line)
+    assert "not set up" in pretty[at] and "optional; turn on Shazam in iCloud" in pretty[at]
+    assert pretty[at + 1].strip() == "→ djlib shazam status"
+
+    mac_db(home).close()  # Music Recognition is on but nothing has synced yet
+    result = json.loads(invoke(workspace, "doctor").stdout)["result"]
+    assert result["fixes"]["shazam"] == "djlib shazam status"
     pretty = invoke(workspace, "doctor", pretty=True).stdout
     row = next(line for line in pretty.splitlines() if "Shazam history" in line)
-    assert "not set up" in row and "optional" in row
+    assert "no songs yet" in row and "open Music Recognition in Control Center once" in row
 
     mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
     result = json.loads(invoke(workspace, "doctor").stdout)["result"]
