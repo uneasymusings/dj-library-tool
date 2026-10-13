@@ -660,21 +660,44 @@ def test_a_song_heard_again_soon_after_is_one_track():
         ("audio", 7),
         ("description", None),
     ]
-    # Played again after another song: two plays, and the listing takes the one at its time.
+    # Past another song, a listing that names it once says it is still the same play.
+    back = [
+        *song(0, 4, "Lumen", "Halo"),
+        *song(120, 4, "Ana", "Rain"),
+        *song(240, 3, "Kettama", "Sky"),
+        *song(330, 3, "Ana", "Rain"),
+        *song(450, 4, "Bo", "Snow"),
+    ]
+    listed = listing("description", "Lumen - Halo", "Ana - Rain", "Bo - Snow")
+    tracks = build_tracklist(duration=570, probes=back, listed=[listed])["tracks"]
+    assert summary(tracks) == [
+        ("00:00", "Halo", "confirmed", False),
+        ("02:00", "Rain", "confirmed", False),
+        ("04:00", "Sky", "confirmed", False),
+        ("07:30", "Snow", "confirmed", False),
+    ]
+    assert request_items({"tracks": tracks})[1]["notes"] == (
+        "Shazam: 4 windows from 02:00; Shazam: 3 windows from 05:30; also in the description"
+    )
+    unlisted = build_tracklist(duration=570, probes=back)["tracks"]
+    assert [t["title"] for t in unlisted] == ["Halo", "Rain", "Sky", "Rain", "Snow"]
+    # The listed song takes the windows at its listed time, else the ones heard longest.
     twice = [
         *song(0, 2, "Lumen", "Halo"),
         *song(60, 4, "Ana", "Rain"),
         *song(180, 3, "Lumen", "Halo"),
     ]
-    for line, listed_at in (("[00:00] Lumen - Halo", "00:00"), ("Lumen - Halo", "03:00")):
+    for line, order in (
+        ("[00:00] Lumen - Halo", [("00:00", "Halo"), ("01:00", "Rain")]),
+        ("Lumen - Halo", [("01:00", "Rain"), ("03:00", "Halo")]),
+    ):
         tracks = build_tracklist(duration=300, probes=twice, listed=[listing("file", line)])
-        assert [(clock(t["start"]), t["title"]) for t in tracks["tracks"]] == [
-            ("00:00", "Halo"),
-            ("01:00", "Rain"),
-            ("03:00", "Halo"),
-        ]
-        (from_text,) = (t for t in tracks["tracks"] if len(t["evidence"]) == 2)
-        assert clock(from_text["start"]) == listed_at
+        assert [(clock(t["start"]), t["title"]) for t in tracks["tracks"]] == order
+        (halo,) = (t for t in tracks["tracks"] if t["title"] == "Halo")
+        assert sorted(e.get("hits") or 0 for e in halo["evidence"]) == [0, 2, 3]
+    # Without a listing, a song heard again after another one was played twice.
+    tracks = build_tracklist(duration=300, probes=twice)["tracks"]
+    assert [t["title"] for t in tracks] == ["Halo", "Rain", "Halo"]
 
 
 def test_two_listings_confirm_each_other_and_fill_ids():
