@@ -36,11 +36,9 @@ def tracklist_request(
     text: Path, name: str | None, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from a plain tracklist file, plus warnings for skipped lines."""
-    try:
-        content = text.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AppError("INPUT_INVALID", f"Could not read {text} as a UTF-8 text file.") from exc
-    return text_request(content, name, text.stem, source)
+    from djlib.interfaces.identify_cli import read_text_file
+
+    return text_request(read_text_file(text), name, text.stem, source)
 
 
 def text_request(
@@ -48,18 +46,21 @@ def text_request(
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from tracklist text; ``fallback`` names it when it has no heading."""
     from djlib.application.tracklists import HEADING, parse_tracklist
+    from djlib.domain.contracts import safe_text
 
     items, skipped = parse_tracklist(content, source)
     headings = [line for _, line, reason in skipped if reason == HEADING]
+    from djlib.interfaces.identify_cli import quoted
+
     warnings = [
-        f"line {number} skipped ({reason}): {line}"
+        f"line {number} skipped ({reason}): “{quoted(line)}”"
         for number, line, reason in skipped
         if reason != HEADING
     ]
     if not items:
         raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
     # A heading such as "Set Zero — Friday" names the list.
-    title = name or (headings[0][:300] if headings else fallback[:300])
+    title = name or (headings[0][:300] if headings else " ".join(safe_text(fallback).split())[:300])
     # Keyed by what was parsed, so rerunning a file reuses its list, and a file parsed
     # differently (edited, or by a newer djlib) becomes a new list instead of a conflict.
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)

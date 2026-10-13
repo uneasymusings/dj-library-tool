@@ -188,7 +188,7 @@ async def test_tracklist_to_crate_with_rekordbox_analysis(
     )
     assert reply.exit_code == 0, reply.output
     created = json.loads(reply.stdout)
-    assert created["warnings"] == ["line 4 skipped (no “Artist - Title” separator): loose words"]
+    assert created["warnings"] == ["line 4 skipped (no “Artist - Title” separator): “loose words”"]
     ledger = created["result"]
     assert ledger["name"] == "Set Zero"
     assert ledger["counts"]["satisfied"] == 2 and ledger["counts"]["missing"] == 1

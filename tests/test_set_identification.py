@@ -1234,3 +1234,12 @@ def test_an_ids_candidates_put_a_song_a_listener_also_named_first():
         ("audio", "Gritando"),
         ("comments", "So Fine"),
     ]
+
+
+def test_a_listing_is_read_up_to_a_bound():
+    """Merging is quadratic in listed tracks; a hostile page can't make it take minutes."""
+    text = "\n".join(f"{n}. Artist {n} - Title {n}" for n in range(1, 1001))
+    listed = listed_tracklist("mixesdb", text)
+    assert len(listed["entries"]) == 400
+    assert listed["skipped"][-1]["line"] == 401
+    assert listed["skipped"][-1]["reason"].startswith("more than 400 tracks")

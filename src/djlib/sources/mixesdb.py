@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import httpx
 
 from djlib import __version__
-from djlib.domain.contracts import normalize
+from djlib.domain.contracts import normalize, safe_text
 from djlib.domain.errors import AppError
 
 logger = logging.getLogger(__name__)
@@ -654,8 +654,9 @@ def _index(entry: dict) -> int:
 
 
 def _text(value) -> str:
-    """``value`` as text; a lone surrogate, which no page can hold, is a ValueError."""
-    text = str(value)
+    """``value`` as text (control characters and hidden marks dropped, newlines kept); a lone
+    surrogate, which no page can hold, is a ValueError."""
+    text = safe_text(str(value), lines=True)
     text.encode()
     return text
 

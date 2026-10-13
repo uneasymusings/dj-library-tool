@@ -11,7 +11,6 @@ import functools
 import math
 import re
 import statistics
-import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,7 +29,13 @@ from djlib.application.tracklists import (
     VERSION_WORDS,
     parse_tracklist,
 )
-from djlib.domain.contracts import artist_names, plain_labels, split_featured, without_artist_tags
+from djlib.domain.contracts import (
+    artist_names,
+    plain_labels,
+    safe_text,
+    split_featured,
+    without_artist_tags,
+)
 
 WINDOW = 12.0
 STRIDE = 30.0
@@ -46,6 +51,8 @@ SONG_SECONDS = 180.0
 ID_REACH = 180.0
 WEAK_REACH = 60.0
 HINTS = 3
+# Tracks read from one listing: a six-hour set has about 150. Merging is quadratic in them.
+MAX_LISTED = 400
 # How surely two labels name the same song in any version: 1 same credits and title, 0.9
 # shared credits, SAME one title inside the other with a credited name in common, CLOSE a
 # near-identical title, JOIN the same title by other artists (a remix heard as its sample).
@@ -95,8 +102,7 @@ OPENERS = {")": "(", "]": "["}
 def _clean(value) -> str:
     """Text on one line without control characters ("Halo\\tExtended" → "Halo Extended"),
     and without a closing bracket nothing opened ("Picture Picture]", a listing's typo)."""
-    text = "".join(c for c in str(value or "") if c.isspace() or unicodedata.category(c) != "Cc")
-    text = " ".join(text.split())
+    text = " ".join(safe_text(value).split())
     while text and text[-1] in OPENERS and text.count(text[-1]) > text.count(OPENERS[text[-1]]):
         text = text[:-1].rstrip()
     return text
@@ -512,6 +518,7 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     ("[06:00] Antdot - Mirage"), which request items leave out. ``skipped`` lists the lines
     left out (``{"line", "text", "reason"}``).
     """
+    text = safe_text(text, lines=True)
     items, skipped = parse_tracklist(text, source_url)
     entries = [item.model_dump() for item in items]
     left_out = {number for number, *_ in skipped}
@@ -524,6 +531,11 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
         for entry, (_, raw) in zip(entries, lines, strict=True):
             entry["timestamp"] = entry["timestamp"] or _line_time(raw)
     left = [{"line": number, "text": raw, "reason": reason} for number, raw, reason in skipped]
+    if len(entries) > MAX_LISTED:
+        number, raw = lines[MAX_LISTED] if len(lines) == len(entries) else (0, "")
+        reason = f"more than {MAX_LISTED} tracks; this one and the rest are left out"
+        left.append({"line": number, "text": raw, "reason": reason})
+        entries = entries[:MAX_LISTED]
     return {"source": source, "entries": entries, "skipped": left}
 
 

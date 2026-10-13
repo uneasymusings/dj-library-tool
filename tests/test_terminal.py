@@ -932,3 +932,14 @@ def test_good_news_colors_only_its_glyph():
     text = views.marked(terminal.Terminal(json=False), "ok", "in rekordbox")
     assert [span.style for span in text.spans] == ["ok"]
     assert text.spans[0].end == 1
+
+
+def test_text_from_pages_and_comments_never_reaches_the_terminal_as_escape_codes():
+    """Rich drops only a few control codes; djlib drops all but newline and tab, and the marks
+    that reorder text, so a title can't clear the screen or forge a link."""
+    from rich.text import Text
+
+    import djlib.interfaces.terminal  # noqa: F401 - installs the stricter stripping
+
+    shown = Text("Evil\x1b[2J - Song\x1b]8;;https://evil.example/\x1b\\x \u202eolaH\x9b\tok\n")
+    assert shown.plain == "Evil[2J - Song]8;;https://evil.example/\\x olaH\tok\n"

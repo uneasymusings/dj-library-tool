@@ -974,3 +974,21 @@ def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     pretty = invoke(workspace, "doctor", pretty=True).stdout
     row = next(line for line in pretty.splitlines() if "Shazam history" in line)
     assert "1 song, newest 2026-10-0" in row
+
+
+def test_a_device_or_a_huge_file_is_not_read_as_a_shazam_history(tmp_path, monkeypatch):
+    from djlib.sources import shazam_history
+
+    for path in (Path("/dev/zero"), tmp_path):
+        with pytest.raises(AppError) as refused:
+            shazam_history.read_path(path)
+        assert refused.value.code == "INPUT_INVALID"
+    big = tmp_path / "big.csv"
+    big.write_text("Title,Artist\n" + "x" * 200_000 + ",A\n", encoding="utf-8")
+    with pytest.raises(AppError) as unreadable:
+        shazam_history.read_path(big)
+    assert unreadable.value.code == "INPUT_INVALID"
+    monkeypatch.setattr(shazam_history, "CSV_BYTES", 10)
+    with pytest.raises(AppError) as large:
+        shazam_history.read_path(big)
+    assert "too large" in large.value.message

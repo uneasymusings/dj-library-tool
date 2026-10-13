@@ -33,6 +33,9 @@ POLL_SECONDS = 0.5
 # Below this share of the set named, and with no published or given tracklist, a tracklist
 # from 1001Tracklists is the best next step.
 LOW_COVERAGE = 70
+TRACKLIST_BYTES = 1_000_000
+# Lines djlib skipped are quoted from the page or file: cut short, they stay data.
+QUOTED_CHARS = 160
 
 
 class Recognizer(StrEnum):
@@ -58,14 +61,25 @@ def tracklist_source(path: Path, text: str) -> str:
     return "file"
 
 
+def read_text_file(path: Path, limit: int = TRACKLIST_BYTES) -> str:
+    """A tracklist file's text: a regular file of at most ``limit`` bytes."""
+    try:
+        if not path.is_file():
+            raise AppError("INPUT_INVALID", f"{path} is not a text file.")
+        if path.stat().st_size > limit:
+            raise AppError(
+                "INPUT_INVALID", f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller."
+            )
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AppError("INPUT_INVALID", f"Could not read {path} as a UTF-8 text file.") from exc
+
+
 def read_tracklists(paths: list[Path] | None) -> list[dict]:
     found = []
     for path in paths or []:
         path = path.expanduser()
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise AppError("INPUT_INVALID", f"Could not read {path} as a UTF-8 text file.") from exc
+        text = read_text_file(path)
         if not text.strip():
             raise AppError("INPUT_INVALID", f"{path} is empty; paste the set's tracklist into it.")
         found.append({"source": tracklist_source(path, text), "text": text})
@@ -231,9 +245,17 @@ def warnings_of(result: dict) -> list[str]:
         where = SOURCE_NAMES.get(line["source"], line["source"])
         lines.append(
             f"{where[:1].upper()}{where[1:]}, line {line['line']} skipped ({line['reason']}): "
-            f"{line['text']}"
+            f"“{quoted(line['text'])}”"
         )
     return [*(result.get("notices") or []), *lines]
+
+
+def quoted(text: object) -> str:
+    """Publisher text quoted in djlib's own messages: one line, cut short."""
+    from djlib.domain.contracts import safe_text
+
+    flat = " ".join(safe_text(text).split())
+    return flat if len(flat) <= QUOTED_CHARS else flat[: QUOTED_CHARS - 1] + "…"
 
 
 def cannot_listen(error: AppError) -> str:
@@ -288,7 +310,10 @@ def identified_request(result: dict, name: str):
             "them. Copy its tracklist (for example from 1001Tracklists) into a text file, then "
             f"run: djlib set {url} --tracklist FILE",
         )
-    title = " ".join(name.split())[:300] or "Set"
+    from djlib.domain.contracts import safe_text
+
+    # A page read by an older djlib may hold control characters in its title.
+    title = " ".join(safe_text(name).split())[:300] or "Set"
     digest = hashlib.sha256(json.dumps([title, url, items], sort_keys=True).encode()).hexdigest()
     return RequestCreate.model_validate(
         {"name": title, "items": items, "idempotency_key": f"identified:{digest[:16]}"}

@@ -9,6 +9,7 @@ import functools
 import math
 import re
 import statistics
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -634,14 +635,15 @@ def _supports(title: str, hint: Hint) -> bool:
     )
 
 
-def comment_hints(
-    comments: list[dict], at_seconds: float | None, *, before: float = 90, after: float = 300
-) -> list[dict]:
-    """Identities fans wrote near ``at_seconds`` (anywhere when None), best first.
+_READ = threading.local()
 
-    Only "Artist - Title" strings, or titles in a timestamped fan tracklist, are read; nothing
-    is inferred. Untimed replies count only when they back a timed identity near the moment.
-    """
+
+def _comment_mentions(comments: list[dict]) -> tuple[list[tuple], list[tuple]]:
+    """Every song named in the comments, timed and untimed. Read once per list: a merge asks
+    about every ID of a set with the same comments."""
+    last = getattr(_READ, "last", None)
+    if last is not None and last[0] is comments and last[1] == len(comments):
+        return last[2]
     timed, untimed = [], []
     for number, comment in enumerate(comments[:MAX_COMMENTS]):
         if len(timed) + len(untimed) >= MAX_MENTIONS:
@@ -656,6 +658,19 @@ def comment_hints(
                 if found := _mentions(clause, listing):
                     mention = (number, *found, seconds, max(likes, 0), text)
                     (untimed if seconds is None else timed).append(mention)
+    _READ.last = (comments, len(comments), (timed, untimed))
+    return timed, untimed
+
+
+def comment_hints(
+    comments: list[dict], at_seconds: float | None, *, before: float = 90, after: float = 300
+) -> list[dict]:
+    """Identities fans wrote near ``at_seconds`` (anywhere when None), best first.
+
+    Only "Artist - Title" strings, or titles in a timestamped fan tracklist, are read; nothing
+    is inferred. Untimed replies count only when they back a timed identity near the moment.
+    """
+    timed, untimed = _comment_mentions(comments)
 
     def near(seconds: float) -> bool:
         return at_seconds is None or at_seconds - before <= seconds <= at_seconds + after
