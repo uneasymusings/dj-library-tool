@@ -1229,6 +1229,8 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "optional; appears once rekordbox has analyzed tracks",
             ),
         ]
+    if shazam := result.get("shazam_history"):
+        checks.append(("Shazam history", *shazam_check(shazam)))
     fixes = result.get("fixes") or {}
     if plugin := result.get("claude_plugin"):
         hint = ""
@@ -1275,8 +1277,24 @@ DOCTOR_FIXES = {
     "rekordbox": "rekordbox",
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
+    "Shazam history": "shazam",
     "Claude Code plugin": "claude_plugin",
 }
+
+
+def shazam_check(shazam: dict) -> tuple[bool, str, str]:
+    """(passed, value, hint) of doctor's optional Shazam history row."""
+    songs = int(shazam.get("songs") or 0)
+    if songs:
+        newest = shazam_day(shazam.get("newest_shazamed_at"))
+        return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
+    if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
+        value = "no access"
+    elif shazam.get("problem"):
+        value = "can't be read"
+    else:
+        value = "no songs yet" if shazam.get("found") else "not set up"
+    return False, value, "optional; for djlib set shazam"
 
 
 def shazam_day(value: str | None) -> str:

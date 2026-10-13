@@ -631,3 +631,32 @@ def test_shazam_status_and_list(application, home, tmp_path):
     from_csv = json.loads(invoke(workspace, "shazam", "list", "--from", csv).stdout)["result"]
     assert titles(from_csv["records"]) == ["Gem Lingo"]
     assert from_csv["spec"] == f"shazam:{csv}"
+
+
+def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
+    from djlib.native import rekordbox_mac
+    from djlib.sources import runtimes
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(rekordbox_mac, "installed", lambda: None)
+    monkeypatch.setattr(rekordbox_mac, "automation_allowed", lambda: True)
+    monkeypatch.setattr(rekordbox_mac, "screen_locked", lambda: False)
+    monkeypatch.setattr(runtimes, "javascript_runtimes", lambda: {"youtube_runtime_ready": True})
+    workspace = Workspace(tmp_path / "not-yet")
+
+    reply = invoke(workspace, "doctor")
+    assert reply.exit_code == 0, reply.output  # never a required check
+    result = json.loads(reply.stdout)["result"]
+    assert result["shazam_history"]["found"] is False
+    assert result["fixes"]["shazam"] == shazam_history.SETUP[1]
+    pretty = invoke(workspace, "doctor", pretty=True).stdout
+    row = next(line for line in pretty.splitlines() if "Shazam history" in line)
+    assert "not set up" in row and "optional" in row
+
+    mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
+    result = json.loads(invoke(workspace, "doctor").stdout)["result"]
+    assert result["shazam_history"]["songs"] == 1 and "shazam" not in result["fixes"]
+    pretty = invoke(workspace, "doctor", pretty=True).stdout
+    row = next(line for line in pretty.splitlines() if "Shazam history" in line)
+    assert "1 song, newest 2026-10-0" in row
