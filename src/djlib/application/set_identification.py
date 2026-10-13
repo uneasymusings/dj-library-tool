@@ -981,6 +981,9 @@ def _recognized(clusters: list[dict], total: float | None, unplaced: list[dict])
 
 
 def _status(slot: _Slot) -> str:
+    """``confirmed`` needs the audio: the song heard where a listing places it, or heard in
+    STRONG windows. Listings alone are ``likely`` however many name the song, since they copy
+    each other (a MixesDB page often repeats the upload's description)."""
     if slot.kind == "unknown":
         if any(c["source"] == "audio" and c["strength"] != "weak" for c in slot.candidates):
             return "likely"
@@ -1000,9 +1003,9 @@ def _status(slot: _Slot) -> str:
             if text["kind"] == "named"
             for song in heard
         )
-        return "confirmed" if agree or len(sources) > 1 else "likely"
+        return "confirmed" if agree else "likely"
     if sources:
-        return "confirmed" if len(sources) > 1 else "weak" if sources == {"comments"} else "likely"
+        return "weak" if sources == {"comments"} else "likely"
     return "confirmed" if any(c["strength"] == "strong" for c in slot.clusters) else "likely"
 
 

@@ -116,8 +116,8 @@ djlib download --file downloads.json
 
 `identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition, listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
 
-- **confirmed**: two sources agree, e.g. djlib heard the song where the tracklist lists it;
-- **likely**: one good source, such as the published tracklist or two listening windows;
+- **confirmed**: djlib heard the song, where a tracklist lists it or in three or more windows;
+- **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other) or two listening windows;
 - **weak**: only a listener's comment, or a single window;
 - **conflict**: the tracklist names one song where djlib heard another;
 - **unidentified**: an ID nothing named.

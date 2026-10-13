@@ -984,7 +984,7 @@ def test_a_song_heard_again_soon_after_is_one_track():
     assert [t["title"] for t in tracks] == ["Halo", "Rain", "Halo"]
 
 
-def test_two_listings_confirm_each_other_and_fill_ids():
+def test_two_listings_fill_ids_but_confirm_nothing_unheard():
     description_ = listing("description", "Lumen - Halo", "[02:00] ID - ID", "Ana - Rain")
     tracklists = listing(
         "1001tracklists", "Lumen - Halo (Extended Mix)", "[02:10] Bicep - Glue", "Ana - Rain"
@@ -992,9 +992,9 @@ def test_two_listings_confirm_each_other_and_fill_ids():
     result = build_tracklist(duration=360, listed=[description_, tracklists])
     tracks = result["tracks"]
     assert [(t["title"], t["version"], t["status"]) for t in tracks] == [
-        ("Halo", "", "confirmed"),
+        ("Halo", "", "likely"),
         ("Glue", "", "likely"),
-        ("Rain", "", "confirmed"),
+        ("Rain", "", "likely"),
     ]
     assert [(e["source"], e["kind"]) for e in tracks[1]["evidence"]] == [
         ("1001tracklists", "named"),
@@ -1007,6 +1007,34 @@ def test_two_listings_confirm_each_other_and_fill_ids():
     tracks = build_tracklist(duration=360, listed=[description_, both])["tracks"]
     assert [t["kind"] for t in tracks] == ["named", "unknown", "named"]
     assert len(tracks[1]["evidence"]) == 2
+
+
+def test_only_the_audio_confirms_a_listed_song():
+    # MixesDB pages often copy the upload's description, so two listings are one source.
+    text = ("Lumen - Halo", "Ana - Rain", "Bo - Snow")
+    listed = [listing("description", *text), listing("mixesdb", *text)]
+    probes = [
+        *song(0, 4, "Lumen", "Halo"),
+        *map(silence, range(120, 300, 30)),
+        heard(300, "Bo", "Snow"),
+        *map(silence, (330, 360)),
+    ]
+    result = build_tracklist(duration=390, probes=probes, listed=listed)
+    assert summary(result["tracks"]) == [
+        ("00:00", "Halo", "confirmed", False),
+        ("01:42", "Rain", "likely", True),
+        ("05:00", "Snow", "confirmed", False),  # one window where the listings place it
+    ]
+    assert [item["notes"] for item in request_items(result)] == [
+        "Shazam: 4 windows from 00:00; also in the description and MixesDB",
+        "From the description and MixesDB; the time is approximate",
+        "Shazam: 1 window at 05:00; also in the description and MixesDB",
+    ]
+    # Heard in three or more windows confirms a song no listing names.
+    alone = build_tracklist(duration=390, probes=probes)["tracks"]
+    assert [(t["title"], t["status"]) for t in alone if t["kind"] == "named"] == [
+        ("Halo", "confirmed")
+    ]
 
 
 def test_comments_suggest_ids_but_not_songs_already_listed():
