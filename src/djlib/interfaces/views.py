@@ -1757,6 +1757,10 @@ def set_view(term: Terminal, result: dict) -> None:
         rows.append(
             ("Source", Text(f"{provider}: {page.get('title') or page.get('url')}", "muted"))
         )
+    identified = result.get("identified") or {}
+    if identified:
+        rows.append(("Identified", identified_line(term, identified)))
+        rows.append(("Tracklist", path_text(identified.get("tracklist_file"))))
     fetched = result.get("fetched") or {}
     if fetched:
         rows.append(("Fetched", fetched_line(term, fetched)))
@@ -1793,22 +1797,30 @@ def set_view(term: Terminal, result: dict) -> None:
     if missing:
         term.out.print()
         term.out.print(Text(f"Not in the crate ({len(missing)})", style="heading"))
-        grid = table(
+        columns = [
             ("#", {"justify": "right", "style": "muted"}),
             ("Status", {"min_width": 11}),
             ("Requested", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
-            ("You own", {"overflow": "ellipsis", "drop": 1}),
-        )
+            ("You own", {"overflow": "ellipsis", "drop": 2}),
+        ]
+        # An identified set says why each song is there; an ID's likely song is a guess.
+        why = identified and any(item.get("notes") for item in missing)
+        if why:
+            columns.append(("Why", {"overflow": "ellipsis", "drop": 1, "style": "muted"}))
+        grid = table(*columns)
         for item in missing:
             glyph, tone, label = REQUEST_STATES.get(
                 item.get("state") or "", ("todo", "todo", item.get("state") or "")
             )
-            grid.add_row(
+            cells = [
                 str(item.get("position") or ""),
                 marked(term, glyph, label, tone),
                 Text(item.get("label") or ""),
                 Text(", ".join(item.get("you_own") or []), style="warn"),
-            )
+            ]
+            if why:
+                cells.append(Text(item.get("notes") or ""))
+            grid.add_row(*cells)
         term.out.print(grid)
     pick = fetched.get("needs_your_pick") or []
     if pick:
@@ -1867,6 +1879,19 @@ def set_view(term: Terminal, result: dict) -> None:
         if from_this_mac(result["shazam"]):
             steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
+
+
+def identified_line(term: Terminal, identified: dict) -> Text:
+    """ "85% of the set named · 8 confirmed, 4 likely, 1 unidentified" for `djlib set`."""
+    coverage = identified.get("coverage") or {}
+    percent = coverage.get("percent")
+    line = Text(f"{percent}% of the set named" if percent is not None else "tracklist made")
+    counts = identified_counts(identified.get("counts") or {})
+    if counts:
+        line.append(f"  {counts}", style="muted")
+    if identified.get("reused"):
+        line.append("  (saved from an earlier listen)", style="muted")
+    return line
 
 
 def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
