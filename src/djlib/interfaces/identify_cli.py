@@ -205,6 +205,17 @@ def warnings_of(result: dict) -> list[str]:
     return [*(result.get("notices") or []), *lines]
 
 
+def cannot_listen(error: AppError) -> str:
+    """Why djlib can't listen on this computer, with the fix (no final period)."""
+    from djlib.application.identification import INSTALLER
+
+    if error.code == "DEPENDENCY_REQUIRED" and "FFmpeg" in error.message:
+        return "FFmpeg isn't installed (djlib doctor shows how to install it)"
+    if error.code == "DEPENDENCY_REQUIRED":
+        return f"song recognition isn't installed; install it with: {INSTALLER}"
+    return error.message.rstrip(".")
+
+
 def wanted(choice: bool | None, text: str, url: str, workspace) -> bool:
     """Whether `djlib set LINK` listens to the set: when asked to, or by default when its
     published tracklist is missing or has IDs, or it was identified before (that costs

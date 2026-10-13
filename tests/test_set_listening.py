@@ -103,14 +103,19 @@ def test_without_song_recognition_set_falls_back_or_says_how_to_install_it(
     FakeRekordbox(monkeypatch)
     envelope = json.loads(invoke(application, "set", URL).stdout)
     assert envelope["result"]["identified"] is None and envelope["result"]["songs"] == 3
-    assert envelope["warnings"][0].startswith("djlib didn't listen to the set: Song recognition")
+    assert envelope["warnings"][0] == (
+        "djlib didn't listen to the set: song recognition isn't installed; install it with: "
+        f"{identification.INSTALLER}. This uses the tracklist in its description."
+    )
     explicit = json.loads(invoke(application, "set", URL, "--identify").stdout)["error"]
     assert explicit["code"] == "DEPENDENCY_REQUIRED"
     fakes.page["description"] = ""
     missing = json.loads(invoke(application, "set", URL).stdout)["error"]
     assert missing["code"] == "TRACKLIST_NOT_FOUND"
-    assert "install song recognition" in missing["message"]
-    assert identification.INSTALLER in missing["message"]
+    assert missing["message"].endswith(
+        "djlib could listen to the set and find its songs itself, but song recognition isn't "
+        f"installed; install it with: {identification.INSTALLER}"
+    )
 
 
 def test_set_merges_a_1001tracklists_file_with_what_it_hears(

@@ -714,8 +714,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     problem = error
                     if text.strip():
                         warnings.append(
-                            f"djlib didn't listen to the set: {error.message} This uses the "
-                            "tracklist in its description."
+                            f"djlib didn't listen to the set: {identify_cli.cannot_listen(error)}"
+                            ". This uses the tracklist in its description."
                         )
             if identified is not None:
                 body = identify_cli.identified_request(
@@ -739,8 +739,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 )
             body, warnings = tracklist_request(path, name, source)
             # A set identified before costs nothing: its file merges with what djlib heard.
-            again = identify is None and source and identification.finished(workspace, source)
-            if identify or tracklists or again:
+            free = identify is None and source and identification.finished(workspace, source)
+            if identify or tracklists or free:
                 listing = path.read_text(encoding="utf-8")
                 given = [
                     {"source": identify_cli.tracklist_source(path, listing), "text": listing},
@@ -749,7 +749,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 try:
                     identified = identify_cli.listen(local, source, given, body.name)
                 except AppError as error:
-                    if not again:
+                    if not free:
                         raise
                     warnings.append(f"djlib didn't use what it heard before: {error.message}")
                 if identified is not None:
@@ -869,8 +869,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
     def no_tracklist(page: dict, url: str, identify: bool | None, problem) -> AppError:
         """TRACKLIST_NOT_FOUND, with what listeners named and how djlib could listen instead."""
-        from djlib.application import identification
-        from djlib.interfaces import set_sources
+        from djlib.interfaces import identify_cli, set_sources
 
         comments = page.get("comments") or []
         message = (
@@ -881,13 +880,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         )
         if identify is False:
             message += ". Or leave out --no-identify, so djlib listens to the set itself."
-        elif problem is not None and problem.code == "DEPENDENCY_REQUIRED":
-            message += (
-                ". Or install song recognition, so djlib can listen to the set and find its "
-                f"songs itself: {identification.INSTALLER}"
-            )
         elif problem is not None:
-            message += f". djlib couldn't listen to the set: {problem.message}"
+            message += (
+                ". djlib could listen to the set and find its songs itself, but "
+                + identify_cli.cannot_listen(problem)
+            )
         return AppError(
             "TRACKLIST_NOT_FOUND",
             message,
