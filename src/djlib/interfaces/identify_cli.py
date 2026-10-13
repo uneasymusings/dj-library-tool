@@ -231,16 +231,16 @@ def cannot_listen(error: AppError) -> str:
     return error.message.rstrip(".")
 
 
-def wanted(choice: bool | None, text: str, url: str, workspace) -> bool:
+def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
     """Whether `djlib set LINK` listens to the set: when asked to, or by default when its
-    published tracklist is missing or has IDs, or it was identified before (that costs
-    nothing)."""
+    published tracklist is missing, has IDs or is not ``complete`` (as MixesDB marks some),
+    or it was identified before (that costs nothing)."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
     if choice is not None:
         return choice
-    if not text.strip():
+    if not text.strip() or not complete:
         return True
     items, _ = parse_tracklist(text, url)
     if any(item.kind == "unknown" for item in items):

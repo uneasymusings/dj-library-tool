@@ -111,6 +111,8 @@ class DownloadRequest(Contract):
 class SourceRequest(Contract):
     url: str = Field(min_length=1, max_length=4096)
     comments: int = Field(default=0, ge=0, le=2000)
+    # Also look the set up on MixesDB when its description and chapters list no tracklist.
+    mixesdb: bool = False
 
 
 class IdentifyTracklist(Contract):

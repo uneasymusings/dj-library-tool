@@ -679,7 +679,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
-        page = shazam = identified = None
+        page = shazam = identified = listing = None
         if shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
@@ -703,9 +703,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             given = identify_cli.read_tracklists(tracklists)
             with status("Reading the set's description and listener comments…"):
                 text, page = set_sources.tracklist_from_url(local, tracklist)
+            # Without a tracklist on the page, MixesDB's is the published one.
+            listing = set_sources.from_mixesdb(page)
+            complete = listing is None or bool(listing.get("complete"))
             warnings = []
             problem = None
-            if given or identify_cli.wanted(identify, text, tracklist, workspace):
+            if given or identify_cli.wanted(
+                identify, text, tracklist, workspace, complete=complete
+            ):
                 try:
                     identified = identify_cli.listen(local, tracklist, given, name)
                 except AppError as error:
@@ -715,9 +720,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                         raise
                     problem = error
                     if text.strip():
+                        where = "on MixesDB" if listing else "in its description"
                         warnings.append(
                             f"djlib didn't listen to the set: {identify_cli.cannot_listen(error)}"
-                            ". This uses the tracklist in its description."
+                            f". This uses the tracklist {where}."
                         )
             if identified is not None:
                 body = identify_cli.identified_request(
@@ -731,6 +737,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     text, name, page.get("title") or "Set", page.get("url") or tracklist
                 )
                 warnings += more
+                if not complete:
+                    warnings.append(
+                        "MixesDB marks this tracklist incomplete: songs may be missing."
+                    )
         else:
             path = Path(tracklist).expanduser()
             if (identify or tracklists) and not source:
@@ -804,6 +814,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "source": None
             if page is None
             else {key: page.get(key) for key in ("url", "provider", "title", "uploader")},
+            # The MixesDB page whose tracklist the set uses, for the DJ to check.
+            "mixesdb": identification.mixesdb_page(listing)
+            if identified is None
+            else identification.mixesdb_used(identified["result"]),
             "songs": len(items),
             "owned": len(owned),
             "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
@@ -875,7 +889,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         comments = page.get("comments") or []
         message = (
-            "This upload has no tracklist in its description or chapters."
+            "This upload has no tracklist in its description or chapters, and djlib found "
+            "none on MixesDB."
             + set_sources.named_in_comments(comments)
             + " Copy its tracklist (for example from 1001Tracklists) into a text file, "
             f"then run: djlib set FILE --source {url}"

@@ -1381,6 +1381,11 @@
           "title": "Comments",
           "type": "integer"
         },
+        "mixesdb": {
+          "default": false,
+          "title": "Mixesdb",
+          "type": "boolean"
+        },
         "url": {
           "maxLength": 4096,
           "minLength": 1,

@@ -196,10 +196,15 @@ def build_server(workspace: Workspace) -> MCPServer:
     async def djlib_source_inspect(url: str, comments: int = 0) -> ResponseEnvelope:
         """Read a set's description/chapters and, with comments > 0, listener comments.
 
-        SoundCloud comments carry start_time (seconds into the set); YouTube comments may write
-        timestamps in their text. Use them as evidence for unknown IDs; they identify nothing.
+        When neither lists a tracklist, `mixesdb` holds MixesDB's tracklist for the set
+        (page_title, page_url, text, complete), or null when MixesDB has no page that is
+        surely this set; say it came from MixesDB and give page_url. SoundCloud comments carry
+        start_time (seconds into the set); YouTube comments may write timestamps in their
+        text. Use them as evidence for unknown IDs; they identify nothing.
         """
-        return await request("POST", "/sources/inspect", {"url": url, "comments": comments})
+        return await request(
+            "POST", "/sources/inspect", {"url": url, "comments": comments, "mixesdb": True}
+        )
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_find_sources(artist: str, title: str, version: str = "") -> ResponseEnvelope:
@@ -224,8 +229,9 @@ def build_server(workspace: Workspace) -> MCPServer:
     ) -> ResponseEnvelope:
         """Track down every song in one YouTube or SoundCloud set; returns a job to poll.
 
-        djlib reads the set's description, chapters and listener comments, listens to it
-        with song recognition (Shazam by default) and merges one timestamped tracklist. Poll
+        djlib reads the set's description, chapters and listener comments, looks the set up
+        on MixesDB (result.mixesdb names the page it used), listens to it with song
+        recognition (Shazam by default) and merges one timestamped tracklist. Poll
         djlib_job every 10-20 seconds: result.progress says how far it got (a one-hour set
         takes several minutes); djlib_control with action cancel stops it. Each track has a
         status (confirmed, likely, weak, conflict, unidentified) and its evidence; an ID's
