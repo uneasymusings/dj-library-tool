@@ -86,18 +86,26 @@ def from_mixesdb(page: dict) -> dict | None:
 
 
 def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:
-    """For each unknown ID with a time, what listeners named around that point of the set."""
+    """For each unknown ID with a time, what listeners named around that point of the set,
+    leaving out the songs either side of the ID however a listener wrote them."""
     if not comments:
         return []
+    from djlib.application.set_identification import names_neighbour
     from djlib.application.source_matching import comment_hints
 
     hints = []
-    for item in items:
+    for index, item in enumerate(items):
         source = item.get("input") or {}
         if source.get("kind") != "unknown" or not comments:
             continue
         at = seconds(source.get("timestamp"))
-        found = comment_hints(comments, at)[:3] if at is not None else []
+        beside = [
+            (other.get("artist") or "", other.get("title") or "")
+            for near in items[max(index - 1, 0) : index] + items[index + 1 : index + 2]
+            if (other := near.get("input") or {}).get("kind") == "named"
+        ]
+        found = [] if at is None else comment_hints(comments, at)
+        found = [hint for hint in found if not names_neighbour(hint, beside)][:3]
         if found:
             hints.append(
                 {

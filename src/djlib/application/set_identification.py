@@ -1053,13 +1053,34 @@ def _evidence(slot: _Slot) -> list[dict]:
     return found
 
 
-def _hints(comments: list[dict], start: float, end: float | None, named: list[Song]) -> list[dict]:
+def _beside(hint: dict, neighbours: list[Song]) -> bool:
+    """Whether a listener's suggestion for an ID names the song just before or after it: that
+    song's title as either half, since listeners swap artist and title and misspell names
+    ("picture picture - cyrus" for Sharam Jey & Sirus Hood - Picture Picture)."""
+    halves = {_song("", hint.get("artist") or "").core, _song("", hint.get("title") or "").core}
+    return any(song.core in halves for song in neighbours if song.core)
+
+
+def names_neighbour(hint: dict, neighbours: list[tuple[str, str]]) -> bool:
+    """``_beside`` for the (artist, title) of the songs either side of an ID."""
+    return _beside(hint, [_song(artist or "", title or "") for artist, title in neighbours])
+
+
+def _hints(
+    comments: list[dict],
+    start: float,
+    end: float | None,
+    named: list[Song],
+    neighbours: list[Song],
+) -> list[dict]:
     after = min(max((end or start + 300) - start, 120), 600)
     found = []
     for hint in comment_hints(comments, start, after=after):
         heard = _song(hint["artist"], hint["title"])
         if any(_likeness(heard, song) >= SAME or heard.core == song.core for song in named):
             continue  # a song already in the tracklist, e.g. the one before the ID
+        if _beside(hint, neighbours):
+            continue  # the song before or after the ID, however the listener wrote it
         found.append(
             {
                 "source": "comments",
@@ -1086,7 +1107,9 @@ def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> li
         if start is None or (end is not None and end < start):
             end = None
         if slot.kind == "unknown" and comments and start is not None:
-            slot.candidates += _hints(comments, start, end, named)
+            beside = ordered[max(position - 2, 0) : position - 1] + ordered[position : position + 1]
+            neighbours = [song for other in beside for song in other.songs()]
+            slot.candidates += _hints(comments, start, end, named, neighbours)
         artist, title, version = _names(slot)
         tracks.append(
             {

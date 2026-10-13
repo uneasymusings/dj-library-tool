@@ -99,6 +99,29 @@ def test_named_in_comments_points_to_credited_mentions_first():
     assert set_sources.named_in_comments([{"text": "ID?"}]) == ""
 
 
+def test_id_hints_leave_out_the_songs_beside_the_id():
+    items = [
+        {
+            "position": 1,
+            "input": {
+                "kind": "named",
+                "artist": "Sharam Jey & Sirus Hood",
+                "title": "Picture Picture",
+            },
+        },
+        {"position": 2, "input": {"kind": "unknown", "timestamp": "19:51"}},
+        {"position": 3, "input": {"kind": "named", "artist": "Bo", "title": "Snowfall"}},
+    ]
+    comments = [
+        {"text": "picture picture - cyrus", "start_time": 1195, "like_count": 4},
+        {"text": "Bo - Snowfall", "start_time": 1200, "like_count": 3},
+        {"text": "Ana - Rain", "start_time": 1200, "like_count": 2},
+    ]
+    [hint] = set_sources.id_hints(items, comments)
+    assert hint["timestamp"] == "19:51"
+    assert [found["label"] for found in hint["hints"]] == ["Ana - Rain"]
+
+
 def test_search_queries_leave_out_original_mix_and_country_tags(library_http, monkeypatch):
     from djlib.sources import web
 
