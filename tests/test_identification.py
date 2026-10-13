@@ -47,6 +47,22 @@ class Listener:
         return None
 
 
+class Cuts:
+    """Stands in for ``recognition.SetAudio``: windows carry their start time, not audio."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+    def window(self, start, length=12.0):
+        return str(start).encode()
+
+
 class Setup:
     """The page, download and recognizer an identification sees."""
 
@@ -74,7 +90,7 @@ class Setup:
         monkeypatch.setattr(web, "fetch_set_audio", self.fetch)
         monkeypatch.setattr(recognition, "duration", lambda path: self.seconds)
         monkeypatch.setattr(windows, "duration", lambda path: self.seconds)
-        monkeypatch.setattr(recognition, "window_wav", lambda path, at, length: str(at).encode())
+        monkeypatch.setattr(recognition, "SetAudio", Cuts)
         monkeypatch.setattr(identification, "recognizer", self.recognizer)
         monkeypatch.setattr(identification, "POLL_SECONDS", 0.01)
         monkeypatch.setattr(identification.shutil, "which", lambda name: f"/usr/bin/{name}")

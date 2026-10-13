@@ -1,11 +1,16 @@
 """Set audio, windows and song recognition, without the network or a real Shazam."""
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import io
 import json
+import os
+import struct
 import sys
+import threading
+import time
 import types
 import wave
 from email.parser import BytesParser
@@ -68,6 +73,107 @@ def test_windows_refuse_bad_ranges_and_need_ffmpeg(audio_factory, monkeypatch):
     with pytest.raises(AppError) as missing:
         windows.window_wav(path, 0.0)
     assert missing.value.code == "DEPENDENCY_REQUIRED" and "FFmpeg" in missing.value.message
+    with pytest.raises(AppError) as missing, windows.SetAudio(path) as audio:
+        audio.window(0.0)
+    assert missing.value.code == "DEPENDENCY_REQUIRED"
+
+
+def ramp(path, seconds):
+    """A mono 16 kHz WAV whose every sample is its own index, so cuts can be checked exactly."""
+    count = int(seconds * 16000)
+    with wave.open(str(path), "wb") as audio:
+        audio.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        audio.writeframes(struct.pack(f"<{count}h", *(n % 32768 for n in range(count))))
+    return path
+
+
+def indices(first: int, last: int) -> list[int]:
+    return [n % 32768 for n in range(first, last)]
+
+
+def samples(wav: bytes) -> list[int]:
+    with wave.open(io.BytesIO(wav)) as audio:
+        data = audio.readframes(audio.getnframes())
+    return list(struct.unpack(f"<{len(data) // 2}h", data))
+
+
+def test_set_audio_is_cut_to_the_sample(tmp_path):
+    path = ramp(tmp_path / "set.wav", 3.0)
+    with windows.SetAudio(path) as audio:
+        wav = audio.window(0.5, 0.25)
+        assert frames(wav) == (1, 2, 16000, 4000)
+        assert struct.unpack("<I", wav[4:8])[0] == len(wav) - 8  # the header has its sizes
+        assert samples(wav) == indices(8000, 12000)
+        assert samples(audio.window(1.0000625, 0.001)) == indices(16001, 16017)
+        # The last window is cut short by the end of the recording; past it there is nothing.
+        assert samples(audio.window(2.5, 12.0)) == indices(40000, 48000)
+        with pytest.raises(AppError) as empty:
+            audio.window(3.0, 1.0)
+        assert empty.value.code == "AUDIO_WINDOW_EMPTY"
+        for start, length in ((-1.0, 12.0), (0.0, 0.0), (0.0, 61.0)):
+            with pytest.raises(AppError) as invalid:
+                audio.window(start, length)
+            assert invalid.value.code == "INPUT_INVALID"
+
+
+def test_set_audio_is_decoded_once_beside_it(tmp_path, monkeypatch):
+    path = ramp(tmp_path / "set.wav", 3.0)
+    with windows.SetAudio(path) as audio:
+        audio.window(0.0, 1.0)
+        audio.thread.join(10)
+    pcm = tmp_path / "set.wav.pcm"
+    assert pcm.stat().st_size == 3 * 16000 * 2 and not (tmp_path / "set.wav.pcm.part").exists()
+    real, decoded = windows._decoding, []
+
+    def counted(path, rate, seek=None):
+        if seek is None:
+            decoded.append(path)
+        return real(path, rate, seek)
+
+    # The next pass (checking gaps) cuts from the same decoding.
+    monkeypatch.setattr(windows, "_decoding", counted)
+    with windows.SetAudio(path) as again:
+        assert samples(again.window(2.0, 0.5)) == indices(32000, 40000)
+    assert decoded == []
+    # A recording changed since is decoded again.
+    later = pcm.stat().st_mtime + 10
+    os.utime(path, (later, later))
+    with windows.SetAudio(path) as changed:
+        changed.window(0.0, 1.0)
+    assert decoded == [path]
+
+
+def test_windows_are_cut_alone_when_decoding_fails_stalls_or_lags(tmp_path, monkeypatch):
+    path = ramp(tmp_path / "set.wav", 3.0)
+    real = windows._decoding
+
+    def decoder(script):
+        def command(path, rate, seek=None):
+            return real(path, rate, seek) if seek else [sys.executable, "-c", script]
+
+        monkeypatch.setattr(windows, "_decoding", command)
+
+    decoder("raise SystemExit(1)")
+    with windows.SetAudio(path) as failed:
+        assert samples(failed.window(0.5, 0.25)) == indices(8000, 12000)
+    # One second of silence decoded, then nothing more.
+    decoder(
+        "import sys, time; sys.stdout.buffer.write(bytes(32000)); sys.stdout.flush(); "
+        "time.sleep(60)"
+    )
+    monkeypatch.setattr(windows, "LEAD_SECONDS", 1.0)
+    monkeypatch.setattr(windows, "WAIT_SECONDS", 0.2)
+    with windows.SetAudio(path) as stalled:
+        assert samples(stalled.window(0.0, 0.5)) == [0] * 8000
+        # Far past the decoding: at once. Just past it: after waiting in vain.
+        assert samples(stalled.window(2.5, 0.5)) == indices(40000, 48000)
+        assert samples(stalled.window(1.0, 0.5)) == indices(16000, 24000)
+        began = time.monotonic()
+    assert time.monotonic() - began < 2 and stalled.process.poll() is not None
+    assert not (tmp_path / "set.wav.pcm.part").exists() and not (tmp_path / "set.wav.pcm").exists()
+    with pytest.raises(AppError) as closed:
+        stalled.window(0.0, 0.5)
+    assert closed.value.code == "AUDIO_INVALID"
 
 
 def yt_dlp_saves(tmp_path, seen, *, name="set.webm", output=None):
@@ -722,11 +828,40 @@ class Timeline:
         return None
 
 
+class Cuts:
+    """Stands in for ``SetAudio``: each window carries its start time instead of audio."""
+
+    def __init__(self):
+        self.hook = None  # runs in the worker thread that cuts the window
+        self.opened = self.closed = 0
+
+    def __call__(self, path):
+        self.opened += 1
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.closed += 1
+
+    def window(self, start, length=12.0):
+        if self.hook is not None:
+            self.hook(start)
+        return str(start).encode()
+
+
 @pytest.fixture
-def set_audio(monkeypatch, tmp_path):
+def cuts(monkeypatch):
+    found = Cuts()
+    monkeypatch.setattr(recognition, "SetAudio", found)
+    return found
+
+
+@pytest.fixture
+def set_audio(monkeypatch, tmp_path, cuts):
     """A 100-second set whose windows carry their own start time instead of audio."""
     monkeypatch.setattr(recognition, "duration", lambda _: 100.0)
-    monkeypatch.setattr(recognition, "window_wav", lambda path, start, length: str(start).encode())
     return tmp_path / "set.webm"
 
 
@@ -797,18 +932,122 @@ async def test_a_resumed_scan_skips_windows_heard_before(set_audio):
     assert [p.at for p in probes] == [69.0] and progress == [(69.0, 3, 3)]
 
 
-async def test_scan_ends_on_errors_that_would_repeat(set_audio, monkeypatch):
+async def test_scan_ends_on_errors_that_would_repeat(set_audio, cuts):
     limited = AppError("RECOGNITION_RATE_LIMITED", "Slow down.", 502, True)
     with pytest.raises(AppError) as error:
         await recognition.scan(set_audio, Timeline([], failures={39.0: limited}))
     assert error.value is limited
+    assert cuts.closed == cuts.opened == 1
 
-    def broken(path, start, length):
+    def broken(start):
         raise AppError("AUDIO_INVALID", "FFmpeg could not decode this part of the recording.")
 
-    monkeypatch.setattr(recognition, "window_wav", broken)
+    cuts.hook = broken
     probes = await recognition.scan(set_audio, Timeline([]))
     assert {p.error for p in probes} == {"FFmpeg could not decode this part of the recording."}
+
+
+class Paced:
+    """A recognizer whose requests go through a ``Pace``; each waits for the next window's cut."""
+
+    name, licensed = "paced", False
+
+    def __init__(self, cuts, starts, interval=1.0):
+        self.clock = Clock()
+        self.pace = recognition.Pace(interval, clock=self.clock, sleep=self.clock.sleep)
+        self.cut = {at: threading.Event() for at in starts}
+        self.following = dict(zip(starts, starts[1:], strict=False))
+        self.asked, self.out = [], []
+        cuts.hook = lambda at: self.cut[at].set()
+
+    async def recognize(self, wav):
+        at = float(wav.decode())
+
+        async def request():
+            self.out.append(at)
+            self.asked.append((self.clock(), at, len(self.out)))
+            if at in self.following:  # the next window is cut while this request is out
+                assert await asyncio.to_thread(self.cut[self.following[at]].wait, 5)
+            self.out.remove(at)
+            return {}
+
+        await self.pace.call(request, "Test")
+
+
+async def test_the_next_window_is_cut_while_this_one_is_heard(set_audio, cuts):
+    listener = Paced(cuts, [9.0, 39.0, 69.0])
+    progress = []
+    probes = await recognition.scan(
+        set_audio, listener, on_probe=lambda probe, *_: progress.append(probe.at)
+    )
+    assert [p.at for p in probes] == progress == [9.0, 39.0, 69.0]
+    # Still one request at a time, a whole interval apart.
+    assert listener.asked == [(0.0, 9.0, 1), (1.0, 39.0, 1), (2.0, 69.0, 1)]
+    assert cuts.closed == cuts.opened == 1
+
+
+async def test_checking_gaps_cuts_ahead_too(set_audio, cuts):
+    songs = [(0, 50, "A"), (50, 80, "B")]
+    listener = Paced(cuts, [45.0, 75.0], interval=2.5)
+    found = await recognition.refine(set_audio, listener, probes_of(songs, [0.0, 30.0, 60.0, 90.0]))
+    assert [p.at for p in found] == [0.0, 30.0, 45.0, 60.0, 75.0, 90.0]
+    assert listener.asked == [(0.0, 45.0, 1), (2.5, 75.0, 1)]
+
+
+async def test_a_failed_window_never_holds_up_the_next(set_audio, cuts):
+    def cut(at):
+        if at == 19.0:
+            raise AppError("AUDIO_INVALID", "FFmpeg could not decode this part of the recording.")
+        if at == 49.0:
+            time.sleep(0.05)
+
+    cuts.hook = cut
+    failed = AppError("RECOGNITION_FAILED", "Shazam did not answer just now.", 502, True)
+    timeline = Timeline([(0, 100, "A")], failures={29.0: failed})
+    probes = await recognition.scan(set_audio, timeline, stride=10.0)
+    assert [(p.at, p.error) for p in probes] == [
+        (9.0, None),
+        (19.0, "FFmpeg could not decode this part of the recording."),
+        (29.0, "Shazam did not answer just now."),
+        *[(at, None) for at in (39.0, 49.0, 59.0, 69.0, 79.0)],
+    ]
+    assert timeline.heard == [9.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0]
+
+
+async def test_stopping_or_cancelling_a_scan_takes_effect_at_once(set_audio, cuts):
+    timeline = Timeline([])
+    heard = []
+    await recognition.scan(
+        set_audio,
+        timeline,
+        on_probe=lambda probe, *_: heard.append(probe),
+        should_stop=lambda: len(heard) >= 1,
+    )
+    # The window cut ahead is never asked about.
+    assert timeline.heard == [9.0] and cuts.closed == cuts.opened == 1
+    out, never = asyncio.Event(), asyncio.Event()
+
+    class Stuck:
+        name, licensed = "stuck", False
+
+        def __init__(self):
+            self.heard = []
+
+        async def recognize(self, wav):
+            self.heard.append(float(wav.decode()))
+            if len(self.heard) == 2:
+                out.set()
+                await never.wait()
+
+    stuck = Stuck()
+    task = asyncio.create_task(recognition.scan(set_audio, stuck))
+    await asyncio.wait_for(out.wait(), 5)
+    began = time.monotonic()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert time.monotonic() - began < 0.5
+    assert stuck.heard == [9.0, 39.0] and cuts.closed == cuts.opened == 2
 
 
 async def test_scan_reads_real_audio_windows(audio_factory):
