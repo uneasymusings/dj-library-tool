@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from djlib.domain.contracts import credit_form, label_form
+from djlib.domain.contracts import credit_form, label_form, safe_text
 from djlib.domain.errors import AppError
 from djlib.workspace import atomic_json
 
@@ -267,7 +267,7 @@ def rows(connection, tables: dict, table: str) -> list[dict]:
 
 
 def text(value) -> str:
-    return " ".join(value.split()) if isinstance(value, str) else ""
+    return " ".join(safe_text(value).split()) if isinstance(value, str) else ""
 
 
 def identifier(value) -> str | None:
@@ -534,7 +534,10 @@ def read_csv(path: Path) -> list[dict]:
         dialect = csv.Sniffer().sniff("\n".join(lines[:20]), delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
-    table = list(csv.reader(lines, dialect))
+    try:
+        table = list(csv.reader(lines, dialect))
+    except csv.Error as exc:
+        raise AppError("INPUT_INVALID", f"{path.name} isn't a CSV djlib can read ({exc}).") from exc
     index, columns = csv_header(table)
     if columns is None:
         raise AppError("INPUT_INVALID", f"{path.name} has no Title and Artist columns.")
@@ -882,9 +885,28 @@ def read_path(path: Path) -> tuple[str, list[dict]]:
             "INPUT_INVALID",
             f"{path} is not an iPhone backup folder (it has no Manifest.db).",
         )
-    if path.suffix.lower() in {".csv", ".txt", ".tsv"}:
+    # A device (shazam:/dev/zero) or a huge file would be read until the disk or memory ran
+    # out.
+    try:
+        regular, size = path.is_file(), path.stat().st_size
+    except OSError as exc:
+        raise AppError("FILE_UNAVAILABLE", f"Can't read {path}.") from exc
+    csv_file = path.suffix.lower() in {".csv", ".txt", ".tsv"}
+    limit = CSV_BYTES if csv_file else DATABASE_BYTES
+    if not regular:
+        raise AppError("INPUT_INVALID", f"{path} is not a Shazam CSV, database or backup folder.")
+    if size > limit:
+        raise AppError(
+            "INPUT_INVALID",
+            f"{path.name} is over {limit // 1_000_000} MB, too large for a Shazam history.",
+        )
+    if csv_file:
         return "csv", read_csv(path)
     return "sqlite", read_sqlite(path, "sqlite")
+
+
+CSV_BYTES = 50_000_000
+DATABASE_BYTES = 1_000_000_000
 
 
 def automatic_sources() -> list[tuple[str, Path]]:

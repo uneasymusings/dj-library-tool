@@ -247,6 +247,32 @@ class DeliveryNativeXMLRequest(Contract):
     path: str = Field(min_length=1, max_length=4096)
 
 
+# Invisible marks that reorder or hide text (U+202E before "olaH" shows "Halo"): zero-width space,
+# direction marks, embeddings and overrides, isolates, and a stray byte-order mark.
+HIDDEN = frozenset(
+    chr(code) for code in (0x200B, 0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A))
+) | {"\ufeff"}
+
+
+def safe_text(value: object, *, lines: bool = False) -> str:
+    """Publisher or listener text made safe to show and store: no control characters (escape
+    sequences would reach the terminal), whitespace ones turned into spaces, and no hidden
+    marks. With ``lines``, newlines and tabs stay."""
+    text = value if isinstance(value, str) else str(value or "")
+    kept = []
+    for c in text:
+        if c in HIDDEN:
+            continue
+        if lines and c in "\n\t":
+            kept.append(c)
+        elif unicodedata.category(c) == "Cc":
+            if c.isspace():
+                kept.append(" ")
+        else:
+            kept.append(c)
+    return "".join(kept)
+
+
 def normalize(value: str) -> str:
     """Normalize labels for conservative text matching, retaining mix qualifiers."""
     value = unicodedata.normalize("NFKC", value).casefold()

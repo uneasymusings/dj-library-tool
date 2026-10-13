@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
+from rich import control
 from rich.console import Console
 from rich.padding import Padding
 from rich.progress import (
@@ -32,6 +33,21 @@ from rich.theme import Theme
 
 OUTPUT_ENV = "DJLIB_OUTPUT"
 META_KEY = "djlib.terminal"
+
+# Text from set pages, comments, MixesDB and Shazam exports is shown here. Rich drops only a
+# few control codes from text; drop every one but newline and tab (an escape sequence could
+# clear the screen or forge a link), and the marks that reorder or hide text.
+UNSAFE_CODEPOINTS = (
+    *range(0x00, 0x09),
+    *range(0x0B, 0x20),
+    *range(0x7F, 0xA0),
+    0x200B,
+    0x200E,
+    0x200F,
+    *range(0x202A, 0x202F),
+    *range(0x2066, 0x206A),
+)
+control._CONTROL_STRIP_TRANSLATE.update(dict.fromkeys(UNSAFE_CODEPOINTS))
 
 # Named ANSI colors follow the user's terminal theme on light and dark backgrounds;
 # only the brand amber is fixed, and Rich downgrades it on 256-color terminals.

@@ -16,6 +16,7 @@ as "Friday at Fabric", which names the set.
 import itertools
 import re
 
+from djlib.domain.contracts import safe_text
 from djlib.domain.request_contracts import RequestItem
 
 SEPARATOR = re.compile(r"\s+[-–—]\s+")
@@ -71,6 +72,9 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     """
     parsed = []
     for number, raw in enumerate(text.splitlines(), 1):
+        # A stray control character (mojibake such as "\x80\x99" for "’") is not a reason to
+        # lose the line, and must not reach a terminal.
+        raw = safe_text(raw)
         line = PLAYED_WITH.sub("", raw.strip(), count=1)
         if not line or line.startswith(("#", "//")) or NUMBER_ONLY.match(line):
             continue
@@ -138,14 +142,17 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
             if not (timestamp or source_url):
                 skipped.append((number, raw, "unknown ID needs a timestamp or --source"))
                 continue
-            items.append(
-                RequestItem(
-                    kind="unknown",
-                    label=line[:1000],
-                    timestamp=timestamp,
-                    source_url=source_url,
+            try:
+                items.append(
+                    RequestItem(
+                        kind="unknown",
+                        label=line[:1000],
+                        timestamp=timestamp,
+                        source_url=source_url,
+                    )
                 )
-            )
+            except ValueError:
+                skipped.append((number, raw, "unreadable characters"))
             continue
         try:
             items.append(RequestItem(artist=artist[:500], title=title[:1000]))
