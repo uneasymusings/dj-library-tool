@@ -450,6 +450,32 @@ def test_specs_dates_and_new(home, tmp_path):
     assert fresh["new"] is True and fresh["last_import"]["songs"] == 2
 
 
+def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
+    workspace = Workspace(tmp_path / "workspace")
+    workspace.root.mkdir()
+    start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
+    mac_history(
+        home,
+        *(
+            (datetime.fromtimestamp(start + 3600 * n).isoformat(), f"Artist {n}", f"Song {n}")
+            for n in range(1003)
+        ),
+    )
+    body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
+    assert len(body.items) == 1000 and body.items[0].title == "Song 0"
+    assert (summary["songs"], summary["remaining"]) == (1000, 3)
+    assert any("shazam:new" in warning for warning in warnings)
+    shazam_history.remember_import(workspace, summary)
+    body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
+    assert [item.title for item in body.items] == ["Song 1000", "Song 1001", "Song 1002"]
+    assert summary["remaining"] == 0
+    again, _, _ = shazam_cli.set_request("shazam", None, workspace)
+    assert (
+        again.idempotency_key
+        == shazam_cli.set_request("shazam", None, workspace)[0].idempotency_key
+    )
+
+
 def test_no_history_explains_how_to_turn_on_sync(home, monkeypatch):
     with pytest.raises(AppError) as missing:
         shazam_history.load()
