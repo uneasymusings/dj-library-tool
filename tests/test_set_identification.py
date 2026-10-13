@@ -63,6 +63,10 @@ def silence(at: float) -> dict:
     return {"at": float(at), "window": 12.0, "match": None, "error": None}
 
 
+def failed(at: float) -> dict:
+    return {"at": float(at), "window": 12.0, "match": None, "error": "Shazam rate limit (429)"}
+
+
 def song(start: int, windows: int, artist: str, title: str, **match) -> list[dict]:
     return [heard(start + 30 * step, artist, title, **match) for step in range(windows)]
 
@@ -316,11 +320,39 @@ def test_bridges_short_gaps_only():
     three_quiet = [*song(0, 3, "Lumen", "Halo"), *map(silence, (90, 120, 150))]
     three_quiet += song(180, 2, "Lumen", "Halo")
     assert [s["hits"] for s in segments(three_quiet)] == [3, 2]
-    # Errors are windows nobody heard; they still count towards the gap.
-    failed = [{"at": 90.0, "match": None, "error": "timed out"}, silence(120)]
-    assert (
-        len(segments([*song(0, 3, "Lumen", "Halo"), *failed, *song(150, 1, "Lumen", "Halo")])) == 1
-    )
+    # A window where recognition failed (rate limited) heard nothing else, so it is no gap;
+    # only the time limit applies.
+    limited = [*song(0, 3, "Lumen", "Halo"), *map(failed, (90, 120, 150))]
+    (bridged,) = segments([*limited, *song(180, 2, "Lumen", "Halo")])
+    assert (bridged["hits"], bridged["end"]) == (5, 222.0)
+    long_outage = [*song(0, 3, "Lumen", "Halo"), *map(failed, range(90, 360, 30))]
+    assert len(segments([*long_outage, *song(360, 2, "Lumen", "Halo")])) == 2
+    # Probes missing from the list still count as heard windows, one per stride.
+    sparse = [*song(0, 3, "Lumen", "Halo"), *song(180, 2, "Lumen", "Halo")]
+    assert [s["hits"] for s in segments(sparse)] == [3, 2]
+
+
+def test_probes_at_the_same_time_are_one_window():
+    def acrcloud(at: float, artist: str | None = None, title: str | None = None) -> dict:
+        match = {"provider": "acrcloud", "artist": artist, "title": title} if artist else None
+        return {"at": float(at), "window": 12.0, "match": match, "error": None}
+
+    both = []
+    for at in (0, 30, 60, 150, 180):
+        both += [heard(at, "Lumen", "Halo"), acrcloud(at, "Lumen", "Halo")]
+    for at in (90, 120):
+        both += [silence(at), acrcloud(at)]
+    (halo,) = segments(both)
+    assert halo["hits"] == 5
+    assert [(p["provider"], p["hits"]) for p in halo["providers"]] == [
+        ("shazam", 5),
+        ("acrcloud", 5),
+    ]
+    # A failed attempt recorded next to its retry is the same window.
+    retried = []
+    for at in range(0, 300, 30):
+        retried += [failed(at), heard(at, "Lumen", "Halo") if at != 90 else silence(at)]
+    assert [s["hits"] for s in segments(retried)] == [9]
 
 
 def test_same_song_by_id_isrc_or_label():

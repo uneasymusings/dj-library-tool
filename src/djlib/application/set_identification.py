@@ -220,11 +220,11 @@ def _hit(probe: dict, window: float) -> dict | None:
 @dataclass(eq=False)
 class _Run:
     hits: list[dict]
-    first: int
+    first: int  # windows, counted by distinct time
     last: int
     interruptions: list[dict] = field(default_factory=list)
 
-    def joins(self, others: list[dict]) -> bool:
+    def joins(self, others: list[dict], least: float = JOIN) -> bool:
         ids = {(hit["provider"], hit["track_id"]) for hit in self.hits if hit["track_id"]}
         isrcs = {hit["isrc"] for hit in self.hits if hit["isrc"]}
         labels = {_song(hit["artist"], hit["title"]) for hit in self.hits}
@@ -232,23 +232,46 @@ class _Run:
             if (other["provider"], other["track_id"]) in ids or other["isrc"] in isrcs:
                 return True
             heard = _song(other["artist"], other["title"])
-            if any(_likeness(label, heard) >= JOIN for label in labels):
+            if any(_likeness(label, heard) >= least for label in labels):
                 return True
         return False
 
 
-def _stride(timeline: list[dict]) -> float:
-    steps = [b["at"] - a["at"] for a, b in pairwise(timeline) if b["at"] > a["at"]]
-    return statistics.median(steps) if steps else STRIDE
+@dataclass(frozen=True)
+class _Windows:
+    """Listening windows by distinct time; several probes (providers, retries) share one."""
+
+    times: list[float]
+    failed: list[int]  # failed[n]: windows before the nth where every probe failed
+    stride: float
+
+    def close(self, earlier: int, later: int, skipped: int) -> bool:
+        """At most ``skipped`` windows heard between two windows, within BRIDGE_SECONDS.
+
+        Failed windows say nothing, so they do not count; windows missing from the probes count
+        as heard, one per stride.
+        """
+        seconds = self.times[later] - self.times[earlier]
+        between = max(later - earlier - 1, round(seconds / self.stride) - 1)
+        between -= self.failed[later] - self.failed[min(earlier + 1, later)]
+        return seconds <= BRIDGE_SECONDS and between <= skipped
 
 
-def _bridge(merged: list[_Run], run: _Run, stride: float) -> bool:
+def _listening(timeline: list[dict], stride: float | None) -> _Windows:
+    times = sorted({probe["at"] for probe in timeline})
+    answered = {probe["at"] for probe in timeline if not probe.get("error")}
+    failed = [0]
+    for at in times:
+        failed.append(failed[-1] + (at not in answered))
+    steps = [b - a for a, b in pairwise(times)]
+    return _Windows(times, failed, stride or (statistics.median(steps) if steps else STRIDE))
+
+
+def _bridge(merged: list[_Run], run: _Run, windows: _Windows) -> bool:
     """Join ``run`` to an earlier segment of the same song across a short gap."""
     for back in range(len(merged) - 1, -1, -1):
         earlier = merged[back]
-        seconds = run.hits[0]["at"] - earlier.hits[-1]["at"]
-        skipped = max(run.first - earlier.last - 1, round(seconds / stride) - 1)
-        if seconds > BRIDGE_SECONDS or skipped > BRIDGE_PROBES:
+        if not windows.close(earlier.last, run.first, BRIDGE_PROBES):
             return False
         if earlier.joins(run.hits):
             for inside in merged[back + 1 :]:
@@ -332,6 +355,32 @@ def _cluster(run: _Run) -> dict:
     }
 
 
+def _runs(probes: list[dict] | None, window: float, stride: float | None) -> list[_Run]:
+    timeline = [
+        {**probe, "at": at}
+        for probe in probes or []
+        if isinstance(probe, dict) and (at := _number(probe.get("at"))) is not None
+    ]
+    timeline.sort(key=lambda probe: probe["at"])
+    windows = _listening(timeline, stride)
+    number = {at: index for index, at in enumerate(windows.times)}
+    runs: list[_Run] = []
+    for probe in timeline:
+        if (hit := _hit(probe, window)) is None:
+            continue
+        index = number[hit["at"]]
+        if runs and windows.close(runs[-1].last, index, 0) and runs[-1].joins([hit]):
+            runs[-1].hits.append(hit)
+            runs[-1].last = index
+        else:
+            runs.append(_Run([hit], index, index))
+    merged: list[_Run] = []
+    for run in runs:
+        if not _bridge(merged, run, windows):
+            merged.append(run)
+    return merged
+
+
 def segments(
     probes: list[dict] | None, *, window: float = WINDOW, stride: float | None = None
 ) -> list[dict]:
@@ -339,30 +388,12 @@ def segments(
 
     Neighbouring windows naming the same song (same provider ID or ISRC, or labels naming the
     same song in any version) form one segment; up to two windows of silence or other songs
-    inside it are bridged. Windows whose song offset disagrees with the rest do not count
-    towards its strength: "strong" (3+ windows), "medium" (2) or "weak" (1).
+    inside it are bridged, and windows where recognition failed do not count. Probes at the
+    same time (two providers, a retry) are one window. Windows whose song offset disagrees
+    with the rest do not count towards its strength: "strong" (3+ windows), "medium" (2) or
+    "weak" (1).
     """
-    timeline = [
-        {**probe, "at": at}
-        for probe in probes or []
-        if isinstance(probe, dict) and (at := _number(probe.get("at"))) is not None
-    ]
-    timeline.sort(key=lambda probe: probe["at"])
-    stride = stride or _stride(timeline)
-    runs: list[_Run] = []
-    for index, probe in enumerate(timeline):
-        if (hit := _hit(probe, window)) is None:
-            continue
-        if runs and runs[-1].last == index - 1 and runs[-1].joins([hit]):
-            runs[-1].hits.append(hit)
-            runs[-1].last = index
-        else:
-            runs.append(_Run([hit], index, index))
-    merged: list[_Run] = []
-    for run in runs:
-        if not _bridge(merged, run, stride):
-            merged.append(run)
-    return [_cluster(run) for run in merged]
+    return [_cluster(run) for run in _runs(probes, window, stride)]
 
 
 # Text tracklists
