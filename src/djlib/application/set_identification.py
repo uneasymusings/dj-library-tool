@@ -245,6 +245,7 @@ class _Windows:
     failed: list[int]  # failed[n]: windows before the nth where every probe failed
     stride: float
     number: dict[float, int] = field(default_factory=dict)  # probe time → its window
+    counts: dict[float, bool] = field(default_factory=dict)  # whether it counts as a hearing
 
     def close(self, earlier: int, later: int, skipped: int) -> bool:
         """At most ``skipped`` windows heard between two windows, within BRIDGE_SECONDS.
@@ -262,24 +263,30 @@ def _listening(timeline: list[dict], stride: float | None) -> _Windows:
     """Windows every ``stride`` seconds from the first probe.
 
     A probe between two windows (a second listen where songs change, or around a failed
-    window) belongs to the window before it: it can fill that window or place a change more
-    exactly, but never counts as a window of its own.
+    window) belongs to the window before it. It places a change more exactly, but counts as
+    hearing a song only where that window's own probe failed: a song heard once stays heard
+    once however closely its edges were checked.
     """
     times = sorted({probe["at"] for probe in timeline})
     steps = [b - a for a, b in pairwise(times)]
     stride = stride or (statistics.median(steps) if steps else STRIDE)
     origin = times[0] if times else 0.0
     slot = {at: math.floor((at - origin) / stride + 1e-6) for at in times}
+    on_grid = {at: abs(at - origin - slot[at] * stride) < 0.5 for at in times}
     first: dict[int, float] = {}
     for at in times:
         first.setdefault(slot[at], at)
     order = {key: index for index, key in enumerate(first)}
     answered = {slot[probe["at"]] for probe in timeline if not probe.get("error")}
+    regular = {
+        slot[probe["at"]] for probe in timeline if not probe.get("error") and on_grid[probe["at"]]
+    }
     failed = [0]
     for key in first:
         failed.append(failed[-1] + (key not in answered))
     number = {at: order[slot[at]] for at in times}
-    return _Windows(list(first.values()), failed, stride, number)
+    counts = {at: on_grid[at] or slot[at] not in regular for at in times}
+    return _Windows(list(first.values()), failed, stride, number, counts)
 
 
 def _bridge(merged: list[_Run], run: _Run, windows: _Windows) -> bool:
@@ -319,6 +326,11 @@ def _check_offsets(hits: list[dict]) -> None:
             hit["consistent"] = abs(hit["at"] - hit["offset"] - origin) <= slack
 
 
+def _heard_in(hits: list[dict]) -> int:
+    """Windows that heard the song; one at least, even when only a check between them did."""
+    return max(len({hit["window"] for hit in hits if hit["window"] is not None}), 1)
+
+
 def _cluster(run: _Run) -> dict:
     _check_offsets(run.hits)
     counted = [hit for hit in run.hits if hit["consistent"]] or run.hits
@@ -344,12 +356,12 @@ def _cluster(run: _Run) -> dict:
         providers.append(
             {
                 "provider": provider,
-                "hits": len({hit["window"] for hit in mine}),
+                "hits": _heard_in(mine),
                 "at": min(hit["at"] for hit in mine),
                 "until": max(hit["until"] for hit in mine),
             }
         )
-    hits = len({hit["window"] for hit in counted})
+    hits = _heard_in(counted)
     return {
         "start": windows[0],
         "end": max(hit["until"] for hit in counted),
@@ -382,7 +394,8 @@ def _runs(probes: list[dict] | None, window: float, stride: float | None) -> lis
     for probe in timeline:
         if (hit := _hit(probe, window)) is None:
             continue
-        index = hit["window"] = windows.number[hit["at"]]
+        index = windows.number[hit["at"]]
+        hit["window"] = index if windows.counts[hit["at"]] else None
         if runs and windows.close(runs[-1].last, index, 0) and runs[-1].joins([hit]):
             runs[-1].hits.append(hit)
             runs[-1].last = index
