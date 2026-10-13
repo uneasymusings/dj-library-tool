@@ -289,6 +289,10 @@ def test_csv_exports_from_shazam_and_elsewhere(tmp_path):
         ("Lumen", "Halo", None),
         ("Nia Okoro", "Slow Burn", None),
     ]
+    twice = tmp_path / "twice.csv"
+    twice.write_text("Artist,Title\nLumen,Halo\nLumen,Halo\n", encoding="utf-8")
+    loaded = shazam_history.load(str(twice))
+    assert (loaded["sources"][0]["songs"], loaded["total"], len(loaded["records"])) == (1, 1, 1)
     other = tmp_path / "other.csv"
     other.write_text("Name,Size\nx,1\n", encoding="utf-8")
     with pytest.raises(AppError) as columns:
@@ -675,6 +679,7 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
     assert result["source"]["title"] == "Music Recognition on this Mac, 3 songs"
     summary = result["shazam"]
     assert (summary["songs"], summary["songs_in_history"]) == (3, 3)
+    assert summary["sources"][0]["songs"] == 3  # songs, not the 4 Shazams
     assert summary["newest_shazamed_at"] == "2026-10-03T02:00:00+00:00"
     request = library_http.get(f"/requests/{result['request_id']}").json()["result"]
     inputs = [item["input"] for item in request["items"]]
