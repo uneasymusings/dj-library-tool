@@ -41,6 +41,8 @@ CORE_DATA_EPOCH = 978307200  # 2001-01-01 in Unix seconds
 APPLE_MUSIC = "apple-music"
 SHAZAM_PLAYLIST = "My Shazam Tracks"
 STATE_FILE = "shazam.json"
+# Read without being asked; shazam:new continues from these.
+AUTOMATIC = frozenset({"mac", "mac_app"})
 
 LABELS = {
     "mac": "Music Recognition on this Mac",
@@ -686,11 +688,23 @@ def last_import(workspace) -> dict | None:
     return found if isinstance(found, dict) else None
 
 
-def remember_import(workspace, summary: dict, request_id: str | None = None) -> dict:
-    """Keep the newest imported Shazam time, so shazam:new starts after it."""
+def from_this_mac(summary: dict) -> bool:
+    """Whether an import came from this Mac's own history, the one shazam:new reads."""
+    sources = [source.get("source") for source in summary.get("sources") or []]
+    return bool(sources) and all(source in AUTOMATIC for source in sources)
+
+
+def remember_import(workspace, summary: dict, request_id: str | None = None) -> dict | None:
+    """Keep the newest Shazam time imported from this Mac's history, so shazam:new starts
+    after it. It never moves back, and imports from a file or Apple Music leave it alone
+    (None)."""
+    if not from_this_mac(summary):
+        return None
+    previous = (last_import(workspace) or {}).get("newest_shazamed_at")
+    marks = [mark for mark in (previous, summary.get("newest_shazamed_at")) if mark]
     entry = {
         "imported_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "newest_shazamed_at": summary.get("newest_shazamed_at"),
+        "newest_shazamed_at": max(marks, key=datetime.fromisoformat, default=None),
         "songs": summary.get("songs"),
         "name": summary.get("name"),
         "request_id": request_id,
@@ -780,6 +794,7 @@ def read_path(path: Path) -> tuple[str, list[dict]]:
 
 
 def automatic_sources() -> list[tuple[str, Path]]:
+    """The sources in AUTOMATIC, with their paths."""
     return [("mac", mac_history()), *(("mac_app", path) for path in mac_app_databases())]
 
 
