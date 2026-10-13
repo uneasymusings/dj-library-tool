@@ -440,7 +440,9 @@ def test_song_offsets_out_of_line_do_not_count():
     steady = [heard(at, "Lumen", "Halo", track_id="1", song_offset=at + 20) for at in (0, 30, 60)]
     jumped = heard(90, "Lumen", "Halo", track_id="1", song_offset=300)
     (halo,) = segments([*steady, jumped])
-    assert (halo["hits"], halo["inconsistent"], halo["end"]) == (3, 1, 72.0)
+    # The song was still playing there (a loop, a repeated part): it counts for the time only.
+    assert (halo["hits"], halo["inconsistent"], halo["end"]) == (3, 1, 102.0)
+    assert halo["times"] == [0.0, 30.0, 60.0]
     disagree = [
         heard(0, "Lumen", "Halo", song_offset=20),
         heard(30, "Lumen", "Halo", song_offset=200),
