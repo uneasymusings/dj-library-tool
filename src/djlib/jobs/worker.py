@@ -54,6 +54,9 @@ class Worker:
     """One scheduling authority; slow audio/filesystem work runs outside transactions."""
 
     HANDOFF_KINDS = frozenset({"collection", "delivery", "delivery_check", "export", "organize"})
+    # Listening to a DJ set takes minutes; application.identification runs those jobs beside
+    # this worker, so downloads and scans never wait for them.
+    SEPARATE_KINDS = frozenset({"identify"})
     HANDOFF_BURST = 3
     LOCAL_ITEM_QUANTUM = 8
     # A scan lists every file before indexing, about 2 KB of memory a file at its peak;
@@ -140,7 +143,7 @@ class Worker:
             # survives coordinator restarts without a second, in-memory work queue.
             queued = (
                 select(Job)
-                .where(Job.state == "queued")
+                .where(Job.state == "queued", Job.kind.not_in(self.SEPARATE_KINDS))
                 .order_by(Job.updated_at, Job.created_at, Job.id)
                 .limit(1)
             )
@@ -235,7 +238,11 @@ class Worker:
                 await self.ingest(job_id, generation, item_id)
             if processed % quantum == 0:
                 with self.app.db.transaction() as session:
-                    waiting = session.scalar(select(Job.id).where(Job.state == "queued").limit(1))
+                    waiting = session.scalar(
+                        select(Job.id)
+                        .where(Job.state == "queued", Job.kind.not_in(self.SEPARATE_KINDS))
+                        .limit(1)
+                    )
                 if waiting is not None:
                     # Results decoded ahead could go stale before this job's next turn.
                     self._drop_prefetch(item_ids)
@@ -315,6 +322,7 @@ class Worker:
                 workspace.incoming,
                 workspace.managed,
                 workspace.runtime,
+                workspace.sets,
             )
             if not root.is_relative_to(folder)
         ]

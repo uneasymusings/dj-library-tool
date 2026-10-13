@@ -45,6 +45,23 @@ def offline_probes(monkeypatch):
     monkeypatch.setattr(web, "probe", probe)
 
 
+@pytest.fixture(autouse=True)
+def no_song_recognition(monkeypatch):
+    """Tests never reach Shazam, AudD or ACRCloud: song recognition counts as not installed
+    (as in CI) unless a test supplies a recognizer (see tests/test_identification.py)."""
+    from djlib.application import identification
+    from djlib.sources import recognition
+
+    def missing(name=None):
+        raise AppError("DEPENDENCY_REQUIRED", recognition.INSTALL)
+
+    monkeypatch.setattr(identification, "recognizer", missing)
+    monkeypatch.setattr(identification, "shazam_installed", lambda: False)
+    monkeypatch.setattr(identification, "PAGES", {})
+    monkeypatch.delenv("DJLIB_RECOGNIZER", raising=False)
+    monkeypatch.delenv("DJLIB_KEEP_SET_AUDIO", raising=False)
+
+
 @pytest.fixture
 def full_mcp_tools(monkeypatch):
     """Serve every MCP tool (DJLIB_MCP_TOOLS=full) instead of the default core profile."""
