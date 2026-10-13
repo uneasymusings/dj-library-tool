@@ -784,6 +784,19 @@ async def test_scan_reports_progress_keeps_failed_windows_and_stops_early(set_au
     assert [p.at for p in early] == [9.0, 39.0]
 
 
+async def test_a_resumed_scan_skips_windows_heard_before(set_audio):
+    timeline = Timeline([(0, 50, "A"), (50, 80, "B")])
+    progress = []
+    probes = await recognition.scan(
+        set_audio,
+        timeline,
+        skip=[9.0, 39.0000001],
+        on_probe=lambda probe, done, total: progress.append((probe.at, done, total)),
+    )
+    assert timeline.heard == [69.0]
+    assert [p.at for p in probes] == [69.0] and progress == [(69.0, 3, 3)]
+
+
 async def test_scan_ends_on_errors_that_would_repeat(set_audio, monkeypatch):
     limited = AppError("RECOGNITION_RATE_LIMITED", "Slow down.", 502, True)
     with pytest.raises(AppError) as error:

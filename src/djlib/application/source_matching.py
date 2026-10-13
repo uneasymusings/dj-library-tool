@@ -790,7 +790,9 @@ def _description_lines(description: str) -> list[tuple[float | None, str]]:
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
     timed = [line for line in found if line[0] is not None]
-    return timed if len(timed) >= 2 else found
+    # In a timestamped tracklist, untimed lines are the set's own credits; a list that times
+    # only its IDs ("48:30 ID - ID" among plain lines) keeps every line.
+    return timed if len(timed) >= 2 and len(timed) * 2 >= len(found) else found
 
 
 def tracklist_from_source(description: str, chapters: list[dict]) -> str:

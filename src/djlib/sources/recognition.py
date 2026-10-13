@@ -14,7 +14,7 @@ import math
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
@@ -579,24 +579,30 @@ async def scan(
     offset: float = 9.0,
     on_probe: OnProbe | None = None,
     should_stop: ShouldStop | None = None,
+    skip: Collection[float] = (),
 ) -> list[Probe]:
     """Recognize the set window by window, in order; pacing lives in the recognizer.
 
     A window that fails is kept as ``Probe(error=...)`` and the scan goes on; errors that
     would repeat for every window (rate limits, refused keys, a service that stopped
     answering) end the scan. A recognizer with ``scan_file`` handles the whole file itself.
+    Windows starting at a time in ``skip`` (heard before an interruption) are not asked
+    again; progress counts them as done, and only new probes are returned.
     """
     if (scan_file := getattr(recognizer, "scan_file", None)) is not None:
         return await scan_file(Path(audio_path), on_probe=on_probe, should_stop=should_stop)
     total = await asyncio.to_thread(duration, Path(audio_path))
     starts = placements(total, window=window, stride=stride, offset=offset)
+    heard = {round(at, 3) for at in skip}
+    left = [start for start in starts if start not in heard]
     probes: list[Probe] = []
-    for start in starts:
+    for start in left:
         if should_stop is not None and await _maybe(should_stop()):
             break
         probes.append(await _probe(audio_path, recognizer, start, window))
         if on_probe is not None:
-            await _maybe(on_probe(probes[-1], len(probes), len(starts)))
+            done = len(starts) - len(left) + len(probes)
+            await _maybe(on_probe(probes[-1], done, len(starts)))
     return probes
 
 
