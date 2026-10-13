@@ -680,12 +680,15 @@ def _heard(cluster: dict) -> dict:
     }
 
 
+def _apart(slot: _Slot, at: float) -> float:
+    """Seconds from ``at`` to the slot, or to its stretch for an ID found in the audio."""
+    if slot.time is None:
+        return math.inf
+    return max(slot.time - at, at - (slot.until if slot.until is not None else slot.time), 0.0)
+
+
 def _nearest(slots: list[_Slot], cluster: dict) -> _Slot | None:
-    return min(
-        slots,
-        key=lambda slot: abs(slot.time - cluster["start"]) if slot.time is not None else math.inf,
-        default=None,
-    )
+    return min(slots, key=lambda slot: _apart(slot, cluster["start"]), default=None)
 
 
 def _reach(seq: list[_Slot], slot: _Slot, total: float | None) -> tuple[float, float]:
@@ -705,52 +708,116 @@ def _claims(slot: _Slot, reach: tuple[float, float], cluster: dict, slack: float
     return not slot.approx and slot.time is not None and abs(start - slot.time) <= ID_REACH
 
 
-def _settle(seq: list[_Slot], gap: list[_Slot], total: float | None, unplaced: list[dict]) -> None:
-    """Between two songs both heard and listed: who fills the IDs, what disagrees, what stays."""
+def _closest(pair: tuple[_Slot, _Slot]) -> tuple:
+    heard, listed = pair
+    cluster = heard.clusters[0]
+    return _apart(listed, heard.time), RANK[cluster["strength"]], -cluster["hits"], heard.time
+
+
+def _settle(seq: list[_Slot], gap: list[_Slot], total: float | None, weak: list[dict]) -> None:
+    """Between two songs both heard and listed: which heard song fills which ID, which
+    disagrees with a listed song, which stays a track of its own.
+
+    Each ID takes the nearest song heard in its stretch; songs heard once that fit no ID go
+    to ``weak``.
+    """
     unknowns = [slot for slot in gap if slot.texts and slot.kind == "unknown"]
     named = [slot for slot in gap if slot.texts and slot.kind == "named"]
+    heard = [slot for slot in gap if not slot.texts]
+    songs = [slot for slot in heard if slot.clusters[0]["strength"] != "weak"]
     reach = {slot: _reach(seq, slot, total) for slot in unknowns}
-    heard = sorted(
-        (slot for slot in gap if not slot.texts),
-        key=lambda slot: (RANK[slot.clusters[0]["strength"]], -slot.clusters[0]["hits"], slot.time),
-    )
+    pairs = [
+        (song, slot)
+        for song in songs
+        for slot in unknowns
+        if _claims(slot, reach[slot], song.clusters[0], 0)
+    ]
+    # An ID listed with a time, and a song heard near that time, takes no song from further.
+    held = {slot for song, slot in pairs if not slot.approx and _apart(slot, song.time) <= ID_REACH}
     filled = set()
+    for song, slot in sorted(pairs, key=_closest):
+        if not song.track or slot in filled:
+            continue
+        if slot in held and _apart(slot, song.time) > ID_REACH:
+            continue
+        cluster = song.clusters[0]
+        slot.candidates.insert(0, _heard(cluster))
+        filled.add(slot)
+        song.track = False
+        if slot.approx:
+            slot.time, slot.approx = cluster["start"], False
+    rivals = [
+        (song, slot)
+        for song in songs
+        if song.track and song.clusters[0]["strength"] == "strong"
+        for slot in named
+        if slot.approx or slot.time is None or abs(slot.time - song.time) <= ID_REACH
+    ]
+    for song, rival in sorted(rivals, key=_closest):
+        if song.conflict or rival.conflict:
+            continue
+        cluster = song.clusters[0]
+        rival.conflict = song.conflict = True
+        if rival.approx:
+            rival.time = cluster["start"]
+        rival.candidates.append(_heard(cluster))
+        text = rival.texts[0]
+        song.candidates.append(
+            {
+                "source": text["source"],
+                "artist": text["artist"],
+                "title": text["title"],
+                "version": text["version"],
+            }
+        )
     for slot in heard:
         cluster = slot.clusters[0]
-        if cluster["strength"] == "weak":
-            slot.track = False
-            near = [u for u in unknowns if _claims(u, reach[u], cluster, WEAK_REACH)]
-            if owner := _nearest(near, cluster):
-                owner.candidates.append(_heard(cluster))
-            else:
-                unplaced.append(_heard(cluster))
+        if cluster["strength"] != "weak":
             continue
-        open_ids = [u for u in unknowns if u not in filled and _claims(u, reach[u], cluster, 0)]
-        if owner := _nearest(open_ids, cluster):
-            owner.candidates.insert(0, _heard(cluster))
-            filled.add(owner)
-            slot.track = False
-            continue
-        rivals = [
-            n
-            for n in named
-            if not n.conflict
-            and (n.approx or n.time is None or abs(n.time - cluster["start"]) <= ID_REACH)
-        ]
-        if cluster["strength"] == "strong" and (rival := _nearest(rivals, cluster)):
-            rival.conflict = slot.conflict = True
-            if rival.approx:
-                rival.time = cluster["start"]
-            rival.candidates.append(_heard(cluster))
-            text = rival.texts[0]
-            slot.candidates.append(
-                {
-                    "source": text["source"],
-                    "artist": text["artist"],
-                    "title": text["title"],
-                    "version": text["version"],
-                }
-            )
+        slot.track = False
+        near = [u for u in unknowns if _claims(u, reach[u], cluster, WEAK_REACH)]
+        if owner := _nearest(near, cluster):
+            owner.candidates.append(_heard(cluster))
+        else:
+            weak.append(cluster)
+
+
+def _ordered(slots: list[_Slot]) -> list[_Slot]:
+    """Slots by time; one without a time stays after the slot before it."""
+    keyed, last = [], -math.inf
+    for index, slot in enumerate(slots):
+        last = slot.time if slot.time is not None else last
+        keyed.append((last, index, slot))
+    return [slot for *_, slot in sorted(keyed, key=lambda item: item[:2])]
+
+
+def _stretches(
+    slots: list[_Slot], total: float | None, weak: list[dict], unplaced: list[dict]
+) -> list[_Slot]:
+    """The slots in time order, with an ID wherever nothing was heard or listed for
+    GAP_SECONDS or more after a heard song (or the start of the set).
+
+    A listed song plays for as long as its listing says, so no stretch follows one. Songs
+    heard once go to the nearest stretch as candidates, or to ``unplaced``.
+    """
+    found: list[_Slot] = []
+    edge: float | None = 0.0
+    for slot in [*_ordered(slots), None]:
+        until = slot.time if slot else total
+        if edge is not None and until is not None and until - edge >= GAP_SECONDS:
+            found.append(_Slot(kind="unknown", time=edge, until=until))
+        if slot is None:
+            break
+        found.append(slot)
+        edge = max(edge or 0.0, slot.edge()) if slot.clusters else None
+    stretches = [slot for slot in found if slot.until is not None]
+    for cluster in weak:
+        near = [slot for slot in stretches if _apart(slot, cluster["start"]) <= WEAK_REACH]
+        if owner := _nearest(near, cluster):
+            owner.candidates.append(_heard(cluster))
+        else:
+            unplaced.append(_heard(cluster))
+    return found
 
 
 def _merge(
@@ -762,37 +829,17 @@ def _merge(
     _interpolate(seq, total)
     _fill_ids(seq)
     anchors = [i for i, slot in enumerate(seq) if slot.clusters and slot.texts]
+    weak: list[dict] = []
     for left, right in pairwise([-1, *anchors, len(seq)]):
-        _settle(seq, seq[left + 1 : right], total, unplaced)
-    return [slot for slot in seq if slot.track]
+        _settle(seq, seq[left + 1 : right], total, weak)
+    return _stretches([slot for slot in seq if slot.track], total, weak, unplaced)
 
 
 def _recognized(clusters: list[dict], total: float | None, unplaced: list[dict]) -> list[_Slot]:
     """No listing: songs heard in two or more windows, and IDs where nothing was heard."""
     songs = [_Slot(clusters=[c], time=c["start"]) for c in clusters if c["strength"] != "weak"]
-    slots: list[_Slot] = []
-    edge = 0.0
-    for slot in [*songs, None] if songs else []:
-        until = slot.time if slot else total
-        if until is not None and until - edge >= GAP_SECONDS:
-            slots.append(_Slot(kind="unknown", time=edge, until=until))
-        if slot:
-            slots.append(slot)
-            edge = max(edge, slot.edge())
-    stretches = [slot for slot in slots if slot.kind == "unknown"]
-    for cluster in clusters:
-        if cluster["strength"] != "weak":
-            continue
-        near = [
-            s
-            for s in stretches
-            if s.time - WEAK_REACH <= cluster["start"] <= (s.until or math.inf) + WEAK_REACH
-        ]
-        if owner := _nearest(near, cluster):
-            owner.candidates.append(_heard(cluster))
-        else:
-            unplaced.append(_heard(cluster))
-    return slots
+    weak = [cluster for cluster in clusters if cluster["strength"] == "weak"]
+    return _stretches(songs, total, weak, unplaced)
 
 
 # Tracks
@@ -892,11 +939,7 @@ def _hints(comments: list[dict], start: float, end: float | None, named: list[So
 
 
 def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> list[dict]:
-    keyed, last = [], -math.inf
-    for index, slot in enumerate(slots):
-        last = slot.time if slot.time is not None else last
-        keyed.append((last, index, slot))
-    ordered = [slot for *_, slot in sorted(keyed, key=lambda item: item[:2])]
+    ordered = _ordered(slots)
     named = [song for slot in ordered if slot.kind == "named" for song in slot.songs()]
     tracks = []
     for position, slot in enumerate(ordered, 1):
@@ -1016,9 +1059,9 @@ def build_tracklist(
     Heard songs give the times; each listing is aligned to them in order, so a listed song
     takes the heard song's start and keeps its own nicer label. Listed songs nobody heard get
     a time between their neighbours (``approx``). Songs heard in 2+ windows that no listing
-    names fill a listed ID in their stretch ("likely"), disagree with a listed song there
-    ("conflict", 3+ windows) or become tracks of their own. Without a listing, stretches of
-    90 s or more where nothing was heard become IDs.
+    names fill the nearest listed ID in their stretch ("likely"), disagree with a listed song
+    there ("conflict", 3+ windows) or become tracks of their own. Stretches of 90 s or more
+    where nothing was heard or listed become IDs.
 
     Returns ``{"tracks", "coverage", "sources", "unplaced"}``; ``unplaced`` holds songs heard
     once that fit no ID.
@@ -1026,7 +1069,14 @@ def build_tracklist(
     clusters = [_cluster(run) for run in _fold(_runs(probes, window, stride))]
     total = _number(duration)
     if not total or total <= 0:
-        total = max((cluster["end"] for cluster in clusters), default=None)
+        total = max(
+            (
+                at + (_number(probe.get("window")) or window)
+                for probe in probes or []
+                if isinstance(probe, dict) and (at := _number(probe.get("at"))) is not None
+            ),
+            default=None,
+        )
     lists = [_entries(source) for source in listed or [] if isinstance(source, dict)]
     lists = [(name, entries) for name, entries in lists if entries]
     comments = [comment for comment in comments or [] if isinstance(comment, dict)]
