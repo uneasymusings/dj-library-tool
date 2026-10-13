@@ -9,7 +9,8 @@ meanwhile. Each set has a folder, ``<workspace>/sets/<key>/``:
 - listings.json: tracklists given for the set (e.g. copied from 1001Tracklists);
 - probes.jsonl: one line per listening window, written the moment it is heard;
 - tracklist.json and tracklist.txt: the merged result (the text works with `djlib set FILE`);
-- audio/: the set's audio while it is listened to, deleted afterwards.
+- audio/: the set's audio (and its 16 kHz mono decoding) while it is listened to, deleted
+  afterwards.
 
 Probes are kept, so a paused, interrupted or rate-limited identification resumes where it
 stopped, and merging new tracklists later never needs the audio again.
