@@ -134,6 +134,16 @@ def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
     assert reply.exit_code == 0, reply.output
     envelope = json.loads(reply.stdout)
     assert envelope["result"]["updated"] is True and len(installs) == 1
+    # Song recognition (shazamio) has macOS and Windows wheels for Python 3.12, not 3.13.
+    assert installs[0] == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        "3.12",
+        "dj-library-tool[download,recognize] @ https://e/w.whl",
+    ]
     assert envelope["result"]["assistant_sessions"] == sessions
     warnings = envelope["warnings"]
     assert len(warnings) == 1 + bool(sessions)
@@ -192,3 +202,13 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     assert "plugin_updated" not in failed["result"]
     assert "(Marketplace not found)" in failed["warnings"][-1]
     assert upgrade_cli.PLUGIN_UPDATE in failed["warnings"][-1]
+
+
+def test_the_installer_installs_song_recognition_on_python_3_12():
+    from pathlib import Path
+
+    script = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
+    [install] = [line for line in script.splitlines() if line.startswith("uv tool install")]
+    assert (
+        "--python 3.12" in install and '"dj-library-tool[download,recognize] @ $wheel"' in install
+    )
