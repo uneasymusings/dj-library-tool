@@ -1288,13 +1288,16 @@ def shazam_check(shazam: dict) -> tuple[bool, str, str]:
     if songs:
         newest = shazam_day(shazam.get("newest_shazamed_at"))
         return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
+    # What to do in a few words; the fix under the row is the command.
     if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
-        value = "no access"
+        value, hint = "no access", "allow your terminal under Full Disk Access"
     elif shazam.get("problem"):
-        value = "can't be read"
+        value, hint = "can't be read", "for djlib set shazam"
+    elif shazam.get("found"):
+        value, hint = "no songs yet", "open Music Recognition in Control Center once"
     else:
-        value = "no songs yet" if shazam.get("found") else "not set up"
-    return False, value, "optional; for djlib set shazam"
+        value, hint = "not set up", "turn on Shazam in iCloud on your iPhone and this Mac"
+    return False, value, f"optional; {hint}"
 
 
 def shazam_day(value: str | None) -> str:

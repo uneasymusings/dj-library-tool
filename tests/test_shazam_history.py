@@ -889,10 +889,19 @@ def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     assert reply.exit_code == 0, reply.output  # never a required check
     result = json.loads(reply.stdout)["result"]
     assert result["shazam_history"]["found"] is False
-    assert result["fixes"]["shazam"] == shazam_history.SETUP[1]
+    # The fix is a command, like every fix under a row; it shows all the setup steps.
+    assert result["fixes"]["shazam"] == "djlib shazam status"
+    pretty = invoke(workspace, "doctor", pretty=True).stdout.splitlines()
+    at = next(n for n, line in enumerate(pretty) if "Shazam history" in line)
+    assert "not set up" in pretty[at] and "optional; turn on Shazam in iCloud" in pretty[at]
+    assert pretty[at + 1].strip() == "→ djlib shazam status"
+
+    mac_db(home).close()  # Music Recognition is on but nothing has synced yet
+    result = json.loads(invoke(workspace, "doctor").stdout)["result"]
+    assert result["fixes"]["shazam"] == "djlib shazam status"
     pretty = invoke(workspace, "doctor", pretty=True).stdout
     row = next(line for line in pretty.splitlines() if "Shazam history" in line)
-    assert "not set up" in row and "optional" in row
+    assert "no songs yet" in row and "open Music Recognition in Control Center once" in row
 
     mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
     result = json.loads(invoke(workspace, "doctor").stdout)["result"]
