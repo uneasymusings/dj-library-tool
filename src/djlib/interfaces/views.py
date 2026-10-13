@@ -1229,6 +1229,8 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "optional; appears once rekordbox has analyzed tracks",
             ),
         ]
+    if shazam := result.get("shazam_history"):
+        checks.append(("Shazam history", *shazam_check(shazam)))
     fixes = result.get("fixes") or {}
     if plugin := result.get("claude_plugin"):
         hint = ""
@@ -1275,8 +1277,34 @@ DOCTOR_FIXES = {
     "rekordbox": "rekordbox",
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
+    "Shazam history": "shazam",
     "Claude Code plugin": "claude_plugin",
 }
+
+
+def shazam_check(shazam: dict) -> tuple[bool, str, str]:
+    """(passed, value, hint) of doctor's optional Shazam history row."""
+    songs = int(shazam.get("songs") or 0)
+    if songs:
+        newest = shazam_day(shazam.get("newest_shazamed_at"))
+        return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
+    if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
+        value = "no access"
+    elif shazam.get("problem"):
+        value = "can't be read"
+    else:
+        value = "no songs yet" if shazam.get("found") else "not set up"
+    return False, value, "optional; for djlib set shazam"
+
+
+def shazam_day(value: str | None) -> str:
+    """ "2026-10-02 21:14" in this Mac's time zone, or ""."""
+    from djlib.sources.shazam_history import local_time
+
+    try:
+        return local_time(value)
+    except ValueError:
+        return ""
 
 
 @view("capabilities")
@@ -1821,6 +1849,12 @@ def set_view(term: Terminal, result: dict) -> None:
     if missing:
         report = ("requests", "report", result.get("request_id", ""))
         steps.append(("Save the missing songs as a list", report))
+    if result.get("shazam"):
+        from djlib.sources.shazam_history import from_this_mac
+
+        # shazam:new reads this Mac's history only, never a file or Apple Music.
+        if from_this_mac(result["shazam"]):
+            steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
 
 
@@ -1838,6 +1872,129 @@ def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
         if shown
     )
     return [line for line in (first, second) if line]
+
+
+# -- shazam ------------------------------------------------------------------------------------
+
+
+def shazam_source_line(term: Terminal, source: dict) -> None:
+    """``✓ Music Recognition on this Mac  412 songs, newest 2026-10-02 21:14``."""
+    problem = source.get("problem") or {}
+    count = len(source.get("backups") or [])
+    passed = bool(source.get("songs") or count)
+    if problem.get("code") == "SHAZAM_ACCESS_DENIED":
+        detail = "no access (needs Full Disk Access)"
+    elif problem:
+        detail = "can't be read"
+    elif source.get("source") == "iphone_backup":
+        detail = plural(count, "backup") if count else "none"
+    elif passed:
+        newest = shazam_day(source.get("newest_shazamed_at"))
+        detail = plural(int(source["songs"]), "song") + (f", newest {newest}" if newest else "")
+    else:
+        detail = "no songs yet" if source.get("found") else "not found"
+    line = Text(str(source.get("label") or ""))
+    line.append(f"  {detail}", style="" if passed else "muted")
+    glyph = Text(term.glyph("ok" if passed else "todo"), style="ok" if passed else "muted")
+    hanging(term.out, glyph, line, indent=2)
+
+
+@view("shazam status")
+def shazam_status(term: Terminal, result: dict) -> None:
+    songs = int(result.get("songs") or 0)
+    if songs:
+        newest = shazam_day(result.get("newest_shazamed_at"))
+        status_line(
+            term,
+            "ok",
+            "Shazam history",
+            plural(songs, "song") + (f", newest {newest}" if newest else ""),
+        )
+    else:
+        status_line(term, "todo", "No Shazam history on this Mac yet")
+    for source in result.get("sources") or []:
+        shazam_source_line(term, source)
+    last = result.get("last_import") or {}
+    if last:
+        imported = Text(shazam_day(last.get("imported_at")))
+        imported.append(
+            f"  “{last.get('name') or 'Shazam'}”, {plural(int(last.get('songs') or 0), 'song')}",
+            style="muted",
+        )
+        fresh = result.get("new_since_last_import")
+        term.out.print()
+        fields(
+            term,
+            [
+                ("Last import", imported),
+                ("New since", None if fresh is None else plural(int(fresh), "song")),
+            ],
+        )
+    if result.get("full_disk_access"):
+        term.out.print()
+        note(term, result["full_disk_access"])
+    steps: list[Step] = []
+    setup = result.get("setup") or []
+    if setup:
+        term.out.print()
+        term.out.print(Text("Turn on Shazam sync", style="heading"))
+        for number, step in enumerate(setup, 1):
+            hanging(term.out, Text(f"{number}.", style="muted"), Text(step), indent=2)
+        backups = next(
+            (s.get("backups") for s in result.get("sources") or [] if s.get("backups")), None
+        )
+        if backups:
+            steps.append(("Or read your iPhone backup", ("set", f"shazam:{backups[0]}")))
+        steps += [
+            ("Or Apple Music's “My Shazam Tracks”", ("set", "shazam:apple-music")),
+            ("Or a Shazam CSV export", ("set", "shazam:FILE.csv")),
+        ]
+    elif last and result.get("new_since_last_import"):
+        steps.append(("Check the new ones against your music", ("set", "shazam:new")))
+    elif not last:
+        steps.append(("Check them against your music", ("set", "shazam")))
+    if songs:
+        steps.append(("See them", ("shazam", "list")))
+    next_steps(term, steps)
+
+
+@view("shazam list")
+def shazam_list(term: Terminal, result: dict) -> None:
+    records = result.get("records") or []
+    songs = int(result.get("songs") or 0)
+    since = shazam_day(result.get("since"))
+    where = " + ".join(str(s.get("label") or "") for s in result.get("sources") or [])
+    if not records:
+        label = "Nothing new Shazamed" if result.get("new") else "No Shazams"
+        status_line(term, "todo", label, f"since {since}" if since else where)
+        return
+    subtitle = plural(songs, "song") + (f" since {since}" if since else "")
+    header(term, "Your Shazams", f"{subtitle}  {where}".strip())
+    grid = table(
+        ("Shazamed", {"style": "muted"}),
+        ("Artist", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Title", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Times", {"justify": "right", "drop": 2}),
+        ("Where", {"overflow": "ellipsis", "drop": 1}),
+    )
+    for item in records:
+        count = int(item.get("count") or 1)
+        grid.add_row(
+            shazam_day(item.get("shazamed_at")) or "?",
+            item.get("artist") or "",
+            item.get("title") or "",
+            str(count) if count > 1 else "",
+            item.get("location") or "",
+        )
+    term.out.print(grid)
+    if len(records) < songs:
+        more = ["shazam", "list", "--limit", str(min(songs, 1000))]
+        query = result.get("query") or {}
+        for option in ("since", "from"):
+            if query.get(option):
+                more[2:2] = [f"--{option}", str(query[option])]
+        more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
+    next_steps(term, [("Check them against your music", ("set", result.get("spec") or "shazam"))])
 
 
 @view("rekordbox sync")
