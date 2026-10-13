@@ -5,6 +5,7 @@ got and then the tracklist. `djlib set LINK` uses the same identification when a
 tracklist is missing or has IDs.
 """
 
+import contextlib
 import time
 from datetime import datetime
 from enum import StrEnum
@@ -160,7 +161,9 @@ def follow(local, job: dict, url: str | None = None) -> dict:
             time.sleep(POLL_SECONDS)
             job = local.request("GET", f"/jobs/{job_id}")["result"]
     except KeyboardInterrupt:
-        local.request("POST", f"/jobs/{job_id}/control", data={"action": "cancel"})
+        # It may have finished meanwhile; what it heard is saved either way.
+        with contextlib.suppress(AppError):
+            local.request("POST", f"/jobs/{job_id}/control", data={"action": "cancel"})
         if status is not None:
             status.__exit__(None, None, None)
             status = None
