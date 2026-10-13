@@ -615,7 +615,8 @@ async def refine(
 
     Midpoints go level by level, each at least ``min_spacing`` from its neighbours, until
     neighbours agree, ``limit`` new probes (default: as many as given) are spent or
-    ``should_stop()`` is true. Returns every probe, sorted by position.
+    ``should_stop()`` is true. A failed window agrees with no neighbour. When the budget
+    runs short, it is spread over the whole set. Returns every probe, sorted by position.
     """
     found = sorted(probes, key=lambda p: p.at)
     budget = len(probes) if limit is None else max(0, limit)
@@ -624,10 +625,12 @@ async def refine(
         gaps = [
             (a.at + b.at) / 2
             for a, b in zip(found, found[1:], strict=False)
-            if _track(a) != _track(b) and (b.at - a.at) / 2 >= min_spacing
-        ][: budget - done]
+            if not _agree(a, b) and (b.at - a.at) / 2 >= min_spacing
+        ]
         if not gaps:
             break
+        if len(gaps) > (left := budget - done):
+            gaps = [gaps[(2 * k + 1) * len(gaps) // (2 * left)] for k in range(left)]
         planned = done + len(gaps)
         for at in gaps:
             if should_stop is not None and await _maybe(should_stop()):
@@ -648,6 +651,11 @@ async def _probe(audio_path: Path, recognizer: Recognizer, at: float, window: fl
         if error.code in FATAL:
             raise
         return Probe(at, window, None, error.message)
+
+
+def _agree(a: Probe, b: Probe) -> bool:
+    """The same song, or no song on both sides; a failed window is unknown."""
+    return not (a.error or b.error) and _track(a) == _track(b)
 
 
 def _track(probe: Probe) -> str | None:

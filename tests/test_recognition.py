@@ -855,9 +855,27 @@ async def test_refine_respects_spacing_limit_and_stop(set_audio):
     assert len(found) == 6
     capped = Timeline(songs)
     assert len(await recognition.refine(set_audio, capped, first, limit=1)) == 5
-    assert capped.heard == [45.0]
+    assert capped.heard == [75.0]
     stopped = Timeline(songs)
     found = await recognition.refine(set_audio, stopped, first, should_stop=lambda: True)
     assert stopped.heard == [] and found == first
     silent = probes_of([], [0.0, 30.0, 60.0])
     assert await recognition.refine(set_audio, Timeline(songs), silent) == silent
+
+
+async def test_refine_spreads_a_short_budget_over_the_whole_set(set_audio):
+    songs = [(0, 25, "A"), (25, 55, "B"), (55, 85, "C"), (85, 115, "D"), (115, 200, "E")]
+    first = probes_of(songs, [0.0, 30.0, 60.0, 90.0, 120.0])
+    timeline = Timeline(songs)
+    await recognition.refine(set_audio, timeline, first, limit=2)
+    assert timeline.heard == [45.0, 105.0]
+
+
+async def test_refine_looks_again_around_failed_windows(set_audio):
+    songs = [(0, 100, "A")]
+    first = probes_of(songs, [0.0, 90.0])
+    first[1:1] = [Probe(30.0, 12.0, None, "No answer."), Probe(60.0, 12.0, None, "No answer.")]
+    timeline = Timeline(songs)
+    found = await recognition.refine(set_audio, timeline, first)
+    assert timeline.heard == [15.0, 45.0, 75.0]
+    assert [p.at for p in found] == [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0]
