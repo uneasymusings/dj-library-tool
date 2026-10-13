@@ -750,6 +750,10 @@ def parse_spec(value: str) -> tuple[str | None, str | None]:
         return None, rest
     if found:
         return rest, None
+    if re.fullmatch(r"\d{1,4}[./-]\d{1,2}[./-]\d{1,4}", rest):
+        raise AppError(
+            "INPUT_INVALID", f"Write the date {rest} as YYYY-MM-DD, e.g. shazam:2026-10-01."
+        )
     if looks_like_path(rest):
         raise AppError("FILE_UNAVAILABLE", f"Can't find {rest}. Check the path.")
     raise AppError(
