@@ -837,6 +837,17 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert titles(from_csv["records"]) == ["Gem Lingo"]
     assert from_csv["spec"] == f"shazam:{csv}"
 
+    # Shazams without a time are the oldest you know of, so they come last.
+    mixed = tmp_path / "mixed.csv"
+    mixed.write_text(
+        "TagTime,Title,Artist\n2026-09-01T10:00:00Z,A,X\n,C,X\n2026-10-05T10:00:00Z,B,X\n,D,X\n",
+        encoding="utf-8",
+    )
+    listed = json.loads(invoke(workspace, "shazam", "list", "--from", mixed).stdout)["result"]
+    assert titles(listed["records"]) == ["B", "A", "C", "D"]
+    newest = json.loads(invoke(workspace, "shazam", "list", "--from", mixed, "--limit", "1").stdout)
+    assert titles(newest["result"]["records"]) == ["B"]
+
 
 def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     from djlib.native import rekordbox_mac
