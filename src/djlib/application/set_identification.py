@@ -11,6 +11,7 @@ import functools
 import math
 import re
 import statistics
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -34,6 +35,7 @@ WINDOW = 12.0
 STRIDE = 30.0
 BRIDGE_PROBES = 2
 BRIDGE_SECONDS = 240.0
+FOLD_SECONDS = 300.0
 OFFSET_SLACK = 10.0
 STRONG = 3
 GAP_SECONDS = 90.0
@@ -81,6 +83,12 @@ def _number(value) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         return None
     return float(value)
+
+
+def _clean(value) -> str:
+    """Text on one line without control characters ("Halo\\tExtended" → "Halo Extended")."""
+    text = "".join(c for c in str(value or "") if c.isspace() or unicodedata.category(c) != "Cc")
+    return " ".join(text.split())
 
 
 # Labels
@@ -150,6 +158,12 @@ def _inside(needle: str, text: str) -> bool:
     return bool(needle) and f" {needle} " in f" {text} "
 
 
+def _adds_names(short: str, long: str, names: frozenset[str]) -> bool:
+    """Whether the longer title is the shorter one plus credited names ("antdot mirage")."""
+    extra = f" {long} ".replace(f" {short} ", " ", 1).split()
+    return _inside(short, long) and set(extra) <= {word for name in names for word in name.split()}
+
+
 def _likeness(first: Song, second: Song) -> float:
     """How surely two labels name the same song in any version (see SAME, CLOSE, JOIN)."""
     if not first.core or not second.core:
@@ -162,8 +176,12 @@ def _likeness(first: Song, second: Song) -> float:
         or any(_inside(name, second.text) for name in first.names)
         or any(_inside(name, first.text) for name in second.names)
     )
-    # "Stif Mayer - Antdot Mirage (Stif Mayer) [Mixed]" is "Antdot - Mirage".
-    if credited and (_inside(first.core, second.core) or _inside(second.core, first.core)):
+    # "Stif Mayer - Antdot Mirage (Stif Mayer) [Mixed]" is "Antdot - Mirage"; "Bad Love" is
+    # not "Love", even when Antdot remixed it.
+    names = first.names | second.names
+    if credited and (
+        _adds_names(first.core, second.core, names) or _adds_names(second.core, first.core, names)
+    ):
         return SAME
     if (
         shared
@@ -181,7 +199,7 @@ def _hit(probe: dict, window: float) -> dict | None:
     match = probe.get("match")
     if probe.get("error") or not isinstance(match, dict):
         return None
-    artist, title = (str(match.get(key) or "").strip() for key in ("artist", "title"))
+    artist, title = (_clean(match.get(key)) for key in ("artist", "title"))
     if not artist or not title:
         return None
     return {
@@ -395,10 +413,10 @@ def _entries(listed: dict) -> tuple[str, list[dict]]:
         if raw.get("kind") == "unknown":
             entries.append({**entry, "kind": "unknown", "label": str(raw.get("label") or "ID")})
             continue
-        artist, title = (str(raw.get(key) or "").strip() for key in ("artist", "title"))
+        artist, title = (_clean(raw.get(key)) for key in ("artist", "title"))
         if not artist or not title:
             continue
-        artist, title, version = display_label(artist, title, str(raw.get("version") or ""))
+        artist, title, version = display_label(artist, title, _clean(raw.get("version")))
         entries.append(
             {
                 **entry,
@@ -1018,7 +1036,7 @@ def _notes(track: dict) -> str:
                     parts.append(f"but {where} lists {_candidate_label(other)} here")
     if track["approx"] and track["start"] is not None:
         parts.append("the time is approximate")
-    text = "; ".join(parts)
+    text = _clean("; ".join(parts))
     return (text[:1].upper() + text[1:])[:4000]
 
 
@@ -1036,9 +1054,9 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
             items.append(
                 {
                     "kind": "named",
-                    "artist": track["artist"][:500],
-                    "title": track["title"][:1000],
-                    "version": (track.get("version") or "")[:300],
+                    "artist": _clean(track["artist"])[:500],
+                    "title": _clean(track["title"])[:1000],
+                    "version": _clean(track.get("version"))[:300],
                     "timestamp": stamp,
                     "notes": notes,
                 }

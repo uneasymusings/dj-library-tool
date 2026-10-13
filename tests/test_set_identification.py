@@ -341,6 +341,38 @@ def test_same_song_by_id_isrc_or_label():
     assert [s["title"] for s in segments(other_songs)] == ["Rain", "Snow", "Hail"]
 
 
+def test_a_longer_title_is_the_same_song_only_when_it_adds_credited_names():
+    love = [*song(0, 6, "Antdot", "Love"), *song(180, 6, "Antdot", "Bad Love")]
+    assert [s["title"] for s in segments(love)] == ["Love", "Bad Love"]
+    home = [*song(0, 4, "Antdot", "Home"), *song(120, 4, "Maz", "Take Me Home (Antdot Remix)")]
+    assert [s["title"] for s in segments(home)] == ["Home", "Take Me Home"]
+    # A remix credit is not the listed song, so no version is borrowed from it.
+    probes = [
+        *song(0, 6, "Lumen", "Halo"),
+        *song(180, 6, "Fahlberg", "Bad Love (Antdot Remix)"),
+        *song(360, 6, "Ana", "Rain"),
+    ]
+    listed = listing("description", "Lumen - Halo", "Antdot - Love", "Ana - Rain")
+    tracks = build_tracklist(duration=600, probes=probes, listed=[listed])["tracks"]
+    assert [(t["title"], t["version"], t["status"]) for t in tracks] == [
+        ("Halo", "", "confirmed"),
+        ("Love", "", "conflict"),
+        ("Bad Love", "Antdot Remix", "conflict"),
+        ("Rain", "", "confirmed"),
+    ]
+
+
+def test_control_characters_in_heard_labels_are_cleaned():
+    probes = [*song(0, 4, "Lumen", "Halo\tExtended"), *song(120, 4, "Ana\n", "Rain\x00")]
+    result = build_tracklist(duration=240, probes=probes)
+    assert [(t["artist"], t["title"]) for t in result["tracks"]] == [
+        ("Lumen", "Halo Extended"),
+        ("Ana", "Rain"),
+    ]
+    valid_request(request_items(result))
+    assert segments([heard(0, "\x00", "Halo"), heard(30, "Lumen", "\x07")]) == []
+
+
 def test_song_offsets_out_of_line_do_not_count():
     steady = [heard(at, "Lumen", "Halo", track_id="1", song_offset=at + 20) for at in (0, 30, 60)]
     jumped = heard(90, "Lumen", "Halo", track_id="1", song_offset=300)
