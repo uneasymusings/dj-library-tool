@@ -227,13 +227,14 @@ def build_server(workspace: Workspace) -> MCPServer:
         djlib reads the set's description, chapters and listener comments, listens to it
         with song recognition (Shazam by default) and merges one timestamped tracklist. Poll
         djlib_job every 10-20 seconds: result.progress says how far it got (a one-hour set
-        takes several minutes). Each track has a status (confirmed, likely, weak, conflict,
-        unidentified) and its evidence; an ID's candidates are guesses, never its name.
-        Pass a tracklist the user copied (e.g. from 1001Tracklists) as tracklist_text, with
-        tracklist_source 1001tracklists, mixesdb or file; it is remembered for the set. A set
-        identified before is reused unless again is true. After a failure, call again with a
-        new idempotency_key: it continues from what was heard. Then run `djlib set URL` in
-        the shell for owned/missing, the crate, rekordbox and USB.
+        takes several minutes); djlib_control with action cancel stops it. Each track has a
+        status (confirmed, likely, weak, conflict, unidentified) and its evidence; an ID's
+        candidates are guesses, never its name. Pass a tracklist the user copied (e.g. from
+        1001Tracklists) as tracklist_text, with tracklist_source 1001tracklists, mixesdb or
+        file; it is remembered for the set. A set identified before is reused unless again
+        is true. After a failure, call again with a new idempotency_key: it continues from
+        what was heard. Then run `djlib set URL` in the shell for owned/missing, the crate,
+        rekordbox and USB.
         """
         body = {"url": url, "again": again, "idempotency_key": idempotency_key}
         if tracklist_text:
@@ -307,7 +308,11 @@ def build_server(workspace: Workspace) -> MCPServer:
     async def djlib_control(
         job_id: str, action: Literal["pause", "resume", "cancel", "retry"]
     ) -> ResponseEnvelope:
-        """Control scheduling. Cancellation preserves accepted files and successful items."""
+        """Pause, resume, cancel or retry a job, such as an identification that should stop.
+
+        Cancellation preserves accepted files, successful items and what a set identification
+        heard (identifying the set again continues from there).
+        """
         return await request("POST", f"/jobs/{job_id}/control", {"action": action})
 
     @server.tool(structured_output=True, annotations=read)

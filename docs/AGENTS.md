@@ -46,7 +46,7 @@ The output folder must not exist. It gets both skill copies, an explicit `mcp.js
 
 ## Tools
 
-The server serves the core tools by default: capabilities, library, folders, scans, request lists, crates, set links (`djlib_source_inspect`), set identification (`djlib_identify_set`), Shazam history (`djlib_shazam_history`), web search (`djlib_find_sources`), downloads, jobs and rekordbox analysis. Set `DJLIB_MCP_TOOLS=full` in the server's environment to add plans, exports, reviews, notes and filters, reconciliation and working-copy deliveries:
+The server serves the core tools by default: capabilities, library, folders, scans, request lists, crates, set links (`djlib_source_inspect`), set identification (`djlib_identify_set`), Shazam history (`djlib_shazam_history`), web search (`djlib_find_sources`), downloads, jobs (`djlib_control` stops one, such as an identification) and rekordbox analysis. Set `DJLIB_MCP_TOOLS=full` in the server's environment to add plans, exports, reviews, notes and filters, reconciliation and working-copy deliveries:
 
 ```bash
 claude mcp add --scope user --transport stdio djlib -e DJLIB_MCP_TOOLS=full -- "$(command -v djlib)" mcp serve
