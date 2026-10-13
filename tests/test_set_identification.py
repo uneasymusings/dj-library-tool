@@ -97,21 +97,26 @@ def test_a_second_listen_between_windows_never_counts_as_a_window():
     """recognition.refine listens between windows where songs change or a window failed."""
     probes = [
         *song(0, 3, "Lumen", "Halo"),
+        heard(75, "Q-Force", "Slacker"),  # checking the change before it: not a second window
         heard(90, "Q-Force", "Slacker"),
-        heard(105, "Q-Force", "Slacker"),  # checking the change: still one window
+        heard(105, "Q-Force", "Slacker"),  # nor after it
         failed(120),
         heard(135, "Nia Okoro", "Slow Burn"),  # fills the failed window and places the change
-        *song(150, 3, "Nia Okoro", "Slow Burn"),
+        *song(150, 4, "Nia Okoro", "Slow Burn"),
+        heard(255, "Bicep", "Glue"),  # a song only a check between windows heard
+        *song(270, 2, "Lumen", "Halo"),
     ]
     found = segments(probes, stride=30)
     assert [(s["title"], s["hits"], s["strength"], s["start"]) for s in found] == [
         ("Halo", 3, "strong", 0.0),
-        ("Slacker", 1, "weak", 90.0),
-        ("Slow Burn", 4, "strong", 135.0),
+        ("Slacker", 1, "weak", 75.0),
+        ("Slow Burn", 5, "strong", 135.0),
+        ("Glue", 1, "weak", 255.0),
+        ("Halo", 2, "medium", 270.0),
     ]
-    assert found[2]["times"] == [135.0, 150.0, 180.0, 210.0]
+    assert found[2]["times"] == [135.0, 150.0, 180.0, 210.0, 240.0]
     tracks = build_tracklist(probes=probes, stride=30)["tracks"]
-    assert [t["title"] for t in tracks] == ["Halo", "Slow Burn"]
+    assert [t["title"] for t in tracks] == ["Halo", "Slow Burn", "Halo"]
 
 
 def test_keinemusik_scan_groups_into_songs():
