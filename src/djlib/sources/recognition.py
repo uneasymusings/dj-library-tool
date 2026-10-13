@@ -35,11 +35,14 @@ INSTALL = (
 FATAL = frozenset(
     {
         "RECOGNITION_RATE_LIMITED",
+        "RECOGNITION_UNAVAILABLE",
         "RECOGNIZER_NOT_CONFIGURED",
         "RECOGNIZER_REJECTED",
         "DEPENDENCY_REQUIRED",
     }
 )
+RETRY_WAITS = (3.0, 10.0)  # a window is asked again after a dropped connection or server error
+OUTAGE_WINDOWS = 5  # windows in a row without any answer before a scan stops
 
 OnProbe = Callable[["Probe", int, int], object]
 ShouldStop = Callable[[], object]
@@ -108,12 +111,18 @@ class RateLimited(Exception):
     """The service asked for fewer requests."""
 
 
-class Pace:
-    """Spacing between one recognizer's requests, and back-off when the service pushes back.
+class Unreachable(Exception):
+    """No answer: the connection failed or the service failed on its side (HTTP 5xx)."""
 
-    Back-off starts at 10 s and doubles up to 5 minutes. It carries over from one window to
-    the next and eases off after answers; after about 15 minutes of waiting in total the
-    scan gives up rather than hammer the service. One address, no rotation.
+
+class Pace:
+    """Spacing between a service's requests, and patience when it pushes back or drops out.
+
+    On a rate limit, back-off starts at 10 s and doubles up to 5 minutes. It carries over from
+    one window to the next and eases off after answers; after about 15 minutes of waiting
+    without an answer the scan gives up rather than hammer the service. One address, no
+    rotation. A dropped connection or server error is asked again shortly after; when several
+    windows in a row get no answer at all, the service counts as unreachable.
     """
 
     def __init__(
@@ -130,9 +139,17 @@ class Pace:
         self.first, self.longest, self.budget = first, longest, budget
         self.delay = first
         self.waited = 0.0
+        self.missed = 0
         self.ready_at: float | None = None
 
-    async def call(self, request: Callable[[], Awaitable[dict]], service: str) -> dict:
+    async def call(
+        self,
+        request: Callable[[], Awaitable[dict]],
+        service: str,
+        *,
+        retries: tuple[float, ...] = RETRY_WAITS,
+    ) -> dict:
+        waits = iter(retries)
         while True:
             now = self.clock()
             start = now if self.ready_at is None else max(now, self.ready_at)
@@ -143,6 +160,7 @@ class Pace:
                 result = await request()
             except RateLimited:
                 if self.waited >= self.budget:
+                    self.waited = 0.0  # a later scan gets its own quarter of an hour
                     raise AppError(
                         "RECOGNITION_RATE_LIMITED",
                         f"{service} is turning away requests from this computer for now; "
@@ -154,8 +172,36 @@ class Pace:
                 self.waited += self.delay
                 self.delay = min(self.delay * 2, self.longest)
                 continue
+            except Unreachable as exc:
+                if (wait := next(waits, None)) is not None:
+                    self.ready_at = max(self.ready_at, self.clock() + wait)
+                    continue
+                self.missed += 1
+                if self.missed >= OUTAGE_WINDOWS:
+                    self.missed = 0
+                    raise AppError(
+                        "RECOGNITION_UNAVAILABLE",
+                        f"{service} could not be reached; check the internet connection and "
+                        "run the scan again.",
+                        502,
+                        True,
+                    ) from exc
+                raise AppError(
+                    "RECOGNITION_FAILED", f"{service} did not answer just now.", 502, True
+                ) from exc
+            self.waited, self.missed = 0.0, 0
             self.delay = max(self.first, self.delay / 2)
             return result
+
+
+PACES: dict[str, Pace] = {}
+
+
+def shared_pace(service: str, interval: float) -> Pace:
+    """One pace per service in this process, so every scan and job keeps the same spacing."""
+    pace = PACES.setdefault(service, Pace(interval))
+    pace.interval = interval
+    return pace
 
 
 class ShazamRecognizer:
@@ -171,6 +217,7 @@ class ShazamRecognizer:
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
+        pace: Pace | None = None,
     ):
         try:
             from shazamio import Shazam
@@ -178,20 +225,20 @@ class ShazamRecognizer:
             raise AppError("DEPENDENCY_REQUIRED", INSTALL) from exc
         self.shazam = Shazam(http_client=ShazamHttp(transport))
         interval = _seconds(environ.get("DJLIB_SHAZAM_INTERVAL"), 1.0)
-        self.pace = Pace(interval, clock=clock, sleep=sleep)
+        self.pace = pace or Pace(interval, clock=clock, sleep=sleep)
 
     async def recognize(self, wav: bytes) -> Match | None:
         async def request() -> dict:
             try:
                 return await self.shazam.recognize(wav)
-            except (RateLimited, AppError):
+            except (RateLimited, Unreachable, AppError):
                 raise
             except Exception as exc:  # shazamio's own errors are not part of its API
                 if _rate_limited(exc):
                     raise RateLimited from exc
                 raise AppError(
                     "RECOGNITION_FAILED",
-                    "Shazam did not answer for this part of the set.",
+                    "Shazam could not read this part of the set.",
                     502,
                     True,
                 ) from exc
@@ -200,22 +247,27 @@ class ShazamRecognizer:
 
 
 class ShazamHttp:
-    """shazamio's requests without its built-in retries, so a 429 reaches ``Pace``."""
+    """shazamio's requests without its built-in retries, so ``Pace`` decides when to retry."""
 
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None):
         self.transport = transport
 
     async def request(self, method: str, url: str, *args, **kwargs):
-        async with httpx.AsyncClient(transport=self.transport, timeout=30) as client:
-            response = await client.request(
-                method,
-                url,
-                headers=kwargs.get("headers"),
-                params=kwargs.get("params"),
-                json=kwargs.get("json"),
-            )
+        try:
+            async with httpx.AsyncClient(transport=self.transport, timeout=30) as client:
+                response = await client.request(
+                    method,
+                    url,
+                    headers=kwargs.get("headers"),
+                    params=kwargs.get("params"),
+                    json=kwargs.get("json"),
+                )
+        except httpx.TransportError as exc:
+            raise Unreachable from exc
         if response.status_code == 429:
             raise RateLimited
+        if response.status_code >= 500:
+            raise Unreachable
         response.raise_for_status()
         return response.json()
 
@@ -263,11 +315,12 @@ class AuddRecognizer:
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
+        pace: Pace | None = None,
     ):
         self.token = token
         self.skip = max(0, round(stride / AUDD_CHUNK) - 1)
         self.transport = transport
-        self.pace = Pace(0.0, clock=clock, sleep=sleep)
+        self.pace = pace or Pace(0.0, clock=clock, sleep=sleep)
 
     async def recognize(self, wav: bytes) -> Match | None:
         async def request() -> dict:
@@ -313,7 +366,8 @@ class AuddRecognizer:
                 )
             return _audd_reply(response)
 
-        reply = await self.pace.call(request, "AudD")
+        # Re-sending a whole set after a dropped upload is left to the next scan.
+        reply = await self.pace.call(request, "AudD", retries=())
         probes = audd_probes(reply.get("result"), total, self.skip)
         for done, probe in enumerate(probes, 1):
             if on_probe is not None:
@@ -397,6 +451,7 @@ class AcrCloudRecognizer:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
         wall: Callable[[], float] = time.time,
+        pace: Pace | None = None,
     ):
         self.host = host.strip().removeprefix("https://").rstrip("/")
         if not re.fullmatch(r"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+", self.host):
@@ -407,7 +462,7 @@ class AcrCloudRecognizer:
             )
         self.key, self.secret = key, secret
         self.transport, self.wall = transport, wall
-        self.pace = Pace(0.0, clock=clock, sleep=sleep)
+        self.pace = pace or Pace(0.0, clock=clock, sleep=sleep)
 
     def signed(self, size: int) -> dict:
         timestamp = str(int(self.wall()))
@@ -478,16 +533,20 @@ def acrcloud_match(reply: object) -> Match | None:
 
 
 def recognizer(name: str | None = None, environ: Mapping[str, str] = os.environ) -> Recognizer:
-    """The recognizer named, or DJLIB_RECOGNIZER, or Shazam."""
+    """The recognizer named, or DJLIB_RECOGNIZER, or Shazam.
+
+    Recognizers of one service share their pacing and back-off within the process.
+    """
     chosen = (name or environ.get("DJLIB_RECOGNIZER") or "shazam").strip().lower()
     if chosen == "shazam":
-        return ShazamRecognizer(environ=environ)
+        interval = _seconds(environ.get("DJLIB_SHAZAM_INTERVAL"), 1.0)
+        return ShazamRecognizer(environ=environ, pace=shared_pace("shazam", interval))
     if chosen == "audd":
         if not environ.get("DJLIB_AUDD_TOKEN"):
             raise AppError(
                 "RECOGNIZER_NOT_CONFIGURED", "AudD needs an API token: set DJLIB_AUDD_TOKEN."
             )
-        return AuddRecognizer(environ["DJLIB_AUDD_TOKEN"])
+        return AuddRecognizer(environ["DJLIB_AUDD_TOKEN"], pace=shared_pace("audd", 0.0))
     if chosen == "acrcloud":
         names = ("DJLIB_ACRCLOUD_HOST", "DJLIB_ACRCLOUD_KEY", "DJLIB_ACRCLOUD_SECRET")
         if missing := [n for n in names if not environ.get(n)]:
@@ -495,7 +554,7 @@ def recognizer(name: str | None = None, environ: Mapping[str, str] = os.environ)
                 "RECOGNIZER_NOT_CONFIGURED",
                 f"ACRCloud needs a project's details: set {', '.join(missing)}.",
             )
-        return AcrCloudRecognizer(*(environ[n] for n in names))
+        return AcrCloudRecognizer(*(environ[n] for n in names), pace=shared_pace("acrcloud", 0.0))
     raise AppError("INPUT_INVALID", "Choose shazam, audd or acrcloud for song recognition.")
 
 
@@ -524,8 +583,8 @@ async def scan(
     """Recognize the set window by window, in order; pacing lives in the recognizer.
 
     A window that fails is kept as ``Probe(error=...)`` and the scan goes on; errors that
-    would repeat for every window (rate limits, refused keys) end the scan. A recognizer
-    with ``scan_file`` handles the whole file itself.
+    would repeat for every window (rate limits, refused keys, a service that stopped
+    answering) end the scan. A recognizer with ``scan_file`` handles the whole file itself.
     """
     if (scan_file := getattr(recognizer, "scan_file", None)) is not None:
         return await scan_file(Path(audio_path), on_probe=on_probe, should_stop=should_stop)
@@ -611,15 +670,16 @@ async def _post(
     try:
         async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
             response = await client.post(url, data=data, files=files)
+    except httpx.TransportError as exc:
+        raise Unreachable from exc
     except httpx.HTTPError as exc:
         raise AppError(
-            "RECOGNITION_FAILED",
-            f"{service} did not answer; check the internet connection.",
-            502,
-            True,
+            "RECOGNITION_FAILED", f"{service} gave no usable answer just now.", 502, True
         ) from exc
     if response.status_code == 429:
         raise RateLimited
+    if response.status_code >= 500:
+        raise Unreachable
     return response
 
 

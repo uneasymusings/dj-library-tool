@@ -22,6 +22,12 @@ from djlib.sources.recognition import Match, Probe
 SET_URL = "https://www.youtube.com/watch?v=keinemusik"
 
 
+@pytest.fixture(autouse=True)
+def fresh_paces(monkeypatch):
+    """Recognizers made by ``recognizer()`` share pacing per process; each test starts clean."""
+    monkeypatch.setattr(recognition, "PACES", {})
+
+
 def frames(wav: bytes) -> tuple[int, int, int, int]:
     with wave.open(io.BytesIO(wav)) as audio:
         return (
@@ -350,6 +356,18 @@ async def test_shazam_gives_up_after_about_fifteen_minutes_of_back_off(shazamio)
     assert error.value.code == "RECOGNITION_RATE_LIMITED" and error.value.retryable
     assert clock.slept == [10.0, 20.0, 40.0, 80.0, 160.0, 300.0, 300.0]
     assert 840 <= sum(clock.slept) <= 960
+    assert shazam.pace.waited == 0  # a later scan gets its own quarter of an hour
+
+
+async def test_shazam_isolated_rate_limits_never_add_up_to_giving_up(shazamio):
+    shazamio.extend([Throttled(), SHAZAM_REPLY] * 120)
+    clock = Clock()
+    shazam = recognition.ShazamRecognizer(
+        environ={"DJLIB_SHAZAM_INTERVAL": "0"}, clock=clock, sleep=clock.sleep
+    )
+    for _ in range(120):
+        assert (await shazam.recognize(b"wav")).track_id == "692620240"
+    assert clock.slept == [10.0] * 120 and sum(clock.slept) > 900
 
 
 async def test_shazam_http_status_reaches_the_pacing(shazamio):
@@ -370,6 +388,91 @@ async def test_shazam_http_status_reaches_the_pacing(shazamio):
     assert clock.slept == [10.0] and len(seen) == 2
     assert seen[1].headers["X-Shazam-Platform"] == "IPHONE"
     assert json.loads(seen[1].content)["signature"]["uri"].startswith("data:")
+
+
+async def test_shazam_asks_again_after_a_dropped_connection_or_server_error(shazamio):
+    seen = []
+    replies = [
+        httpx.Response(503),
+        httpx.Response(200, json=SHAZAM_REPLY),
+        httpx.ConnectError("offline"),
+        httpx.Response(502),
+        httpx.ReadTimeout("slow"),
+    ]
+
+    def handler(request):
+        seen.append(request)
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    shazamio.extend(["http"] * 5)
+    clock = Clock()
+    shazam = recognition.ShazamRecognizer(
+        environ={"DJLIB_SHAZAM_INTERVAL": "0"},
+        transport=httpx.MockTransport(handler),
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert (await shazam.recognize(b"wav")).track_id == "692620240"
+    assert clock.slept == [3.0] and len(seen) == 2
+    # Two more tries, then the window is left as an error and the scan moves on.
+    with pytest.raises(AppError) as error:
+        await shazam.recognize(b"wav")
+    assert error.value.code == "RECOGNITION_FAILED" and error.value.retryable
+    assert error.value.code not in recognition.FATAL
+    assert clock.slept == [3.0, 3.0, 10.0] and len(seen) == 5 and not shazamio
+
+
+async def test_a_service_that_stops_answering_ends_the_scan(shazamio, set_audio):
+    def offline(request):
+        raise httpx.ConnectError("offline")
+
+    shazamio.extend(["http"] * 30)
+    clock = Clock()
+    shazam = recognition.ShazamRecognizer(
+        environ={"DJLIB_SHAZAM_INTERVAL": "0"},
+        transport=httpx.MockTransport(offline),
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    probes = []
+    with pytest.raises(AppError) as error:
+        await recognition.scan(
+            set_audio, shazam, stride=10.0, on_probe=lambda probe, *_: probes.append(probe)
+        )
+    assert error.value.code == "RECOGNITION_UNAVAILABLE" and error.value.retryable
+    assert "internet connection" in error.value.message
+    assert [p.at for p in probes] == [9.0, 19.0, 29.0, 39.0]
+    assert {p.error for p in probes} == {"Shazam did not answer just now."}
+    assert len(shazamio) == 30 - 5 * 3
+
+
+async def test_an_answer_resets_the_count_of_windows_without_one():
+    clock = Clock()
+    pace = recognition.Pace(0.0, clock=clock, sleep=clock.sleep)
+
+    async def down():
+        raise recognition.Unreachable
+
+    async def up():
+        return {}
+
+    codes = []
+    for request in [down] * 4 + [up] + [down] * 5:
+        try:
+            await pace.call(request, "AudD", retries=())
+            codes.append("answer")
+        except AppError as error:
+            codes.append(error.code)
+    assert codes == [
+        *["RECOGNITION_FAILED"] * 4,
+        "answer",
+        *["RECOGNITION_FAILED"] * 4,
+        "RECOGNITION_UNAVAILABLE",
+    ]
+    assert pace.missed == 0 and clock.slept == []
 
 
 async def test_shazam_failures_are_window_errors(shazamio):
@@ -417,6 +520,18 @@ def test_recognizer_choice_and_configuration(shazamio, monkeypatch):
     assert "--python 3.12" in missing.value.message
 
 
+def test_recognizers_of_one_service_share_their_pacing(shazamio):
+    first = recognition.recognizer(environ={"DJLIB_SHAZAM_INTERVAL": "2"})
+    second = recognition.recognizer(environ={})
+    assert first.pace is second.pace and second.pace.interval == 1.0
+    token = {"DJLIB_AUDD_TOKEN": "t"}
+    audd = recognition.recognizer("audd", environ=token)
+    assert audd.pace is recognition.recognizer("audd", environ=token).pace
+    assert audd.pace is not first.pace and audd.pace.interval == 0.0
+    # Recognizers made directly keep their own.
+    assert recognition.ShazamRecognizer(environ={}).pace is not first.pace
+
+
 def form(request: httpx.Request) -> dict:
     head = b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n"
     message = BytesParser(policy=HTTP).parsebytes(head + request.content)
@@ -442,7 +557,7 @@ async def test_audd_window_recognition(monkeypatch):
         httpx.Response(200, json={"status": "success", "result": None}),
         httpx.Response(200, json={"status": "error", "error": {"error_code": 900}}),
         httpx.Response(200, json={"status": "error", "error": {"error_code": 300}}),
-        httpx.Response(502, text="gateway"),
+        *[httpx.Response(502, text="gateway")] * 3,
     ]
     seen = []
 
@@ -473,6 +588,7 @@ async def test_audd_window_recognition(monkeypatch):
         with pytest.raises(AppError) as error:
             await audd.recognize(b"RIFF")
         assert error.value.code == code
+    assert clock.slept == [10.0, 3.0, 10.0] and not replies
 
 
 async def test_audd_scans_a_whole_set_in_one_upload(tmp_path, monkeypatch):
