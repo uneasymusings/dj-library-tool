@@ -521,7 +521,10 @@ def job_headline(kind: str, job: dict) -> str:
     result = job.get("result") if isinstance(job.get("result"), dict) else {}
     succeeded = int(counts.get("succeeded", 0))
     if kind == "scan":
+        new = result.get("new_tracks")
         message = f"{plural(succeeded, 'track')} indexed"
+        if isinstance(new, int) and new < succeeded:
+            message = f"{plural(succeeded, 'track')}, {new} new"
     elif kind in CRATE_JOBS:
         tracks = result.get("selected_count")
         message = f"Crate built: {plural(int(succeeded if tracks is None else tracks), 'track')}"
@@ -842,7 +845,8 @@ def track_table(
     show_dj = any(
         (track.get("dj") or {}).get("bpm") or (track.get("dj") or {}).get("key") for track in tracks
     )
-    show_file = not numbered
+    # File names only fit beside full titles on wide terminals.
+    show_file = not numbered and term.out.width >= 120
     columns: list[tuple[str, dict]] = []
     if numbered:
         columns.append(("#", {"justify": "right", "style": "muted"}))
@@ -905,13 +909,21 @@ def collections(term: Terminal, result: dict) -> None:
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Tracks", {"justify": "right"}),
+        # Where it went matters more than when it was made: Created goes first.
+        ("rekordbox / USB", {"overflow": "ellipsis", "drop": 2, "readable": 28}),
         ("Created", {"style": "muted", "drop": 1}),
         ("ID", {"style": "muted"}),
     )
     for row in rows:
+        # What djlib did with it: a push checks the playlist appeared, a USB export is read back.
+        done = row.get("rekordbox") if isinstance(row.get("rekordbox"), dict) else {}
+        places = crate_places(
+            term, {"in_rekordbox": True if done.get("pushed_at") else None, "usb": done.get("usb")}
+        )
         grid.add_row(
             row.get("name") or "",
             str(row.get("track_count", "")),
+            places[2:] if places.plain.startswith("  ") else places,
             ago(row.get("created_at")),
             short_id(row.get("collection_id")),
         )
@@ -935,8 +947,6 @@ def collection(term: Terminal, result: dict) -> None:
             f"of {plural(total, 'track')}",
             ("crate", result.get("collection_id", ""), "--after", str(result["next_cursor"])),
         )
-    term.out.print()
-    fields(term, [("Crate", Text(result.get("collection_id", ""), style="muted"))])
     collection = result.get("collection_id", "")
     next_steps(
         term,
@@ -1028,7 +1038,9 @@ def status_view(term: Terminal, result: dict) -> None:
                 "Library",
                 Text.assemble(
                     (plural(tracks, "track"), "heading"),
-                    f"  {dot}  BPM for {bpm}  {dot}  key for {key}",
+                    f"  {dot}  BPM for {bpm}  {dot}  key for {key}"
+                    if bpm or key
+                    else (f"  {dot}  no BPM yet" if tracks else ""),
                 ),
             ),
             (
@@ -1092,19 +1104,25 @@ def crate_line(term: Terminal, row: dict, outdated: dict | None) -> Text:
             f"  {term.glyph('warn')} outdated: you now own {outdated.get('owned')} of its songs",
             style="warn",
         )
+    return line.append_text(crate_places(term, row))
+
+
+def crate_places(term: Terminal, row: dict, sep: Text | None = None) -> Text:
+    """``  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago``: where djlib put a crate."""
+    line, sep = Text(), sep or Text("  ")
     if row.get("in_rekordbox") is True:
-        line.append("  ").append_text(marked(term, "ok", "in rekordbox"))
+        line.append_text(sep).append_text(marked(term, "ok", "in rekordbox"))
     elif row.get("in_rekordbox") is False:
-        line.append("  not in rekordbox yet", style="muted")
+        line.append_text(sep).append("not in rekordbox yet", style="muted")
     elif row.get("pushed_at"):
-        line.append(f"  pushed to rekordbox {ago(row['pushed_at'])}", style="muted")
+        line.append_text(sep).append(f"pushed to rekordbox {ago(row['pushed_at'])}", "muted")
     usb = row.get("usb") or {}
     if usb and usb_failed(usb):
-        line.append("  ").append_text(
+        line.append_text(sep).append_text(
             marked(term, "bad", f"USB check failed on {usb.get('device')}: {usb_problem(usb)}")
         )
     elif usb:
-        line.append("  ").append_text(marked(term, "ok", f"on {usb.get('device')}"))
+        line.append_text(sep).append_text(marked(term, "ok", f"on {usb.get('device')}"))
         line.append(f" {ago(usb.get('checked_at'))}", style="muted")
     return line
 
@@ -1202,7 +1220,7 @@ def doctor(term: Terminal, result: dict) -> None:
         (
             "Background service",
             bool(result.get("coordinator_url")),
-            result.get("coordinator_url") or "not running",
+            "running" if result.get("coordinator_url") else "not running",
             "" if result.get("coordinator_url") else "starts automatically when needed",
         ),
         (
@@ -1224,9 +1242,10 @@ def doctor(term: Terminal, result: dict) -> None:
             "" if result.get("yt_dlp_installed") else "optional; install the [download] extra",
         ),
         (
-            "YouTube JS runtime",
+            # yt-dlp needs Deno or Node to read YouTube pages; the major version is enough.
+            "YouTube helper",
             bool(runtimes.get("youtube_runtime_ready")),
-            f"{runtimes.get('selected')} {selected.get('version') or ''}".strip()
+            f"{runtimes.get('selected')} {(selected.get('version') or '').split('.')[0]}".strip()
             if runtimes.get("selected")
             else "none",
             "" if runtimes.get("youtube_runtime_ready") else "optional; Deno 2.3+ or Node 22+",
@@ -1260,9 +1279,7 @@ def doctor(term: Terminal, result: dict) -> None:
                 "rekordbox analysis",
                 bool(result.get("rekordbox_analysis_folder")),
                 "found" if result.get("rekordbox_analysis_folder") else "not found",
-                "BPM and cues are read from it in the background"
-                if result.get("rekordbox_analysis_folder")
-                else "optional; appears once rekordbox has analyzed tracks",
+                analysis_hint(result),
             ),
         ]
     if recognition := result.get("song_recognition"):
@@ -1311,7 +1328,7 @@ DOCTOR_FIXES = {
     "FFmpeg": "ffmpeg",
     "ffprobe": "ffprobe",
     "yt-dlp": "yt_dlp",
-    "YouTube JS runtime": "javascript_runtime",
+    "YouTube helper": "javascript_runtime",
     "rekordbox": "rekordbox",
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
@@ -1319,6 +1336,15 @@ DOCTOR_FIXES = {
     "Song recognition": "song_recognition",
     "Claude Code plugin": "claude_plugin",
 }
+
+
+def analysis_hint(result: dict) -> str:
+    """BPM and cues come in once `djlib rekordbox sync` has run; after that, by themselves."""
+    if not result.get("rekordbox_analysis_folder"):
+        return "optional; appears once rekordbox has analyzed tracks"
+    if result.get("rekordbox_analysis_synced") is False:
+        return "run djlib rekordbox sync once; after that it stays current in the background"
+    return "BPM and cues stay current in the background"
 
 
 def recognition_check(recognition: dict) -> tuple[bool, str, str]:

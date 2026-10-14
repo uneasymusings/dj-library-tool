@@ -261,6 +261,18 @@ class Worker:
                     job.state, job.outcome = "queued", None
                     add_event(session, job, "requeued", {"counts": dict(counts)})
                     return
+                if kind == "scan":
+                    # A rescan says how many files are new, not only how many it read again.
+                    new = session.scalar(
+                        select(func.count())
+                        .select_from(JobItem)
+                        .where(
+                            JobItem.job_id == job_id,
+                            JobItem.state == "succeeded",
+                            func.json_extract(JobItem.result, "$.reused") == 0,
+                        )
+                    )
+                    job.result = {**(job.result or {}), "new_tracks": new or 0}
                 if kind not in {"delivery", "delivery_check", "organize"}:
                     job.state = "needs_attention" if counts["needs_input"] else "completed"
                     job.outcome = (
