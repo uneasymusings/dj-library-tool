@@ -62,22 +62,14 @@ def test_set_listens_when_the_published_tracklist_has_ids(
 def test_a_set_heard_before_comes_back_while_its_page_does_not_answer(
     application, library_http, setup, audio_factory, monkeypatch
 ):
-    """A set djlib heard today comes back at once, from the page it read then. Later, when
-    YouTube or SoundCloud fails for a moment, it is shown from what djlib read and heard,
-    saying so, instead of a "safe to retry" error."""
+    """YouTube or SoundCloud fails for a moment: a set djlib already heard is shown from
+    what it read and heard then, saying so, instead of a "safe to retry" error."""
     from djlib.domain.errors import AppError
 
     owned(library_http, audio_factory)
     setup.page["description"] = LISTED
     FakeRekordbox(monkeypatch)
     first = json.loads(invoke(application, "set", URL).stdout)["result"]
-    read = len(setup.inspected)
-    today = json.loads(invoke(application, "set", URL).stdout)["result"]
-    assert today["identified"]["reused"] is True and len(setup.inspected) == read
-    # Two days on, the page is read again; this time the site doesn't answer.
-    page = identification.set_folder(application.workspace, URL) / "page.json"
-    saved = json.loads(page.read_text(encoding="utf-8"))
-    page.write_text(json.dumps({**saved, "read_at": "2026-01-01T00:00:00+00:00"}), "utf-8")
 
     async def down(url, comments=0):
         raise AppError("SOURCE_FAILED", "The site didn't answer.", 502, True)
@@ -98,6 +90,62 @@ def test_a_set_heard_before_comes_back_while_its_page_does_not_answer(
     # A set never heard still says the page couldn't be read.
     other = invoke(application, "set", "https://www.youtube.com/watch?v=otherset123")
     assert json.loads(other.stdout)["error"]["code"] == "SOURCE_FAILED"
+
+
+def test_a_tracklist_published_the_same_day_is_read(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Hours after the upload, its uploader names the ID and adds a song: checking the set
+    again that day reads the page again and takes them."""
+    owned(library_http, audio_factory)
+    setup.page["description"] = LISTED
+    FakeRekordbox(monkeypatch)
+    invoke(application, "set", URL)
+    setup.page["description"] = (
+        "Lumen - Halo\nBicep - Glue\nNia Okoro - Slow Burn\nRival Consoles - Persona\n"
+    )
+    read = len(setup.inspected)
+    again = json.loads(invoke(application, "set", URL).stdout)["result"]
+    assert len(setup.inspected) == read + 1 and again["identified"]["reused"] is True
+    labels = [item["label"] for item in again["missing"]]
+    assert "Rival Consoles - Persona" in labels and "Bicep - Glue" in labels
+    assert not any(label.startswith("ID") for label in labels)
+
+
+def test_a_failed_mixesdb_lookup_is_asked_again_by_the_next_check(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """MixesDB doesn't answer the first time; checking the set again the same day without
+    listening asks it again instead of saying it has no tracklist."""
+    from djlib.domain.errors import AppError
+
+    found = {
+        "source": "mixesdb",
+        "page_title": "2026-10-01 - Lumen @ Friday",
+        "page_url": "https://www.mixesdb.com/w/2026-10-01_-_Lumen_@_Friday",
+        "text": "1. Lumen - Halo\n2. Nia Okoro - Slow Burn\n3. Bicep - Glue\n",
+        "complete": True,
+        "tracklist": "complete",
+    }
+    down = [True]
+
+    async def lookup(**wanted):
+        if down[0]:
+            raise AppError("SOURCE_TIMEOUT", "MixesDB did not answer in time.", 504, True)
+        return found
+
+    monkeypatch.setattr(identification, "mixesdb_lookup", lookup)
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    first = json.loads(invoke(application, "set", URL).stdout)["result"]
+    assert first["identified"] and first["mixesdb"] is None
+    down[0] = False
+    again = json.loads(invoke(application, "set", URL, "--no-identify").stdout)["result"]
+    assert again["mixesdb"]["page_url"] == found["page_url"]
+    assert [item["label"] for item in again["missing"]] == [
+        "Nia Okoro - Slow Burn",
+        "Bicep - Glue",
+    ]
 
 
 def test_a_set_checked_again_with_new_notes_keeps_its_list_crate_and_playlist(
