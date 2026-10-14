@@ -33,6 +33,7 @@ from djlib.interfaces.terminal import (
     indented,
     job_progress,
     needs_ffmpeg,
+    number,
     params,
     parse_time,
     path_text,
@@ -404,7 +405,9 @@ def table(*columns: str | tuple[str, dict], gutter: int = GUTTER) -> Grid:
 def page_hint(term: Terminal, result: dict, noun: str, shown: int) -> None:
     total = result.get("total")
     cursor = result.get("next_cursor")
-    summary = f"{shown} of {plural(total, noun)}" if isinstance(total, int) else plural(shown, noun)
+    summary = plural(shown, noun)
+    if isinstance(total, int):
+        summary = f"{number(shown)} of {plural(total, noun)}"
     parts = None
     if cursor is not None:
         options = params()
@@ -1223,7 +1226,7 @@ def status_tally(term: Terminal, counts: dict) -> list[Text]:
     parts that are there, counted and ordered as `djlib set`'s headline (an owned song waiting
     on a pick or an unreadable file is "to check", not owned yet)."""
     owned = counts["owned"] - counts.get("to_check", 0)
-    parts = [Text(f"{owned} of {counts['songs']} owned")]
+    parts = [Text(f"{number(owned)} of {number(counts['songs'])} owned")]
     for key, label, style in (
         ("to_check", "to check", "warn"),
         ("maybe", "maybe yours", "warn"),
@@ -1232,7 +1235,8 @@ def status_tally(term: Terminal, counts: dict) -> list[Text]:
         ("ids", "IDs", "muted"),
     ):
         if amount := counts.get(key):
-            parts.append(Text(f"{amount} {'ID' if key == 'ids' and amount == 1 else label}", style))
+            label = "ID" if key == "ids" and amount == 1 else label
+            parts.append(Text(f"{number(amount)} {label}", style))
     return parts
 
 
@@ -2216,7 +2220,7 @@ def set_view(term: Terminal, result: dict) -> None:
     to_buy = sum(1 for track in tracks if track.get("own") == "missing")
     if to_buy:
         report = ("requests", "report", result.get("request_id", ""))
-        steps.append((f"Your shopping list ({to_buy})", report))
+        steps.append((f"Your shopping list ({number(to_buy)})", report))
     if result.get("listen_fix"):
         steps.append(("So djlib can listen to sets, fix this", result["listen_fix"]))
     if result.get("shazam"):
@@ -2239,7 +2243,7 @@ def set_tally(term: Terminal, result: dict, tracks: list[dict]) -> Text:
     colour; "owned" counts the crate, and an owned song waiting on a pick is "to check"."""
     owned, songs = int(result.get("owned") or 0), int(result.get("songs") or 0)
     own = Counter(track.get("own") for track in tracks)
-    text = Text(f"{owned} of {songs} owned", style="heading")
+    text = Text(f"{number(owned)} of {number(songs)} owned", style="heading")
     for amount, label, style in (
         (len(waiting(tracks)), "to check", "warn"),
         (own["maybe"], "maybe yours", "warn"),
@@ -2249,7 +2253,7 @@ def set_tally(term: Terminal, result: dict, tracks: list[dict]) -> Text:
     ):
         if amount:
             text.append(f" {term.glyph('dot')} ", style="muted")
-            text.append(f"{amount} {label}", style=style)
+            text.append(f"{number(amount)} {label}", style=style)
     return text
 
 
@@ -2260,7 +2264,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
     if not tracks:
         return False
     shown = tracks
-    heading = f"{'Your Shazams' if result.get('shazam') else 'The set'} ({len(tracks)})"
+    heading = f"{'Your Shazams' if result.get('shazam') else 'The set'} ({number(len(tracks))})"
     big = len(tracks) > BIG_SET
     if big:
         # A copy to pick or a file to find keeps an owned song out of the crate too.
@@ -2268,7 +2272,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         if shown:
             owned = any(track.get("own") == "owned" for track in shown)
             title = "Not in the crate yet" if owned else "Not owned yet"
-            heading = f"{title} ({len(shown)} of {len(tracks)})"
+            heading = f"{title} ({number(len(shown))} of {number(len(tracks))})"
     term.out.print()
     term.out.print(Text(heading, style="heading"))
     more = len(shown) - BIG_ROWS if big else 0
@@ -2303,7 +2307,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
     term.out.print(grid)
     if more > 0:
         # One unbroken line, so the command pastes whole.
-        line = Text(f"  {'…' if term.unicode else '...'} and {more} more: ", style="muted")
+        line = Text(f"  {'…' if term.unicode else '...'} and {number(more)} more: ", style="muted")
         line.append(
             term.command("requests", "report", short_handle(result.get("request_id") or "")),
             style="cmd",
@@ -2596,8 +2600,8 @@ def shazam_status(term: Terminal, result: dict) -> None:
     if setup:
         term.out.print()
         term.out.print(Text("Turn on Shazam sync", style="heading"))
-        for number, step in enumerate(setup, 1):
-            hanging(term.out, Text(f"{number}.", style="muted"), Text(step), indent=2)
+        for index, step in enumerate(setup, 1):
+            hanging(term.out, Text(f"{index}.", style="muted"), Text(step), indent=2)
         backups = next(
             (s.get("backups") for s in result.get("sources") or [] if s.get("backups")), None
         )
@@ -3071,8 +3075,8 @@ def delivery_get(term: Terminal, result: dict) -> None:
         steps = Table.grid(padding=(0, 1))
         steps.add_column(style="accent", no_wrap=True)
         steps.add_column(overflow="fold")
-        for number, step in enumerate(result["native_steps"], 1):
-            steps.add_row(f"{number}.", Text(step.removeprefix(f"In {app}: ")))
+        for index, step in enumerate(result["native_steps"], 1):
+            steps.add_row(f"{index}.", Text(step.removeprefix(f"In {app}: ")))
         term.out.print(Padding(steps, (0, 0, 0, 2)))
         term.out.print()
     rows: list[tuple[str, object]] = []
@@ -3296,12 +3300,12 @@ def requests_list(term: Terminal, result: dict) -> None:
         counts = set_counts(row)
         cells = (
             [
-                f"{counts['owned'] - counts['to_check']} of {counts['songs']}",
-                *([str(counts["to_check"] or "")] if checking else []),
-                *([str(counts["maybe"] or "")] if maybe else []),
-                str(counts["other_mix"] or ""),
-                str(counts["missing"] or ""),
-                str(counts["ids"] or ""),
+                f"{number(counts['owned'] - counts['to_check'])} of {number(counts['songs'])}",
+                *([number(counts["to_check"] or "")] if checking else []),
+                *([number(counts["maybe"] or "")] if maybe else []),
+                number(counts["other_mix"] or ""),
+                number(counts["missing"] or ""),
+                number(counts["ids"] or ""),
             ]
             if counted
             else [str(row.get("total_items", ""))]
@@ -3384,7 +3388,7 @@ def request_view(term: Terminal, result: dict) -> None:
             if summary:
                 summary.append(f"  {term.glyph('dot')}  ", style="muted")
             label = "IDs" if label == "ID" and amount != 1 else label
-            summary.append(f"{amount} {label}", style="heading" if tone == "ok" else tone)
+            summary.append(f"{number(amount)} {label}", style="heading" if tone == "ok" else tone)
     term.out.print(indented(summary))
     term.out.print()
     grid = table(
@@ -3448,7 +3452,7 @@ def request_view(term: Terminal, result: dict) -> None:
         shown = len(result.get("items") or [])
         more_line(
             term,
-            f"{shown} of {plural(int(total or 0), 'song')}",
+            f"{number(shown)} of {plural(int(total or 0), 'song')}",
             ("requests", "get", short_handle(request_id), "--after", str(result["next_offset"])),
         )
     term.out.print()

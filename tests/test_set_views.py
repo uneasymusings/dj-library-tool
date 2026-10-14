@@ -290,7 +290,9 @@ def test_a_shazam_history_lists_only_what_you_dont_own(capsys):
     ]
     result = set_result(rows, link=None, name="Shazam since 2019-03-02", shazam={"songs": 1000})
     out = shown("set", result, 100, capsys)
-    assert "Not owned yet (975 of 1000)" in out
+    # Counts read with thousands separators, as the Shazam lines beside them do.
+    assert "25 of 1,000 owned · 975 missing" in out
+    assert "Not owned yet (975 of 1,000)" in out and "Your shopping list (975)" in out
     assert len([line for line in out.splitlines() if "✗ missing" in line]) == 25
     assert f"… and 950 more: djlib requests report {SHORT_REQUEST}" in out
     assert "Time" not in out and "Sure" not in out  # Shazams have neither
