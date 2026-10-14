@@ -154,7 +154,14 @@ class Workspace:
             ) from exc
         roots = [self.root, *(Path(p) for p in self.config().allowed_roots)]
         if not any(path.is_relative_to(root) for root in roots):
-            raise AppError("SOURCE_NOT_ALLOWED", f"djlib isn't allowed to read {path} yet.", 403)
+            # The folder to allow, so the fix is one command that pastes as is.
+            folder = path if path.is_dir() else path.parent
+            raise AppError(
+                "SOURCE_NOT_ALLOWED",
+                f"djlib isn't allowed to read {path} yet.",
+                403,
+                details={"path": str(folder)},
+            )
         if directory and not path.is_dir():
             raise AppError("DIRECTORY_REQUIRED", "The scan requires a directory.")
         if not directory and not path.is_file():

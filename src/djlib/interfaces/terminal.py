@@ -86,6 +86,7 @@ _GLYPHS = {
     "run": ("◐", "*"),
     "pause": ("‖", "="),
     "skip": ("–", "-"),
+    "other": ("≈", "~"),  # you own another mix of the song
     "arrow": ("→", ">"),
     "dot": ("·", "|"),
     "mark": ("⣠⣴⣿⣦⣄", "::"),
@@ -415,10 +416,12 @@ ACCESSIBILITY_SETTINGS = (
 )
 # (label, command): a tuple is a djlib command, a string a plain shell command.
 ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
-    "WORKSPACE_REQUIRED": ("Create a workspace first", ("init", "--allow-root", "PATH")),
+    # The command comes from cli.FIRST_STEP (first_step), as doctor gives it.
+    "WORKSPACE_REQUIRED": ("Create a workspace first", None),
     "WORKSPACE_NOT_EMPTY": ("Pick a new, empty folder for --workspace", None),
     "ROOTS_NOT_UPDATED": ("Add folders to an existing workspace", ("roots", "add", "PATH")),
-    "SOURCE_NOT_ALLOWED": ("Allow the folder first", ("roots", "add", "PATH")),
+    # The folder comes from the error's details.path.
+    "SOURCE_NOT_ALLOWED": ("Allow the folder with djlib roots add", None),
     "SOURCE_ROOT_INVALID": ("Check that the folder exists and is a directory", None),
     "COORDINATOR_VERSION_MISMATCH": ("When it's done, stop the old service", ("service", "stop")),
     "CLIENT_OUTDATED": ("Install the newer djlib", ("upgrade",)),
@@ -467,6 +470,15 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
 }
 
 
+def first_step() -> tuple:
+    """The parts of ``djlib init …`` for a first workspace (cli.FIRST_STEP), ``~/…`` kept as a
+    path so it is printed unquoted and still expands."""
+    from djlib.interfaces.cli import FIRST_STEP
+
+    words = shlex.split(FIRST_STEP)[1:]
+    return tuple(Path.home() / word[2:] if word.startswith("~/") else word for word in words)
+
+
 def ffmpeg_install() -> str | None:
     """The one-line FFmpeg install where it is unambiguous (Homebrew on macOS)."""
     return "brew install ffmpeg" if sys.platform == "darwin" else None
@@ -488,6 +500,10 @@ def render_error(term: Terminal, error: dict) -> None:
     term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
     details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    if code == "WORKSPACE_REQUIRED":
+        hint = ("Create a workspace first", first_step())
+    if code == "SOURCE_NOT_ALLOWED" and isinstance(details.get("path"), str) and details["path"]:
+        hint = ("Allow the folder first", ("roots", "add", Path(details["path"])))
     if isinstance(details.get("next"), str) and details["next"]:
         # The exact command for this error, unbroken under its label.
         label = details.get("next_label") or (hint[0] if hint else "Next")

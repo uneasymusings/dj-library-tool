@@ -200,6 +200,16 @@ def _running() -> bool:
     return _osascript(f'tell application "System Events" to exists process "{PROCESS}"') == "true"
 
 
+def process_running() -> bool | None:
+    """Whether rekordbox is open, from the process list (no permission needed); None when the
+    list can't be read."""
+    try:
+        found = subprocess.run(["pgrep", "-xq", PROCESS], capture_output=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return {0: True, 1: False}.get(found.returncode)
+
+
 def _window_count() -> int:
     value = _osascript(f'tell application "System Events" to count windows of process "{PROCESS}"')
     return int(value) if value.isdigit() else 0

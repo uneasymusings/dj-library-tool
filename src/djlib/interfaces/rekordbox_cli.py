@@ -155,6 +155,55 @@ def set_item(item: dict) -> dict:
     return found
 
 
+# States where the library holds the exact mix: one verified copy, several to pick from, or a
+# copy djlib couldn't read just now.
+OWNED_STATES = frozenset({"satisfied", "ambiguous", "unavailable"})
+
+
+def set_track(item: dict, link: str | None = None, guesses: dict | None = None) -> dict:
+    """One line of the set, in set order: when it plays, how sure djlib is, and whether you own
+    it (owned, missing, other_mix or id). Not-owned songs carry store searches (``shop``)."""
+    from djlib.interfaces.set_sources import listen_url, seconds, shop_links
+    from djlib.interfaces.views import ID_LABEL
+
+    source = item.get("input") or {}
+    found = set_item(item)
+    named = source.get("kind") != "unknown"
+    state = item.get("state")
+    if state in OWNED_STATES:
+        own = "owned"
+    elif not named:
+        own = "id"
+    else:
+        own = "other_mix" if found["you_own"] else "missing"
+    label = str(source.get("label") or "")
+    stamp = source.get("timestamp")
+    track = {
+        "position": item.get("position"),
+        "timestamp": stamp,
+        "label": found["label"] if named else "ID" if ID_LABEL.match(label) else label,
+        "artist": source.get("artist") if named else None,
+        "title": source.get("title") if named else None,
+        "version": (source.get("version") or "") if named else None,
+        "state": state,
+        "own": own,
+        # Owned but waiting on a pick or an unreadable file stays out of the crate.
+        "in_crate": state == "satisfied",
+        "confidence": source.get("confidence"),
+        "you_own": found["you_own"],
+        "notes": source.get("notes"),
+        "matched_as": (item.get("accepted") or {}).get("matched_as"),
+        "listen_url": listen_url(link or source.get("source_url"), seconds(stamp)),
+        "shop": shop_links(source.get("artist"), source.get("title"), source.get("version"))
+        if own in {"missing", "other_mix"}
+        else None,
+    }
+    if not named:
+        # What djlib heard there: a guess, never the ID's name.
+        track["maybe"] = (guesses or {}).get(stamp)
+    return track
+
+
 def to_check(items: list[dict]) -> list[dict]:
     """Owned songs going into the crate that the identification is not sure of: worth a
     listen before the gig."""
@@ -823,6 +872,16 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     request = finish_checks(local, refreshed)["result"]
                     items = all_items(local, request)
         owned = [item for item in items if item.get("state") == "satisfied"]
+        # The set's link times each song (a file's --source too); an ID's guess is what
+        # djlib heard there.
+        link = (page or {}).get("url") or source
+        guesses = {}
+        if identified is not None:
+            for track in (identified["result"].get("tracklist") or {}).get("tracks") or []:
+                shown = identification.compact_track(track)
+                if shown["kind"] == "unknown" and shown["start"] and shown.get("candidates"):
+                    guesses[shown["start"]] = shown["candidates"][0]["label"]
+        tracks = [set_track(item, link, guesses) for item in items]
         result = {
             "name": request.get("name"),
             "request_id": request["request_id"],
@@ -838,6 +897,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "owned": len(owned),
             "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
             "owned_to_check": to_check(items),
+            # Every song in set order, owned or not; `missing` above is kept as it was.
+            "tracks": tracks,
+            "other_mix": sum(1 for track in tracks if track["own"] == "other_mix"),
             "id_hints": set_sources.id_hints(items, (page or {}).get("comments") or []),
             "identified": None
             if identified is None
@@ -868,6 +930,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if skipped:
                 reason, code = skipped
                 result["rekordbox"] = {"status": "skipped", "reason": reason, "reason_code": code}
+                if code == "NOT_REQUESTED":
+                    # So the next step can be the push, where there is a rekordbox to push to
+                    # (only a Mac has /Applications/rekordbox*).
+                    result["rekordbox"]["installed"] = bool(ui.installed())
             else:
                 if when_idle:
                     with status(f"Waiting until you've been away for {when_idle} s…"):
@@ -922,7 +988,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "source": {k: page.get(k) for k in ("url", "provider", "title", "uploader")},
             # Listeners' guesses, in set order: a starting point, not a tracklist.
             "named_in_comments": set_sources.comment_list(comments),
-            "tracklist_next": f"djlib set FILE --source {shlex.quote(url)}",
+            # Copied from 1001Tracklists or anywhere, the tracklist goes in from the clipboard.
+            "tracklist_next": f"djlib set paste --source {shlex.quote(url)}",
         }
         if fix:
             details.update(next=fix, next_label="Fix it so djlib can listen, then run it again")
