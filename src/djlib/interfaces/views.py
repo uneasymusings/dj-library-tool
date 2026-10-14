@@ -2220,7 +2220,9 @@ def set_view(term: Terminal, result: dict) -> None:
     identified = result.get("identified") or {}
     if identified:
         rows.append(("Identified", identified_line(term, identified)))
-        rows.append(("Tracklist", path_text(identified.get("tracklist_file"))))
+        # djlib's own tracklist file, as `djlib identify` says it: "Tracklist" would read as
+        # the MixesDB line below.
+        rows.append(("Saved to", path_text(identified.get("tracklist_file"))))
     fetched = result.get("fetched") or {}
     if fetched:
         rows.append(("Fetched", fetched_line(term, fetched)))

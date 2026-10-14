@@ -179,7 +179,10 @@ def shown(name: str, result: dict, width: int, capsys) -> str:
 
 @pytest.mark.parametrize("width", [80, 100, 140])
 def test_the_whole_set_reads_in_set_order_at_any_width(width, capsys):
-    out = shown("set", set_result(KAYTRANADA), width, capsys)
+    identified = {**set_result([])["identified"], "tracklist_file": "/w/sets/x/tracklist.txt"}
+    out = shown("set", set_result(KAYTRANADA, identified=identified), width, capsys)
+    # djlib's tracklist file is where it was saved, not a second "Tracklist" beside MixesDB's.
+    assert "Saved to    /w/sets/x/tracklist.txt" in out and "Tracklist  " not in out
     # The counts stay whole, beside the name or on the line under it.
     assert "12 of 22 owned · 1 in another mix · 9 missing" in out
     assert "The set (22)" in out and "Not in the crate" not in out
