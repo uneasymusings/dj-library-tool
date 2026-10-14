@@ -821,6 +821,76 @@ def test_matching_folds_leave_identity_keys_as_they_were():
     ]
 
 
+def same_list(app, items, key):
+    return requests.create_request(
+        app, RequestCreate(name="Friday Set", items=items, idempotency_key=key), same_list=True
+    )
+
+
+async def test_the_same_set_checked_again_updates_its_list_in_place(ledger_app, audio_factory):
+    """A set run again, by a newer djlib with other notes or after more listening, keeps its
+    list (and so its crate and rekordbox playlist) instead of making "Friday Set (2)"."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    first = same_list(
+        ledger_app,
+        [named(**GLASPER, notes="Shazam: 3 windows"), RequestItem(kind="unknown", label="ID")],
+        "identified:a15",
+    )
+    assert first["items"][0]["state"] == "missing"
+    resolve(
+        ledger_app,
+        {**first, "items": first["items"][1:]},
+        action="select_source",
+        source_url="https://soundcloud.com/a/id",
+        notes="Operator pick",
+    )
+    again = [
+        named(**GLASPER, notes="Shazam heard it at 00:00 (3×)", also=[listed_as()]),
+        RequestItem(kind="unknown", label="ID - ID", timestamp="03:00"),
+    ]
+    revised = same_list(ledger_app, again, "identified:a16")
+    assert revised["request_id"] == first["request_id"] and revised.pop("reused") is True
+    assert revised["revision"] == 3
+    assert [item["item_id"] for item in revised["items"]] == [
+        item["item_id"] for item in first["items"]
+    ]
+    assert revised["items"][0]["input"] == again[0].model_dump(mode="json")
+    assert revised["items"][1]["input"]["timestamp"] == "03:00"
+    assert revised["items"][1]["source_selection"]["notes"] == "Operator pick"
+    # The re-check that callers run on a reused list finds the song under its other spelling.
+    checked = requests.refresh_request(
+        ledger_app, revised["request_id"], RequestRefresh(revision=3)
+    )
+    assert checked["items"][0]["state"] == "satisfied" and checked["revision"] == 4
+    # The new key names the list now; the same run again changes nothing.
+    assert same_list(ledger_app, again, "identified:a16")["revision"] == 4
+    with ledger_app.db.transaction() as session:
+        assert session.scalar(select(func.count()).select_from(RequestLedger)) == 1
+
+
+def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):
+    first = same_list(ledger_app, [named(), named(title="Second")], "one")
+    for number, (name, items) in enumerate(
+        (
+            ("Friday Set", [named(title="Second"), named()]),  # another order
+            ("Friday Set", [named(), named(title="Second", version="Dub")]),  # another mix
+            ("Friday Set", [named(), named(title="Second"), named(title="Third")]),
+            ("Saturday Set", [named(), named(title="Second")]),
+        )
+    ):
+        made = requests.create_request(
+            ledger_app,
+            RequestCreate(name=name, items=items, idempotency_key=f"other-{number}"),
+            same_list=True,
+        )
+        assert made["request_id"] != first["request_id"] and "reused" not in made
+    # Without same_list (assistants, `djlib requests create --file`), a new key is a new list.
+    plain = create(ledger_app, [named(), named(title="Second")], key="assistant")
+    assert plain["request_id"] != first["request_id"]
+
+
 def test_tracklist_lines_with_control_characters_or_hidden_marks_still_read():
     """Mojibake ("\\x80\\x99" for "’") or an escape code in a pasted or published line loses no
     track and never fails the set; marks that reorder text can't disguise a name."""

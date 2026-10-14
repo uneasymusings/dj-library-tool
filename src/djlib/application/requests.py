@@ -503,7 +503,14 @@ def get_request(app, request_id: str, offset: int = 0, limit: int = 100) -> dict
     }
 
 
-def create_request(app, request: RequestCreate) -> dict:
+def create_request(app, request: RequestCreate, same_list: bool = False) -> dict:
+    """Save a request list and check it against the catalog.
+
+    With ``same_list``, a list saved under the same name with the same songs in the same order
+    (a set checked again, perhaps by an older djlib that wrote other notes) gets this list's
+    notes and evidence in place, under a new revision, and is returned as reused instead of a
+    second list (and crate, and playlist) beside it.
+    """
     payload = request.model_dump(mode="json", exclude={"idempotency_key"})
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     with app.db.transaction() as session:
@@ -516,6 +523,8 @@ def create_request(app, request: RequestCreate) -> dict:
             existing = previous.ledger_id
         else:
             existing = None
+    if same_list:
+        existing = _same_list(app, payload, request.idempotency_key, digest, existing) or existing
     if existing:
         # The same list again: the stored report, marked so callers can re-check it.
         return {**get_request(app, existing), "reused": True}
@@ -559,6 +568,61 @@ def create_request(app, request: RequestCreate) -> dict:
                 )
             )
     return get_request(app, request_id)
+
+
+def _songs(items: list[dict]) -> list:
+    """What makes two lists the same set: each song's artist, title and version, and where its
+    IDs are. Notes, times, links, other spellings and how sure djlib is are evidence."""
+    return [
+        _identity(item["artist"], item["title"], item["version"])
+        if item["kind"] == "named"
+        else None
+        for item in items
+    ]
+
+
+def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None) -> str | None:
+    """The saved list ``payload`` repeats (``ledger_id``, else the newest one with its name and
+    songs), with each item's input updated to ``payload``'s; ``key`` then names it.
+
+    Item IDs, operator choices and selected sources stay; a refresh re-checks the evidence.
+    """
+    songs = _songs(payload["items"])
+    with app.db.transaction() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        previous = session.get(RequestSubmission, key)
+        if previous:
+            if previous.request_hash != digest:
+                raise AppError(
+                    "IDEMPOTENCY_CONFLICT", "This key belongs to a different song request.", 409
+                )
+            ledger_id = previous.ledger_id
+        named = (
+            filter(None, [session.get(RequestLedger, ledger_id)])
+            if ledger_id
+            else session.scalars(
+                select(RequestLedger)
+                .where(RequestLedger.name == payload["name"])
+                .order_by(RequestLedger.updated_at.desc(), RequestLedger.id.desc())
+            )
+        )
+        ledger = next(
+            (each for each in named if _songs([item["input"] for item in each.items]) == songs),
+            None,
+        )
+        if ledger is None:
+            return None
+        if not previous:
+            session.add(RequestSubmission(key=key, request_hash=digest, ledger_id=ledger.id))
+        items, changed = deepcopy(ledger.items), False
+        for item, value in zip(items, payload["items"], strict=True):
+            if item["input"] != value:
+                item["input"], changed = value, True
+        if changed:
+            ledger.items, ledger.request = items, payload
+            ledger.revision += 1
+            ledger.updated_at = timestamp()
+        return ledger.id
 
 
 def refresh_request(app, request_id: str, request: RequestRefresh) -> dict:

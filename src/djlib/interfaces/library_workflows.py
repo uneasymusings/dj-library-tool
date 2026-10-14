@@ -34,8 +34,9 @@ from djlib.domain.request_contracts import (
 
 def register_http(app, application, envelope):
     @app.post("/requests")
-    async def request_create(body: RequestCreate):
-        return envelope(await asyncio.to_thread(create_request, application, body))
+    async def request_create(body: RequestCreate, same_list: bool = Query(default=False)):
+        # same_list: the CLI's set commands update the list a set made before (see create_request).
+        return envelope(await asyncio.to_thread(create_request, application, body, same_list))
 
     @app.get("/requests/{request_id}")
     async def request_get(
