@@ -67,6 +67,64 @@ async def test_identify_set_replies_like_djlib_job_even_on_a_replay(
     assert result["result"] == read.structured_content["result"]["result"]
 
 
+async def test_a_copied_tracklist_is_not_asked_for_again(application, library_http, setup):
+    """tracklist_text without tracklist_source (a plain file): the ID it leaves is no reason
+    to ask for a tracklist again."""
+    arguments = {
+        "url": "https://youtu.be/fridayset1",
+        "idempotency_key": "mcp-copied",
+        "tracklist_text": LISTED,
+    }
+    async with Client(mcp_server.build_server(application.workspace)) as client:
+        job = (await client.call_tool("djlib_identify_set", arguments)).structured_content
+        for _ in range(200):
+            job = (
+                await client.call_tool("djlib_job", {"job_id": job["result"]["job_id"]})
+            ).structured_content
+            if job["result"]["state"] not in {"queued", "running"}:
+                break
+            await asyncio.sleep(0.05)
+    result = job["result"]["result"]
+    assert [source["source"] for source in result["sources"]] == ["audio", "file"]
+    assert any(track["kind"] == "unknown" for track in result["tracks"])
+    assert result["next"] == ["djlib set 'https://www.youtube.com/watch?v=fridayset1'"]
+
+
+@pytest.mark.parametrize(
+    ("url", "site"),
+    [
+        ("https://www.1001tracklists.com/tracklist/2x9/x.html", "1001tracklists"),
+        ("https://1001.tl/14rk2xyz", "1001tracklists"),
+        ("https://www.mixcloud.com/NTSRadio/some-show/", "mixcloud"),
+    ],
+)
+async def test_assistants_are_given_tools_not_shell_commands_for_these_sites(
+    application, library_http, url, site
+):
+    """No `djlib set paste`: an assistant has no shell here, and paste reads the clipboard."""
+    async with Client(mcp_server.build_server(application.workspace)) as client:
+        identify = await client.call_tool(
+            "djlib_identify_set", {"url": url, "idempotency_key": f"mcp-{site}"}
+        )
+        inspect = await client.call_tool("djlib_source_inspect", {"url": url})
+    for reply, code in ((identify, "SOURCE_BROWSER_ONLY"), (inspect, "SOURCE_UNSUPPORTED")):
+        error = reply.structured_content["error"]
+        assert error["code"] == (code if site == "1001tracklists" else "SOURCE_UNSUPPORTED")
+        assert error["details"] == {"next": mcp_server.ASSISTANT_ROUTES[site]}
+        assert "paste" not in json.dumps(error) and "djlib set" not in json.dumps(error)
+    assert "tracklist_text" in mcp_server.ASSISTANT_ROUTES["1001tracklists"]
+
+
+def test_another_error_for_such_a_link_keeps_its_own_way_forward():
+    from djlib.domain.contracts import ResponseEnvelope
+    from djlib.domain.errors import AppError
+    from djlib.interfaces.envelope import envelope
+
+    missing = AppError("WORKSPACE_REQUIRED", "No djlib workspace yet.", 409, details={"next": "x"})
+    reply = ResponseEnvelope.model_validate(envelope(error=missing.as_dict()))
+    assert mcp_server.assistant_route(reply, "https://1001.tl/14rk2xyz") == reply
+
+
 @pytest.mark.parametrize(
     ("kind", "state", "progress", "seconds"),
     [

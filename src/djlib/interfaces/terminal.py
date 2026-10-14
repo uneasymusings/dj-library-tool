@@ -494,18 +494,20 @@ def render_error(term: Terminal, error: dict) -> None:
         hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
-    # Several ways forward, each with its command (e.g. for a 1001Tracklists link).
+    # Several ways forward, each with its command and maybe a note (a 1001Tracklists link).
     steps = [
-        (str(step["label"]), str(step["command"]))
+        (str(step["label"]), str(step["command"]), str(step.get("note") or ""))
         for step in details.get("next_steps") or []
         if isinstance(step, dict) and step.get("label") and step.get("command")
     ]
-    for label, parts in steps or ([hint] if hint else []):
+    for label, parts, note in steps or ([(*hint, "")] if hint else []):
         line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), (label, ""))
         if parts:
             command = parts if isinstance(parts, str) else term.command(*parts)
             line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
             line.append(command, style="cmd")
+        if note:
+            line.append(f"\n    {note}", style="muted")
         term.err.print(line, soft_wrap=True)
     if not steps and not hint and error.get("retryable"):
         term.err.print(

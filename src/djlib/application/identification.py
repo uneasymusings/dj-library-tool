@@ -126,27 +126,6 @@ def _domain(host: str, name: str) -> bool:
     return host == name or host.endswith("." + name)
 
 
-# What works instead of a 1001Tracklists link, first step first: its tracklist copied, best
-# with the set's own YouTube or SoundCloud link, which djlib listens to. Labels stay short
-# enough for the command to follow on an 80-column line.
-BROWSER_ONLY_STEPS = {
-    "set": (
-        {"label": "Copy the tracklist on the page, then", "command": "djlib set paste"},
-        {
-            "label": "Better: with the set's YouTube or SoundCloud link (under the player)",
-            "command": "djlib set 'LINK' --tracklist paste",
-        },
-    ),
-    "identify": (
-        {
-            "label": "Copy the tracklist, then with the set's YouTube or SoundCloud link",
-            "command": "djlib identify 'LINK' --tracklist paste",
-        },
-        {"label": "Or check that copy against your music", "command": "djlib set paste"},
-    ),
-}
-
-
 def canonical_url(url: str) -> str:
     """One spelling per set, so every link to it shares one folder and one identification.
 
@@ -160,19 +139,13 @@ def canonical_url(url: str) -> str:
         host = (parts.hostname or "").lower()
     except ValueError:
         parts, host = None, ""
-    if parts is not None and _domain(host, "1001tracklists.com"):
-        first, other = BROWSER_ONLY_STEPS["identify"]
+    site = web.set_site(text)
+    if site == "1001tracklists":
         raise AppError(
-            "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it.",
-            details={
-                "next": first["command"],
-                "next_label": first["label"],
-                "next_steps": [first, other],
-            },
+            "SOURCE_BROWSER_ONLY", web.BROWSER_ONLY, details=web.browser_only_details("identify")
         )
-    if parts is not None and _domain(host, "mixcloud.com"):
-        raise AppError("SOURCE_UNSUPPORTED", web.MIXCLOUD)
+    if site == "mixcloud":
+        raise AppError("SOURCE_UNSUPPORTED", web.mixcloud_message())
     if (
         parts is None
         or parts.scheme not in {"http", "https"}
@@ -1660,14 +1633,19 @@ LOW_COVERAGE = 70
 def next_steps(found: dict) -> list[str]:
     """What to run after an identification (``summary``): check it against the music, and
     add a 1001Tracklists tracklist while IDs, weak or conflicting tracks are left or little of
-    the set is named, unless one was given."""
+    the set is named, unless the DJ gave a tracklist (from 1001Tracklists, MixesDB or a file;
+    the MixesDB page djlib looked up itself names its page_url)."""
     url = shlex.quote((found.get("source") or {}).get("url") or "LINK")
     steps = [f"djlib set {url}"]
     tracks = found.get("tracks") or []
     unresolved = any(
         t.get("kind") == "unknown" or t.get("status") in {"weak", "conflict"} for t in tracks
     )
-    given = any(s.get("source") == "1001tracklists" for s in found.get("sources") or [])
+    given = any(
+        s.get("source") in {"1001tracklists", "file"}
+        or (s.get("source") == "mixesdb" and not s.get("page_url"))
+        for s in found.get("sources") or []
+    )
     percent = (found.get("coverage") or {}).get("percent")
     if not given and (unresolved or percent is None or percent < LOW_COVERAGE):
         steps.append(f"djlib identify {url} --tracklist FILE")

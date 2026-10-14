@@ -172,29 +172,60 @@ def test_every_link_to_a_set_shares_one_folder(link, canonical):
     ("link", "code"),
     [
         ("https://www.1001tracklists.com/tracklist/abc/set.html", "SOURCE_BROWSER_ONLY"),
+        ("https://1001.tl/14rk2xyz", "SOURCE_BROWSER_ONLY"),
         ("https://www.mixcloud.com/lumen/set/", "SOURCE_UNSUPPORTED"),
         ("https://www.youtube.com/playlist?list=PL1", "SINGLE_SOURCE_REQUIRED"),
         ("https://soundcloud.com/", "SINGLE_SOURCE_REQUIRED"),
         ("not a link", "SOURCE_UNSUPPORTED"),
     ],
 )
-def test_other_links_are_refused_with_a_way_forward(link, code):
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_other_links_are_refused_with_a_way_forward(monkeypatch, link, code, platform):
+    monkeypatch.setattr(web.sys, "platform", platform)
     with pytest.raises(AppError) as refused:
         identification.canonical_url(link)
     assert refused.value.code == code
+    copied = "paste" if platform == "darwin" else "FILE"  # `paste` reads a Mac's clipboard
     if code == "SOURCE_BROWSER_ONLY":
         # The copied tracklist with the set's own link, or checked against the music alone.
         details = refused.value.details
-        assert details["next"] == "djlib identify 'LINK' --tracklist paste"
+        assert details["next"] == f"djlib identify 'LINK' --tracklist {copied}"
         assert [step["command"] for step in details["next_steps"]] == [
-            "djlib identify 'LINK' --tracklist paste",
-            "djlib set paste",
+            f"djlib identify 'LINK' --tracklist {copied}",
+            f"djlib set {copied}",
         ]
-        assert "YouTube or SoundCloud link" in details["next_label"]
+        assert details["next_label"] == (
+            "With the set's YouTube or SoundCloud link (under the player)"
+        )
+        assert details["next_steps"][0]["note"]  # the order, or what FILE is
         assert all(len(step["label"]) <= 70 for step in details["next_steps"])  # 80 columns
+        assert "djlib identify 'LINK' --tracklist -" in details["next_for_assistants"]
     if "mixcloud" in link:
         assert "Mixcloud doesn't allow downloads" in refused.value.message
-        assert "djlib set paste" in refused.value.message
+        assert f"djlib set {copied}" in refused.value.message
+
+
+@pytest.mark.parametrize(
+    ("sources", "asks"),
+    [
+        ([{"source": "audio"}], True),
+        ([{"source": "audio"}, {"source": "description"}], True),
+        ([{"source": "audio"}, {"source": "1001tracklists"}], False),
+        ([{"source": "audio"}, {"source": "file"}], False),  # pasted, or a file
+        ([{"source": "audio"}, {"source": "mixesdb"}], False),  # copied from MixesDB
+        ([{"source": "audio"}, {"source": "mixesdb", "page_url": "https://mixesdb.com/w/x"}], True),
+    ],
+)
+def test_a_tracklist_the_dj_gave_is_not_asked_for_again(sources, asks):
+    """Only a tracklist djlib found itself leaves room to add one for the IDs left."""
+    found = {
+        "source": {"url": URL},
+        "tracks": [{"kind": "unknown", "status": "unidentified"}],
+        "coverage": {"percent": 90},
+        "sources": sources,
+    }
+    asked = f"djlib identify '{URL}' --tracklist FILE"
+    assert identification.next_steps(found) == [f"djlib set '{URL}'", *([asked] if asks else [])]
 
 
 def test_submitting_needs_song_recognition_unless_the_set_was_identified(application):

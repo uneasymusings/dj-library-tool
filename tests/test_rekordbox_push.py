@@ -718,7 +718,10 @@ def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
 
 
 def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkeypatch):
+    from djlib.sources import web
+
     FakeRekordbox(monkeypatch)
+    monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works
     reply = CliRunner().invoke(
         cli_app,
         [
@@ -731,7 +734,7 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
     assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set paste"
-    pretty = CliRunner(env={"DJLIB_OUTPUT": "pretty", "COLUMNS": "140", "NO_COLOR": "1"}).invoke(
+    pretty = CliRunner(env={"DJLIB_OUTPUT": "pretty", "COLUMNS": "80", "NO_COLOR": "1"}).invoke(
         cli_app,
         [
             "--workspace",
@@ -740,13 +743,17 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
             "https://www.1001tracklists.com/tracklist/abc/some-set.html",
         ],
     )
-    # Both ways forward, each with its command.
-    lines = [line.strip() for line in pretty.stderr.splitlines() if "→" in line]
-    assert lines == [
-        "→ Copy the tracklist on the page, then  djlib set paste",
-        "→ Better: with the set's YouTube or SoundCloud link (under the player)  "
-        "djlib set 'LINK' --tracklist paste",
+    # Both ways forward, each with its command, and the order that keeps the copied
+    # tracklist on the clipboard; every line fits 80 columns.
+    lines = pretty.stderr.splitlines()
+    start = next(n for n, line in enumerate(lines) if "→" in line)
+    assert [line.rstrip() for line in lines[start:]] == [
+        "  → Copy the tracklist on the page, then  djlib set paste",
+        "  → Better: add the set's YouTube or SoundCloud link (under the player)",
+        "    djlib set 'LINK' --tracklist paste",
+        "    Put the link in place of LINK, then copy the tracklist and press Enter.",
     ]
+    assert max(len(line) for line in lines) <= 80
 
 
 @pytest.mark.parametrize("flag", ["--no-rekordbox", None])
