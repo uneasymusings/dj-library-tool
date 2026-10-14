@@ -270,14 +270,17 @@ class LocalClient:
         """Whether a service serves this workspace's folder, not a copy's original.
 
         A copied workspace shares the original's ID and token, so only the folder tells them
-        apart. Services before 0.1.0a16 don't say; the version check replaces those.
+        apart. Services before 0.1.0a16 don't say; the version check replaces those. Compared
+        on disk: macOS spells one folder several ways (case, accents); a copy is another folder.
         """
         if value is None:
             return True
-        try:
-            return isinstance(value, str) and Path(value) == self.workspace.root
-        except (TypeError, ValueError):
+        if not isinstance(value, str):
             return False
+        try:
+            return os.path.samefile(value, self.workspace.root)
+        except (OSError, ValueError):
+            return Path(value) == self.workspace.root
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.workspace.token()}"}
