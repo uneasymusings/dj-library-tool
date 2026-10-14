@@ -3129,25 +3129,26 @@ def song_moment(song: dict) -> str:
     return str(song.get("timestamp") or song.get("shazamed") or f"#{song.get('position')}")
 
 
-SHAZAMED = re.compile(r"\bShazamed (\d{4}-\d{2}-\d{2})")
+# How a Shazam's notes start (shazam_cli.note); page text elsewhere in notes never counts.
+SHAZAMED = re.compile(r"^Shazamed (\d{4}-\d{2}-\d{2})")
 
 
 def shazamed_day(notes: object) -> str | None:
     """ "2024-12-08" from a Shazam's notes ("Shazamed 2024-12-08 21:14 · Berlin"), else None."""
-    found = SHAZAMED.search(str(notes or ""))
+    found = SHAZAMED.match(str(notes or ""))
     return found.group(1) if found else None
 
 
 def newest_first(songs: list[dict]) -> list[dict]:
     """A Shazam list as the review page shows it: by the day Shazamed, newest first, then by
-    its place in the list, last first. Songs without a Shazam day keep their order."""
-    if not any(song.get("shazamed") for song in songs):
+    its place in the list, last first. Songs without a Shazam day follow in their order."""
+    dated = [song for song in songs if song.get("shazamed")]
+    if not dated:
         return songs
-    return sorted(
-        songs,
-        key=lambda song: (str(song.get("shazamed") or ""), int(song.get("position") or 0)),
-        reverse=True,
+    dated.sort(
+        key=lambda song: (str(song["shazamed"]), int(song.get("position") or 0)), reverse=True
     )
+    return dated + [song for song in songs if not song.get("shazamed")]
 
 
 # -- delivery ----------------------------------------------------------------------------------
