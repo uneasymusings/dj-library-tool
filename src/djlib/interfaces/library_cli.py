@@ -291,8 +291,7 @@ def shopping_list_code(local, request_id: str, name: str) -> str | None:
     alike = [
         (str(row.get("created_at") or ""), row["request_id"])
         for row in rows(local, "request", name)
-        if row.get("request_id")
-        and playlist_file_name(row.get("name") or "").casefold() == stem
+        if row.get("request_id") and playlist_file_name(row.get("name") or "").casefold() == stem
     ]
     oldest = min(alike, default=None)
     return None if oldest is None or oldest[1] == request_id else short_id(request_id)

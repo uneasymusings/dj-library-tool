@@ -111,9 +111,9 @@ def test_a_set_whose_copy_was_cut_short_says_so_on_every_screen(
     copied.write_text(
         "Friday\n01\nLumen - Halo\n02\nBicep - Glue\nSave 12 more tracks\n", encoding="utf-8"
     )
-    request_id = json.loads(invoke(application, "set", copied, "--no-rekordbox").stdout)[
-        "result"
-    ]["request_id"]
+    request_id = json.loads(invoke(application, "set", copied, "--no-rekordbox").stdout)["result"][
+        "request_id"
+    ]
     got = json.loads(invoke(application, "requests", "get", request_id).stdout)["result"]
     assert got["hidden_tracks"] == 12 and got["total_items"] == 2
     listed = json.loads(invoke(application, "requests", "list").stdout)["result"]["requests"]
@@ -137,9 +137,12 @@ def test_a_set_whose_copy_was_cut_short_says_so_on_every_screen(
     whole = tmp_path / "whole.txt"
     whole.write_text("Saturday\nLumen - Halo\nBicep - Glue\n", encoding="utf-8")
     other = json.loads(invoke(application, "set", whole, "--no-rekordbox").stdout)["result"]
-    assert json.loads(invoke(application, "requests", "get", other["request_id"]).stdout)[
-        "result"
-    ]["hidden_tracks"] is None
+    assert (
+        json.loads(invoke(application, "requests", "get", other["request_id"]).stdout)["result"][
+            "hidden_tracks"
+        ]
+        is None
+    )
 
 
 def test_rich_text_never_names_the_set():
