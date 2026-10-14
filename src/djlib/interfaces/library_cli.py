@@ -218,25 +218,26 @@ def moment(song: dict) -> str:
 
 def shopping_text(name: str, found: dict) -> str:
     """The shopping list as plain text, laid out as `djlib requests report` prints it."""
+    from djlib.interfaces.terminal import number
     from djlib.interfaces.views import owned_mixes
 
     to_buy, others = found["to_buy"], found["other_mixes"]
     maybe = found.get("maybe_yours") or []
     width = max((len(moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
-    lines = [f"{name} — {len(to_buy)} to buy", ""]
+    lines = [f"{name} — {number(len(to_buy))} to buy", ""]
     for song in to_buy:
         lines.append(f"{moment(song):>{width}}  {song['label']}")
         lines += [
             f"{'':>{width}}  {label:<10}  {song['shop'][store]}" for store, label in STORES.items()
         ]
     if maybe:
-        lines += ["", f"Maybe yours already: check before you buy ({len(maybe)})"]
+        lines += ["", f"Maybe yours already: check before you buy ({number(len(maybe))})"]
         for song in maybe:
             lines.append(
                 f"{moment(song):>{width}}  {song['label']} — you have: {song['maybe_owned']}"
             )
     if others:
-        lines += ["", f"You own another mix ({len(others)})"]
+        lines += ["", f"You own another mix ({number(len(others))})"]
         for song in others:
             mixes = owned_mixes(song["you_own"], song.get("title"))
             lines.append(f"{moment(song):>{width}}  {song['label']} — you have: {mixes}")
