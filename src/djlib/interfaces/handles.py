@@ -71,6 +71,12 @@ def resolve(local, kind: str, value: str) -> str:
     )
 
 
+def rows(local, kind: str, query: str) -> list[dict]:
+    """Saved crates or sets whose name or ID contains ``query`` (any case), newest first."""
+    path, key, *_ = KINDS[kind]
+    return _rows(local, path, key, query[:MAX_QUERY])
+
+
 def _latest(local) -> dict:
     """``/latest``, or nothing from a background service older than it."""
     try:
