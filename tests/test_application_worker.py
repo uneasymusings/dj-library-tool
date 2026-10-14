@@ -308,6 +308,18 @@ async def test_download_tags_only_managed_copy_and_records_final_hash(
 
     managed = Path(item["result"]["path"])
     assert labels(managed) == ("Selected artist", "Track (Dub)")
+    # rekordbox shows the comment: a re-encoded web rip should be bought before playing out.
+    if suffix == ".mp3":
+        from mutagen.id3 import ID3
+
+        comments = [str(frame.text[0]) for frame in ID3(managed).getall("COMM")]
+    else:
+        from mutagen.flac import FLAC
+
+        comments = FLAC(managed)["comment"]
+    assert comments == [
+        "Web rip from YouTube (stream quality) — buy before playing out · https://youtu.be/test"
+    ]
     assert checksum(acquired["path"]) == acquired["sha256"]
     assert labels(acquired["path"]) == ("", "")
     track = application.collection(result["result"]["collection_id"])["tracks"][0]
