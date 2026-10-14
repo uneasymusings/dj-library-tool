@@ -50,6 +50,20 @@ LEADING_DIGITS = re.compile(r"^\s*#?(\d{1,3})")
 
 HEADING = "looks like a heading"
 RICH_TEXT = "rich-text formatting"
+# What 1001Tracklists shows in place of the tracks it hides from people not logged in:
+# "Save 12 more tracks", "Show 12 more".
+CUT_OFF = re.compile(
+    r"^\s*(?:save|show|load|view|see|unlock)\s+(\d{1,4})\s+more(?:\s+tracks?)?\b", re.IGNORECASE
+)
+
+
+def hidden_tracks(line: str) -> int | None:
+    """How many tracks a copied 1001Tracklists page left out ("Save 12 more tracks"), else
+    None."""
+    found = CUT_OFF.match(line)
+    return int(found.group(1)) if found else None
+
+
 LIST_LABEL = re.compile(r"^(?:full\s+)?(?:track\s*list|set\s*list|tracks)\s*:?$", re.IGNORECASE)
 LEADING_NUMBER = re.compile(r"^\s*\d{1,3}(?:\s*[-.)_]\s*|\s+)(?=\S)")
 

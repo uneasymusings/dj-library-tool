@@ -80,6 +80,21 @@ def test_rich_text_that_cant_be_converted_says_how_to_save_plain_text(tmp_path, 
     assert refused.value.details["title"] == "Can't read that tracklist"
 
 
+def test_a_cut_short_1001tracklists_copy_says_tracks_are_missing():
+    """Not logged in, 1001Tracklists shows "Save 12 more tracks" where the rest of the set is."""
+    from djlib.interfaces.library_cli import text_request
+
+    copied = "Friday\n01\nLumen - Halo\nUNRELEASED\n02\nBicep - Glue\nSave 12 more tracks\n"
+    body, warnings = text_request(copied, None, "Pasted", None)
+    assert [item.title for item in body.items] == ["Halo", "Glue"]
+    assert warnings[0] == (
+        "1001Tracklists hid 12 more tracks. Log in or open the full list on the page, then copy "
+        "it again."
+    )
+    assert not any("Save 12 more" in warning for warning in warnings)
+    assert text_request("Lumen - Halo\n", None, "Pasted", None)[1] == []
+
+
 def test_rich_text_never_names_the_set():
     items, skipped = parse_tracklist("{\\rtf1\\ansi\\ansicpg1252\\cocoartf2865\nLumen - Halo\n")
     assert len(items) == 1
