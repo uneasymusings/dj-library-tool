@@ -353,6 +353,23 @@ def test_lookups_and_groups_do_the_obvious_thing(application, library_http, audi
     assert "list" in run("requests", "--help").output
 
 
+def test_crate_before_any_crate_is_the_crates_empty_state(application, library_http):
+    root = application.workspace.root
+    reply = run("crate", pretty=True, workspace=root)
+    assert reply.exit_code == 0, reply.output
+    assert "No crates yet" in reply.stdout and "Not found" not in reply.output
+    # Scripts still get the error they branch on.
+    reply = run("crate", workspace=root)
+    assert reply.exit_code == 2 and json.loads(reply.stdout)["error"]["code"] == "NOT_FOUND"
+
+
+def test_set_commands_speak_of_sets_not_request_lists():
+    assert "tracks, sets and crates" in run("--help", columns=200).output
+    for command in ("get", "refresh", "report", "collect", "create", "resolve"):
+        text = run("requests", command, "--help", columns=200).output
+        assert "request list" not in text.lower() and "LIST" not in text, command
+
+
 def test_shazam_alone_shows_where_your_shazams_are(tmp_path):
     reply = run("shazam", workspace=tmp_path / "w")
     assert reply.exit_code == 0, reply.output

@@ -340,7 +340,7 @@ def init(
 @app.command(rich_help_panel=START)
 @handled
 def status(ctx: typer.Context) -> None:
-    """Your library at a glance: tracks, lists and crates."""
+    """Your library at a glance: tracks, sets and crates."""
     from concurrent.futures import ThreadPoolExecutor
 
     from djlib.exporting.rekordbox_anlz import default_root
@@ -890,7 +890,15 @@ def collection(
 ) -> None:
     """Show the tracks in a crate."""
     local = client(ctx)
-    collection_id = handles.resolve(local, "collection", collection_id)
+    try:
+        collection_id = handles.resolve(local, "collection", collection_id)
+    except AppError as error:
+        newest = collection_id.strip().lower() == "last"
+        if error.code != "NOT_FOUND" or not newest or terminal.current().json:
+            raise
+        # Nothing made yet: the same friendly start as `djlib crates` (JSON keeps the error).
+        views.show(terminal.current(), "collections", envelope({"collections": [], "total": 0}))
+        return
     emit(
         local.request(
             "GET", f"/collections/{collection_id}", params={"after": after, "limit": limit}

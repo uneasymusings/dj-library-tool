@@ -580,7 +580,7 @@ def test_paged_screens_keep_a_single_next_block(capsys):
         capsys=capsys,
     )
     assert out.count("Next\n") == 1
-    assert f"more: djlib crate {COLLECTION} --after 1" in out
+    assert f"more: djlib crate {SHORT_COLLECTION} --after 1" in out
     request = {
         "request_id": REQUEST,
         "revision": 2,
@@ -591,7 +591,7 @@ def test_paged_screens_keep_a_single_next_block(capsys):
         "next_offset": 1,
     }
     out = render("requests get", request, width=160, capsys=capsys)
-    assert out.count("Next\n") == 1 and f"requests get {REQUEST} --after 1" in out
+    assert out.count("Next\n") == 1 and f"requests get {SHORT_REQUEST} --after 1" in out
 
 
 def test_request_lists_lead_with_building_the_crate(capsys):
