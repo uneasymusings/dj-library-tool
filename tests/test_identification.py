@@ -6,6 +6,7 @@ recognizer are fakes, and windows carry their start time instead of audio.
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -19,9 +20,11 @@ from djlib.domain.errors import AppError
 from djlib.jobs.worker import Worker
 from djlib.sources import recognition, web
 from djlib.sources.recognition import Match
+from tests.test_recognition import yt_dlp_refuses
 
 URL = "https://www.youtube.com/watch?v=fridayset1"
 DATA = Path(__file__).parent / "data"
+FETCH_SET_AUDIO = web.fetch_set_audio  # the real one; Setup replaces it with a fake
 
 
 class Listener:
@@ -101,7 +104,7 @@ class Setup:
         self.inspected.append(url)
         return {**self.page, "url": url}
 
-    async def fetch(self, url, destination):
+    async def fetch(self, url, destination, on_retry=None):
         self.fetched.append(url)
         destination.mkdir(parents=True, exist_ok=True)
         path = destination / "set.webm"
@@ -796,7 +799,7 @@ async def test_a_few_failed_windows_are_reported_by_the_listen_only(application,
 
 
 async def test_retryable_download_errors_keep_the_partial_download(application, setup):
-    async def failing(url, destination):
+    async def failing(url, destination, on_retry=None):
         destination.mkdir(parents=True, exist_ok=True)
         (destination / "set.webm.part").write_bytes(b"half a set")
         raise AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True)
@@ -806,12 +809,85 @@ async def test_retryable_download_errors_keep_the_partial_download(application, 
     assert job["result"]["error"]["code"] == "SOURCE_TIMEOUT"
     assert (folder(application) / "audio" / "set.webm.part").exists()
 
-    async def gone(url, destination):
+    async def gone(url, destination, on_retry=None):
         raise AppError("SOURCE_UNAVAILABLE", "The public recording is unavailable here.", 502)
 
     web.fetch_set_audio = gone
     job = await run(application, submit(application))
     assert not (folder(application) / "audio").exists()
+
+
+def refusing_yt_dlp(application, monkeypatch, job_id: str, refusals: int) -> tuple[list, list]:
+    """The real set download over a fake yt-dlp the site refuses ``refusals`` times: its
+    tries, and the job's progress as each later try starts."""
+    seen: list = []
+    during: list = []
+    refuses = yt_dlp_refuses(folder(application) / "audio", seen, refusals)
+
+    async def yt_dlp(args, **options):
+        if seen:
+            during.append(application.job(job_id)["result"]["progress"])
+        return await refuses(args, **options)
+
+    monkeypatch.setattr(web, "fetch_set_audio", FETCH_SET_AUDIO)
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp)
+    monkeypatch.setattr(web, "SET_RETRY_SECONDS", 0)
+    return seen, during
+
+
+async def test_a_set_download_the_site_refused_is_tried_again_and_says_so(
+    application, setup, monkeypatch
+):
+    job_id = submit(application)
+    seen, during = refusing_yt_dlp(application, monkeypatch, job_id, 1)
+    job = await run(application, job_id)
+    assert job["state"] == "completed" and len(seen) == 2
+    # While the second try runs, the job says so.
+    [progress] = during
+    assert progress["phase"] == "downloading"
+    assert progress["download_retry"] == {"try": 2, "of": 2, "after": "SOURCE_FAILED"}
+    # What yt-dlp said is in the runtime folder's log, without links.
+    head, said = (application.workspace.runtime / "downloads.log").read_text().splitlines()
+    assert head.endswith(
+        f" {job_id} set {folder(application).name} (youtube.com): "
+        "download try 1 of 2 failed (SOURCE_FAILED)"
+    )
+    assert said == "  ERROR: unable to download video data: HTTP Error 403: Forbidden"
+
+
+async def test_a_set_download_refused_twice_fails_after_two_tries(application, setup, monkeypatch):
+    job_id = submit(application)
+    seen, during = refusing_yt_dlp(application, monkeypatch, job_id, 2)
+    job = await run(application, job_id)
+    error = job["result"]["error"]
+    assert during[0]["download_retry"]["try"] == 2
+    assert (error["code"], error["retryable"], error["details"]) == (
+        "SOURCE_FAILED",
+        True,
+        {"tries": 2},
+    )
+    assert len(seen) == 2 and "403" not in error["message"]
+    # What arrived is kept for the next run.
+    assert (folder(application) / "audio" / "set.webm.part").exists()
+    log = (application.workspace.runtime / "downloads.log").read_text().splitlines()
+    assert [line.split(": ", 1)[1] for line in log if not line.startswith(" ")] == [
+        "download try 1 of 2 failed (SOURCE_FAILED)",
+        "download failed after 2 tries (SOURCE_FAILED)",
+    ]
+    assert "://" not in "\n".join(log)  # no links: a signed media link carries tokens
+
+
+def test_the_download_log_keeps_its_newest_lines(tmp_path, monkeypatch):
+    monkeypatch.setattr(identification, "LOG_BYTES", 1000)
+    log = tmp_path / "downloads.log"
+    for n in range(100):
+        identification.append_log(log, [f"failure {n:03d}", "  ERROR: refused"])
+    lines = log.read_text().splitlines()
+    assert log.stat().st_size <= 1000 and lines[-2:] == ["failure 099", "  ERROR: refused"]
+    assert lines[0].startswith(("failure", "  ERROR")) and "failure 000" not in lines
+    if os.name == "posix":
+        assert log.stat().st_mode & 0o777 == 0o600
 
 
 async def test_a_download_that_came_out_short_leaves_the_rest_unheard(application, setup):
