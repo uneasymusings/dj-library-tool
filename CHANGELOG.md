@@ -41,7 +41,7 @@
 - **Another mix you own reads “≈ Radio Edit”** in amber, not a red “missing”. djlib still counts only the exact mix and says so under the table.
 
 *Tracklists you paste or type*
-- `paste` and `-` work for `djlib set`, `djlib identify`, `--tracklist` and `djlib requests create --text`. A copied link is used as the link, also with words around it; anything else is read as a tracklist (up to 1 MB). Off a Mac, pipe it in with `-`.
+- `paste` and `-` work for `djlib set`, `djlib identify`, `--tracklist` and `djlib requests create --text`, which also reads spreadsheet cells and Artist/Title CSVs as `djlib set` does. A copied link is used as the link, also with words around it; anything else is read as a tracklist (up to 1 MB). Off a Mac, pipe it in with `-`.
 - A paste without a heading is named “Pasted 14 Oct · <first song> + N more”, so two pastes never share a name.
 - TextEdit (RTF) tracklists are converted on a Mac. UTF-16 and Windows (cp1252) files read as they are. A missing, empty, binary or folder path says what's wrong, and a link without its https:// says so. Links in quotes, curly quotes included, work.
 - A Shazam CSV given as a file (`djlib set shazamlibrary.csv`) is read as your Shazams. Any other CSV or TSV with Artist and Title columns (a spreadsheet, or a Serato or rekordbox history saved as CSV) is a song list named after the file, and a Mix or Version column keeps the versions exact.

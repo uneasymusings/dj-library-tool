@@ -36,7 +36,8 @@ def tracklist_request(
     text: Path, name: str | None, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from a plain tracklist file (or paste, or - for stdin), plus warnings
-    for skipped lines."""
+    for skipped lines. Spreadsheet cells (pasted with tabs) or a CSV with Artist and Title
+    columns read as a song list, as `djlib set` reads them."""
     from djlib.interfaces.identify_cli import (
         pasted_name,
         read_text_file,
@@ -44,13 +45,20 @@ def tracklist_request(
         tracklist_wanted,
         typed,
     )
+    from djlib.sources import shazam_history
 
     if kind := typed(text):
         link, content = read_typed(kind)
         if link is not None:
             raise tracklist_wanted(kind)
-        return text_request(content, name, pasted_name(content), source)
-    return text_request(read_text_file(text), name, text.stem, source)
+        fallback, columns = pasted_name(content), "\t" in content
+    else:
+        content, fallback = read_text_file(text), text.stem
+        columns = shazam_history.csv_kind(text.expanduser()) == "songs"
+    rows = shazam_history.song_rows(content) if columns else None
+    if rows is not None:
+        return song_list_request(rows, name, fallback)
+    return text_request(content, name, fallback, source)
 
 
 def text_request(
@@ -330,7 +338,9 @@ def register_commands(app, client, emit, handled, panel=None):
         ctx: typer.Context,
         file: Path | None = typer.Option(None, help="The set as JSON (see: djlib schemas)."),
         text: Path | None = typer.Option(
-            None, help="Text file, one “Artist - Title (Mix)” per line."
+            None,
+            help="A tracklist file, one “Artist - Title (Mix)” per line; paste for one you "
+            "copied, - for a pipe.",
         ),
         name: str | None = typer.Option(None, help="Set name for --text; defaults to the file."),
         source: str | None = typer.Option(
@@ -339,7 +349,7 @@ def register_commands(app, client, emit, handled, panel=None):
     ):
         """Save a set's tracklist and check which songs you already own.
 
-        Paste a tracklist into a text file and pass --text; no JSON needed.
+        Copy a tracklist and pass --text paste (or pipe it into --text -); no JSON needed.
         """
         if (file is None) == (text is None):
             raise AppError("INPUT_INVALID", "Pass either --file JSON or --text tracklist.")
