@@ -149,6 +149,32 @@ async def test_source_metadata_truncation_and_untrusted_text(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.1001tracklists.com/tracklist/2x9/kaytranada-boiler-room.html",
+        "https://www.mixcloud.com/NTSRadio/mr-beatnick-24th-may-2016/",
+    ],
+)
+async def test_inspecting_1001tracklists_or_mixcloud_says_what_works(monkeypatch, url):
+    async def never(*_, **__):
+        raise AssertionError("nothing is fetched")
+
+    monkeypatch.setattr(web, "run", never)
+    with pytest.raises(AppError) as refused:
+        await web.inspect_source(url)
+    error = refused.value
+    assert error.code == "SOURCE_UNSUPPORTED"  # the code an assistant may switch on stays
+    assert "Bandcamp" not in error.message
+    if "1001" in url:
+        assert error.message.startswith("1001Tracklists only shows tracklists to people in a")
+        assert error.details["next"] == (
+            "djlib_identify_set with the set's YouTube or SoundCloud link and tracklist_text"
+        )
+    else:
+        assert "Mixcloud doesn't allow downloads" in error.message
+
+
+@pytest.mark.parametrize(
     "raw",
     [
         b"not JSON",

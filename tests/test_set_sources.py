@@ -13,6 +13,20 @@ def test_timestamps_and_set_urls():
     with pytest.raises(AppError) as blocked:
         set_sources.check_set_url("https://www.1001tracklists.com/tracklist/x/set.html")
     assert blocked.value.code == "SOURCE_BROWSER_ONLY" and "browser" in blocked.value.message
+    # The copied tracklist works, and better with the set's own link.
+    details = blocked.value.details
+    assert details["next"] == "djlib set paste"
+    assert details["next_label"] == "Copy the tracklist on the page, then"
+    assert [step["command"] for step in details["next_steps"]] == [
+        "djlib set paste",
+        "djlib set 'LINK' --tracklist paste",
+    ]
+    assert details["next_steps"][1]["label"].startswith("Better: with the set's YouTube")
+    assert all(len(step["label"]) <= 70 for step in details["next_steps"])  # 80 columns
+    with pytest.raises(AppError) as mixcloud:
+        set_sources.check_set_url("https://www.mixcloud.com/NTSRadio/some-show/")
+    assert mixcloud.value.code == "SOURCE_UNSUPPORTED"
+    assert mixcloud.value.message.startswith("Mixcloud doesn't allow downloads")
     with pytest.raises(AppError):
         set_sources.check_set_url("https://example.com/set")
 

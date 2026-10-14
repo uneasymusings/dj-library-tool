@@ -183,7 +183,18 @@ def test_other_links_are_refused_with_a_way_forward(link, code):
         identification.canonical_url(link)
     assert refused.value.code == code
     if code == "SOURCE_BROWSER_ONLY":
-        assert refused.value.details["next"] == "djlib identify SET_LINK --tracklist FILE"
+        # The copied tracklist with the set's own link, or checked against the music alone.
+        details = refused.value.details
+        assert details["next"] == "djlib identify 'LINK' --tracklist paste"
+        assert [step["command"] for step in details["next_steps"]] == [
+            "djlib identify 'LINK' --tracklist paste",
+            "djlib set paste",
+        ]
+        assert "YouTube or SoundCloud link" in details["next_label"]
+        assert all(len(step["label"]) <= 70 for step in details["next_steps"])  # 80 columns
+    if "mixcloud" in link:
+        assert "Mixcloud doesn't allow downloads" in refused.value.message
+        assert "djlib set paste" in refused.value.message
 
 
 def test_submitting_needs_song_recognition_unless_the_set_was_identified(application):

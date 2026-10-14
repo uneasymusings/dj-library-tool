@@ -730,7 +730,23 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
     )
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
-    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set FILE"
+    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set paste"
+    pretty = CliRunner(env={"DJLIB_OUTPUT": "pretty", "COLUMNS": "140", "NO_COLOR": "1"}).invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "set",
+            "https://www.1001tracklists.com/tracklist/abc/some-set.html",
+        ],
+    )
+    # Both ways forward, each with its command.
+    lines = [line.strip() for line in pretty.stderr.splitlines() if "→" in line]
+    assert lines == [
+        "→ Copy the tracklist on the page, then  djlib set paste",
+        "→ Better: with the set's YouTube or SoundCloud link (under the player)  "
+        "djlib set 'LINK' --tracklist paste",
+    ]
 
 
 @pytest.mark.parametrize("flag", ["--no-rekordbox", None])
