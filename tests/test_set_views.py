@@ -628,8 +628,14 @@ def test_set_json_adds_the_whole_set_and_keeps_missing_as_it_was(friday):
     tracks = result["tracks"]
     assert len(tracks) == result["songs"]
     assert [track["own"] for track in tracks] == ["owned", "other_mix", "id", "missing"]
-    # A pasted tracklist times its IDs; the set's link plays from there.
-    assert [track["listen_url"] for track in tracks] == [None, None, f"{LINK}&t=380s", None]
+    # A pasted tracklist times its songs; the set's link plays each from there.
+    assert [track["listen_url"] for track in tracks] == [
+        f"{LINK}&t=0s",
+        f"{LINK}&t=190s",
+        f"{LINK}&t=380s",
+        f"{LINK}&t=570s",
+    ]
+    assert [track["timestamp"] for track in tracks] == ["00:00", "03:10", "06:20", "09:30"]
     assert [track["shop"] is not None for track in tracks] == [False, True, False, True]
     assert tracks[2]["label"] == "ID" and tracks[2]["maybe"] is None
     # The lists a15 gave stay exactly as they were.
@@ -691,9 +697,13 @@ def test_requests_report_is_a_shopping_list_saved_beside_the_report(friday):
     assert saved.endswith("Friday — Warm-up - to buy.txt")
     text = Path(saved).read_text(encoding="utf-8")
     # Each song by its time in the set, else its number.
-    assert text.splitlines()[:3] == ["Friday — Warm-up — 1 to buy", "", "#4  Someone - Not Owned"]
+    assert text.splitlines()[:3] == [
+        "Friday — Warm-up — 1 to buy",
+        "",
+        "09:30  Someone - Not Owned",
+    ]
     assert "    Beatport    https://www.beatport.com/search?q=Someone+Not+Owned\n" in text
-    assert "You own another mix (1)\n#2  Lumen - Halo (Dub) — you have: Radio Edit" in text
+    assert "You own another mix (1)\n03:10  Lumen - Halo (Dub) — you have: Radio Edit" in text
     assert text.endswith("IDs, no name yet: 06:20\n")
     # Again: the same file, rewritten, and no second one.
     again = djlib("requests", "report", request_id)
