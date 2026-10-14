@@ -103,10 +103,7 @@ STATUSES = ("confirmed", "likely", "weak", "conflict", "unidentified")
 SET_HOSTS = ("youtube.com", "youtu.be", "soundcloud.com")
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 NOTICE_FILE = "notices.json"
-INSTALLER = (
-    "curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh"
-    " | sh"
-)
+INSTALLER = recognition.INSTALLER
 RECOGNIZER_LABELS = {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}
 UNOFFICIAL_SHAZAM = (
     "djlib uses Shazam the way the Shazam app does; Apple doesn't offer it to other apps, so "
@@ -138,9 +135,8 @@ def canonical_url(url: str) -> str:
     if parts is not None and _domain(host, "1001tracklists.com"):
         raise AppError(
             "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser. Copy the tracklist "
-            "into a text file and give it with the set's YouTube or SoundCloud link: "
-            "djlib identify SET_LINK --tracklist FILE.",
+            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it.",
+            details={"next": "djlib identify SET_LINK --tracklist FILE"},
         )
     if (
         parts is None
@@ -401,7 +397,8 @@ def check_ready(name: str | None) -> None:
     if importlib.util.find_spec("yt_dlp") is None:  # it reads the page and fetches the audio
         raise AppError(
             "DEPENDENCY_REQUIRED",
-            f"Listening to sets needs yt-dlp, which the djlib installer adds: {INSTALLER}",
+            "Listening to sets needs yt-dlp, which the djlib installer adds.",
+            details={"next": INSTALLER, "next_label": "Install it"},
         )
 
 
@@ -1504,10 +1501,32 @@ def summary(result: dict) -> dict:
     }
 
 
+# Below this share of the set named, a tracklist from 1001Tracklists is worth adding.
+LOW_COVERAGE = 70
+
+
+def next_steps(found: dict) -> list[str]:
+    """What to run after an identification (``summary``): check it against the music, and
+    add a 1001Tracklists tracklist while IDs, weak or conflicting tracks are left or little of
+    the set is named, unless one was given."""
+    url = shlex.quote((found.get("source") or {}).get("url") or "LINK")
+    steps = [f"djlib set {url}"]
+    tracks = found.get("tracks") or []
+    unresolved = any(
+        t.get("kind") == "unknown" or t.get("status") in {"weak", "conflict"} for t in tracks
+    )
+    given = any(s.get("source") == "1001tracklists" for s in found.get("sources") or [])
+    percent = (found.get("coverage") or {}).get("percent")
+    if not given and (unresolved or percent is None or percent < LOW_COVERAGE):
+        steps.append(f"djlib identify {url} --tracklist FILE")
+    return steps
+
+
 def job_view(job: dict) -> dict:
     """An identify job for assistants: the summary instead of the raw tracklist."""
     result = job.get("result")
     if job.get("kind") != KIND or not isinstance(result, dict) or "tracklist" not in result:
         return job
     extra = {key: result[key] for key in ("skipped_lines", "identified_at") if key in result}
-    return {**job, "result": {**summary(result), **extra}}
+    found = summary(result)
+    return {**job, "result": {**found, **extra, "next": next_steps(found)}}

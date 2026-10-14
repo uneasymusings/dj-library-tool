@@ -26,12 +26,14 @@ from djlib.audio.windows import SetAudio, duration
 from djlib.domain.errors import AppError
 
 RECOGNIZERS = ("shazam", "audd", "acrcloud")
-# Python 3.12: shazamio pins shazamio-core 1.1.2, which has no macOS or Windows wheels for 3.13.
-INSTALL = (
-    "Song recognition is not installed. Rerun the djlib installer, or run: "
-    "uv tool install --force --python 3.12 "
-    "'dj-library-tool[download,recognize] @ <release wheel URL>'"
+# The one-line installer puts djlib on Python 3.12 with song recognition: shazamio pins
+# shazamio-core 1.1.2, which has no macOS or Windows wheels for 3.13.
+INSTALLER = (
+    "curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh"
+    " | sh"
 )
+INSTALL = "Song recognition isn't installed. The djlib installer adds it (djlib upgrade too)."
+INSTALL_DETAILS = {"next": INSTALLER, "next_label": "Install song recognition"}
 # These would repeat for every window, so a scan stops instead of recording each one.
 FATAL = frozenset(
     {
@@ -235,7 +237,7 @@ class ShazamRecognizer:
         try:
             from shazamio import Shazam
         except ImportError as exc:  # also pydub without audioop on Python 3.13
-            raise AppError("DEPENDENCY_REQUIRED", INSTALL) from exc
+            raise AppError("DEPENDENCY_REQUIRED", INSTALL, details=INSTALL_DETAILS) from exc
         self.shazam = Shazam(http_client=ShazamHttp(transport))
         interval = _seconds(environ.get("DJLIB_SHAZAM_INTERVAL"), 1.0)
         self.pace = pace or Pace(interval, clock=clock, sleep=sleep)

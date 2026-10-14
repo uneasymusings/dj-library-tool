@@ -32,9 +32,9 @@ def check_set_url(url: str) -> None:
     if any(name == blocked or name.endswith("." + blocked) for blocked in BROWSER_ONLY):
         raise AppError(
             "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser. Copy the tracklist "
-            "from the page into a text file and run djlib set FILE, or ask your assistant to "
-            "read the page in your browser.",
+            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
+            "An assistant that can browse can copy it for you.",
+            details={"next": "djlib set FILE"},
         )
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")

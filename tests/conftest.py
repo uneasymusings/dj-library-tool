@@ -53,7 +53,9 @@ def no_song_recognition(monkeypatch):
     from djlib.sources import recognition
 
     def missing(name=None):
-        raise AppError("DEPENDENCY_REQUIRED", recognition.INSTALL)
+        raise AppError(
+            "DEPENDENCY_REQUIRED", recognition.INSTALL, details=recognition.INSTALL_DETAILS
+        )
 
     monkeypatch.setattr(identification, "recognizer", missing)
     monkeypatch.setattr(identification, "shazam_installed", lambda: False)
@@ -145,7 +147,11 @@ def library_http(application, monkeypatch):
             if not reply["ok"]:
                 error = reply["error"]
                 raise AppError(
-                    error["code"], error["message"], response.status_code, error["retryable"]
+                    error["code"],
+                    error["message"],
+                    response.status_code,
+                    error["retryable"],
+                    error.get("details"),
                 )
             return reply
 

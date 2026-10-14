@@ -117,10 +117,12 @@ def setup_message(start: str) -> str:
 
 
 def not_found(start: str = "No Shazam history was found on this Mac.") -> AppError:
+    """The steps to turn on Shazam sync are in ``details`` (``djlib shazam status`` shows
+    them), so the message stays one sentence."""
     return AppError(
         "SHAZAM_HISTORY_NOT_FOUND",
-        setup_message(start),
-        details={"setup": SETUP, "alternatives": ALTERNATIVES},
+        start,
+        details={"setup": SETUP, "alternatives": ALTERNATIVES, "steps": setup_message(start)},
     )
 
 

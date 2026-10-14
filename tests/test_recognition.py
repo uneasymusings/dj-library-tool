@@ -625,9 +625,9 @@ def test_recognizer_choice_and_configuration(shazamio, monkeypatch):
     with pytest.raises(AppError) as missing:
         recognition.recognizer(environ={})
     assert missing.value.code == "DEPENDENCY_REQUIRED"
-    assert "installer" in missing.value.message and "recognize" in missing.value.message
-    # shazamio's signing library has macOS and Windows wheels up to Python 3.12 only.
-    assert "--python 3.12" in missing.value.message
+    assert "installer" in missing.value.message and "djlib upgrade" in missing.value.message
+    # The one-line installer puts djlib on Python 3.12, which shazamio's signing library needs.
+    assert missing.value.details["next"] == recognition.INSTALLER
 
 
 def test_recognizers_of_one_service_share_their_pacing(shazamio):

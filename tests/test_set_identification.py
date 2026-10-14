@@ -297,9 +297,12 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
         "timestamp": "00:00",
         "source_url": SET_URL,
         "notes": "Listed as an ID in the description",
+        "confidence": "unidentified",
     }
     assert mirage["notes"] == "Shazam: 11 windows from 06:00; also in the description"
+    assert mirage["confidence"] == "confirmed"
     assert items[4]["notes"] == "From the description; the time is approximate"
+    assert items[4]["confidence"] == "likely"
     late_id = items[10]
     assert late_id["label"] == "ID" and late_id["timestamp"] == "48:30"
     assert late_id["notes"].startswith(

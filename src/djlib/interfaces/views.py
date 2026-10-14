@@ -253,12 +253,16 @@ class Grid:
 
     Fixed columns (IDs, times, badges) keep their natural width; flexible text columns
     (``overflow`` set) shrink longest-first; ``drop`` columns disappear on narrow
-    terminals, lowest number first. Rich alone would hide whole columns instead.
+    terminals, lowest number first, and when every cell is blank. A ``yields`` column (an
+    explanation beside a name) gets only the room the others leave, and goes when that is
+    under its readable width. Rich alone would hide whole columns instead. After rendering,
+    ``shown`` names the columns that were printed.
     """
 
     def __init__(self, *columns: str | tuple[str, dict]):
         self.columns = [column if isinstance(column, tuple) else (column, {}) for column in columns]
         self.rows: list[list] = []
+        self.shown: list[str] = []
 
     @property
     def row_count(self) -> int:
@@ -269,7 +273,6 @@ class Grid:
         self.rows.append([Text(cell) if isinstance(cell, str) else cell for cell in cells])
 
     def __rich_console__(self, console, options):
-        count = len(self.columns)
         flexible = [bool(spec.get("overflow")) for _, spec in self.columns]
         natural = []
         for index, (name, spec) in enumerate(self.columns):
@@ -281,18 +284,39 @@ class Grid:
                 ]
             )
             natural.append(min(size, spec.get("max_width", size)))
-        active = list(range(count))
+
+        def blank(index):
+            return all(
+                not (cell.plain if isinstance(cell, Text) else str(cell)).strip()
+                for cell in (row[index] for row in self.rows)
+            )
+
+        # An optional column with nothing in it ("You own" when nothing is owned) takes no room.
+        active = [
+            index
+            for index, (_, spec) in enumerate(self.columns)
+            if not ("drop" in spec and self.rows and blank(index))
+        ]
         # Titles and names keep about 24 cells; optional columns go first.
         floor = [
             min(natural[i], spec.get("readable", READABLE_FLEX)) if flexible[i] else natural[i]
             for i, (_, spec) in enumerate(self.columns)
         ]
+        for index in [i for i in active if self.columns[i][1].get("yields")]:
+            others = [i for i in active if i != index]
+            left = options.max_width - sum(natural[i] for i in others) - GUTTER * len(others)
+            if left < floor[index]:
+                active.remove(index)
+            else:
+                natural[index] = min(natural[index], left)
 
         def needed(columns):
             return sum(floor[i] for i in columns) + GUTTER * (len(columns) - 1)
 
         droppable = sorted(
-            (spec["drop"], index) for index, (_, spec) in enumerate(self.columns) if "drop" in spec
+            (spec["drop"], index)
+            for index, (_, spec) in enumerate(self.columns)
+            if "drop" in spec and index in active
         )
         while needed(active) > options.max_width and droppable:
             active.remove(droppable.pop(0)[1])
@@ -329,6 +353,7 @@ class Grid:
             )
         for row in self.rows:
             grid.add_row(*(row[index] for index in active))
+        self.shown = [self.columns[index][0] for index in active]
         yield grid
 
 
@@ -1775,7 +1800,7 @@ def set_view(term: Terminal, result: dict) -> None:
     rekordbox = result.get("rekordbox") or {}
     page = result.get("source") or {}
     if page:
-        provider = (page.get("provider") or "").removesuffix("Tab").replace("Youtube", "YouTube")
+        provider = provider_name(page.get("provider"))
         rows.append(
             ("Source", Text(f"{provider}: {page.get('title') or page.get('url')}", "muted"))
         )
@@ -1829,22 +1854,35 @@ def set_view(term: Terminal, result: dict) -> None:
         # An identified set says why each song is there; an ID's likely song is a guess.
         why = identified and any(item.get("notes") for item in missing)
         if why:
-            columns.append(("Why", {"overflow": "ellipsis", "drop": 1, "style": "muted"}))
+            columns.append(("Why", WHY))
         grid = table(*columns)
         for item in missing:
             glyph, tone, label = REQUEST_STATES.get(
                 item.get("state") or "", ("todo", "todo", item.get("state") or "")
             )
+            requested = Text(item.get("label") or "")
+            if item.get("confidence") not in {None, "confirmed"}:
+                # How sure djlib is that the set plays this song, beside its name.
+                requested.append(f"  {item['confidence']}", style="muted")
             cells = [
                 str(item.get("position") or ""),
                 marked(term, glyph, label, tone),
-                Text(item.get("label") or ""),
+                requested,
                 Text(", ".join(item.get("you_own") or []), style="warn"),
             ]
             if why:
                 cells.append(Text(item.get("notes") or ""))
             grid.add_row(*cells)
         term.out.print(grid)
+        if why and "Why" not in grid.shown:
+            reasons(
+                term,
+                [
+                    (item.get("position"), item.get("notes"))
+                    for item in missing
+                    if item.get("confidence") not in {None, "confirmed"}
+                ],
+            )
     pick = fetched.get("needs_your_pick") or []
     if pick:
         term.out.print()
@@ -1895,6 +1933,8 @@ def set_view(term: Terminal, result: dict) -> None:
     if missing:
         report = ("requests", "report", result.get("request_id", ""))
         steps.append(("Save the missing songs as a list", report))
+    if result.get("listen_fix"):
+        steps.append(("So djlib can listen to sets, fix this", result["listen_fix"]))
     if result.get("shazam"):
         from djlib.sources.shazam_history import from_this_mac
 
@@ -2036,6 +2076,9 @@ def shazam_status(term: Terminal, result: dict) -> None:
     next_steps(term, steps)
 
 
+COORDINATES = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$")
+
+
 @view("shazam list")
 def shazam_list(term: Terminal, result: dict) -> None:
     records = result.get("records") or []
@@ -2053,7 +2096,7 @@ def shazam_list(term: Terminal, result: dict) -> None:
         ("Artist", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Title", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Times", {"justify": "right", "drop": 2}),
-        ("Where", {"overflow": "ellipsis", "drop": 1}),
+        ("Where", {"overflow": "ellipsis", "yields": True, "drop": 1}),
     )
     for item in records:
         count = int(item.get("count") or 1)
@@ -2062,7 +2105,8 @@ def shazam_list(term: Terminal, result: dict) -> None:
             item.get("artist") or "",
             item.get("title") or "",
             str(count) if count > 1 else "",
-            item.get("location") or "",
+            # A place's name helps; bare coordinates don't.
+            "" if COORDINATES.match(item.get("location") or "") else item.get("location") or "",
         )
     term.out.print(grid)
     if len(records) < songs:
@@ -2121,6 +2165,20 @@ def recognizer_name(name: str) -> str:
     return {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}.get(name, name)
 
 
+# An explanation beside a name: it takes the room the name leaves, and goes when that is little.
+WHY = {"overflow": "ellipsis", "yields": True, "readable": 20, "drop": 1, "style": "muted"}
+
+
+def reasons(term: Terminal, rows: list[tuple[object, object]]) -> None:
+    """ "#3  From MixesDB" under a table whose Why column didn't fit."""
+    shown = [(n, why) for n, why in rows if why]
+    if not shown:
+        return
+    term.out.print()
+    for n, why in shown:
+        hanging(term.out, Text(f"#{n}", style="muted"), Text(str(why), style="muted"), indent=2)
+
+
 @view("identify")
 def identify_view(term: Terminal, result: dict) -> None:
     source = result.get("source") or {}
@@ -2146,7 +2204,9 @@ def identify_view(term: Terminal, result: dict) -> None:
         if not recognizer.get("licensed"):
             heard_by.append("  unofficial; may slow down or stop working", style="muted")
         if result.get("reused"):
-            heard_by.append("  (saved from an earlier listen)", style="muted")
+            heard_by.append(
+                "  (saved from an earlier listen; --again listens again)", style="muted"
+            )
     fields(
         term,
         [
@@ -2163,7 +2223,8 @@ def identify_view(term: Terminal, result: dict) -> None:
             ("Time", {}),
             ("Status", {"min_width": 12}),
             ("Track", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
-            ("Why", {"overflow": "ellipsis", "drop": 1, "style": "muted"}),
+            # The track's name comes first; why it is there gets the room left.
+            ("Why", WHY),
         )
         for track in tracks:
             glyph, tone, label = TRACK_STATUSES.get(
@@ -2178,6 +2239,12 @@ def identify_view(term: Terminal, result: dict) -> None:
                 track.get("evidence") or "",
             )
         term.out.print(grid)
+        if "Why" not in grid.shown:
+            # Too narrow for the Why column: the lines worth a listen still say why.
+            reasons(
+                term,
+                [(t.get("n"), t.get("evidence")) for t in tracks if t.get("status") != "confirmed"],
+            )
     unplaced = result.get("unplaced") or []
     if unplaced:
         term.out.print()
@@ -2186,8 +2253,6 @@ def identify_view(term: Terminal, result: dict) -> None:
         note(term, f"Heard once, not placed: {shown}{more}.")
     term.out.print()
     note(term, "Likely and weak lines are worth a listen; an ID's candidates are guesses.")
-    if result.get("reused"):
-        note(term, "Reused the earlier listen; --again listens to the set again.")
     url = source.get("url") or "LINK"
     steps: list[Step] = [("Check it against your music", ("set", url))]
     if any("--tracklist" in step for step in result.get("next") or []):

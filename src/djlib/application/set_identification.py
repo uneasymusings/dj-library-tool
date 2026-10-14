@@ -1550,6 +1550,7 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
                     "version": _clean(track.get("version"))[:300],
                     "timestamp": stamp,
                     "notes": notes,
+                    "confidence": track["status"],
                 }
             )
         elif stamp or source_url:
@@ -1560,6 +1561,7 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
                     "timestamp": stamp,
                     "source_url": source_url,
                     "notes": notes,
+                    "confidence": track["status"],
                 }
             )
     return items

@@ -182,7 +182,7 @@ def test_other_links_are_refused_with_a_way_forward(link, code):
         identification.canonical_url(link)
     assert refused.value.code == code
     if code == "SOURCE_BROWSER_ONLY":
-        assert "--tracklist FILE" in refused.value.message
+        assert refused.value.details["next"] == "djlib identify SET_LINK --tracklist FILE"
 
 
 def test_submitting_needs_song_recognition_unless_the_set_was_identified(application):
@@ -190,7 +190,8 @@ def test_submitting_needs_song_recognition_unless_the_set_was_identified(applica
     with pytest.raises(AppError) as missing:
         submit(application)
     assert missing.value.code == "DEPENDENCY_REQUIRED"
-    assert "--python 3.12" in missing.value.message
+    assert "installer" in missing.value.message
+    assert missing.value.details["next"] == identification.INSTALLER
     saved = folder(application)
     saved.mkdir(parents=True)
     (saved / "tracklist.json").write_text(json.dumps({"complete": True, "tracklist": {}}))

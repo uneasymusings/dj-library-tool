@@ -6,6 +6,7 @@ tracklist is missing or has IDs.
 """
 
 import contextlib
+import shlex
 import time
 from datetime import datetime
 from enum import StrEnum
@@ -30,9 +31,6 @@ PHASES = {
 }
 EVENT_SECONDS = 15
 POLL_SECONDS = 0.5
-# Below this share of the set named, and with no published or given tracklist, a tracklist
-# from 1001Tracklists is the best next step.
-LOW_COVERAGE = 70
 TRACKLIST_BYTES = 1_000_000
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
@@ -259,14 +257,27 @@ def quoted(text: object) -> str:
 
 
 def cannot_listen(error: AppError) -> str:
-    """Why djlib can't listen on this computer, with the fix (no final period)."""
-    from djlib.application.identification import INSTALLER
-
+    """Why djlib can't listen on this computer (no final period); ``listen_fix`` has the
+    command that fixes it."""
     if error.code == "DEPENDENCY_REQUIRED" and "FFmpeg" in error.message:
-        return "FFmpeg isn't installed (djlib doctor shows how to install it)"
+        return "FFmpeg isn't installed"
+    if error.code == "DEPENDENCY_REQUIRED" and "yt-dlp" in error.message:
+        return "yt-dlp isn't installed"
     if error.code == "DEPENDENCY_REQUIRED":
-        return f"song recognition isn't installed; install it with: {INSTALLER}"
+        return "song recognition isn't installed"
     return error.message.rstrip(".")
+
+
+def listen_fix(error: AppError) -> str | None:
+    """The command that lets djlib listen to sets here, or None."""
+    from djlib.application.identification import INSTALLER
+    from djlib.interfaces.terminal import ffmpeg_install
+
+    if error.code != "DEPENDENCY_REQUIRED":
+        return "djlib service stop" if error.code == "RECOGNIZER_NOT_CONFIGURED" else None
+    if "FFmpeg" in error.message:
+        return ffmpeg_install() or "djlib doctor"
+    return INSTALLER
 
 
 def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
@@ -307,8 +318,8 @@ def identified_request(result: dict, name: str):
         raise AppError(
             "TRACKLIST_NOT_FOUND",
             "djlib listened to the set but could not name any of its songs, and nothing lists "
-            "them. Copy its tracklist (for example from 1001Tracklists) into a text file, then "
-            f"run: djlib set {url} --tracklist FILE",
+            "them.",
+            details={"next": f"djlib set {shlex.quote(url or 'LINK')} --tracklist FILE"},
         )
     from djlib.domain.contracts import safe_text
 
@@ -338,15 +349,10 @@ def identified_summary(job_id: str, result: dict) -> dict:
 
 def identify_result(job: dict) -> dict:
     """What `djlib identify` prints: the compact tracklist and what to do next."""
-    from djlib.application.identification import summary
+    from djlib.application.identification import next_steps, summary
 
     found = summary(job["result"])
-    url = (found.get("source") or {}).get("url") or ""
-    steps = [f"djlib set {url}"]
-    percent = found["coverage"]["percent"]
-    if not found["listed"] and (percent is None or percent < LOW_COVERAGE):
-        steps.append(f"djlib identify {url} --tracklist FILE")
-    return {"job_id": job["job_id"], **found, "next": steps}
+    return {"job_id": job["job_id"], **found, "next": next_steps(found)}
 
 
 def register_identify(app, client, emit, handled, panel=None):
@@ -376,7 +382,7 @@ def register_identify(app, client, emit, handled, panel=None):
     ) -> None:
         """Track down every song in a YouTube or SoundCloud set.
 
-        djlib reads the set's description, chapters and comments, then listens to it.
+        djlib reads the description, chapters and comments, checks MixesDB, then listens.
 
         Each track says how sure djlib is and why; IDs list likely candidates.
 
