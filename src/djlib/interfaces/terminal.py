@@ -100,13 +100,13 @@ DONE_ITEM_STATES = frozenset({"succeeded", "failed", "skipped", "cancelled"})
 
 JOB_LABELS = {
     "scan": "Indexing music",
-    "collection": "Building collection",
+    "collection": "Building the crate",
     "download": "Downloading recordings",
     "export": "Writing export files",
     "delivery": "Preparing working copies",
     "delivery_check": "Checking delivery files",
-    "organize": "Organizing collection",
-    "organization": "Organizing collection",
+    "organize": "Making the crate",
+    "organization": "Making the crate",
     "reconcile": "Reconciling changed files",
     "identify": "Identifying a set",
 }
@@ -434,7 +434,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     # The command comes from cli.FIRST_STEP (first_step), as doctor gives it.
     "WORKSPACE_REQUIRED": ("Tell djlib where your music is", None),
     "WORKSPACE_NOT_EMPTY": ("Pick a new, empty folder for --workspace", None),
-    "ROOTS_NOT_UPDATED": ("Add folders to an existing workspace", ("roots", "add", "PATH")),
+    "ROOTS_NOT_UPDATED": ("Add music folders to your setup", ("roots", "add", "PATH")),
     # The folder comes from the error's details.path.
     "SOURCE_NOT_ALLOWED": ("Allow the folder with djlib roots add", None),
     "SOURCE_ROOT_INVALID": ("Check that the folder exists and is a directory", None),
@@ -446,7 +446,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     "TOKEN_MISSING": ("Check your setup", ("doctor",)),
     "DELIVERY_STALE": ("Read the current revision, then retry with it", None),
     "REVIEW_STALE": ("List open reviews for their current revision", ("reviews", "list")),
-    "REQUEST_STALE": ("Read the current revision, then retry with it", None),
+    "REQUEST_STALE": ("The set just changed; run the same command again", None),
     "PLAN_STALE": ("Plan the collection again", None),
     "APP_PLAYLIST_NAME_TAKEN": (
         "Rename the old playlist in rekordbox, or rerun djlib set with --name",
@@ -467,7 +467,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
     "SOURCE_BROWSER_ONLY": ("Copy the tracklist on the page, then", ("set", "paste")),
-    "SET_PREVIEW_ONLY": ("Paste the set's tracklist into a text file, then", None),
+    "SET_PREVIEW_ONLY": ("Copy the set's tracklist, then", None),
     "TRACKLIST_NOT_FOUND": ("Copy the set's tracklist (e.g. from 1001Tracklists), then", None),
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),

@@ -1226,7 +1226,7 @@ const deliveriesList = listView({
   href: (row) => `#/deliveries/${encodeURIComponent(row.delivery_id)}`,
   rowTitle: (row) => row.delivery_id,
   emptyText: () => empty(
-    "No deliveries yet. Plan one from a collection:",
+    "No deliveries yet. Plan one from a crate:",
     copyable(commandText("delivery", "plan", "--collection", "ID", "--workflow", "rekordbox_import", "--app-version", "VERSION")),
   ),
   columns: [
@@ -1350,9 +1350,9 @@ function goneNotice(tab) {
 function locked() {
   return h("section", { class: "locked" },
     h("h1", null, "Open this page from djlib"),
-    h("p", null, "This page needs the private link that includes your workspace's access token. Run this in a terminal:"),
+    h("p", null, "This page opens from its private link. Run this in a terminal:"),
     copyable("djlib ui"),
-    h("p", { class: "muted" }, "The link only works on this computer, while djlib's background service is running."));
+    h("p", { class: "muted" }, "The link only works on this computer, while djlib is running."));
 }
 
 function refreshSoon() {

@@ -1,4 +1,4 @@
-"""Short handles for saved crates and request lists, so nobody has to paste a long ID.
+"""Short handles for saved crates and sets (request lists), so nobody pastes a long ID.
 
 ``resolve(local, "collection", value)`` accepts a full ID, ``last``, an exact name (any
 case) or a unique ID prefix of at least six characters, with or without the ``collection_`` /
@@ -14,7 +14,7 @@ from djlib.domain.errors import AppError
 KINDS = {
     # kind: (list endpoint, result key, ID field, what a DJ calls it, where to look)
     "collection": ("/collections", "collections", "collection_id", "crate", "djlib crates"),
-    "request": ("/requests", "requests", "request_id", "request list", "djlib requests list"),
+    "request": ("/requests", "requests", "request_id", "set", "djlib requests"),
 }
 FULL_ID = re.compile(r"[0-9a-f]{32}")
 HEX = re.compile(r"[0-9a-f]+")
@@ -93,8 +93,22 @@ def _rows(local, path: str, key: str, query: str, *, limit: int = PAGE, pages: i
     return rows
 
 
+def _short(ids: list[str]) -> list[str]:
+    """IDs as the terminal prints them (8 characters, without ``request_`` or
+    ``collection_``), longer only where 8 don't tell them apart."""
+    digits = [value.split("_", 1)[-1] for value in ids]
+    size = 8
+    while size < 32 and len({value[:size] for value in digits}) < len(set(digits)):
+        size += 4
+    return [value[:size] for value in digits]
+
+
 def _ambiguous(text: str, rows: list[dict], field: str, noun: str) -> AppError:
-    shown = [f"{row.get('name') or 'untitled'} ({row[field]})" for row in rows[:SHOWN]]
+    shorts = _short([row[field] for row in rows[:SHOWN]])
+    shown = [
+        f"{row.get('name') or 'untitled'} ({short})"
+        for row, short in zip(rows[:SHOWN], shorts, strict=True)
+    ]
     more = f" and {len(rows) - SHOWN} more" if len(rows) > SHOWN else ""
     return AppError(
         "AMBIGUOUS",
