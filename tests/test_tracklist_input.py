@@ -204,6 +204,22 @@ def test_a_tracklist_can_be_piped_in(application, library_http, audio_factory, m
     assert tabbed.exit_code == 0, tabbed.output
     listed = json.loads(tabbed.stdout)["result"]
     assert (listed["total_items"], listed["counts"]["satisfied"]) == (2, 1)
+    # Named after its first song, as `djlib set -` names it, so two pastes a day differ.
+    assert listed["name"].startswith("Pasted ") and listed["name"].endswith(
+        " · Lumen - Halo + 1 more"
+    )
+    # Shazam's own export reads as its songs too.
+    export = application.workspace.root.parent / "shazamlibrary.csv"
+    export.write_text(
+        "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
+        "1,2026-10-10,Halo,Lumen,https://www.shazam.com/track/1,1\n",
+        encoding="utf-8",
+    )
+    shazams = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", str(export)]
+    )
+    assert shazams.exit_code == 0, shazams.output
+    assert json.loads(shazams.stdout)["result"]["counts"]["satisfied"] == 1
 
 
 def test_a_file_named_paste_is_still_that_file(

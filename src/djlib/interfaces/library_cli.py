@@ -37,7 +37,8 @@ def tracklist_request(
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from a plain tracklist file (or paste, or - for stdin), plus warnings
     for skipped lines. Spreadsheet cells (pasted with tabs) or a CSV with Artist and Title
-    columns read as a song list, as `djlib set` reads them."""
+    columns (Shazam's export too) read as a song list, as `djlib set` reads them; pasted
+    cells are named after their first song, as `djlib set` names them."""
     from djlib.interfaces.identify_cli import (
         pasted_name,
         read_text_file,
@@ -54,9 +55,12 @@ def tracklist_request(
         fallback, columns = pasted_name(content), "\t" in content
     else:
         content, fallback = read_text_file(text), text.stem
-        columns = shazam_history.csv_kind(text.expanduser()) == "songs"
+        columns = shazam_history.csv_kind(text.expanduser()) in {"songs", "shazam"}
     rows = shazam_history.song_rows(content) if columns else None
     if rows is not None:
+        if kind:
+            # "Pasted 14 Oct · Antdot - Mirage + 1 more": two pastes a day aren't one name.
+            fallback = pasted_name(song_lines(rows))
         return song_list_request(rows, name, fallback)
     return text_request(content, name, fallback, source)
 
