@@ -25,7 +25,9 @@ async def tool_names(workspace) -> set[str]:
 
 def test_core_profile_is_a_subset_of_the_full_inventory():
     assert CORE_PROFILE < TOOL_NAMES
-    assert len(CORE_PROFILE) == 19
+    assert len(CORE_PROFILE) == 22
+    # An assistant can stop an identification it started.
+    assert {"djlib_identify_set", "djlib_control"} <= CORE_PROFILE
     assert profile_tools(None) == profile_tools("") == profile_tools("core") == CORE_PROFILE
     assert profile_tools("full") == profile_tools(" FULL ") == TOOL_NAMES
     assert profile_tools("everything") == CORE_PROFILE

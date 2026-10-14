@@ -1,6 +1,7 @@
 """Bounded background work with generation-fenced commits and an ingestion journal."""
 
 import asyncio
+import dataclasses
 import logging
 import os
 import shutil
@@ -8,7 +9,7 @@ from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from djlib.application.service import Application, add_event, new_id, require
 from djlib.application.tracklists import file_name_labels
@@ -20,8 +21,9 @@ from djlib.domain.contracts import (
     TrackInput,
     artist_names,
     credit_form,
-    label_form,
+    equivalent_labels,
     recording_key,
+    title_lookup,
     version_markers,
     without_artist_tags,
 )
@@ -52,6 +54,9 @@ class Worker:
     """One scheduling authority; slow audio/filesystem work runs outside transactions."""
 
     HANDOFF_KINDS = frozenset({"collection", "delivery", "delivery_check", "export", "organize"})
+    # Listening to a DJ set takes minutes; application.identification runs those jobs beside
+    # this worker, so downloads and scans never wait for them.
+    SEPARATE_KINDS = frozenset({"identify"})
     HANDOFF_BURST = 3
     LOCAL_ITEM_QUANTUM = 8
     # A scan lists every file before indexing, about 2 KB of memory a file at its peak;
@@ -138,7 +143,7 @@ class Worker:
             # survives coordinator restarts without a second, in-memory work queue.
             queued = (
                 select(Job)
-                .where(Job.state == "queued")
+                .where(Job.state == "queued", Job.kind.not_in(self.SEPARATE_KINDS))
                 .order_by(Job.updated_at, Job.created_at, Job.id)
                 .limit(1)
             )
@@ -233,7 +238,11 @@ class Worker:
                 await self.ingest(job_id, generation, item_id)
             if processed % quantum == 0:
                 with self.app.db.transaction() as session:
-                    waiting = session.scalar(select(Job.id).where(Job.state == "queued").limit(1))
+                    waiting = session.scalar(
+                        select(Job.id)
+                        .where(Job.state == "queued", Job.kind.not_in(self.SEPARATE_KINDS))
+                        .limit(1)
+                    )
                 if waiting is not None:
                     # Results decoded ahead could go stale before this job's next turn.
                     self._drop_prefetch(item_ids)
@@ -313,6 +322,7 @@ class Worker:
                 workspace.incoming,
                 workspace.managed,
                 workspace.runtime,
+                workspace.sets,
             )
             if not root.is_relative_to(folder)
         ]
@@ -447,7 +457,14 @@ class Worker:
                 return
             location = source
             managed = False
-            if profile.copy_into_library:
+            stored = (
+                await self.stored_audio(track, payload_identity) if job.kind == "download" else None
+            )
+            if stored is not None:
+                # This recording's audio is already in managed storage: no second copy.
+                inspection, location = stored
+                managed = True
+            elif profile.copy_into_library:
                 required = inspection.size_bytes + profile.disk_reserve_bytes
                 if shutil.disk_usage(self.app.workspace.root).free < required:
                     raise AppError("DISK_RESERVE_REACHED", "Insufficient disk space for this copy.")
@@ -645,10 +662,13 @@ class Worker:
                 existing = require(
                     session, Recording, require(session, Asset, revision.asset_id).recording_id
                 )
-                if existing.evidence.get("labels_are_identity", True) and label_form(
-                    existing.artist, existing.title, existing.version
-                ) == label_form(track.artist, track.title, track.version):
+                if existing.evidence.get("labels_are_identity", True) and equivalent_labels(
+                    (existing.artist, existing.title, existing.version),
+                    (track.artist, track.title, track.version),
+                ):
                     recording = existing
+            if not recording and job.kind == "download":
+                recording = self.equivalent_recording(session, track)
             if not recording:
                 recording = Recording(
                     id=new_id("rec"),
@@ -800,6 +820,69 @@ class Worker:
             session.flush()
         job.result = {**job.result, "collection_id": collection_id}
         return collection_id
+
+    @staticmethod
+    def equivalent_recording(session, track: TrackInput) -> Recording | None:
+        """A cataloged recording whose labels name the same song and version, as request
+        matching compares them: "Lasso" for "Lasso (Original Mix)", "Maz, Antdot" for
+        "Antdot & Maz (BR)". Another mix or a live take is another recording."""
+        fragments, names = title_lookup(track.artist, track.title)
+        rows = session.scalars(
+            select(Recording)
+            .where(
+                or_(
+                    *(Recording.identity_key.contains(part, autoescape=True) for part in fragments)
+                ),
+                *(Recording.identity_key.contains(name, autoescape=True) for name in names),
+                Recording.identity_key.not_like("provisional:%"),
+            )
+            .order_by(Recording.id)
+        )
+        wanted = track.artist, track.title, track.version
+        return next(
+            (
+                row
+                for row in rows
+                if row.evidence.get("labels_are_identity", True)
+                and equivalent_labels((row.artist, row.title, row.version), wanted)
+            ),
+            None,
+        )
+
+    async def stored_audio(
+        self, track: TrackInput, payload: dict | None
+    ) -> tuple[Inspection, Path] | None:
+        """The managed file and stored inspection of a revision of the recording these labels
+        name with exactly this decoded audio, such as an earlier download of the same upload."""
+        if not payload:
+            return None
+        with self.app.db.transaction() as session:
+            key = recording_key(track.artist, track.title, track.version)
+            recording = session.scalar(
+                select(Recording).where(Recording.identity_key == key)
+            ) or self.equivalent_recording(session, track)
+            if recording is None:
+                return None
+            stored = [
+                (revision.sha256, dict(revision.properties), Path(path))
+                for revision, path in session.execute(
+                    select(AssetRevision, FileLocation.path)
+                    .join(Asset, Asset.id == AssetRevision.asset_id)
+                    .join(FileLocation, FileLocation.revision_id == AssetRevision.id)
+                    .where(Asset.recording_id == recording.id, FileLocation.managed.is_(True))
+                    .order_by(AssetRevision.created_at, AssetRevision.id)
+                )
+                if revision.properties.get("audio_payload") == payload
+            ]
+        fields = {field.name for field in dataclasses.fields(Inspection)}
+        for sha256, properties, path in stored:
+            try:
+                intact = await asyncio.to_thread(checksum, path) == sha256
+            except OSError:
+                continue  # moved or deleted: store this download's copy instead
+            if intact and fields <= properties.keys():
+                return Inspection(**{name: properties[name] for name in fields}), path
+        return None
 
     async def export(self, job_id: str, generation: int, snapshot: dict) -> None:
         for track in snapshot["tracks"]:

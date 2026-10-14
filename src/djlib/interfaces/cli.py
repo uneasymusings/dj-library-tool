@@ -54,8 +54,8 @@ EPILOG = (
 
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
-    *("init", "scan", "set", "status", "doctor"),
-    *("library", "crates", "crate", "requests", "ui"),
+    *("init", "scan", "set", "identify", "status", "doctor"),
+    *("library", "crates", "crate", "requests", "shazam", "ui"),
     "rekordbox",
     *("use", "roots", "upgrade"),
     *("setup-agent", "mcp"),
@@ -460,6 +460,7 @@ def schemas(ctx: typer.Context) -> None:
         DeliveryVerifyRequest,
         DeviceRequest,
         ExportRequest,
+        IdentifyRequest,
         Profile,
         ResolveRequest,
         ScanRequest,
@@ -482,6 +483,7 @@ def schemas(ctx: typer.Context) -> None:
                     Profile,
                     ScanRequest,
                     SourceRequest,
+                    IdentifyRequest,
                     DeviceRequest,
                     ExportRequest,
                     ResolveRequest,
@@ -515,12 +517,13 @@ def capabilities(ctx: typer.Context) -> None:
 @app.command(rich_help_panel=START)
 @handled
 def doctor(ctx: typer.Context) -> None:
-    """Check FFmpeg, rekordbox and the background service.
+    """Check FFmpeg, song recognition, rekordbox and the service.
 
     Works before init too. Changes nothing in DJ apps or on devices. Exits 1 when FFmpeg is missing.
     """
     import shutil
 
+    from djlib.application.identification import recognition_status
     from djlib.exporting.rekordbox_anlz import default_root
     from djlib.interfaces.client import version_key
     from djlib.interfaces.upgrade_cli import PLUGIN_UPDATE, claude_plugin_version
@@ -528,18 +531,22 @@ def doctor(ctx: typer.Context) -> None:
 
     initialized = ctx.obj.config_path.is_file()
     config = ctx.obj.config() if initialized else None
-    rekordbox = automation = locked = None
+    rekordbox = automation = locked = shazam = None
     if sys.platform == "darwin":
         # Only macOS can drive rekordbox; elsewhere nothing here touches it.
         from djlib.native import rekordbox_mac
+        from djlib.sources import shazam_history
 
         rekordbox = rekordbox_mac.installed()
         automation = rekordbox_mac.automation_allowed()
         locked = rekordbox_mac.screen_locked()
+        shazam = shazam_history.mac_summary()
     analysis = default_root()
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     runtimes = javascript_runtimes()
     plugin = claude_plugin_version()
+    # Which service listens to sets (djlib identify), and whether it can here.
+    recognition = recognition_status()
 
     fixes = {}
     if not initialized:
@@ -552,6 +559,10 @@ def doctor(ctx: typer.Context) -> None:
         fixes["javascript_runtime"] = install_hint("deno")
     if locked:
         fixes["screen"] = "Unlock your Mac; rekordbox can't be driven while it is locked."
+    if shazam and shazam["fix"]:
+        fixes["shazam"] = shazam["fix"]  # optional: only `djlib set shazam` needs it
+    if recognition["fix"]:
+        fixes["song_recognition"] = recognition["fix"]
     # The plugin brings the skill; one from another release describes other commands.
     if plugin and version_key(plugin) < version_key(__version__):
         fixes["claude_plugin"] = PLUGIN_UPDATE
@@ -575,6 +586,9 @@ def doctor(ctx: typer.Context) -> None:
             # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
             "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
+            # The Mac's Music Recognition history, for `djlib set shazam` (macOS only).
+            "shazam_history": shazam,
+            "song_recognition": recognition,
             "native_app_compatibility": "not_verified",
             "claude_plugin": plugin,
             "required_checks_passed": required,
@@ -748,8 +762,10 @@ def source_inspect(
         0, "--comments", min=0, max=2000, help="Also read up to this many listener comments."
     ),
 ) -> None:
-    """Read a set's description and chapters, and optionally its comments."""
-    emit(client(ctx).request("POST", "/sources/inspect", data={"url": url, "comments": comments}))
+    """Read a set's description and chapters (else its MixesDB tracklist), and optionally its
+    comments."""
+    data = {"url": url, "comments": comments, "mixesdb": True}
+    emit(client(ctx).request("POST", "/sources/inspect", data=data))
 
 
 @app.command(rich_help_panel=LIBRARY)
@@ -1273,6 +1289,14 @@ register_rekordbox(app, client, emit, handled, panel=DELIVER, start_panel=START)
 from djlib.interfaces.upgrade_cli import register_upgrade  # noqa: E402
 
 register_upgrade(app, client, emit, handled, panel=SETTINGS)
+
+from djlib.interfaces.shazam_cli import register_shazam  # noqa: E402
+
+register_shazam(app, client, emit, handled, panel=LIBRARY)
+
+from djlib.interfaces.identify_cli import register_identify  # noqa: E402
+
+register_identify(app, client, emit, handled, panel=START)
 
 
 def hoisted(arguments: list[str]) -> list[str]:

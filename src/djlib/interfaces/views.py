@@ -253,12 +253,16 @@ class Grid:
 
     Fixed columns (IDs, times, badges) keep their natural width; flexible text columns
     (``overflow`` set) shrink longest-first; ``drop`` columns disappear on narrow
-    terminals, lowest number first. Rich alone would hide whole columns instead.
+    terminals, lowest number first, and when every cell is blank. A ``yields`` column (an
+    explanation beside a name) gets only the room the others leave, and goes when that is
+    under its readable width. Rich alone would hide whole columns instead. After rendering,
+    ``shown`` names the columns that were printed.
     """
 
     def __init__(self, *columns: str | tuple[str, dict]):
         self.columns = [column if isinstance(column, tuple) else (column, {}) for column in columns]
         self.rows: list[list] = []
+        self.shown: list[str] = []
 
     @property
     def row_count(self) -> int:
@@ -269,7 +273,6 @@ class Grid:
         self.rows.append([Text(cell) if isinstance(cell, str) else cell for cell in cells])
 
     def __rich_console__(self, console, options):
-        count = len(self.columns)
         flexible = [bool(spec.get("overflow")) for _, spec in self.columns]
         natural = []
         for index, (name, spec) in enumerate(self.columns):
@@ -281,18 +284,39 @@ class Grid:
                 ]
             )
             natural.append(min(size, spec.get("max_width", size)))
-        active = list(range(count))
+
+        def blank(index):
+            return all(
+                not (cell.plain if isinstance(cell, Text) else str(cell)).strip()
+                for cell in (row[index] for row in self.rows)
+            )
+
+        # An optional column with nothing in it ("You own" when nothing is owned) takes no room.
+        active = [
+            index
+            for index, (_, spec) in enumerate(self.columns)
+            if not ("drop" in spec and self.rows and blank(index))
+        ]
         # Titles and names keep about 24 cells; optional columns go first.
         floor = [
             min(natural[i], spec.get("readable", READABLE_FLEX)) if flexible[i] else natural[i]
             for i, (_, spec) in enumerate(self.columns)
         ]
+        for index in [i for i in active if self.columns[i][1].get("yields")]:
+            others = [i for i in active if i != index]
+            left = options.max_width - sum(natural[i] for i in others) - GUTTER * len(others)
+            if left < floor[index]:
+                active.remove(index)
+            else:
+                natural[index] = min(natural[index], left)
 
         def needed(columns):
             return sum(floor[i] for i in columns) + GUTTER * (len(columns) - 1)
 
         droppable = sorted(
-            (spec["drop"], index) for index, (_, spec) in enumerate(self.columns) if "drop" in spec
+            (spec["drop"], index)
+            for index, (_, spec) in enumerate(self.columns)
+            if "drop" in spec and index in active
         )
         while needed(active) > options.max_width and droppable:
             active.remove(droppable.pop(0)[1])
@@ -329,6 +353,7 @@ class Grid:
             )
         for row in self.rows:
             grid.add_row(*(row[index] for index in active))
+        self.shown = [self.columns[index][0] for index in active]
         yield grid
 
 
@@ -507,6 +532,7 @@ def job_headline(kind: str, job: dict) -> str:
             "delivery": "Working copies prepared",
             "delivery_check": "Delivery check recorded",
             "reconcile": "Changes reconciled",
+            "identify": "Set identified",
         }.get(kind, f"{JOB_LABELS.get(kind, humanize(kind)).split(' ', 1)[0]} finished")
     if job.get("outcome") == "completed_with_gaps":
         gaps = [f"{counts[state]} {state}" for state in ("failed", "skipped") if counts.get(state)]
@@ -572,6 +598,14 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
     if not isinstance(result, dict):
         return []
     rows: list[tuple[str, object]] = []
+    if kind == "identify" and isinstance(result.get("tracklist"), dict):
+        tracks = len(result["tracklist"].get("tracks") or [])
+        counts = identified_counts(result.get("counts") or {})
+        rows += [
+            ("Set", Text((result.get("source") or {}).get("title") or "")),
+            ("Tracklist", Text(plural(tracks, "track")).append(f"  {counts}", style="muted")),
+            ("Saved to", path_text(result.get("tracklist_file"))),
+        ]
     if kind == "export":
         rows += [
             ("Tracks", result.get("track_count")),
@@ -642,7 +676,9 @@ def job_next_steps(
     elif state == "failed":
         steps.append(("Try again", retry))
     if state == "completed":
-        if kind == "scan":
+        if kind == "identify" and (result.get("source") or {}).get("url"):
+            steps.append(("Check it against your music", ("set", result["source"]["url"])))
+        elif kind == "scan":
             steps.append(("Browse your library", ("library",)))
             steps.append(("Check a set's tracklist against it", ("set", "TRACKLIST.txt")))
         elif result.get("collection_id"):
@@ -1229,6 +1265,10 @@ def doctor(term: Terminal, result: dict) -> None:
                 else "optional; appears once rekordbox has analyzed tracks",
             ),
         ]
+    if recognition := result.get("song_recognition"):
+        checks.append(("Song recognition", *recognition_check(recognition)))
+    if shazam := result.get("shazam_history"):
+        checks.append(("Shazam history", *shazam_check(shazam)))
     fixes = result.get("fixes") or {}
     if plugin := result.get("claude_plugin"):
         hint = ""
@@ -1275,8 +1315,54 @@ DOCTOR_FIXES = {
     "rekordbox": "rekordbox",
     "App control": "app_control",
     "rekordbox analysis": "rekordbox_analysis",
+    "Shazam history": "shazam",
+    "Song recognition": "song_recognition",
     "Claude Code plugin": "claude_plugin",
 }
+
+
+def recognition_check(recognition: dict) -> tuple[bool, str, str]:
+    """(passed, value, hint) of doctor's song recognition row, for djlib identify."""
+    label = str(recognition.get("label") or recognition.get("recognizer") or "")
+    if recognition.get("ready"):
+        if recognition.get("licensed"):
+            return True, f"{label}, licensed", ""
+        return (
+            True,
+            f"{label}, unofficial",
+            "may slow down or stop working; AudD or ACRCloud are licensed",
+        )
+    if not recognition.get("installed"):
+        return False, "not installed", "needed to listen to sets (djlib identify)"
+    return False, f"{label}: {recognition.get('problem') or 'not set up'}", ""
+
+
+def shazam_check(shazam: dict) -> tuple[bool, str, str]:
+    """(passed, value, hint) of doctor's optional Shazam history row."""
+    songs = int(shazam.get("songs") or 0)
+    if songs:
+        newest = shazam_day(shazam.get("newest_shazamed_at"))
+        return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
+    # What to do in a few words; the fix under the row is the command.
+    if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
+        value, hint = "no access", "allow your terminal under Full Disk Access"
+    elif shazam.get("problem"):
+        value, hint = "can't be read", "for djlib set shazam"
+    elif shazam.get("found"):
+        value, hint = "no songs yet", "open Music Recognition in Control Center once"
+    else:
+        value, hint = "not set up", "turn on Shazam in iCloud on your iPhone and this Mac"
+    return False, value, f"optional; {hint}"
+
+
+def shazam_day(value: str | None) -> str:
+    """ "2026-10-02 21:14" in this Mac's time zone, or ""."""
+    from djlib.sources.shazam_history import local_time
+
+    try:
+        return local_time(value)
+    except ValueError:
+        return ""
 
 
 @view("capabilities")
@@ -1714,10 +1800,14 @@ def set_view(term: Terminal, result: dict) -> None:
     rekordbox = result.get("rekordbox") or {}
     page = result.get("source") or {}
     if page:
-        provider = (page.get("provider") or "").removesuffix("Tab").replace("Youtube", "YouTube")
+        provider = provider_name(page.get("provider"))
         rows.append(
             ("Source", Text(f"{provider}: {page.get('title') or page.get('url')}", "muted"))
         )
+    identified = result.get("identified") or {}
+    if identified:
+        rows.append(("Identified", identified_line(term, identified)))
+        rows.append(("Tracklist", path_text(identified.get("tracklist_file"))))
     fetched = result.get("fetched") or {}
     if fetched:
         rows.append(("Fetched", fetched_line(term, fetched)))
@@ -1748,29 +1838,51 @@ def set_view(term: Terminal, result: dict) -> None:
         rows.append(("USB", marked(term, glyph, f"{stick}: {usb_tracks(usb)}")))
         rows.append(("Key/BPM", device_analysis(usb)))
     fields(term, rows)
+    mixesdb_source(term, result.get("mixesdb"))
     if usb_bad:
         unmatched(term, usb)
     missing = result.get("missing") or []
     if missing:
         term.out.print()
         term.out.print(Text(f"Not in the crate ({len(missing)})", style="heading"))
-        grid = table(
+        columns = [
             ("#", {"justify": "right", "style": "muted"}),
             ("Status", {"min_width": 11}),
             ("Requested", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
-            ("You own", {"overflow": "ellipsis", "drop": 1}),
-        )
+            ("You own", {"overflow": "ellipsis", "drop": 2}),
+        ]
+        # An identified set says why each song is there; an ID's likely song is a guess.
+        why = identified and any(item.get("notes") for item in missing)
+        if why:
+            columns.append(("Why", WHY))
+        grid = table(*columns)
         for item in missing:
             glyph, tone, label = REQUEST_STATES.get(
                 item.get("state") or "", ("todo", "todo", item.get("state") or "")
             )
-            grid.add_row(
+            requested = Text(item.get("label") or "")
+            if item.get("confidence") not in {None, "confirmed"}:
+                # How sure djlib is that the set plays this song, beside its name.
+                requested.append(f"  {item['confidence']}", style="muted")
+            cells = [
                 str(item.get("position") or ""),
                 marked(term, glyph, label, tone),
-                Text(item.get("label") or ""),
+                requested,
                 Text(", ".join(item.get("you_own") or []), style="warn"),
-            )
+            ]
+            if why:
+                cells.append(Text(item.get("notes") or ""))
+            grid.add_row(*cells)
         term.out.print(grid)
+        if why and "Why" not in grid.shown:
+            reasons(
+                term,
+                [
+                    (item.get("position"), item.get("notes"))
+                    for item in missing
+                    if item.get("confidence") not in {None, "confirmed"}
+                ],
+            )
     pick = fetched.get("needs_your_pick") or []
     if pick:
         term.out.print()
@@ -1821,7 +1933,43 @@ def set_view(term: Terminal, result: dict) -> None:
     if missing:
         report = ("requests", "report", result.get("request_id", ""))
         steps.append(("Save the missing songs as a list", report))
+    if result.get("listen_fix"):
+        steps.append(("So djlib can listen to sets, fix this", result["listen_fix"]))
+    if result.get("shazam"):
+        from djlib.sources.shazam_history import from_this_mac
+
+        # shazam:new reads this Mac's history only, never a file or Apple Music.
+        if from_this_mac(result["shazam"]):
+            steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
+
+
+def mixesdb_source(term: Terminal, page: dict | None) -> None:
+    """ "Tracklist from MixesDB: <page title>" and the page's link, so the DJ can check it."""
+    if not page:
+        return
+    line = Text.assemble("Tracklist from MixesDB: ", (str(page.get("page_title") or ""), "heading"))
+    if page.get("tracklist") == "incomplete":
+        line.append("  marked incomplete", style="warn")
+    term.out.print(indented(line))
+    # One unbroken line, so the link stays clickable and copyable.
+    term.out.print(Text("  " + str(page.get("page_url") or ""), style="path"), soft_wrap=True)
+
+
+def identified_line(term: Terminal, identified: dict) -> Text:
+    """ "85% of the set named, 70% heard · 8 confirmed, 4 likely, 1 unidentified" for `djlib
+    set`."""
+    coverage = identified.get("coverage") or {}
+    percent = coverage.get("percent")
+    line = Text(f"{percent}% of the set named" if percent is not None else "tracklist made")
+    if percent is not None and coverage.get("percent_heard") is not None:
+        line.append(f", {coverage['percent_heard']}% heard")
+    counts = identified_counts(identified.get("counts") or {})
+    if counts:
+        line.append(f"  {counts}", style="muted")
+    if identified.get("reused"):
+        line.append("  (saved from an earlier listen)", style="muted")
+    return line
 
 
 def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
@@ -1838,6 +1986,288 @@ def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
         if shown
     )
     return [line for line in (first, second) if line]
+
+
+# -- shazam ------------------------------------------------------------------------------------
+
+
+def shazam_source_line(term: Terminal, source: dict) -> None:
+    """``✓ Music Recognition on this Mac  412 songs, newest 2026-10-02 21:14``."""
+    problem = source.get("problem") or {}
+    count = len(source.get("backups") or [])
+    passed = bool(source.get("songs") or count)
+    if problem.get("code") == "SHAZAM_ACCESS_DENIED":
+        detail = "no access (needs Full Disk Access)"
+    elif problem:
+        detail = "can't be read"
+    elif source.get("source") == "iphone_backup":
+        detail = plural(count, "backup") if count else "none"
+    elif passed:
+        newest = shazam_day(source.get("newest_shazamed_at"))
+        detail = plural(int(source["songs"]), "song") + (f", newest {newest}" if newest else "")
+    else:
+        detail = "no songs yet" if source.get("found") else "not found"
+    line = Text(str(source.get("label") or ""))
+    line.append(f"  {detail}", style="" if passed else "muted")
+    glyph = Text(term.glyph("ok" if passed else "todo"), style="ok" if passed else "muted")
+    hanging(term.out, glyph, line, indent=2)
+
+
+@view("shazam status")
+def shazam_status(term: Terminal, result: dict) -> None:
+    songs = int(result.get("songs") or 0)
+    if songs:
+        newest = shazam_day(result.get("newest_shazamed_at"))
+        status_line(
+            term,
+            "ok",
+            "Shazam history",
+            plural(songs, "song") + (f", newest {newest}" if newest else ""),
+        )
+    else:
+        status_line(term, "todo", "No Shazam history on this Mac yet")
+    for source in result.get("sources") or []:
+        shazam_source_line(term, source)
+    last = result.get("last_import") or {}
+    if last:
+        imported = Text(shazam_day(last.get("imported_at")))
+        imported.append(
+            f"  “{last.get('name') or 'Shazam'}”, {plural(int(last.get('songs') or 0), 'song')}",
+            style="muted",
+        )
+        fresh = result.get("new_since_last_import")
+        term.out.print()
+        fields(
+            term,
+            [
+                ("Last import", imported),
+                ("New since", None if fresh is None else plural(int(fresh), "song")),
+            ],
+        )
+    if result.get("full_disk_access"):
+        term.out.print()
+        note(term, result["full_disk_access"])
+    steps: list[Step] = []
+    setup = result.get("setup") or []
+    if setup:
+        term.out.print()
+        term.out.print(Text("Turn on Shazam sync", style="heading"))
+        for number, step in enumerate(setup, 1):
+            hanging(term.out, Text(f"{number}.", style="muted"), Text(step), indent=2)
+        backups = next(
+            (s.get("backups") for s in result.get("sources") or [] if s.get("backups")), None
+        )
+        # Ways around iCloud: the first says "instead", the others start with "Or".
+        music = "Or Apple Music's “My Shazam Tracks”"
+        if backups:
+            steps.append(("Read your iPhone backup instead", ("set", f"shazam:{backups[0]}")))
+        else:
+            music = "Use Apple Music's “My Shazam Tracks” instead"
+        steps += [
+            (music, ("set", "shazam:apple-music")),
+            ("Or a Shazam CSV export", ("set", "shazam:FILE.csv")),
+        ]
+    elif last and result.get("new_since_last_import"):
+        steps.append(("Check the new ones against your music", ("set", "shazam:new")))
+    elif not last:
+        steps.append(("Check them against your music", ("set", "shazam")))
+    if songs:
+        steps.append(("See them", ("shazam", "list")))
+    next_steps(term, steps)
+
+
+COORDINATES = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$")
+
+
+@view("shazam list")
+def shazam_list(term: Terminal, result: dict) -> None:
+    records = result.get("records") or []
+    songs = int(result.get("songs") or 0)
+    since = shazam_day(result.get("since"))
+    where = " + ".join(str(s.get("label") or "") for s in result.get("sources") or [])
+    if not records:
+        label = "Nothing new Shazamed" if result.get("new") else "No Shazams"
+        status_line(term, "todo", label, f"since {since}" if since else where)
+        return
+    subtitle = plural(songs, "song") + (f" since {since}" if since else "")
+    header(term, "Your Shazams", f"{subtitle}  {where}".strip())
+    grid = table(
+        ("Shazamed", {"style": "muted"}),
+        ("Artist", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Title", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Times", {"justify": "right", "drop": 2}),
+        ("Where", {"overflow": "ellipsis", "yields": True, "drop": 1}),
+    )
+    for item in records:
+        count = int(item.get("count") or 1)
+        grid.add_row(
+            shazam_day(item.get("shazamed_at")) or "?",
+            item.get("artist") or "",
+            item.get("title") or "",
+            str(count) if count > 1 else "",
+            # A place's name helps; bare coordinates don't.
+            "" if COORDINATES.match(item.get("location") or "") else item.get("location") or "",
+        )
+    term.out.print(grid)
+    if len(records) < songs:
+        more = ["shazam", "list", "--limit", str(min(songs, 1000))]
+        query = result.get("query") or {}
+        for option in ("since", "from"):
+            if query.get(option):
+                more[2:2] = [f"--{option}", str(query[option])]
+        more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
+    if result.get("spec"):  # none for a file or Apple Music with --since (see the warning)
+        next_steps(term, [("Check them against your music", ("set", result["spec"]))])
+
+
+# -- identify ----------------------------------------------------------------------------------
+
+# Track status → (glyph, tone, label): how sure djlib is of each line of a tracklist.
+TRACK_STATUSES = {
+    "confirmed": ("ok", "ok", "confirmed"),
+    "likely": ("run", "info", "likely"),
+    "weak": ("warn", "warn", "weak"),
+    "conflict": ("bad", "bad", "conflict"),
+    "unidentified": ("todo", "todo", "unidentified"),
+}
+
+
+def identified_counts(counts: dict) -> str:
+    """ "8 confirmed, 4 likely, 1 unidentified" (statuses with none are left out)."""
+    return ", ".join(
+        f"{counts[status]} {status}" for status in TRACK_STATUSES if counts.get(status)
+    )
+
+
+def provider_name(value: str | None) -> str:
+    """ "YouTube" for yt-dlp's "Youtube" (or "YoutubeTab"), "SoundCloud" for "Soundcloud"."""
+    name = (value or "").removesuffix("Tab")
+    return {"Youtube": "YouTube", "Soundcloud": "SoundCloud"}.get(name, name)
+
+
+def identified_track(term: Terminal, track: dict) -> Text:
+    """A named track, or "ID — likely X": a candidate is never shown as the ID's name."""
+    if track.get("kind") != "unknown":
+        return track_label(track)
+    text = Text("ID", style="heading")
+    candidates = track.get("candidates") or []
+    if candidates:
+        best = candidates[0]
+        word = "likely" if track.get("status") == "likely" else "maybe"
+        if best.get("source") == "comments":
+            word = "listeners say"
+        dash = "—" if term.unicode else "-"
+        text.append(f" {dash} {word} {best.get('label') or ''}", style="muted")
+    return text
+
+
+def recognizer_name(name: str) -> str:
+    return {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}.get(name, name)
+
+
+# An explanation beside a name: it takes the room the name leaves, and goes when that is little.
+WHY = {"overflow": "ellipsis", "yields": True, "readable": 20, "drop": 1, "style": "muted"}
+
+
+def reasons(term: Terminal, rows: list[tuple[object, object]]) -> None:
+    """ "#3  Listed as an ID" under a table whose Why column didn't fit; lines sharing a
+    reason share a line ("From MixesDB: #3, #5, #8"), not one each."""
+    grouped: dict[str, list[object]] = {}
+    for n, why in rows:
+        if why:
+            grouped.setdefault(str(why), []).append(n)
+    if not grouped:
+        return
+    term.out.print()
+    for why, numbers in grouped.items():
+        if len(numbers) == 1:
+            lead = Text(f"#{numbers[0]}", style="muted")
+            hanging(term.out, lead, Text(why, style="muted"), indent=2)
+        else:
+            listed = ", ".join(f"#{n}" for n in numbers)
+            term.out.print(indented(Text(f"{why}: {listed}", style="muted"), 2))
+
+
+@view("identify")
+def identify_view(term: Terminal, result: dict) -> None:
+    source = result.get("source") or {}
+    counts = result.get("counts") or {}
+    coverage = result.get("coverage") or {}
+    subtitle = " · ".join(
+        part for part in (provider_name(source.get("provider")), result.get("duration")) if part
+    )
+    header(term, source.get("title") or source.get("url") or "Set", subtitle)
+    tracks = result.get("tracks") or []
+    percent = coverage.get("percent")
+    named = Text(f"{plural(int(counts.get('tracks') or len(tracks)), 'track')}")
+    if percent is not None:
+        named.append(f", {percent}% of the set named")
+        if coverage.get("percent_heard") is not None:
+            named.append(f", {coverage['percent_heard']}% heard")
+    if detail := identified_counts(counts):
+        named.append(f"  {detail}", style="muted")
+    recognizer = result.get("recognizer") or {}
+    heard_by = None
+    if recognizer.get("name"):
+        heard_by = Text(recognizer_name(recognizer["name"]))
+        if not recognizer.get("licensed"):
+            heard_by.append("  unofficial; may slow down or stop working", style="muted")
+        if result.get("reused"):
+            heard_by.append(
+                "  (saved from an earlier listen; --again listens again)", style="muted"
+            )
+    fields(
+        term,
+        [
+            ("Tracklist", named),
+            ("Heard by", heard_by),
+            ("Saved to", path_text(result.get("tracklist_file"))),
+        ],
+    )
+    mixesdb_source(term, result.get("mixesdb"))
+    if tracks:
+        term.out.print()
+        grid = table(
+            ("#", {"justify": "right", "style": "muted"}),
+            ("Time", {}),
+            ("Status", {"min_width": 12}),
+            ("Track", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
+            # The track's name comes first; why it is there gets the room left.
+            ("Why", WHY),
+        )
+        for track in tracks:
+            glyph, tone, label = TRACK_STATUSES.get(
+                track.get("status") or "", ("todo", "todo", track.get("status") or "")
+            )
+            start = track.get("start") or ""
+            grid.add_row(
+                str(track.get("n") or ""),
+                Text(f"~{start}" if track.get("approx") and start else start, style=""),
+                marked(term, glyph, label, tone),
+                identified_track(term, track),
+                track.get("evidence") or "",
+            )
+        term.out.print(grid)
+        if "Why" not in grid.shown:
+            # Too narrow for the Why column: the lines worth a listen still say why.
+            reasons(
+                term,
+                [(t.get("n"), t.get("evidence")) for t in tracks if t.get("status") != "confirmed"],
+            )
+    unplaced = result.get("unplaced") or []
+    if unplaced:
+        term.out.print()
+        shown = "; ".join(f"{song['label']} @ {song.get('at') or '?'}" for song in unplaced[:5])
+        more = f" and {len(unplaced) - 5} more" if len(unplaced) > 5 else ""
+        note(term, f"Heard once, not placed: {shown}{more}.")
+    term.out.print()
+    note(term, "Likely and weak lines are worth a listen; an ID's candidates are guesses.")
+    url = source.get("url") or "LINK"
+    steps: list[Step] = [("Check it against your music", ("set", url))]
+    if any("--tracklist" in step for step in result.get("next") or []):
+        tracklist = ("identify", url, "--tracklist", "FILE")
+        steps.append(("Add a tracklist, e.g. from 1001Tracklists", tracklist))
+    next_steps(term, steps)
 
 
 @view("rekordbox sync")

@@ -1,8 +1,9 @@
 """`djlib set` helpers: a tracklist from a set's URL, comment hints for IDs, fetch planning.
 
 These run in the CLI process against the coordinator; network work happens in the
-coordinator's source endpoints. Nothing here identifies audio: comments and search results
-are evidence, and only confident search matches are offered for download.
+coordinator's source endpoints. Nothing here listens to a set (`djlib identify` does):
+comments and search results are evidence, and only confident search matches are offered
+for download.
 """
 
 import hashlib
@@ -31,9 +32,9 @@ def check_set_url(url: str) -> None:
     if any(name == blocked or name.endswith("." + blocked) for blocked in BROWSER_ONLY):
         raise AppError(
             "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser. Copy the tracklist "
-            "from the page into a text file and run djlib set FILE, or ask your assistant to "
-            "read the page in your browser.",
+            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
+            "An assistant that can browse can copy it for you.",
+            details={"next": "djlib set FILE"},
         )
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")
@@ -48,30 +49,63 @@ def seconds(timestamp: str | None) -> float | None:
 
 
 def tracklist_from_url(local, url: str) -> tuple[str, dict]:
-    """The set's tracklist text (description or chapters) plus what was read from the page."""
-    from djlib.application.source_matching import tracklist_from_source
-
+    """The set's tracklist text (description or chapters, else MixesDB's) plus what was read
+    from the page."""
     check_set_url(url)
-    source = local.request("POST", "/sources/inspect", data={"url": url, "comments": COMMENTS})[
-        "result"
-    ]
-    text = tracklist_from_source(source.get("description") or "", source.get("chapters") or [])
+    source = local.request(
+        "POST", "/sources/inspect", data={"url": url, "comments": COMMENTS, "mixesdb": True}
+    )["result"]
+    text = page_tracklist(source)
+    if not text and (found := from_mixesdb(source)):
+        text = found["text"]
     return text, source
 
 
+def page_tracklist(page: dict) -> str:
+    """The tracklist a set's page publishes (its chapters, else its description), or "" when
+    no line of it reads as a track: YouTube names some sets' chapters itself, such as
+    "Opening performance"."""
+    from djlib.application.source_matching import tracklist_from_source
+    from djlib.application.tracklists import parse_tracklist
+
+    description, chapters = page.get("description") or "", page.get("chapters") or []
+    for text in (
+        tracklist_from_source(description, chapters),
+        tracklist_from_source(description, []),
+    ):
+        if text and parse_tracklist(text, page.get("url"))[0]:
+            return text
+    return ""
+
+
+def from_mixesdb(page: dict) -> dict | None:
+    """The MixesDB lookup a set's tracklist comes from: the coordinator looks MixesDB up only
+    when the description and chapters list no tracklist."""
+    found = page.get("mixesdb")
+    return found if isinstance(found, dict) and isinstance(found.get("text"), str) else None
+
+
 def id_hints(items: list[dict], comments: list[dict]) -> list[dict]:
-    """For each unknown ID with a time, what listeners named around that point of the set."""
+    """For each unknown ID with a time, what listeners named around that point of the set,
+    leaving out the songs either side of the ID however a listener wrote them."""
     if not comments:
         return []
+    from djlib.application.set_identification import names_neighbour
     from djlib.application.source_matching import comment_hints
 
     hints = []
-    for item in items:
+    for index, item in enumerate(items):
         source = item.get("input") or {}
         if source.get("kind") != "unknown" or not comments:
             continue
         at = seconds(source.get("timestamp"))
-        found = comment_hints(comments, at)[:3] if at is not None else []
+        beside = [
+            (other.get("artist") or "", other.get("title") or "")
+            for near in items[max(index - 1, 0) : index] + items[index + 1 : index + 2]
+            if (other := near.get("input") or {}).get("kind") == "named"
+        ]
+        found = [] if at is None else comment_hints(comments, at)
+        found = [hint for hint in found if not names_neighbour(hint, beside)][:3]
         if found:
             hints.append(
                 {

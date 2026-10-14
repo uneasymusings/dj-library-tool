@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError, field_validator
 from typer.testing import CliRunner
 
 from djlib import __version__
+from djlib.application import identification
 from djlib.domain.contracts import ControlRequest
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestResolution
@@ -19,8 +20,8 @@ from tests.test_delivery_transports import assert_envelope
 from tests.test_headline_workflow import build
 
 PANELS = {
-    "Start here": ["init", "scan", "set", "status", "doctor"],
-    "Your library": ["library", "crates", "crate", "requests", "ui"],
+    "Start here": ["init", "scan", "set", "identify", "status", "doctor"],
+    "Your library": ["library", "crates", "crate", "requests", "shazam", "ui"],
     "rekordbox and USB": ["rekordbox"],
     "Settings": ["use", "roots", "upgrade"],
     "Assistants": ["setup-agent", "mcp"],
@@ -344,7 +345,11 @@ def test_doctor_works_before_init_and_says_how_to_start(tmp_path, monkeypatch, n
     assert result["workspace_initialized"] is False and result["workspace_id"] is None
     assert result["coordinator_url"] is None and result["rekordbox"] is None
     assert result["required_checks_passed"] is True
-    assert result["fixes"] == {"workspace": "djlib init --allow-root ~/Music"}
+    # conftest: song recognition is not installed, so its row says how to install it.
+    assert result["fixes"] == {
+        "workspace": "djlib init --allow-root ~/Music",
+        "song_recognition": identification.INSTALLER,
+    }
     assert envelope["warnings"] == []  # the view renders the row; JSON readers get the fields
     assert envelope["result"]["fixes"]["workspace"] == "djlib init --allow-root ~/Music"
     pretty = run("doctor", pretty=True, workspace=tmp_path / "nothing-yet")
@@ -422,6 +427,41 @@ def test_doctor_has_no_plugin_row_without_the_plugin(tmp_path, monkeypatch, no_r
         is None
     )
     assert "Claude Code plugin" not in run("doctor", pretty=True, workspace=tmp_path / "w").stdout
+
+
+@pytest.mark.parametrize(
+    ("environment", "installed", "value", "fix"),
+    [
+        ({}, True, "Shazam, unofficial", None),
+        ({}, False, "not installed", identification.INSTALLER),
+        ({"DJLIB_RECOGNIZER": "audd", "DJLIB_AUDD_TOKEN": "t"}, False, "AudD, licensed", None),
+        ({"DJLIB_RECOGNIZER": "audd"}, True, "AudD: AudD needs an API token.", "export"),
+        ({"DJLIB_RECOGNIZER": "acrcloud"}, True, "ACRCloud: ACRCloud needs", "DJLIB_ACRCLOUD_HOST"),
+    ],
+)
+def test_doctor_says_which_song_recognition_listens(
+    tmp_path, monkeypatch, no_rekordbox, environment, installed, value, fix
+):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    for name, setting in environment.items():
+        monkeypatch.setenv(name, setting)
+    monkeypatch.setattr(identification, "shazam_installed", lambda: installed)
+    reply = run("doctor", workspace=tmp_path / "w")
+    assert reply.exit_code == 0, reply.output  # never a required check
+    result = json.loads(reply.stdout)["result"]
+    row = result["song_recognition"]
+    assert row["licensed"] is (environment.get("DJLIB_RECOGNIZER", "shazam") != "shazam")
+    if fix:
+        assert fix in result["fixes"]["song_recognition"] and row["ready"] is False
+    else:
+        assert "song_recognition" not in result["fixes"] and row["ready"] is True
+    pretty = run("doctor", pretty=True, workspace=tmp_path / "w", columns=200).stdout
+    line = next(line for line in pretty.splitlines() if "Song recognition" in line)
+    assert value in line
+    assert ("✓ Song recognition" in line) is (fix is None)
+    if fix:
+        assert row["fix"] in pretty  # the exact command, under the row
 
 
 # -- messages ---------------------------------------------------------------------------------

@@ -377,8 +377,10 @@ class LocalClient:
                 self._require_matching_version(url)
         timeout = 15
         if path == "/sources/inspect":
-            # Fetching listener comments takes up to the adapter's 240-second budget.
+            # Fetching listener comments takes up to the adapter's 240-second budget, and a
+            # MixesDB lookup up to 20 seconds more.
             timeout = 260 if (data or {}).get("comments") else 100
+            timeout += 25 if (data or {}).get("mixesdb") else 0
         elif path == "/sources/search":
             # Up to 90 seconds of searching, then 30 of availability checks.
             timeout = 130
@@ -396,11 +398,13 @@ class LocalClient:
                 value = response.json()
                 if not value.get("ok"):
                     error = value.get("error") or {}
+                    details = error.get("details")
                     raise AppError(
                         error.get("code", "REQUEST_FAILED"),
                         error.get("message", "Local request failed."),
                         response.status_code,
                         error.get("retryable", False),
+                        details if isinstance(details, dict) else None,
                     )
                 if (
                     method.upper() == "GET"

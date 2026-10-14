@@ -57,6 +57,8 @@ class Workspace:
         self.staging = self.root / "staging"
         self.exports = self.root / "exports"
         self.incoming = self.root / "incoming"
+        # One folder per identified DJ set: its page, listening windows and tracklist.
+        self.sets = self.root / "sets"
 
     def initialize(self, allowed_roots: list[Path] | None = None) -> WorkspaceConfig:
         if self.config_path.exists():

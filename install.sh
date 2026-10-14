@@ -3,7 +3,7 @@
 # Installs uv if needed, the newest djlib release, FFmpeg through Homebrew when available and
 # the djlib plugin for Claude Code and Codex when they are installed. In a terminal it then
 # offers to index your music. Safe to run again: it updates whatever is already there.
-#   DJLIB_VERSION=0.1.0a14  pin a release
+#   DJLIB_VERSION=0.1.0a15  pin a release
 #   DJLIB_PLUGIN=0          don't add the Claude Code / Codex plugin
 #   DJLIB_MUSIC=~/Music     index this folder without asking (DJLIB_MUSIC= skips it)
 set -eu
@@ -33,7 +33,8 @@ if [ -z "$wheel" ]; then
 fi
 
 say "Installing djlib from $wheel"
-uv tool install --force --compile-bytecode --python 3.13 "dj-library-tool[download] @ $wheel"
+# Python 3.12: song recognition (shazamio) has macOS and Windows wheels there, not on 3.13.
+uv tool install --force --compile-bytecode --python 3.12 "dj-library-tool[download,recognize] @ $wheel"
 uv tool update-shell >/dev/null 2>&1 || true
 
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then

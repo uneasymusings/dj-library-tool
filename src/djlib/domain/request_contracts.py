@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from djlib.domain.contracts import Contract
+from djlib.domain.contracts import HIDDEN, Contract
 
 
 class RequestContract(Contract):
@@ -14,7 +14,8 @@ class RequestContract(Contract):
 
 
 def clean_text(value: str) -> str:
-    value = value.strip()
+    # Marks that reorder or hide text would disguise a name in crates and playlists.
+    value = "".join(c for c in value if c not in HIDDEN).strip()
     if not value or any(unicodedata.category(c) == "Cc" for c in value):
         raise ValueError("Use nonblank text without control characters.")
     return value
@@ -37,6 +38,8 @@ class RequestItem(RequestContract):
     timestamp: str | None = Field(default=None, min_length=1, max_length=100)
     source_url: str | None = Field(default=None, min_length=1, max_length=4096)
     notes: str = Field(default="", max_length=4000)
+    # How sure an identification is that the set plays this song (djlib set LINK).
+    confidence: Literal["confirmed", "likely", "weak", "conflict", "unidentified"] | None = None
 
     @field_validator("artist", "title", "label", "timestamp")
     @classmethod
