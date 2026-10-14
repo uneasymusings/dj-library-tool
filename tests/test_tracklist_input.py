@@ -16,6 +16,7 @@ from djlib.application.tracklists import HEADING, RICH_TEXT, parse_tracklist
 from djlib.domain.errors import AppError
 from djlib.interfaces import identify_cli, terminal
 from djlib.interfaces.library_cli import tracklist_request
+from djlib.sources import web
 from tests.test_headline_workflow import build
 from tests.test_identification import URL
 from tests.test_identify_cli import LISTED, fakes, invoke
@@ -75,7 +76,7 @@ def test_rich_text_that_cant_be_converted_says_how_to_save_plain_text(tmp_path, 
     assert refused.value.code == "INPUT_INVALID"
     assert refused.value.message == (
         "friday.rtf is a rich-text file (TextEdit's default). In TextEdit choose Format → Make "
-        "Plain Text, save, and run this again — or copy the tracklist and run djlib set paste."
+        f"Plain Text, save, and run this again — or copy the tracklist and run {web.copied()}."
     )
     assert refused.value.details["title"] == "Can't read that tracklist"
 
@@ -309,19 +310,17 @@ def test_no_argument_shows_the_ways_in(application):
     steps = [line for line in lines if line.startswith("→")]
     assert [" ".join(step.split()) for step in steps] == [
         "→ A set link (in single quotes) djlib set 'https://soundcloud.com/…'",
-        "→ A tracklist or link you copied djlib set paste",
+        f"→ A tracklist or link you copied {web.copied()}",  # paste on a Mac, else -
         f"→ Your recent Shazams djlib set shazam:{since}",
     ]
     error = json.loads(invoke(application, "set").stdout)["error"]
     assert error["code"] == "INPUT_INVALID" and error["details"]["next"].startswith("djlib set '")
     identify = invoke(application, "identify", pretty=True)
     assert identify.exit_code == 2 and "Which set should djlib identify?" in identify.stderr
-    assert "djlib identify paste" in identify.stderr
+    assert web.copied("identify") in identify.stderr
 
 
 def test_1001tracklists_links_point_to_paste(application, monkeypatch):
-    from djlib.sources import web
-
     FakeRekordbox(monkeypatch)
     monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works
     link = "https://www.1001tracklists.com/tracklist/abc/some-set.html"
@@ -591,7 +590,7 @@ def test_an_empty_tracklist_file_says_its_empty(application, tmp_path):
     empty.write_bytes(b"")
     error = json.loads(invoke(application, "set", empty).stdout)["error"]
     assert error["message"] == (
-        "empty.txt is empty; paste the set's tracklist into it, or copy it and run djlib set paste."
+        f"empty.txt is empty; paste the set's tracklist into it, or copy it and run {web.copied()}."
     )
     assert error["details"]["title"] == "Can't read that tracklist"
 
@@ -671,7 +670,6 @@ def test_next_steps_line_up_only_when_every_one_fits(capsys, width):
 
 def test_a_long_label_puts_every_command_under_its_label(capsys, monkeypatch):
     from djlib.interfaces.set_sources import browser_only
-    from djlib.sources import web
     from tests.test_terminal import sized
 
     monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works

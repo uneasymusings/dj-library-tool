@@ -800,7 +800,7 @@ def job_next_steps(
             steps.append(("Check it against your music", ("set", url, "--no-rekordbox")))
         elif kind == "scan":
             steps.append(("Browse your library", ("library",)))
-            steps.append(("Copy a set link or tracklist, then", ("set", "paste")))
+            steps.append(copied_step())
         elif result.get("collection_id"):
             collection = result["collection_id"]
             if kind in CRATE_JOBS:
@@ -1021,7 +1021,7 @@ def collections(term: Terminal, result: dict) -> None:
     if not rows:
         status_line(term, "todo", "No crates yet")
         note(term, "A crate is built from the songs of a tracklist you own.")
-        next_steps(term, [("Copy a set link or tracklist, then", ("set", "paste"))])
+        next_steps(term, [copied_step()])
         return
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
@@ -1234,7 +1234,7 @@ def status_view(term: Terminal, result: dict) -> None:
             )
     steps = status_steps(result, requests, collections, outdated, made)
     if not steps:
-        steps.append(("Copy a set link or tracklist, then", ("set", "paste")))
+        steps.append(copied_step())
     next_steps(term, steps)
 
 
@@ -1430,7 +1430,7 @@ def status_steps(
     if not tracks:
         steps.append(("Index your music", ("scan",)))
     elif not requests and not collections:
-        steps.append(("Copy a set link or tracklist, then", ("set", "paste")))
+        steps.append(copied_step())
         if result.get("shazam_history_found"):
             since = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
             steps.append(("Your recent Shazams", ("set", f"shazam:{since}", "--no-rekordbox")))
@@ -3076,6 +3076,14 @@ def request_report(term: Terminal, result: dict) -> None:
         next_steps(term, steps)
 
 
+def copied_step() -> Step:
+    """The first set to check: a link or tracklist the DJ copied. A Mac reads its clipboard
+    (``paste``); elsewhere ``-`` asks them to paste it into the terminal."""
+    from djlib.sources.web import clipboard
+
+    return ("Copy a set link or tracklist, then", ("set", "paste" if clipboard() else "-"))
+
+
 def song_moment(song: dict) -> str:
     """Where a song plays in the set: its time, else the day it was Shazamed, else its number."""
     return str(song.get("timestamp") or song.get("shazamed") or f"#{song.get('position')}")
@@ -3409,7 +3417,7 @@ def requests_list(term: Terminal, result: dict) -> None:
             return
         status_line(term, "todo", "No sets checked yet")
         note(term, "Check a set's tracklist, and djlib tells you which songs you already own.")
-        next_steps(term, [("Copy a set link or tracklist, then", ("set", "paste"))])
+        next_steps(term, [copied_step()])
         return
     # Services before 0.1.0a16 say only how many songs each set has.
     counted = any(isinstance(row.get("counts"), dict) for row in rows)

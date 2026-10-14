@@ -46,9 +46,11 @@ AGENTS = "Assistants"
 MORE = "More"
 
 ADVANCED_URL = "https://github.com/uneasymusings/dj-library-tool/blob/main/docs/ADVANCED.md"
+# What the DJ copied: the Mac's clipboard (paste), else what they paste into the terminal (-).
+COPIED = "djlib set paste" if sys.platform == "darwin" else "djlib set -"
 EPILOG = (
     "[bold]New here?[/]  [bold]djlib set 'LINK'[/]  ·  [bold]djlib shazam status[/]  ·  "
-    "[bold]djlib set paste[/]\n\n"
+    f"[bold]{COPIED}[/]\n\n"
     f"More commands: {ADVANCED_URL}"
 )
 

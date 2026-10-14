@@ -19,6 +19,7 @@ from djlib.interfaces import identify_cli, library_cli, mcp_server, set_sources,
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.rekordbox_cli import set_track
 from djlib.native import rekordbox_mac
+from djlib.sources import web
 from tests.test_headline_workflow import build
 from tests.test_identification import URL
 from tests.test_identify_cli import LISTED, fakes
@@ -789,7 +790,7 @@ def test_empty_screens_suggest_commands_that_paste_as_they_are(name, result, cap
 def test_a_first_checked_set_or_recent_shazams_come_first_on_status(capsys):
     out = shown("status", {"tracks": 20, "shazam_history_found": True}, 120, capsys)
     steps = out.split("Next\n", 1)[1]
-    assert "Copy a set link or tracklist, then  djlib set paste" in steps
+    assert f"Copy a set link or tracklist, then  {web.copied()}" in steps
     assert re.search(
         r"Your recent Shazams\s+djlib set shazam:\d{4}-\d\d-\d\d --no-rekordbox", steps
     )

@@ -85,7 +85,8 @@ def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     assert "--version" in reply.output
     epilog = " ".join(reply.output.split())
     # The headline jobs first: a set link, your Shazams, a tracklist you copied.
-    assert "New here? djlib set 'LINK' · djlib shazam status · djlib set paste" in epilog
+    # djlib set paste on a Mac; elsewhere djlib set -, which asks for what was copied.
+    assert f"New here? djlib set 'LINK' · djlib shazam status · {cli.COPIED}" in epilog
     assert f"More commands: {cli.ADVANCED_URL}" in epilog
     assert cli.ADVANCED_URL.startswith("https://github.com/")
     tagline = "Every track in a set, checked against your music, into rekordbox and onto USB."
