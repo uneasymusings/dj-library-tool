@@ -9,6 +9,7 @@ than an error.
 import asyncio
 import html
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -27,6 +28,9 @@ from djlib.domain.errors import AppError
 logger = logging.getLogger(__name__)
 
 API = "https://www.mixesdb.com/w/api.php"
+# DJLIB_MIXESDB=off (or 0, false, no) turns the lookups off everywhere; on by default.
+SWITCH_ENV = "DJLIB_MIXESDB"
+OFF = frozenset({"off", "0", "false", "no"})
 PAGES = "https://www.mixesdb.com/w/"
 USER_AGENT = f"djlib/{__version__} (+https://github.com/uneasymusings/dj-library-tool)"
 MAX_REQUESTS = 4
@@ -49,6 +53,12 @@ EVENT_SHARE = 0.75  # of the page's event words the upload must name
 MIN_SCORE = 0.6
 STRONG_SCORE = 1.0  # no date or length to agree: every key word on both sides
 MARGIN = 0.1
+
+
+def enabled() -> bool:
+    """Whether djlib may ask MixesDB (``SWITCH_ENV``), read by the process that asks: the
+    background service, which reads it when it starts."""
+    return os.environ.get(SWITCH_ENV, "").strip().lower() not in OFF
 
 
 def _terms(text: str) -> frozenset[str]:

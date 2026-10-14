@@ -300,8 +300,11 @@ async def mixesdb_answer(page: dict) -> tuple[dict | None, bool]:
     it is worth asking again later.
 
     An answer from the last 15 minutes, such as the one `djlib set` got a moment before the
-    identification it starts, is reused; failures are not kept.
+    identification it starts, is reused; failures are not kept. With MixesDB turned off
+    (``mixesdb.enabled``) nothing is asked and nothing is kept, so turning it on asks again.
     """
+    if not mixesdb.enabled():
+        return None, False
     try:
         url = canonical_url(page.get("url") or "")
     except AppError:
