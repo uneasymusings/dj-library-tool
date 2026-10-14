@@ -60,6 +60,7 @@ def no_song_recognition(monkeypatch):
     monkeypatch.setattr(identification, "recognizer", missing)
     monkeypatch.setattr(identification, "shazam_installed", lambda: False)
     monkeypatch.setattr(identification, "PAGES", {})
+    monkeypatch.setattr(identification, "PAGE_FAILURES", {})
     monkeypatch.delenv("DJLIB_RECOGNIZER", raising=False)
     monkeypatch.delenv("DJLIB_KEEP_SET_AUDIO", raising=False)
 

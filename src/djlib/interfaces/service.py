@@ -242,6 +242,7 @@ def create_app(
         from djlib.application.identification import (
             PAGE_PASSING,
             mixesdb_tracklist,
+            page_failed,
             remember_page,
             saved_page,
         )
@@ -251,9 +252,15 @@ def create_app(
             result = await inspect_source(body.url, body.comments)
         except AppError as error:
             # A set djlib heard before still comes back while its site doesn't answer.
-            saved = saved_page(workspace, body.url) if error.code in PAGE_PASSING else None
+            saved = (
+                saved_page(workspace, body.url, body.comments)
+                if error.code in PAGE_PASSING
+                else None
+            )
             if saved is None:
                 raise
+            # The identification `djlib set` starts next doesn't try the site again.
+            page_failed(saved["url"], error.code)
             result = saved
         if body.mixesdb:
             from djlib.sources import mixesdb

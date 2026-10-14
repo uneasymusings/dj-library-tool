@@ -465,6 +465,9 @@ def _folder_bytes(folder: Path) -> int:
     return total
 
 
+PAGE_EVIDENCE = "publisher metadata; untrusted text; no audio recognition"
+
+
 async def inspect_source(url: str, comments: int = 0) -> dict:
     """A set's published description and chapters, plus up to ``comments`` listener comments.
 
@@ -515,7 +518,7 @@ async def inspect_source(url: str, comments: int = 0) -> dict:
             }
             for c in chapters[:500]
         ],
-        "identity_evidence": "publisher metadata; untrusted text; no audio recognition",
+        "identity_evidence": PAGE_EVIDENCE,
         "description_truncated": len(str(data.get("description") or "")) > 30000,
         "comments": _comments(data, comments) if comments else [],
     }
