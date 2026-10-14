@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0a17 (unreleased)
+
+**Fixed:**
+- **Boiler Room sets are listened to.** Boiler Room describes nearly every upload in one line: “Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.” djlib read that line as a song, so `djlib set 'LINK'` showed one made-up song after 14 seconds and never listened. A line about the set itself is not a song any more: who played where or when (“live from …”, “DJ set at …”, “recorded live at …”, “Glastonbury 2019”, the set's date), a set or show (“Kaytranada - Boiler Room Montreal”), or the uploader beside a venue. “Main Source - Live at the Barbeque” is still a song, and so is a mix in brackets such as “(Live at Alive 2007)”. Only the set's page is read this way: a tracklist you give djlib is read as you wrote it.
+- **A tracklist too short for the set is listened to.** When the description names one song, or fewer than one for every 12 minutes of the set (four or fewer for an hour), `djlib set 'LINK'` says “The description names only 1 song, so djlib is listening to the set to find the rest.” and listens. With `--no-identify`, or when djlib can't listen, it uses the list and warns “The description names only 2 songs for this 57-minute set: songs may be missing.”
+- **A tracklist written “Title - Artist” agrees with what Shazam heard.** Avalon Emerson's YouTube description lists “Desert Hike - Tibi Dabo”. Where Shazam heard Tibi Dabo's “Desert Hike”, that line is now the song Shazam heard, shown as “Tibi Dabo - Desert Hike”, instead of two ✗ conflicts, and its notes say “the description lists it title first”. Lines Shazam didn't hear stay as written, and so does the whole list when djlib doesn't listen.
+
+**Upgrading:**
+- **A set that showed one made-up song** (most Boiler Room uploads) is listened to when you check it again. Its songs are new, so it becomes a new set and crate; if the old one is in rekordbox, the new playlist comes in as “Name (2)”. Delete the older one.
+- **For scripts and assistants:** JSON changes are additions (listed in [CONTRACT](docs/CONTRACT.md)): the `identify_started` event's `identify_reason` can be `sparse`, and a listing's evidence for a line read the other way round has `turned: true`, with the line as written in `label`. `djlib set` warns when it uses a tracklist with too few songs without listening.
+
 ## 0.1.0a16
 
 **New:**

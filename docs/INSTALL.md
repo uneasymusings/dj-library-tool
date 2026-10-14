@@ -60,7 +60,7 @@ The server offers the everyday tools by default; `DJLIB_MCP_TOOLS=full` adds del
 
 ## Song recognition
 
-`djlib identify` (and `djlib set 'LINK'` when a set's tracklist is missing or has IDs) listens to a set with Shazam. It needs no account, but djlib uses Shazam's service the way the Shazam app does, without an official API, so it may slow down or stop working. An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take half an hour. For a licensed service, use your own account and set its keys before djlib's background service starts:
+`djlib identify` (and `djlib set 'LINK'` when a set's tracklist is missing, has IDs or names too few songs for the set) listens to a set with Shazam. It needs no account, but djlib uses Shazam's service the way the Shazam app does, without an official API, so it may slow down or stop working. An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take half an hour. For a licensed service, use your own account and set its keys before djlib's background service starts:
 
 ```bash
 export DJLIB_RECOGNIZER=audd DJLIB_AUDD_TOKEN=YOUR_TOKEN                # AudD
