@@ -3455,11 +3455,12 @@ def request_view(term: Terminal, result: dict) -> None:
             summary.append(f"{number(amount)} {label}", style="heading" if tone == "ok" else tone)
     term.out.print(indented(summary))
     term.out.print()
+    # The words of `djlib set`'s table: whether you own it, the track, and your file.
     grid = table(
         ("#", {"justify": "right", "style": "muted"}),
-        ("Status", {"min_width": 15}),
-        ("Requested", {"overflow": "fold", "wrap": True, "readable": TITLE_WIDTH}),
-        ("Match", {"overflow": "ellipsis", "drop": 1}),
+        ("Own", {"min_width": 15}),
+        ("Track", {"overflow": "fold", "wrap": True, "readable": TITLE_WIDTH}),
+        ("Your file", {"overflow": "ellipsis", "drop": 1}),
     )
     for item in result.get("items") or []:
         source = item.get("input") or {}
@@ -3489,7 +3490,8 @@ def request_view(term: Terminal, result: dict) -> None:
         if accepted.get("path"):
             match = file_tail(accepted["path"])
             if spelling := spelled_as(item):
-                match.append(f"  as {spelling}", style="muted")
+                # On its own line: a narrow terminal cuts the path, never the other spelling.
+                match.append(f"\nas {spelling}", style="muted")
         elif len(exact) > 1:
             match = Text(f"{len(exact)} copies; pick one", style="warn")
         elif maybe:
@@ -3519,8 +3521,6 @@ def request_view(term: Terminal, result: dict) -> None:
             f"{number(shown)} of {plural(int(total or 0), 'song')}",
             ("requests", "get", short_handle(request_id), "--after", str(result["next_offset"])),
         )
-    term.out.print()
-    note(term, "Matched by exact artist/title/version labels only; no audio identification.")
     steps: list[Step] = []
     owned = int(counts.get("satisfied", 0))
     crate = result.get("crate") if isinstance(result.get("crate"), dict) else {}
