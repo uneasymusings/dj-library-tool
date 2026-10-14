@@ -371,6 +371,14 @@ def test_typos_suggest_only_commands_that_help_lists():
     assert "Did you mean 'list'?" in run("requests", "lsit").output
 
 
+def test_help_opens_on_the_journey_not_on_global_options():
+    text = run("--help", columns=100).output
+    assert "--workspace" not in text and "--json" not in text.split("New here?")[0]
+    assert text.index("Options") < text.index("Start here")
+    # Still accepted everywhere.
+    assert run("--json", "--workspace", "x", "version").exit_code == 0
+
+
 # -- doctor -----------------------------------------------------------------------------------
 
 

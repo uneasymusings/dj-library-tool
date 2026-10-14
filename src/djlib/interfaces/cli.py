@@ -284,11 +284,14 @@ def configure(
         "--workspace",
         "-w",
         help="Workspace folder. Default: DJLIB_WORKSPACE, else the one set by djlib use or init.",
+        # Help opens on the journey; scripts and assistants find these in docs/ADVANCED.md.
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Print JSON (the default when piped).",
+        hidden=True,
     ),
     show_version: bool = typer.Option(
         False,
@@ -618,6 +621,10 @@ def doctor(ctx: typer.Context) -> None:
             # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
             "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
+            # The background sync starts after the first `djlib rekordbox sync`.
+            "rekordbox_analysis_synced": (ctx.obj.runtime / "rekordbox-anlz.json").is_file()
+            if initialized
+            else None,
             # The Mac's Music Recognition history, for `djlib set shazam` (macOS only).
             "shazam_history": shazam,
             "song_recognition": recognition,

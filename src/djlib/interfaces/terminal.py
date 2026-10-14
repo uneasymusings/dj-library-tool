@@ -482,8 +482,8 @@ def needs_ffmpeg(error: dict) -> bool:
 def render_error(term: Terminal, error: dict) -> None:
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
+    # The code stays in the JSON envelope; people read the title.
     title = Text.assemble((ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
-    title.append(f"  ({code})", style="muted")
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
     term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
@@ -565,7 +565,7 @@ def follow(term: Terminal, client, job: dict, timeout: float | None = None) -> F
             while True:
                 done, total = job_progress(job.get("counts") or {})
                 failed = int((job.get("counts") or {}).get("failed", 0))
-                detail = "ctrl-c to detach"
+                detail = "ctrl-c: keep going in the background"
                 if job.get("state") == "queued" and not total:
                     detail = "queued · " + detail if term.unicode else "queued, " + detail
                 if failed:

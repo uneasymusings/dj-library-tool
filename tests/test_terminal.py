@@ -98,8 +98,10 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     reply = invoke("library", pretty=True, workspace=tmp_path / "missing")
     assert reply.exit_code == 2
     assert reply.stdout == ""
-    assert "djlib isn't set up yet" in reply.stderr
-    assert "(WORKSPACE_REQUIRED)" in reply.stderr
+    assert reply.stderr.startswith("✗ djlib isn't set up yet\n")
+    # People read the title; the code is for scripts, in the JSON envelope only.
+    assert "WORKSPACE_REQUIRED" not in reply.stderr
+    assert "There is no djlib workspace in" in reply.stderr  # the title isn't repeated
     assert "init --allow-root PATH" in reply.stderr
     captured = invoke("library", workspace=tmp_path / "missing")
     assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
@@ -180,7 +182,8 @@ def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_pat
 
     pretty = invoke("scan", pretty=True, workspace=local_http.root)
     assert pretty.exit_code == 0, pretty.output
-    assert pretty.stdout.count("track indexed") == 2
+    # Scanned again: nothing is new.
+    assert pretty.stdout.count("✓ 1 track, 0 new") == 2
     assert "unplugged drive?" in pretty.stderr
 
 
@@ -400,7 +403,7 @@ def test_status_summarizes_library_requests_and_crates(local_http, audio_factory
     assert summary["tracks"] == 2 and summary["active_jobs"] == 0
     assert summary["rekordbox_checked"] is True
     pretty = invoke("status", pretty=True, workspace=local_http.root)
-    assert "2 tracks" in pretty.stdout and "BPM for 0" in pretty.stdout
+    assert "2 tracks  ·  no BPM yet" in pretty.stdout and "BPM for 0" not in pretty.stdout
 
 
 def test_usb_and_set_views_show_what_came_back_from_the_stick(capsys):
@@ -460,10 +463,10 @@ def indents(text: str) -> list[int]:
         ("SOME_NEW_CODE", "Some new code"),
     ],
 )
-def test_errors_lead_with_a_plain_title_and_keep_the_code_dim(capsys, code, title):
+def test_errors_lead_with_a_plain_title_and_leave_the_code_to_json(capsys, code, title):
     terminal.render_error(sized(120), {"code": code, "message": "Details."})
-    first = capsys.readouterr().err.splitlines()[0]
-    assert title in first and first.endswith(f"({code})")
+    err = capsys.readouterr().err
+    assert err.splitlines()[0] == f"✗ {title}" and code not in err
 
 
 def test_accessibility_error_says_how_to_open_the_setting(capsys):
@@ -1003,3 +1006,116 @@ def test_an_optional_column_with_nothing_in_it_takes_no_room():
     grid.add_row("Lumen - Halo", "")
     Console(width=80, file=io.StringIO(), theme=terminal.THEME).print(grid)
     assert grid.shown == ["Name"]
+
+
+# -- sets, crates and where they are --------------------------------------------------------
+
+
+def test_crates_say_where_each_one_went(capsys):
+    rows = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "track_count": 8,
+            "rekordbox": {
+                "playlist": "Friday",
+                "pushed_at": "2026-10-06T10:00:00+00:00",
+                "usb": {"device": "DJ_USB", "found": 8, "expected": 8, "in_order": True},
+            },
+        },
+        {"collection_id": "collection_" + "2" * 32, "name": "Sunday", "track_count": 3},
+    ]
+    out = render("crates", {"collections": rows, "total": 2}, width=120, capsys=capsys)
+    assert "rekordbox / USB" in out
+    friday = next(line for line in out.splitlines() if "Friday" in line)
+    assert "✓ in rekordbox  ✓ on DJ_USB" in friday
+    plain = [{**row, "rekordbox": {}} for row in rows]
+    out = render("crates", {"collections": plain, "total": 2}, width=120, capsys=capsys)
+    assert "rekordbox / USB" not in out  # nothing to say, no column
+
+
+def test_crate_and_library_tables_keep_titles_over_file_names(capsys):
+    tracks = [
+        {
+            "artist": "Antdot",
+            "title": "Mirage",
+            "path": "/music/Antdot/01 - Mirage.mp3",
+            "properties": {"duration_seconds": 300, "codec": "mp3", "bitrate_bps": 320000},
+        }
+    ]
+    assert "File" not in render("library", {"tracks": tracks, "total": 1}, width=100, capsys=capsys)
+    assert "File" in render("library", {"tracks": tracks, "total": 1}, width=140, capsys=capsys)
+    crate = {"collection_id": COLLECTION, "name": "Friday", "track_count": 1, "tracks": tracks}
+    out = render("crate", crate, width=120, capsys=capsys)
+    assert COLLECTION not in out and "Crate " not in out  # no long-ID footer
+
+
+def test_doctor_speaks_plainly_about_the_service_and_helpers(capsys):
+    result = {
+        "workspace": "/music/djlib",
+        "workspace_initialized": True,
+        "required_checks_passed": True,
+        "coordinator_url": "http://127.0.0.1:62623",
+        "ffmpeg": "/usr/bin/ffmpeg",
+        "ffprobe": "/usr/bin/ffprobe",
+        "javascript_runtimes": {
+            "selected": "node",
+            "node": {"version": "22.15.0"},
+            "youtube_runtime_ready": True,
+        },
+        "rekordbox": {"version": "7.2.3"},
+        "rekordbox_automation_allowed": True,
+        "rekordbox_analysis_folder": "/Users/dj/Library/Pioneer/rekordbox/share",
+        "rekordbox_analysis_synced": False,
+        "fixes": {},
+    }
+    out = render("doctor", result, width=160, capsys=capsys)
+    assert "127.0.0.1" not in out
+    assert next(line for line in out.splitlines() if "Background service" in line).split()[-1] == (
+        "running"
+    )
+    assert "YouTube helper      node 22" in out and "JS runtime" not in out
+    assert "run djlib rekordbox sync once; after that it stays current in the background" in out
+    synced = render(
+        "doctor", {**result, "rekordbox_analysis_synced": True}, width=160, capsys=capsys
+    )
+    assert "rekordbox sync once" not in synced and "stay current in the background" in synced
+
+
+@pytest.mark.parametrize(
+    ("result", "headline"),
+    [
+        (
+            {
+                "current": "0.1.0a15",
+                "latest": "0.1.0a16",
+                "update_available": True,
+                "updated": False,
+            },
+            "○ djlib 0.1.0a16 is out  you have 0.1.0a15",
+        ),
+        (
+            {
+                "current": "0.1.0a16",
+                "latest": "0.1.0a16",
+                "update_available": False,
+                "updated": False,
+            },
+            "✓ djlib 0.1.0a16 is the newest release",
+        ),
+        (
+            {
+                "current": "0.1.0a15",
+                "latest": "0.1.0a16",
+                "update_available": True,
+                "updated": True,
+            },
+            "✓ djlib 0.1.0a16 installed  from 0.1.0a15",
+        ),
+    ],
+)
+def test_upgrade_says_from_and_to(capsys, result, headline):
+    out = render("upgrade", {**result, "notes": "https://e/notes"}, width=100, capsys=capsys)
+    assert out.splitlines()[0] == headline
+    assert ("Release notes  https://e/notes" in out) is (result["latest"] != result["current"])
+    assert ("djlib upgrade" in out) is (result["update_available"] and not result["updated"])

@@ -48,7 +48,7 @@ def test_invalid_root_does_not_leave_half_workspace(tmp_path):
     with pytest.raises(AppError) as error:
         workspace.config()
     assert error.value.code == "WORKSPACE_REQUIRED"
-    assert error.value.message.startswith("djlib isn't set up yet")
+    assert error.value.message == f"There is no djlib workspace in {workspace.root} yet."
     workspace.initialize()
     assert workspace.token()
     (tmp_path / "music").mkdir()
@@ -84,7 +84,7 @@ def test_outside_path_and_symlink_denied(application, tmp_path):
     with pytest.raises(AppError) as error:
         application.workspace.authorize(str(outside))
     assert error.value.code == "SOURCE_NOT_ALLOWED"
-    assert error.value.message == f"djlib isn't allowed to read {outside.resolve()} yet."
+    assert error.value.message == f"{outside.resolve()} is outside your music folders."
     link = tmp_path / "music" / "linked.wav"
     try:
         link.symlink_to(outside)
