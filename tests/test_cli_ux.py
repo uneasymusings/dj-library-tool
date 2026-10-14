@@ -320,6 +320,134 @@ def test_request_commands_take_handles_and_default_to_the_current_revision(
     assert json.loads(stale.stdout)["error"]["code"] == "REQUEST_STALE"
 
 
+# -- everyday lookups and group commands ------------------------------------------------------
+
+
+def test_lookups_and_groups_do_the_obvious_thing(application, library_http, audio_factory):
+    built = build(
+        library_http, [audio_factory("mirage.wav", frequency=520)], [("Antdot", "Mirage")]
+    )
+    root = application.workspace.root
+    # `library QUERY` searches like --query, and the hidden `search` is the same command.
+    for arguments in (
+        ("library", "mirage"),
+        ("search", "Antdot", "mirage"),
+        ("library", "-q", "mirage"),
+    ):
+        reply = run(*arguments, workspace=root)
+        assert reply.exit_code == 0, (arguments, reply.output)
+        assert [t["title"] for t in json.loads(reply.stdout)["result"]["tracks"]] == ["Mirage"]
+    nothing = run("library", "daft", "punk", pretty=True, workspace=root)
+    assert nothing.exit_code == 0 and 'No tracks match  "daft punk"' in nothing.stdout
+    assert "search" not in run("--help").output.split("Your library", 1)[1].split("─╯", 1)[0]
+    # `djlib crate` is the newest crate.
+    crate = run("crate", workspace=root)
+    assert crate.exit_code == 0, crate.output
+    assert json.loads(crate.stdout)["result"]["collection_id"] == built["result"]["collection_id"]
+    # A group on its own runs its everyday command; --help still lists the others.
+    for group, command in (("requests", "list"), ("roots", "list"), ("jobs", "list")):
+        alone, explicit = run(group, workspace=root), run(group, command, workspace=root)
+        assert alone.exit_code == 0, (group, alone.output)
+        assert (
+            json.loads(alone.stdout)["result"].keys()
+            == json.loads(explicit.stdout)["result"].keys()
+        )
+    assert "list" in run("requests", "--help").output
+
+
+def test_crate_before_any_crate_is_the_crates_empty_state(application, library_http):
+    root = application.workspace.root
+    reply = run("crate", pretty=True, workspace=root)
+    assert reply.exit_code == 0, reply.output
+    assert "No crates yet" in reply.stdout and "Not found" not in reply.output
+    # Scripts still get the error they branch on.
+    reply = run("crate", workspace=root)
+    assert reply.exit_code == 2 and json.loads(reply.stdout)["error"]["code"] == "NOT_FOUND"
+
+
+def test_set_commands_speak_of_sets_not_request_lists():
+    assert "tracks, sets and crates" in run("--help", columns=200).output
+    for command in ("get", "refresh", "report", "collect", "create", "resolve"):
+        text = run("requests", command, "--help", columns=200).output
+        assert "request list" not in text.lower() and "LIST" not in text, command
+
+
+def test_shazam_alone_shows_where_your_shazams_are(tmp_path):
+    reply = run("shazam", workspace=tmp_path / "w")
+    assert reply.exit_code == 0, reply.output
+    assert "sources" in json.loads(reply.stdout)["result"]
+    assert "Shazam" in run("shazam", pretty=True, workspace=tmp_path / "w").stdout
+
+
+def test_typos_suggest_only_commands_that_help_lists():
+    reply = run("stauts")
+    assert reply.exit_code == 2
+    assert "Did you mean 'status'?" in reply.output and "'start'" not in reply.output
+    hidden_only = run("dmeo")  # close to the hidden `demo` only
+    assert (
+        "No such command 'dmeo'." in hidden_only.output and "Did you mean" not in hidden_only.output
+    )
+    assert "Did you mean 'list'?" in run("requests", "lsit").output
+
+
+def test_help_opens_on_the_journey_not_on_global_options():
+    text = run("--help", columns=100).output
+    assert "--workspace" not in text and "--json" not in text.split("New here?")[0]
+    assert text.index("Options") < text.index("Start here")
+    # Still accepted everywhere.
+    assert run("--json", "--workspace", "x", "version").exit_code == 0
+
+
+# -- sets and their crates --------------------------------------------------------------------
+
+
+def test_a_set_points_at_its_crate_once_it_is_built(
+    application, library_http, audio_factory, tmp_path
+):
+    build(
+        library_http,
+        [audio_factory("a.wav", frequency=410), audio_factory("b.wav", frequency=420)],
+        [("Antdot", "Mirage"), ("Antdot", "Stay")],
+    )
+    root = application.workspace.root
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Antdot - Mirage\nAntdot - Stay\nSomeone - Not Owned\n", encoding="utf-8")
+    assert run("requests", "create", "--text", tracklist, workspace=root).exit_code == 0
+    before = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 2 songs you own" in before and "See the crate" not in before
+    assert "Revision" not in before and "request_" not in before  # short IDs only
+
+    # Followed while it builds, then found again when asked twice: the same crate card.
+    for _ in range(2):
+        built = run("requests", "collect", "last", pretty=True, workspace=root, columns=160)
+        assert built.exit_code == 0, built.output
+        assert built.stdout.startswith("✓ Crate “Friday”  2 tracks, in set order")
+        assert "Idempotency" not in built.stdout and "not_tracked_here" not in built.stdout
+    collection = json.loads(run("crate", workspace=root).stdout)["result"]["collection_id"]
+    steps = built.stdout.split("Next\n", 1)[1]
+    short = collection.removeprefix("collection_")[:8]
+    assert f"rekordbox push {short}" in steps and f" crate {short}" in steps
+
+    after = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "See the crate" in after and f" crate {short}" in after
+    assert "Build the crate" not in after
+    # JSON readers get the list exactly as before.
+    assert (
+        "crate" not in json.loads(run("requests", "get", "last", workspace=root).stdout)["result"]
+    )
+
+    # Another set with the same name (every Shazam import is "Shazam") has no crate yet.
+    other = tmp_path / "other" / "Friday.txt"
+    other.parent.mkdir()
+    other.write_text("Antdot - Mirage\nNobody - Else\n", encoding="utf-8")
+    assert run("requests", "create", "--text", other, workspace=root).exit_code == 0
+    newest = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 1 song you own" in newest and "See the crate" not in newest
+
+    listed = run("requests", pretty=True, workspace=root, columns=120).stdout
+    assert "Friday" in listed and "2 sets" in listed
+
+
 # -- doctor -----------------------------------------------------------------------------------
 
 

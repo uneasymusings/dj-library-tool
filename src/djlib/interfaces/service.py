@@ -192,6 +192,9 @@ def create_app(
                 "protocol_version": "1",
                 "pid": os.getpid(),
                 "application_version": __version__,
+                # A copied workspace keeps the original's runtime record and ID; its own
+                # folder tells clients whether this service is theirs.
+                "workspace_root": str(workspace.root),
             }
         )
 

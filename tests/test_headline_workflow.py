@@ -378,6 +378,44 @@ async def test_tracklist_to_crate_with_rekordbox_analysis(
     assert peak["selected_count"] == 1
 
 
+def test_status_pairs_each_crate_with_the_set_it_came_from(
+    application, library_http, audio_factory
+):
+    """Every Shazam import is called "Shazam": a new one never claims an old one's crate, and
+    status counts a set the way `djlib requests` does."""
+    sources = [audio_factory(f"shz-{n}.wav", frequency=300 + 100 * n) for n in range(2)]
+    build(library_http, sources, [("Nia Okoro", "Slow Burn"), ("Lumen", "Dub")])
+
+    def saved(key, items):
+        body = {"name": "Shazam", "idempotency_key": key, "items": items}
+        return assert_envelope(library_http.post("/requests", json=body).json())
+
+    old = saved("old", [{"artist": "Nia Okoro", "title": "Slow Burn"}])
+    job = assert_envelope(
+        library_http.post(
+            f"/requests/{old['request_id']}/collection", json={"revision": old["revision"]}
+        ).json()
+    )
+    finish(library_http, job["job_id"])
+    new = saved(
+        "new",
+        [
+            {"artist": "Lumen", "title": "Dub"},
+            {"artist": "Nia Okoro", "title": "Slow Burn", "version": "Extended Mix"},
+            {"artist": "Nobody", "title": "Nothing"},
+            {"kind": "unknown", "label": "ID - ID", "timestamp": "12:00"},
+        ],
+    )
+    summary = assert_envelope(library_http.get("/summary").json())
+    crates = {row["name"]: row for row in summary["recent_collections"]}
+    assert crates["Shazam"]["request_id"] == old["request_id"]
+    assert crates["Owned"]["request_id"] is None  # not collected from a set
+    sets = {row["request_id"]: row for row in summary["recent_requests"]}
+    tally = {"owned": 1, "missing": 1, "other_mix": 1, "ids": 1}
+    assert sets[new["request_id"]]["counts"] == tally
+    assert sets[new["request_id"]]["owned"] == 1 and sets[new["request_id"]]["songs"] == 4
+
+
 def test_collect_needs_owned_tracks(application, library_http):
     ledger = assert_envelope(
         library_http.post(
