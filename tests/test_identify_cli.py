@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 from djlib.application import identification
 from djlib.domain.errors import AppError
-from djlib.interfaces import identify_cli
+from djlib.interfaces import identify_cli, terminal
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
 from tests.test_identification import URL, Setup
@@ -147,7 +147,7 @@ def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_h
     assert "✓ confirmed" in rows[0] and "Lumen - Halo" in rows[0]
     assert "ID — likely Bicep - Glue" in rows[1]
     assert "Shazam  unofficial; may slow down or stop working" in text
-    assert f"set '{URL}'" in text  # the next step, quoted for the shell
+    assert f"set {terminal.quote(URL)}" in text  # the next step, quoted for the shell
 
 
 def test_ctrl_c_cancels_the_identification(application, library_http, setup, monkeypatch):

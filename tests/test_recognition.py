@@ -1215,6 +1215,7 @@ async def test_a_download_that_stops_growing_fails_and_can_resume(tmp_path):
     assert time.monotonic() - began < 10
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Orphaned downloads are found with ps")
 def test_a_download_left_running_by_a_killed_service_is_stopped(tmp_path):
     import subprocess
 

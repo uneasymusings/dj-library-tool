@@ -980,7 +980,8 @@ def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
 def test_a_device_or_a_huge_file_is_not_read_as_a_shazam_history(tmp_path, monkeypatch):
     from djlib.sources import shazam_history
 
-    for path in (Path("/dev/zero"), tmp_path):
+    devices = [Path("/dev/zero")] if os.name == "posix" else []
+    for path in (*devices, tmp_path):
         with pytest.raises(AppError) as refused:
             shazam_history.read_path(path)
         assert refused.value.code == "INPUT_INVALID"
