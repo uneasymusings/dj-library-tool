@@ -6,11 +6,12 @@ Accepted line shapes, one track per line::
     03. Artist – Title [Label]
     [47:12] Artist - Title
     Artist - Title @ 41:20   /   Artist - Title (41:20)   /   Artist - Title [41:20]
-    ID - ID   /   ??? - ???   (kept as an unknown with its timestamp or source)
+    ID - ID   /   ??? - ???   /   Artist - ID   (kept as an ID, in its place)
 
-Numbering, bullets and timestamps are stripped. Lines without an "Artist - Title" separator
-are reported back instead of being turned into a guessed request, except a first line such
-as "Friday at Fabric", which names the set.
+Numbering, bullets and timestamps are stripped; a time on a line of its own ("01:09", as
+1001Tracklists copies have it) is the next track's. Lines without an "Artist - Title"
+separator are reported back instead of being turned into a guessed request, except a first
+line such as "Friday at Fabric", which names the set.
 """
 
 import itertools
@@ -63,12 +64,17 @@ def file_name_labels(stem: str) -> tuple[str, str]:
     return parts[0].strip()[:500], parts[1].strip()[:1000]
 
 
-def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[RequestItem], list]:
+def parse_tracklist(
+    text: str, source_url: str | None = None, times: list | None = None
+) -> tuple[list[RequestItem], list]:
     """Return request items plus ``(line_number, text, reason)`` for lines left out.
 
     When most lines are numbered or timestamped, unmarked lines above the first numbered
     one are headings (a set name, a date) rather than tracks. In an unnumbered list, a
     first line without an "Artist - Title" separator is the heading.
+
+    ``times``, when given, gets ``(line_number, timestamp)`` for each item: the time written
+    for it, which named items leave out.
     """
     parsed = []
     for number, raw in enumerate(text.splitlines(), 1):
@@ -112,8 +118,12 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     items: list[RequestItem] = []
     skipped: list[tuple[int, str, str]] = []
     started = False
+    pending = None
     for index, (number, raw, line, timestamp, marked, *_) in enumerate(parsed):
         started = started or marked
+        if not line and timestamp:
+            pending = timestamp  # "01:09" alone: when the next track starts
+            continue
         if numbered_list and not started:
             skipped.append((number, raw, HEADING))
             continue
@@ -128,6 +138,7 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
             else:
                 skipped.append((number, raw, "no “Artist - Title” separator"))
                 continue
+        timestamp, pending = timestamp or pending, None
         artist = parts[0].strip()
         title = parts[1].strip()
         label = TRAILING_LABEL.search(title)
@@ -138,24 +149,18 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
             and not FEATURING_LABEL.match(label.group(1))
         ):
             title = title[: label.start()].strip() or title
-        if UNKNOWN.match(artist) or UNKNOWN.match(title):
-            if not (timestamp or source_url):
-                skipped.append((number, raw, "unknown ID needs a timestamp or --source"))
-                continue
-            try:
-                items.append(
-                    RequestItem(
-                        kind="unknown",
-                        label=line[:1000],
-                        timestamp=timestamp,
-                        source_url=source_url,
-                    )
-                )
-            except ValueError:
-                skipped.append((number, raw, "unreadable characters"))
-            continue
         try:
-            items.append(RequestItem(artist=artist[:500], title=title[:1000]))
+            if UNKNOWN.match(artist) or UNKNOWN.match(title):
+                # "ID - ID" or "Kaytranada - ID" keeps its place in the set, timed or not.
+                item = RequestItem(
+                    kind="unknown", label=line[:1000], timestamp=timestamp, source_url=source_url
+                )
+            else:
+                item = RequestItem(artist=artist[:500], title=title[:1000])
         except ValueError:
             skipped.append((number, raw, "unreadable characters"))
+            continue
+        items.append(item)
+        if times is not None:
+            times.append((number, timestamp))
     return items, skipped

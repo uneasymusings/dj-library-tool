@@ -61,16 +61,11 @@ class RequestItem(RequestContract):
         if self.kind == "named":
             if not self.artist or not self.title:
                 raise ValueError("Named requests require both artist and title.")
-        elif (
-            not self.label
-            or not (self.timestamp or self.source_url)
-            or self.artist is not None
-            or self.title is not None
-            or self.version
-        ):
+        elif not self.label or self.artist is not None or self.title is not None or self.version:
+            # An ID keeps its place in the set even without a time ("5. ID - ID").
             raise ValueError(
-                "Unknown requests require a label and timestamp or source URL; "
-                "do not supply guessed artist/title/version labels."
+                "Unknown requests require a label; do not supply guessed "
+                "artist/title/version labels."
             )
         return self
 
