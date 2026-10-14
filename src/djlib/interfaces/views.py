@@ -10,6 +10,8 @@ from pathlib import Path
 import typer
 from rich import box
 from rich.cells import cell_len
+from rich.console import Group
+from rich.measure import Measurement
 from rich.padding import Padding
 from rich.style import Style
 from rich.table import Table
@@ -314,15 +316,16 @@ class Grid:
 
     def __rich_console__(self, console, options):
         flexible = [bool(spec.get("overflow")) for _, spec in self.columns]
+        def width(cell) -> int:
+            if isinstance(cell, Text):
+                return cell.cell_len
+            if isinstance(cell, Group):  # lines that wrap or cut each their own way
+                return Measurement.get(console, options, cell).maximum
+            return cell_len(str(cell))
+
         natural = []
         for index, (name, spec) in enumerate(self.columns):
-            size = max(
-                [cell_len(name)]
-                + [
-                    cell.cell_len if isinstance(cell, Text) else cell_len(str(cell))
-                    for cell in (row[index] for row in self.rows)
-                ]
-            )
+            size = max([cell_len(name)] + [width(row[index]) for row in self.rows])
             natural.append(min(size, spec.get("max_width", size)))
 
         def blank(index):
@@ -3493,8 +3496,10 @@ def request_view(term: Terminal, result: dict) -> None:
         if accepted.get("path"):
             match = file_tail(accepted["path"])
             if spelling := spelled_as(item):
-                # On its own line: a narrow terminal cuts the path, never the other spelling.
-                match.append(f"\nas {spelling}", style="muted")
+                # On its own line: a narrow terminal cuts the path, never the other spelling,
+                # which wraps instead.
+                also = Text(f"as {spelling}", style="muted", overflow="fold", no_wrap=False)
+                match = Group(match, also)
         elif len(exact) > 1:
             match = Text(f"{len(exact)} copies; pick one", style="warn")
         elif maybe:

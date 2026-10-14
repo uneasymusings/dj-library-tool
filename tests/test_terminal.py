@@ -694,6 +694,15 @@ def test_a_song_owned_under_the_listings_spelling_says_so(capsys):
     assert " as " not in "".join(lines[rows[2] :])
     narrow = render("requests get", request, width=80, capsys=capsys)
     assert "as Robert Glasper" in narrow and "as Rob…" not in narrow
+    # A real file's path is cut; the whole other spelling never is, at any width.
+    long = "/Users/dj/Music/Kaytranada/Kaytranada Remixes/09 - Move Love (Kaytranada Edition).mp3"
+    request["items"][1]["accepted"] = {**accepted, "path": long}
+    for width in (80, 100):
+        out = render("requests get", request, width=width, capsys=capsys)
+        assert max(len(line) for line in out.splitlines()) <= width
+        words = " ".join(out.split())
+        assert "as Robert Glasper - Move Love (Kaytranada Edition)" in words, out
+        assert "Edition)…" not in words
 
 
 def test_request_lists_lead_with_building_the_crate(capsys):
