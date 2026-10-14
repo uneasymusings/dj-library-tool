@@ -261,6 +261,18 @@ class Worker:
                     job.state, job.outcome = "queued", None
                     add_event(session, job, "requeued", {"counts": dict(counts)})
                     return
+                if kind == "scan":
+                    # A rescan says how many files are new, not only how many it read again.
+                    new = session.scalar(
+                        select(func.count())
+                        .select_from(JobItem)
+                        .where(
+                            JobItem.job_id == job_id,
+                            JobItem.state == "succeeded",
+                            func.json_extract(JobItem.result, "$.reused") == 0,
+                        )
+                    )
+                    job.result = {**(job.result or {}), "new_tracks": new or 0}
                 if kind not in {"delivery", "delivery_check", "organize"}:
                     job.state = "needs_attention" if counts["needs_input"] else "completed"
                     job.outcome = (
@@ -478,7 +490,10 @@ class Worker:
                     # Original acquisition bytes remain in incoming/. Only the managed
                     # derivative gets chosen labels; its *final* bytes are cataloged.
                     original_hash = inspection.sha256
-                    await asyncio.to_thread(tag_download_copy, staging, track, suffix)
+                    url = (item_request.get("provenance") or {}).get("source_url") or (
+                        item_request.get("source") or {}
+                    ).get("url")
+                    await asyncio.to_thread(tag_download_copy, staging, track, suffix, url)
                     tagged = staging.with_suffix(suffix)
                     os.replace(staging, tagged)
                     staging = tagged

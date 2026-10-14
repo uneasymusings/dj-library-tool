@@ -245,6 +245,25 @@ def save_shopping_list(workspace, report_path: str | None, name: str, found: dic
     return str(path)
 
 
+def built_crate(local, result: dict) -> dict | None:
+    """The crate `requests collect` last made from this list, if any.
+
+    Found by the collect job's retry token, which names the list, so sets that share a name
+    (every Shazam import is "Shazam") never share a crate.
+    """
+    owned = int((result.get("counts") or {}).get("satisfied") or 0)
+    if not owned or not result.get("name") or not result.get("request_id"):
+        return None
+    prefix = f"request-collection:{result['request_id']}:"
+    params = {"query": str(result["name"])[:500], "limit": 20}
+    for job in local.request("GET", "/jobs", params=params)["result"].get("jobs") or []:
+        made = job.get("result") if isinstance(job.get("result"), dict) else {}
+        key = str(job.get("idempotency_key") or "")
+        if job.get("state") == "completed" and key.startswith(prefix) and made.get("collection_id"):
+            return {"collection_id": made["collection_id"], "tracks": made.get("selected_count")}
+    return None
+
+
 def current_revision(local, request_id: str) -> int:
     """The request list's revision right now, for commands that default to it."""
     return local.request("GET", f"/requests/{request_id}", params={"limit": 1})["result"][
@@ -271,7 +290,7 @@ def register_commands(app, client, emit, handled, panel=None):
     from djlib.interfaces.handles import resolve
 
     requests = typer.Typer(
-        help="Wanted songs: owned, missing or unknown.",
+        help="Sets you checked: owned, missing, IDs.",
         no_args_is_help=True,
     )
     organize = typer.Typer(
@@ -279,23 +298,36 @@ def register_commands(app, client, emit, handled, panel=None):
     )
     app.add_typer(requests, name="requests", rich_help_panel=panel)
     app.add_typer(organize, name="organize", hidden=True)
-    request_help = "List name, ID start (6+ characters) or last."
-    revision_help = "Request list revision; defaults to the current one."
+    request_help = "Set name, ID start (6+ characters) or last."
+    revision_help = "The set's revision; defaults to the current one."
+
+    def emit_list(local, reply: dict) -> None:
+        """A request list; a terminal also learns the crate already made from it."""
+        from djlib.interfaces import terminal
+
+        if not terminal.current().json and isinstance(reply.get("result"), dict):
+            try:
+                crate = built_crate(local, reply["result"])
+            except AppError:
+                crate = None  # the list still shows; the view offers to build the crate
+            if crate:
+                reply["result"]["crate"] = crate
+        emit(reply)
 
     @requests.command("create")
     @handled
     def request_create(
         ctx: typer.Context,
-        file: Path | None = typer.Option(None, help="JSON request list (see: djlib schemas)."),
+        file: Path | None = typer.Option(None, help="The set as JSON (see: djlib schemas)."),
         text: Path | None = typer.Option(
             None, help="Text file, one “Artist - Title (Mix)” per line."
         ),
-        name: str | None = typer.Option(None, help="List name for --text; defaults to the file."),
+        name: str | None = typer.Option(None, help="Set name for --text; defaults to the file."),
         source: str | None = typer.Option(
             None, help="HTTPS link to the set, kept as evidence for unknown IDs in --text."
         ),
     ):
-        """Save a list of wanted songs and check which ones you already own.
+        """Save a set's tracklist and check which songs you already own.
 
         Paste a tracklist into a text file and pass --text; no JSON needed.
         """
@@ -309,17 +341,17 @@ def register_commands(app, client, emit, handled, panel=None):
         local = client(ctx)
         reply = created(local, body)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
-        emit(reply)
+        emit_list(local, reply)
 
     @requests.command("get")
     @handled
     def request_get(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
         after: int = typer.Option(0, min=0),
         limit: int = typer.Option(100, min=1, max=100),
     ):
-        """Show a request list and each song's status."""
+        """Show a set: each song, owned or missing."""
         from djlib.interfaces.rekordbox_cli import set_track
 
         local = client(ctx)
@@ -331,17 +363,17 @@ def register_commands(app, client, emit, handled, panel=None):
         for item in reply["result"].get("items") or []:
             if (shop := set_track(item)["shop"]) is not None:
                 item["shop"] = shop
-        emit(reply)
+        emit_list(local, reply)
 
     @requests.command("collect")
     @handled
     def request_collect(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
-        name: str | None = typer.Option(None, help="Crate name; defaults to the list's."),
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
+        name: str | None = typer.Option(None, help="Crate name; defaults to the set's."),
         revision: int | None = typer.Option(None, min=1, help=revision_help),
     ):
-        """Make a crate of the songs you own in a request list, in order."""
+        """Make a crate of the songs you own in a set, in set order."""
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         if revision is None:
@@ -355,11 +387,11 @@ def register_commands(app, client, emit, handled, panel=None):
     @handled
     def request_refresh(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
         revision: int | None = typer.Option(None, min=1, help=revision_help),
         item_id: list[str] = typer.Option(None, "--item-id", help="Only this song; repeatable."),
     ):
-        """Re-check a request list against your library, e.g. after a scan."""
+        """Check a set against your music again, e.g. after a scan."""
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         if revision is None:
@@ -367,17 +399,18 @@ def register_commands(app, client, emit, handled, panel=None):
         body = {"revision": revision}
         if item_id is not None:
             body["item_ids"] = item_id
-        emit(
+        emit_list(
+            local,
             finish_checks(
                 local, local.request("POST", f"/requests/{request_id}/refresh", data=body)
-            )
+            ),
         )
 
     @requests.command("report")
     @handled
     def request_report(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
         revision: int | None = typer.Option(None, min=1, help=revision_help),
     ):
         """Your shopping list: the missing songs, with Beatport, Bandcamp and Traxsource links.
@@ -403,22 +436,23 @@ def register_commands(app, client, emit, handled, panel=None):
     @handled
     def request_resolve(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
         item_id: str,
         file: Path = typer.Option(..., help="JSON resolution (djlib schemas)."),
         revision: int | None = typer.Option(
-            None, min=1, help="Request list revision; defaults to the file's, else the current one."
+            None, min=1, help="The set's revision; defaults to the file's, else the current one."
         ),
     ):
-        """Pick a source or library match for one requested song."""
+        """Pick a source or library match for one song in a set."""
         text = file.read_text(encoding="utf-8")
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         body = resolution_body(text, revision, lambda: current_revision(local, request_id))
-        emit(
+        emit_list(
+            local,
             local.request(
                 "POST", f"/requests/{request_id}/items/{item_id}", data=body.model_dump(mode="json")
-            )
+            ),
         )
 
     @requests.command("list")
@@ -429,7 +463,7 @@ def register_commands(app, client, emit, handled, panel=None):
         limit: int = typer.Option(20, min=1, max=100),
         after: str | None = typer.Option(None, help="Cursor from the previous page."),
     ):
-        """List saved request lists, newest first."""
+        """The sets you checked, newest first."""
         params = {"query": query, "limit": limit}
         if after is not None:
             params["after"] = after

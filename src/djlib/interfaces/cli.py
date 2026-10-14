@@ -8,6 +8,7 @@ import importlib.util
 import os
 import sys
 from datetime import datetime
+from difflib import get_close_matches
 from functools import wraps
 from pathlib import Path
 from typing import Annotated
@@ -66,7 +67,7 @@ ORDER = [
 ]
 
 # Commands that render with a view registered under another name.
-VIEW_NAMES = {"crates": "collections", "crate": "collection"}
+VIEW_NAMES = {"crates": "collections", "crate": "collection", "search": "library"}
 
 # Usual install commands for a missing tool, by platform.
 INSTALL = {
@@ -84,10 +85,41 @@ INSTALL = {
 FIRST_STEP = "djlib init --allow-root ~/Music"
 
 
-class JourneyGroup(typer.core.TyperGroup):
+class VisibleSuggestions(typer.core.TyperGroup):
+    """“Did you mean” names only commands that help lists, never hidden ones."""
+
+    def resolve_command(self, ctx, args):
+        try:
+            return super().resolve_command(ctx, args)
+        except Exception as error:  # Typer's own Click UsageError
+            message = str(getattr(error, "message", ""))
+            if not args or " Did you mean" not in message:
+                raise
+            visible = [name for name, command in self.commands.items() if not command.hidden]
+            matches = get_close_matches(str(args[0]), visible)
+            error.message = message.split(" Did you mean", 1)[0]
+            if matches:
+                error.message += f" Did you mean {', '.join(map(repr, matches))}?"
+            raise
+
+
+class JourneyGroup(VisibleSuggestions):
     def list_commands(self, ctx):
         names = super().list_commands(ctx)
         return sorted(names, key=lambda name: ORDER.index(name) if name in ORDER else len(ORDER))
+
+
+class DefaultCommandGroup(VisibleSuggestions):
+    """A group that runs one of its commands when given none; --help still lists them all."""
+
+    default_command = ""
+
+    def parse_args(self, ctx, args):
+        return super().parse_args(ctx, args or [self.default_command])
+
+
+# `djlib requests` is `djlib requests list`, `djlib shazam` is `djlib shazam status`.
+DEFAULT_COMMANDS = {"requests": "list", "shazam": "status", "roots": "list", "jobs": "list"}
 
 
 def print_version(value: bool) -> None:
@@ -251,11 +283,14 @@ def configure(
         "--workspace",
         "-w",
         help="Workspace folder. Default: DJLIB_WORKSPACE, else the one set by djlib use or init.",
+        # Help opens on the journey; scripts and assistants find these in docs/ADVANCED.md.
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Print JSON (the default when piped).",
+        hidden=True,
     ),
     show_version: bool = typer.Option(
         False,
@@ -319,7 +354,7 @@ def init(
 @app.command(rich_help_panel=START)
 @handled
 def status(ctx: typer.Context) -> None:
-    """Your library at a glance: tracks, lists and crates."""
+    """Your library at a glance: tracks, sets and crates."""
     from concurrent.futures import ThreadPoolExecutor
 
     from djlib.exporting.rekordbox_anlz import default_root
@@ -609,6 +644,10 @@ def doctor(ctx: typer.Context) -> None:
             # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
             "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
+            # The background sync starts after the first `djlib rekordbox sync`.
+            "rekordbox_analysis_synced": (ctx.obj.runtime / "rekordbox-anlz.json").is_file()
+            if initialized
+            else None,
             # The Mac's Music Recognition history, for `djlib set shazam` (macOS only).
             "shazam_history": shazam,
             "song_recognition": recognition,
@@ -795,15 +834,24 @@ def source_inspect(
 @handled
 def library(
     ctx: typer.Context,
+    words: Annotated[
+        list[str] | None, typer.Argument(metavar="[QUERY]", help="Artist, title or version.")
+    ] = None,
     query: str = typer.Option("", "--query", "-q", help="Match artist, title or version."),
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ) -> None:
     """Browse and search indexed tracks."""
+    query = " ".join([*(words or []), query]).strip()
+    # The view and its "more" command read the query from here.
+    ctx.params["query"] = query
     params = {"query": query, "limit": limit}
     if after is not None:
         params["after"] = after
     emit(client(ctx).request("GET", "/library", params=params))
+
+
+app.command("search", hidden=True)(library)
 
 
 @handled
@@ -813,7 +861,7 @@ def collections(
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
-    """List your crates (saved collections), newest first."""
+    """Your crates, newest first."""
     from djlib.interfaces.rekordbox_cli import remembered
 
     params = {"query": query, "limit": limit}
@@ -852,13 +900,28 @@ def reconcile(
 @handled
 def collection(
     ctx: typer.Context,
-    collection_id: Annotated[str, typer.Argument(metavar="CRATE", help=CRATE_HELP)],
+    collection_id: Annotated[
+        str,
+        typer.Argument(
+            metavar="[CRATE]",
+            help="Crate name, ID start (6+ characters) or last (the default).",
+            show_default=False,
+        ),
+    ] = "last",
     after: int = typer.Option(0, min=0, help="Offset from the previous page."),
     limit: int = typer.Option(50, min=1, max=100),
 ) -> None:
     """Show the tracks in a crate."""
     local = client(ctx)
-    collection_id = handles.resolve(local, "collection", collection_id)
+    try:
+        collection_id = handles.resolve(local, "collection", collection_id)
+    except AppError as error:
+        newest = collection_id.strip().lower() == "last"
+        if error.code != "NOT_FOUND" or not newest or terminal.current().json:
+            raise
+        # Nothing made yet: the same friendly start as `djlib crates` (JSON keeps the error).
+        views.show(terminal.current(), "collections", envelope({"collections": [], "total": 0}))
+        return
     emit(
         local.request(
             "GET", f"/collections/{collection_id}", params={"after": after, "limit": limit}
@@ -1320,6 +1383,13 @@ register_shazam(app, client, emit, handled, panel=LIBRARY)
 from djlib.interfaces.identify_cli import register_identify  # noqa: E402
 
 register_identify(app, client, emit, handled, panel=START)
+
+for group in app.registered_groups:
+    if group.name in DEFAULT_COMMANDS:
+        default = {"default_command": DEFAULT_COMMANDS[group.name]}
+        group.typer_instance.info.cls = type("DefaultGroup", (DefaultCommandGroup,), default)
+    else:
+        group.typer_instance.info.cls = VisibleSuggestions
 
 
 def hoisted(arguments: list[str]) -> list[str]:

@@ -124,9 +124,7 @@ class Workspace:
 
     def config(self) -> WorkspaceConfig:
         if not self.config_path.is_file():
-            raise AppError(
-                "WORKSPACE_REQUIRED", f"djlib isn't set up yet (no workspace in {self.root})."
-            )
+            raise AppError("WORKSPACE_REQUIRED", f"There is no djlib workspace in {self.root} yet.")
         try:
             return WorkspaceConfig.model_validate_json(self.config_path.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
@@ -157,7 +155,7 @@ class Workspace:
             folder = path if path.is_dir() else path.parent
             raise AppError(
                 "SOURCE_NOT_ALLOWED",
-                f"djlib isn't allowed to read {path} yet.",
+                f"{path} is outside your music folders.",
                 403,
                 details={"path": str(folder)},
             )

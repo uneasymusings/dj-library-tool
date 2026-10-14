@@ -286,11 +286,36 @@ def saved(app, kind, query="", limit=20, after=None):
     return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
 
 
+# The library holds the exact mix: one verified copy, several to pick from, or a copy djlib
+# can't read just now. Same as `djlib set` (rekordbox_cli.OWNED_STATES).
+OWNED_STATES = frozenset({"satisfied", "ambiguous", "unavailable"})
+
+
+def request_counts(items: list[dict] | None) -> dict:
+    """A saved set's tally in DJ words, the same as `djlib set`'s own column: owned (the exact
+    mix), ids, other_mix (only another mix of it) and missing. Only satisfied songs go into the
+    crate; an owned song with two copies or an unreadable file waits until that is sorted."""
+    counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0}
+    for item in items or []:
+        if item.get("state") in OWNED_STATES:
+            counts["owned"] += 1
+        elif (item.get("input") or {}).get("kind") == "unknown":
+            counts["ids"] += 1
+        elif any(
+            candidate.get("identity_match") == "different_version"
+            for candidate in item.get("candidates") or []
+        ):
+            counts["other_mix"] += 1
+        else:
+            counts["missing"] += 1
+    return counts
+
+
 def summary(app, recent: int = 5) -> dict:
     """Counts for a home screen: catalog, analysis coverage, saved work and active jobs."""
     import json as _json
 
-    from djlib.persistence.models import Collection, Delivery, Job
+    from djlib.persistence.models import Collection, Delivery, Job, Submission
 
     with app.db.transaction() as session:
         tracks = session.scalar(select(func.count()).select_from(Recording)) or 0
@@ -309,6 +334,21 @@ def summary(app, recent: int = 5) -> dict:
                 .limit(recent)
             )
         ]
+        # The set each crate was collected from, by the collect job's key: every Shazam import
+        # is called "Shazam", so a name alone can pair a new set with an old set's crate.
+        made_from = dict.fromkeys((row["collection_id"] for row in collections), None)
+        for key, collection_id in session.execute(
+            select(Submission.key, Job.result["collection_id"].as_string())
+            .join(Job, Job.id == Submission.job_id)
+            .where(
+                Submission.key.startswith("request-collection:", autoescape=True),
+                Job.result["collection_id"].as_string().in_(list(made_from)),
+            )
+            .order_by(Job.created_at)
+        ):
+            made_from[collection_id] = key.split(":")[1]
+        for row in collections:
+            row["request_id"] = made_from[row["collection_id"]]
         requests = []
         for ledger in session.scalars(
             select(RequestLedger).order_by(RequestLedger.updated_at.desc()).limit(recent)
@@ -324,6 +364,8 @@ def summary(app, recent: int = 5) -> dict:
                     "owned": states.count("satisfied"),
                     "missing": states.count("missing"),
                     "unresolved": sum(1 for s in states if s not in {"satisfied"}),
+                    # The tally `djlib requests` shows, so both screens agree.
+                    "counts": request_counts(ledger.items),
                 }
             )
         counts = {
