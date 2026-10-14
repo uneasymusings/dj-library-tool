@@ -728,7 +728,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             help="A tracklist to merge with what djlib hears: a file, or paste (see above).",
         ),
     ) -> None:
-        """Every track in a set, which you own, a crate, a rekordbox playlist, your USB.
+        """Every track in a set, what you own, then rekordbox and USB.
 
         Takes a YouTube or SoundCloud set link, a text file, or paste for what you copied.
 
