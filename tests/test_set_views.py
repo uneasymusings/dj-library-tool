@@ -295,6 +295,25 @@ def test_a_song_maybe_yours_under_a_shorter_credit_is_off_the_shopping_list(caps
     assert "Maybe yours already: check before you buy (1)" in text
 
 
+def test_only_a_shazams_own_day_reorders_a_shopping_list():
+    """“Shazamed <day>” counts only where a Shazam's notes start with it, never in page text
+    a note quotes; and undated songs keep their order after the dated ones."""
+    rows = [
+        ("", "Lumen", "Halo", "", "likely", "missing"),
+        ("", "Bicep", "Glue", "", "likely", "missing"),
+        ("", "Nia Okoro", "Slow Burn", "", "likely", "missing"),
+    ]
+    items = [ledger_item(n, *row) for n, row in enumerate(rows, 1)]
+    items[1]["input"]["notes"] = "MixesDB spells it Bicep - Glue (Shazamed 2026-01-01 Dub)"
+    found = library_cli.shopping(items)
+    text = library_cli.shopping_text("Friday", found)
+    order = [line.split("  ")[-1] for line in text.splitlines() if line.lstrip().startswith("#")]
+    assert order == ["Lumen - Halo", "Bicep - Glue", "Nia Okoro - Slow Burn"]
+    songs = [{"position": 1, "shazamed": "2026-10-01"}, {"position": 2}, {"position": 3}]
+    songs.append({"position": 4, "shazamed": "2026-10-02"})
+    assert [song["position"] for song in views.newest_first(songs)] == [4, 1, 2, 3]
+
+
 def test_the_crate_line_says_how_many_files_the_crate_holds(capsys):
     """A song the set lists twice is one file in the crate."""
     out = shown("set", set_result(KAYTRANADA[:3], crate_tracks=2), 100, capsys)
