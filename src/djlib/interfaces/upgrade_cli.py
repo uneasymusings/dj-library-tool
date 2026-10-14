@@ -248,6 +248,8 @@ def register_upgrade(app, client, emit, handled, panel=None):
             reply = envelope({**result, "update_available": newer, "updated": False})
             if check:
                 reply["result"]["recognition_installed"] = recognition_installed()
+                # `djlib upgrade` installs this release again with it (see `repair`).
+                reply["result"]["repair_available"] = repair
             else:
                 sync_plugin(reply, __version__)
             emit(reply)
@@ -273,7 +275,13 @@ def register_upgrade(app, client, emit, handled, panel=None):
         running = bool(local.discover())
         if running:
             local.request("POST", "/shutdown")
-        json_output = terminal.current().json
+        term = terminal.current()
+        json_output = term.json
+        if not json_output:
+            # uv takes a minute or two (it may fetch Python 3.12 too). Said before it starts:
+            # once it has replaced this environment, this process imports nothing more.
+            again = " again, with song recognition" if repair else ""
+            term.err.print(f"Installing djlib {latest['version']}{again}…", style="muted")
         completed = subprocess.run([uv, *command[1:]], capture_output=True, text=True)
         if completed.returncode != 0:
             raise AppError(

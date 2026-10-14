@@ -203,7 +203,9 @@ def test_a_terminal_upgrade_renders_nothing_after_the_install(tmp_path, monkeypa
     reply = upgrade(tmp_path, state, "upgrade", pretty=True)
     assert reply.exit_code == 0, reply.output
     assert "--json" not in state["commands"][1] and "--restart-service" in state["commands"][1]
-    assert state["replaced"].attempts == [] and reply.output == ""
+    # One line while uv works, said before it starts; nothing from this process after.
+    assert state["replaced"].attempts == [] and reply.stdout == ""
+    assert reply.stderr == "Installing djlib 99.0.0…\n"
 
 
 def test_upgrade_exits_with_the_finishing_steps_code(tmp_path, monkeypatch):
@@ -356,6 +358,11 @@ def test_upgrade_repairs_song_recognition_an_earlier_upgrade_left_out(tmp_path, 
     workspace = ["--workspace", str(tmp_path / "w")]
     checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
     assert checked["result"]["recognition_installed"] is False and state["commands"] == []
+    assert checked["result"]["repair_available"] is True
+    env = {"DJLIB_OUTPUT": "pretty", "COLUMNS": "100", "NO_COLOR": "1"}
+    told = CliRunner(env=env).invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout
+    assert "Song recognition  not installed" in told
+    assert "→ Add song recognition" in told and told.rstrip().endswith(" upgrade")
     assert upgrade(tmp_path, state, "upgrade").exit_code == 0
     install, finish_step = state["commands"]
     assert install[-3:] == [
