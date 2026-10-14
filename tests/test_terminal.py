@@ -1011,6 +1011,115 @@ def test_an_optional_column_with_nothing_in_it_takes_no_room():
 # -- sets, crates and where they are --------------------------------------------------------
 
 
+def test_status_lists_each_set_once_with_its_crate(capsys):
+    sets = [
+        {
+            "request_id": REQUEST,
+            "name": "Kaytranada Boiler Room",
+            "songs": 22,
+            "owned": 12,
+            "missing": 10,
+            "unresolved": 10,
+            # Newer services count other mixes and IDs apart from the missing songs.
+            "counts": {"owned": 12, "missing": 7, "other_mix": 1, "ids": 2},
+        },
+        {"request_id": "request_" + "1" * 32, "name": "Warm-up", "songs": 3, "owned": 3},
+    ]
+    crates = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Kaytranada Boiler Room",
+            "tracks": 12,
+            "in_rekordbox": True,
+            "usb": {"device": "DJ_USB", "found": 12, "expected": 12, "in_order": True},
+        },
+        {"collection_id": "collection_" + "2" * 32, "name": "Warm-up", "tracks": 3},
+        {"collection_id": "collection_" + "3" * 32, "name": "Old crate", "tracks": 5},
+    ]
+    out = render(
+        "status",
+        status_result(with_bpm=0, with_key=0, recent_requests=sets, recent_collections=crates),
+        width=160,
+        capsys=capsys,
+    )
+    assert "Request lists" not in out and out.count("Sets\n") == 1
+    assert "no BPM yet" in out and "BPM for 0" not in out
+    line = next(line for line in out.splitlines() if "Kaytranada" in line)
+    assert line.strip() == (
+        "○ Kaytranada Boiler Room  12 of 22 owned · 7 missing · 1 in another mix · 2 IDs"
+        " · crate 12 · ✓ in rekordbox · ✓ on DJ_USB"
+    )
+    assert "✓ Warm-up  3 of 3 owned · crate 3" in out
+    # A crate without a set of its name is listed once, after the sets.
+    others = out.split("Other crates\n", 1)[1]
+    assert "Old crate  5 tracks" in others and "Warm-up" not in others
+
+
+def test_request_lists_show_owned_and_missing(capsys):
+    rows = [
+        {
+            "request_id": REQUEST,
+            "name": "Friday",
+            "total_items": 22,
+            "updated_at": "",
+            "counts": {"owned": 12, "missing": 10, "other_mix": 0, "ids": 0},
+        }
+    ]
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    header = out.splitlines()[0].split()
+    assert header[:3] == ["Name", "Owned", "Missing"] and "Songs" not in header
+    assert "12 of 22" in out and "Other mix" not in out and "1 set" in out
+    # Older services list only the number of songs.
+    del rows[0]["counts"]
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    assert "Songs" in out and "Owned" not in out and "22" in out
+    empty = render("requests list", {"requests": []}, capsys=capsys)
+    assert "No sets checked yet" in empty and "djlib set paste" in empty
+
+
+def test_a_finished_collect_reads_like_a_crate_not_a_job(capsys):
+    job = {
+        "job_id": JOB,
+        "kind": "organize",
+        "state": "completed",
+        "outcome": "complete",
+        "idempotency_key": "request-collection:x",
+        "counts": {"succeeded": 12},
+        "result": {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "selected_count": 12,
+            "app_state": "not_tracked_here",
+        },
+    }
+    out = render("requests collect", job, width=120, capsys=capsys)
+    assert out.startswith("✓ Crate “Friday”  12 tracks, in set order")
+    assert "Idempotency" not in out and "not_tracked_here" not in out
+    assert f"djlib crate {SHORT_COLLECTION}" in out
+    running = render("requests collect", {**job, "state": "failed", "result": {}}, capsys=capsys)
+    assert "failed" in running  # anything else is still a job card
+
+
+def test_request_view_offers_the_crate_it_already_has(capsys):
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Friday",
+        "total_items": 2,
+        "counts": {"satisfied": 2},
+        "items": [{"position": 1, "state": "satisfied", "input": {"artist": "A", "title": "B"}}],
+        "crate": {"collection_id": COLLECTION, "tracks": 2},
+    }
+    out = render("requests get", request, width=160, capsys=capsys)
+    assert f"See the crate  djlib crate {SHORT_COLLECTION}" in out
+    assert "Build the crate" not in out and "Revision" not in out and REQUEST not in out
+    # A crate made before more songs were found is built again.
+    stale = render(
+        "requests get", {**request, "crate": {**request["crate"], "tracks": 1}}, capsys=capsys
+    )
+    assert "Build the crate from the 2 songs you own" in stale
+
+
 def test_crates_say_where_each_one_went(capsys):
     rows = [
         {

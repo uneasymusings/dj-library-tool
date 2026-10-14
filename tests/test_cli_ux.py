@@ -379,6 +379,56 @@ def test_help_opens_on_the_journey_not_on_global_options():
     assert run("--json", "--workspace", "x", "version").exit_code == 0
 
 
+# -- sets and their crates --------------------------------------------------------------------
+
+
+def test_a_set_points_at_its_crate_once_it_is_built(
+    application, library_http, audio_factory, tmp_path
+):
+    build(
+        library_http,
+        [audio_factory("a.wav", frequency=410), audio_factory("b.wav", frequency=420)],
+        [("Antdot", "Mirage"), ("Antdot", "Stay")],
+    )
+    root = application.workspace.root
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Antdot - Mirage\nAntdot - Stay\nSomeone - Not Owned\n", encoding="utf-8")
+    assert run("requests", "create", "--text", tracklist, workspace=root).exit_code == 0
+    before = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 2 songs you own" in before and "See the crate" not in before
+    assert "Revision" not in before and "request_" not in before  # short IDs only
+
+    # Followed while it builds, then found again when asked twice: the same crate card.
+    for _ in range(2):
+        built = run("requests", "collect", "last", pretty=True, workspace=root, columns=160)
+        assert built.exit_code == 0, built.output
+        assert built.stdout.startswith("✓ Crate “Friday”  2 tracks, in set order")
+        assert "Idempotency" not in built.stdout and "not_tracked_here" not in built.stdout
+    collection = json.loads(run("crate", workspace=root).stdout)["result"]["collection_id"]
+    steps = built.stdout.split("Next\n", 1)[1]
+    short = collection.removeprefix("collection_")[:8]
+    assert f"rekordbox push {short}" in steps and f" crate {short}" in steps
+
+    after = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "See the crate" in after and f" crate {short}" in after
+    assert "Build the crate" not in after
+    # JSON readers get the list exactly as before.
+    assert (
+        "crate" not in json.loads(run("requests", "get", "last", workspace=root).stdout)["result"]
+    )
+
+    # Another set with the same name (every Shazam import is "Shazam") has no crate yet.
+    other = tmp_path / "other" / "Friday.txt"
+    other.parent.mkdir()
+    other.write_text("Antdot - Mirage\nNobody - Else\n", encoding="utf-8")
+    assert run("requests", "create", "--text", other, workspace=root).exit_code == 0
+    newest = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 1 song you own" in newest and "See the crate" not in newest
+
+    listed = run("requests", pretty=True, workspace=root, columns=120).stdout
+    assert "Friday" in listed and "2 sets" in listed
+
+
 # -- doctor -----------------------------------------------------------------------------------
 
 
