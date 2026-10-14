@@ -56,6 +56,8 @@ def coordinator(application, monkeypatch, *, health_version=ABSENT, version="0.1
             }
             if state["health_version"] is not ABSENT:
                 result["application_version"] = state["health_version"]
+            if "workspace_root" in state:
+                result["workspace_root"] = state["workspace_root"]
         elif request.url.path == "/capabilities":
             if state.get("capabilities_timeout"):
                 raise httpx.ReadTimeout("synthetic version lookup timeout", request=request)

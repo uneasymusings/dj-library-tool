@@ -250,6 +250,7 @@ class LocalClient:
                     result.get("workspace_id") == self.workspace.config().workspace_id
                     and result.get("protocol_version") == "1"
                 )
+                and self._same_root(result.get("workspace_root"))
             ):
                 self._observe_health(url, result)
                 return url
@@ -264,6 +265,19 @@ class LocalClient:
         self.last_discovery_error = "identity_mismatch"
         self._forget_coordinator()
         return None
+
+    def _same_root(self, value) -> bool:
+        """Whether a service serves this workspace's folder, not a copy's original.
+
+        A copied workspace shares the original's ID and token, so only the folder tells them
+        apart. Services before 0.1.0a16 don't say; the version check replaces those.
+        """
+        if value is None:
+            return True
+        try:
+            return isinstance(value, str) and Path(value) == self.workspace.root
+        except (TypeError, ValueError):
+            return False
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.workspace.token()}"}
