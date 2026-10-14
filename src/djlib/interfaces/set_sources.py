@@ -6,9 +6,11 @@ comments and search results are evidence, and only confident search matches are 
 for download.
 """
 
+import contextlib
 import hashlib
 import json
 import re
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from djlib.domain.errors import AppError
@@ -84,6 +86,16 @@ def tracklist_from_url(local, url: str) -> tuple[str, dict]:
     if not text and (found := from_mixesdb(source)):
         text = found["text"]
     return text, source
+
+
+def saved_page_note(page: dict, url: str) -> str:
+    """What `djlib set` says when the page of a set it heard before couldn't be read."""
+    site = provider_of(page.get("url") or url) or "The site"
+    when = ""
+    with contextlib.suppress(TypeError, ValueError):
+        read = datetime.fromisoformat(str(page.get("read_at"))).astimezone()
+        when = f" on {read.day} {read:%b}"
+    return f"Couldn't reach {site} just now; this is what djlib read and heard{when}."
 
 
 def page_tracklist(page: dict) -> str:

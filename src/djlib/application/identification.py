@@ -238,6 +238,18 @@ def finished(workspace: Workspace, url: str) -> dict | None:
 
 PREVIOUS = "previous"
 RESULT_FILES = ("probes.jsonl", "tracklist.json", "tracklist.txt")
+# A page read that fails for a moment (the site or the network), not for good.
+PAGE_PASSING = frozenset({"SOURCE_FAILED", "SOURCE_TIMEOUT", "SOURCE_RATE_LIMITED"})
+
+
+def saved_page(workspace: Workspace, url: str) -> dict | None:
+    """The page a finished identification of this set was made with (page.json, ``read_at``
+    saying when), marked ``from_saved_page``: what `djlib set` uses when the page can't be
+    read just now. None when djlib never finished listening to the set."""
+    if finished(workspace, url) is None:
+        return None
+    page = _json(set_folder(workspace, url) / "page.json")
+    return {**page, "from_saved_page": True} if page.get("url") else None
 
 
 def _age(stamp: object) -> float:

@@ -59,6 +59,39 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     assert again["identified"]["reused"] is True and len(setup.fetched) == 1
 
 
+def test_a_set_heard_before_comes_back_while_its_page_does_not_answer(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """YouTube or SoundCloud fails for a moment: a set djlib already heard is shown from
+    what it read and heard then, saying so, instead of a "safe to retry" error."""
+    from djlib.domain.errors import AppError
+
+    owned(library_http, audio_factory)
+    setup.page["description"] = LISTED
+    FakeRekordbox(monkeypatch)
+    first = json.loads(invoke(application, "set", URL).stdout)["result"]
+
+    async def down(url, comments=0):
+        raise AppError("SOURCE_FAILED", "The site didn't answer.", 502, True)
+
+    import djlib.interfaces.service as service_module
+
+    monkeypatch.setattr(service_module, "inspect_source", down)
+    monkeypatch.setattr(identification.web, "inspect_source", down)
+    reply = invoke(application, "set", URL)
+    assert reply.exit_code == 0, reply.output
+    envelope = json.loads(reply.stdout)
+    again = envelope["result"]
+    assert again["request_id"] == first["request_id"] and again["identified"]["reused"] is True
+    assert any(
+        warning.startswith("Couldn't reach YouTube just now; this is what djlib read and heard on ")
+        for warning in envelope["warnings"]
+    )
+    # A set never heard still says the page couldn't be read.
+    other = invoke(application, "set", "https://www.youtube.com/watch?v=otherset123")
+    assert json.loads(other.stdout)["error"]["code"] == "SOURCE_FAILED"
+
+
 def test_a_set_checked_again_with_new_notes_keeps_its_list_crate_and_playlist(
     application, library_http, setup, audio_factory, monkeypatch
 ):
