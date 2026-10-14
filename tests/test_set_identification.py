@@ -379,13 +379,22 @@ def test_keinemusik_live_run_keeps_to_the_description():
         ("BR1S4", "THIS IS BRAZIL", "51:09"),
     ]
     # Songs heard once between Celebration and Wish I Didn't Miss You are no ID of their own.
+    # The ID's two candidates were heard there too: twice in all, so neither reads "once",
+    # and they aren't listed again as heard once, not placed.
     assert [(u["title"], clock(u["at"])) for u in result["unplaced"]] == [
         ("U Sure Do", "55:39"),
         ("New Millenium (feat. Topazz)", "55:54"),
         ("Salva Mea", "56:09"),
-        ("All I Got", "56:24"),
-        ("THIS IS BRAZIL", "56:39"),
     ]
+    assert [c["also_heard"] for c in late_id["candidates"]] == [
+        [{"at": 3384.0, "hits": 1}],
+        [{"at": 3399.0, "hits": 1}],
+    ]
+    assert track_notes(late_id) == (
+        "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I Got "
+        "(Chris Fortier 20yr Dub) (Shazam heard it at 50:09 and 56:24); possibly BR1S4 - THIS "
+        "IS BRAZIL (Shazam heard it at 51:09 and 56:39)"
+    )
     # Named is not heard: the opening ID, Deixa Passar, and Back To Life to Celebration.
     coverage = result["coverage"]
     assert coverage["gaps"] == [
