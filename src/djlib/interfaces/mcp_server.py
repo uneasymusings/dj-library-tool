@@ -68,6 +68,33 @@ def identify_view(reply: ResponseEnvelope) -> ResponseEnvelope:
     return reply
 
 
+# What an assistant does with a set it can't take from these sites: no shell command (the
+# CLI's `paste` reads the user's clipboard), the copied tracklist as tool input instead.
+ASSISTANT_ROUTES = {
+    "1001tracklists": "djlib_identify_set with the set's YouTube or SoundCloud link and "
+    "tracklist_text",
+    "mixcloud": "djlib_identify_set with the same set's YouTube or SoundCloud link, or "
+    "djlib_create_request with its copied tracklist",
+}
+
+
+def assistant_route(reply: ResponseEnvelope, url: str) -> ResponseEnvelope:
+    """A refused 1001Tracklists or Mixcloud link with what an assistant does instead."""
+    from djlib.sources import web
+
+    site = web.set_site(url)
+    code = (reply.error or {}).get("code")
+    if site is None or code not in {"SOURCE_BROWSER_ONLY", "SOURCE_UNSUPPORTED"}:
+        return reply  # an answer, or another error (no workspace yet) that says its own way
+    error = {**reply.error, "details": {"next": ASSISTANT_ROUTES[site]}}
+    if site == "mixcloud":
+        error["message"] = (
+            f"{web.MIXCLOUD} If the set is also on YouTube or SoundCloud, use that link; "
+            "otherwise check its copied tracklist."
+        )
+    return reply.model_copy(update={"error": error})
+
+
 def compact(value: dict) -> str:
     """The text twin of structuredContent: one line, no indentation."""
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -213,9 +240,10 @@ def build_server(workspace: Workspace) -> MCPServer:
         start_time (seconds into the set); YouTube comments may write timestamps in their
         text. Use them as evidence for unknown IDs; they identify nothing.
         """
-        return await request(
+        reply = await request(
             "POST", "/sources/inspect", {"url": url, "comments": comments, "mixesdb": True}
         )
+        return assistant_route(reply, url)
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_find_sources(artist: str, title: str, version: str = "") -> ResponseEnvelope:
@@ -260,7 +288,8 @@ def build_server(workspace: Workspace) -> MCPServer:
         if tracklist_text:
             source = tracklist_source.strip().lower()
             body["tracklists"] = [{"source": source, "text": tracklist_text}]
-        return identify_view(await request("POST", "/identifications", body))
+        reply = await request("POST", "/identifications", body)
+        return assistant_route(identify_view(reply), url)
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_shazam_history(

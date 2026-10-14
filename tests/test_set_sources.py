@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from djlib.domain.errors import AppError
@@ -10,25 +12,54 @@ def test_timestamps_and_set_urls():
     assert set_sources.seconds("soon") is None and set_sources.seconds(None) is None
     set_sources.check_set_url("https://soundcloud.com/matzo/fabric-mix-2026")
     set_sources.check_set_url("https://m.youtube.com/watch?v=x")
+    with pytest.raises(AppError):
+        set_sources.check_set_url("https://example.com/set")
+
+
+@pytest.mark.parametrize(
+    "link", ["https://www.1001tracklists.com/tracklist/x/set.html", "https://1001.tl/14rk2xyz"]
+)
+@pytest.mark.parametrize("platform", ["darwin", "linux", "win32"])
+def test_a_1001tracklists_link_says_what_works_here(monkeypatch, link, platform):
+    monkeypatch.setattr(sys, "platform", platform)
     with pytest.raises(AppError) as blocked:
-        set_sources.check_set_url("https://www.1001tracklists.com/tracklist/x/set.html")
+        set_sources.check_set_url(link)
     assert blocked.value.code == "SOURCE_BROWSER_ONLY" and "browser" in blocked.value.message
-    # The copied tracklist works, and better with the set's own link.
+    # The copied tracklist works, and better with the set's own link; `paste` reads the
+    # clipboard on a Mac only, so elsewhere the tracklist is a file.
     details = blocked.value.details
-    assert details["next"] == "djlib set paste"
-    assert details["next_label"] == "Copy the tracklist on the page, then"
+    copied = "paste" if platform == "darwin" else "FILE"
+    assert details["next"] == f"djlib set {copied}"
     assert [step["command"] for step in details["next_steps"]] == [
-        "djlib set paste",
-        "djlib set 'LINK' --tracklist paste",
+        f"djlib set {copied}",
+        f"djlib set 'LINK' --tracklist {copied}",
     ]
-    assert details["next_steps"][1]["label"].startswith("Better: with the set's YouTube")
+    better = details["next_steps"][1]
+    assert better["label"] == "Better: add the set's YouTube or SoundCloud link (under the player)"
+    if platform == "darwin":
+        assert details["next_label"] == "Copy the tracklist on the page, then"
+        # Copying the link would replace the copied tracklist: the link goes in first.
+        assert better["note"] == (
+            "Put the link in place of LINK, then copy the tracklist and press Enter."
+        )
+    else:
+        assert details["next_label"] == "Save the tracklist on the page as a text file, then"
     assert all(len(step["label"]) <= 70 for step in details["next_steps"])  # 80 columns
+    assert all(len(step.get("note", "")) <= 76 for step in details["next_steps"])
+    # An assistant pipes the text in; it never reads the user's clipboard.
+    assert "--tracklist -" in details["next_for_assistants"]
+    assert "djlib set - " in details["next_for_assistants"]
+
+
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_a_mixcloud_link_says_what_works_here(monkeypatch, platform):
+    monkeypatch.setattr(sys, "platform", platform)
     with pytest.raises(AppError) as mixcloud:
         set_sources.check_set_url("https://www.mixcloud.com/NTSRadio/some-show/")
     assert mixcloud.value.code == "SOURCE_UNSUPPORTED"
     assert mixcloud.value.message.startswith("Mixcloud doesn't allow downloads")
-    with pytest.raises(AppError):
-        set_sources.check_set_url("https://example.com/set")
+    copied = "djlib set paste" if platform == "darwin" else "djlib set FILE"
+    assert mixcloud.value.message.endswith(f"run {copied}.")
 
 
 class FakeLocal:
