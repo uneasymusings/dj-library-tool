@@ -799,7 +799,9 @@ def scan(
     # In a terminal, follow each folder's scan in turn, then say it once: one result and one
     # Next block, exiting with the worst outcome.
     print_warnings(term, [warning for reply in replies for warning in reply.get("warnings", [])])
-    views.follow_scans(term, local, [reply["result"] for reply in replies])
+    views.follow_scans(
+        term, local, [reply["result"] for reply in replies], whole=len(folders) == len(allowed)
+    )
 
 
 @app.command(hidden=True)
