@@ -981,6 +981,21 @@ def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(caps
     assert "Why" in wide and "Shazam: 6 windows from 34:39" in wide and "#2 From" not in wide
 
 
+def test_lines_with_the_same_reason_share_one_line_under_the_table(capsys):
+    # Live, the Kaytranada set printed "#n From MixesDB" ten times under its table.
+    tracks = [
+        identified(n, f"Love & Pain Number {n} (Kaytranada Remix)", "likely", "From MixesDB")
+        for n in (1, 2, 4, 5, 6, 8, 9)
+    ] + [identified(3, "", "unidentified", "Listed as an ID in the description", kind="unknown")]
+    tracks.sort(key=lambda track: track["n"])
+    result = {"source": {"url": "https://soundcloud.com/a/b"}, "tracks": tracks, "counts": {}}
+    views.identify_view(sized(80), result)
+    out = capsys.readouterr().out
+    assert out.count("From MixesDB") == 1
+    assert "From MixesDB: #1, #2, #4, #5, #6, #8, #9" in out
+    assert "#3 Listed as an ID in the description" in out
+
+
 def test_an_optional_column_with_nothing_in_it_takes_no_room():
     import io
 
