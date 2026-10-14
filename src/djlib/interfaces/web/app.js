@@ -4,6 +4,7 @@
 
 const TOKEN_KEY = "djlib.token";
 const WORKSPACE_KEY = "djlib.workspace";
+const HOME = "#/sets";
 const ACTIVE = new Set(["queued", "running"]);
 const state = { token: null, workspace: null, render: 0, timer: null };
 
@@ -18,7 +19,7 @@ function readHandoff() {
     if (params.get("ws")) sessionStorage.setItem(WORKSPACE_KEY, params.get("ws"));
     else sessionStorage.removeItem(WORKSPACE_KEY);
     // Keep the token out of history, bookmarks and screenshots of the address bar.
-    history.replaceState(null, "", location.pathname + "#/overview");
+    history.replaceState(null, "", location.pathname + HOME);
   }
   state.token = sessionStorage.getItem(TOKEN_KEY);
   state.workspace = sessionStorage.getItem(WORKSPACE_KEY);
@@ -92,7 +93,9 @@ function h(tag, attrs, ...children) {
   return node;
 }
 
-function table(columns, rows, { onRow } = {}) {
+// `kind` picks the phone layout: "t-set" and "t-lib" are track rows, "t-list" saved lists,
+// and "stack" (the default) stacks each cell under its label.
+function table(columns, rows, { onRow, kind = "stack", rowAttrs, onRender } = {}) {
   // Optional columns disappear when no row has a value, as in the terminal.
   columns = columns.filter((column) => !column.optional || rows.some((row) => column.optional(row)));
   const head = h("tr", null, columns.map((column) => h("th", { class: column.class }, column.label)));
@@ -102,14 +105,17 @@ function table(columns, rows, { onRow } = {}) {
       const value = column.cell(row);
       return h("td", { class: column.class, "data-label": column.label || null }, value);
     });
-    const tr = h("tr", onRow ? { class: "link" } : null, cells);
+    const attrs = { ...(rowAttrs ? rowAttrs(row) : {}) };
+    if (onRow) attrs.class = `${attrs.class || ""} link`.trim();
+    const tr = h("tr", attrs, cells);
     if (onRow) tr.addEventListener("click", (event) => {
       if (event.target.closest("a, button")) return;
       onRow(row);
     });
+    if (onRender) onRender(row, tr);
     body.append(tr);
   }
-  return h("div", { class: "table-wrap" }, h("table", null, h("thead", null, head), body));
+  return h("div", { class: `table-wrap ${kind}` }, h("table", null, h("thead", null, head), body));
 }
 
 function empty(...lines) {
@@ -128,7 +134,7 @@ function pageHead(title, subtitle, ...extra) {
 }
 
 function crumb(href, label) {
-  return h("a", { class: "crumb", href }, label);
+  return h("a", { class: "crumb", href }, h("span", { "aria-hidden": "true" }, "‹ "), label);
 }
 
 // -- formatting -------------------------------------------------------------------------------
@@ -163,6 +169,13 @@ function duration(seconds) {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
 }
 
+// "05:39" or "1:02:09" in a set, as seconds; null for anything else.
+function stampSeconds(stamp) {
+  const match = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/.exec(String(stamp || "").trim());
+  if (!match) return null;
+  return Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
 function audioFormat(track) {
   const properties = track.properties || {};
   const path = track.path || track.last_known_path || "";
@@ -192,6 +205,13 @@ function trackLabel(track) {
     track.version ? h("span", { class: "muted" }, ` (${track.version})`) : null);
 }
 
+// "Artist - Title (Version)": how a DJ types it into a store search or a notes app.
+function plainLabel(track) {
+  if (!track || track.kind === "unknown") return "ID";
+  const base = `${track.artist || "Unknown artist"} - ${track.title || "Untitled"}`;
+  return track.version ? `${base} (${track.version})` : base;
+}
+
 const SOURCES = {
   rekordbox_analysis: "rekordbox analysis",
   native_tag: "file tag",
@@ -213,6 +233,13 @@ function commandText(...parts) {
   return words.concat(parts.map((part) => quote(String(part)))).join(" ");
 }
 
+// The 8-character handle the terminal prints and accepts, as terminal.short_id makes it.
+function shortId(id) {
+  const value = String(id || "");
+  const cut = value.lastIndexOf("_");
+  return cut > 0 && cut < value.length - 1 ? value.slice(cut + 1, cut + 9) : value;
+}
+
 function copyable(text) {
   const button = h("button", { class: "small", type: "button" }, "Copy");
   button.addEventListener("click", async () => {
@@ -225,6 +252,107 @@ function copyable(text) {
     setTimeout(() => { button.textContent = "Copy"; }, 1600);
   });
   return h("div", { class: "command" }, h("code", null, text), button);
+}
+
+// A button that copies lines the page doesn't show; if the browser refuses, the lines
+// appear under the button's row, ready to select.
+function copyLines(label, lines) {
+  const button = h("button", { class: "small copy-lines", type: "button" }, label);
+  let shown = null;
+  button.addEventListener("click", async () => {
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = "Copied";
+    } catch {
+      if (!shown) {
+        shown = h("pre", { class: "copy-out", tabindex: "0" }, text);
+        (button.parentElement || button).after(shown);
+      }
+      button.textContent = "Select and copy below";
+    }
+    setTimeout(() => { button.textContent = label; }, 1600);
+  });
+  return button;
+}
+
+// -- links out: listening and store searches --------------------------------------------------
+// Only these hosts become links; anything else a page or tracklist says stays plain text.
+
+const YOUTUBE_HOSTS = new Set(["www.youtube.com", "youtube.com", "m.youtube.com"]);
+
+function parsedHttps(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""));
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
+  return url;
+}
+
+function provider(value) {
+  const url = parsedHttps(value);
+  if (!url) return null;
+  if (YOUTUBE_HOSTS.has(url.hostname) || url.hostname === "youtu.be") return "youtube";
+  if (url.hostname === "soundcloud.com") return "soundcloud";
+  return null;
+}
+
+function clock(seconds) {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = String(whole % 60).padStart(2, "0");
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
+}
+
+// The set at that moment: YouTube ?t=, SoundCloud #t=. Null for any other link.
+function listenUrl(sourceUrl, seconds) {
+  const url = parsedHttps(sourceUrl);
+  if (!url || typeof seconds !== "number") return null;
+  const at = Math.max(0, Math.floor(seconds));
+  let video = null;
+  if (YOUTUBE_HOSTS.has(url.hostname)) video = url.searchParams.get("v");
+  else if (url.hostname === "youtu.be") video = url.pathname.slice(1);
+  if (video !== null) {
+    return /^[\w-]{6,20}$/.test(video) ? `https://www.youtube.com/watch?v=${video}&t=${at}s` : null;
+  }
+  if (url.hostname === "soundcloud.com" && /^\/[\w-]+\/[\w-]+\/?$/.test(url.pathname)) {
+    return `https://soundcloud.com${url.pathname}#t=${clock(at)}`;
+  }
+  return null;
+}
+
+const STORES = [
+  ["Beatport", "www.beatport.com", (query) => `https://www.beatport.com/search?q=${query}`],
+  ["Bandcamp", "bandcamp.com", (query) => `https://bandcamp.com/search?q=${query}&item_type=t`],
+];
+
+// Search words without the noise stores trip over: featured artists, (Original Mix), [LABEL].
+function storeQuery(track) {
+  const clean = (value) => String(value || "").replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+  const artist = clean(track.artist).replace(/\s+(?:feat\.?|ft\.?|featuring)\s.*$/i, "");
+  const title = clean(track.title).replace(/\s*\((?:feat\.?|ft\.?|featuring)\s[^)]*\)/i, "");
+  const version = /^original mix$/i.test(clean(track.version)) ? "" : clean(track.version);
+  return [artist, title, version].filter(Boolean).join(" ");
+}
+
+// Store searches for a song you don't own; djlib never opens them itself.
+function storeLinks(item) {
+  const shop = item.shop || {};
+  const query = encodeURIComponent(storeQuery(item.input || {}));
+  return STORES.map(([name, host, build]) => {
+    const given = parsedHttps(shop[name.toLowerCase()]);
+    return [name, given && given.hostname === host ? given.href : build(query)];
+  });
+}
+
+function storeLinksNode(item) {
+  const links = storeLinks(item).map(([name, url]) =>
+    h("a", { href: url, target: "_blank", rel: "noopener noreferrer", title: `Search ${name}` }, name));
+  return h("span", { class: "buy" }, links.flatMap((link, index) => (index ? [h("span", { "aria-hidden": "true" }, " · "), link] : [link])));
 }
 
 // -- status vocabulary (mirrors the terminal) -------------------------------------------------
@@ -250,6 +378,12 @@ function chip(tone, glyph, label) {
   return h("span", { class: `chip ${tone}` }, h("span", { class: "g", "aria-hidden": "true" }, glyph), label);
 }
 
+// A status pill; on a phone only its glyph shows, and the word stays for screen readers.
+function pill(tone, glyph, label, title) {
+  return h("span", { class: `pill ${tone}`, title: title || null },
+    h("span", { class: "g", "aria-hidden": "true" }, glyph), h("span", { class: "l" }, label));
+}
+
 const COUNT_TONES = [
   ["succeeded", "ok", "succeeded"],
   ["failed", "bad", "failed"],
@@ -267,14 +401,15 @@ function countsText(counts) {
 }
 
 const JOB_KINDS = {
+  identify: "Set ID",
   scan: "Scan",
-  collection: "Collection",
+  collection: "Crate",
   download: "Download",
   export: "Export",
   delivery: "Delivery prep",
   delivery_check: "Delivery check",
-  organize: "Organize",
-  organization: "Notes",
+  organize: "Crate",
+  organization: "Crate",
   reconcile: "Reconcile",
 };
 
@@ -286,10 +421,146 @@ function jobTable(jobs) {
       { label: "Name", class: "clip", cell: (job) => job.name || "", optional: (job) => job.name },
       { label: "Items", cell: (job) => countsText(job.counts) },
       { label: "Updated", cell: (job) => h("span", { class: "muted" }, ago(job.updated_at)) },
-      { label: "Job", cell: (job) => h("span", { class: "id" }, job.job_id) },
     ],
     jobs,
+    { rowAttrs: (job) => ({ title: job.job_id }) },
   );
+}
+
+// -- what you own, per track ------------------------------------------------------------------
+
+function otherMixes(item) {
+  if (item.state !== "missing") return [];
+  const names = (item.candidates || [])
+    .filter((candidate) => candidate.identity_match === "different_version")
+    .map((candidate) => (candidate.version ? `${candidate.title} (${candidate.version})` : candidate.title));
+  return [...new Set(names.filter(Boolean))];
+}
+
+// owned | missing | other | id: the same four answers as the terminal's Own column.
+function ownKind(item) {
+  if (item.state === "satisfied") return "owned";
+  if (item.state === "unknown") return "id";
+  return otherMixes(item).length ? "other" : "missing";
+}
+
+// The same tally as a /requests row's counts, for items the page has in hand.
+function countsOf(items) {
+  const counts = { owned: 0, missing: 0, other_mix: 0, ids: 0 };
+  const keys = { owned: "owned", missing: "missing", other: "other_mix", id: "ids" };
+  for (const item of items) counts[keys[ownKind(item)]] += 1;
+  return counts;
+}
+
+function tally(counts) {
+  const parts = [
+    ["owned", counts.owned || 0, "owned"],
+    ["other", counts.other_mix || 0, "other mix"],
+    ["missing", counts.missing || 0, "missing"],
+    ["id", counts.ids || 0, counts.ids === 1 ? "ID" : "IDs"],
+  ];
+  return parts.filter(([kind, count]) => count || kind === "owned")
+    .map(([kind, count, word]) => h("span", { class: `t ${kind}` }, h("b", null, count), ` ${word}`));
+}
+
+function tallyText(counts) {
+  return tally(counts).map((node) => node.textContent).join(", ");
+}
+
+// One equal segment per track, in set order: the set at a glance.
+function strip(items, { compact = false, onPick } = {}) {
+  const bar = h("div", {
+    class: `strip${compact ? " compact" : ""}${items.length > 60 ? " dense" : ""}`,
+    role: "img",
+    "aria-label": tallyText(countsOf(items)),
+  });
+  for (const item of items) {
+    const input = item.input || {};
+    const where = input.timestamp || `#${item.position}`;
+    const segment = h("span", { class: `seg ${ownKind(item)}`, title: `${where}  ${plainLabel(input).replace(" - ", " – ")}` });
+    if (onPick) segment.addEventListener("click", () => onPick(item));
+    bar.append(segment);
+  }
+  return bar;
+}
+
+// For lists too long to fetch for a glance: the same colours, grouped.
+function countsStrip(counts) {
+  const bar = h("div", { class: "strip compact grouped", role: "img", "aria-label": tallyText(counts) });
+  for (const [kind, key] of [["owned", "owned"], ["other", "other_mix"], ["missing", "missing"], ["id", "ids"]]) {
+    if (!counts[key]) continue;
+    const segment = h("span", { class: `seg ${kind}` });
+    segment.style.setProperty("flex-grow", String(counts[key]));
+    bar.append(segment);
+  }
+  return bar;
+}
+
+// Where the set came from, from the link its IDs carry, or a Shazam list's notes.
+function setSource(items) {
+  for (const item of items) {
+    const url = item.input?.source_url;
+    const kind = provider(url);
+    if (kind) return { kind, url };
+  }
+  const named = items.filter((item) => item.input?.kind !== "unknown");
+  if (named.length && named.every((item) => /^Shazamed\b/.test(item.input?.notes || ""))) {
+    return { kind: "shazam", url: null };
+  }
+  return null;
+}
+
+const SOURCE_NAMES = { youtube: "YouTube", soundcloud: "SoundCloud", shazam: "Shazam" };
+
+function sourceBadge(source) {
+  return source ? h("span", { class: `src ${source.kind}` }, SOURCE_NAMES[source.kind]) : null;
+}
+
+const SURE = {
+  confirmed: [3, "Confirmed: heard and listed, or heard many times"],
+  likely: [2, "Likely: one good source, such as a tracklist"],
+  weak: [1, "Weak: heard once, or a listener's guess. Worth a listen"],
+  conflict: [1, "Conflict: listed as one song, heard as another"],
+  unidentified: [0, "Not identified yet"],
+};
+
+function sureMeter(confidence) {
+  if (!confidence) return "";
+  const [level, title] = SURE[confidence] || [0, confidence];
+  return h("span", { class: `meter m${level}${confidence === "conflict" ? " conflict" : ""}`, title, role: "img", "aria-label": title },
+    [1, 2, 3].map((bar) => h("i", { class: bar <= level ? "on" : null })));
+}
+
+// An ID's lead, "maybe X" or "likely X", out of its notes; the rest of the notes stay.
+function idHint(notes) {
+  const text = String(notes || "");
+  const likely = /^ID \(likely (.+?)\): /.exec(text);
+  if (likely) return { hint: `likely ${likely[1]}`, rest: text.slice(likely[0].length) };
+  const maybe = /(?:^|; )possibly (.+?) \([^()]*\d:\d\d[^()]*\)(?=;|$)/.exec(text);
+  if (maybe) {
+    const rest = (text.slice(0, maybe.index) + text.slice(maybe.index + maybe[0].length)).replace(/^; /, "");
+    return { hint: `maybe ${maybe[1]}`, rest };
+  }
+  return { hint: null, rest: text };
+}
+
+function capital(text) {
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+function trackCell(item) {
+  const input = item.input || {};
+  if (input.kind === "unknown") {
+    const { hint, rest } = idHint(input.notes);
+    return [
+      h("div", { class: "name id" }, h("b", null, "ID"), hint ? h("span", { class: "muted" }, ` — ${hint}`) : null),
+      rest ? h("div", { class: "note", title: input.notes }, capital(rest)) : null,
+    ];
+  }
+  return [
+    h("div", { class: "name" }, trackLabel(input)),
+    input.notes ? h("div", { class: "note", title: input.notes }, input.notes) : null,
+  ];
 }
 
 // -- views ------------------------------------------------------------------------------------
@@ -313,8 +584,8 @@ async function overview() {
   } else {
     view.append(h("p", { class: "summary" },
       "Your library has ", n(library.total), library.total === 1 ? " track" : " tracks",
-      " in ", n(collections.total), collections.total === 1 ? " collection" : " collections",
-      ". You have ", n(requests.total), requests.total === 1 ? " request list" : " request lists",
+      ". You have ", n(requests.total), requests.total === 1 ? " set" : " sets",
+      ", ", n(collections.total), collections.total === 1 ? " crate" : " crates",
       " and ", n(deliveries.total), deliveries.total === 1 ? " delivery." : " deliveries."));
   }
   view.append(h("h2", null, "Recent jobs"));
@@ -323,19 +594,31 @@ async function overview() {
   return view;
 }
 
-function libraryTable(tracks) {
+function libraryTable(tracks, { numbered = false } = {}) {
+  const position = new Map(tracks.map((track, index) => [track, index + 1]));
+  const dj = (key) => (t) => t.dj?.[key] !== null && t.dj?.[key] !== undefined && t.dj?.[key] !== "";
   return table(
     [
-      { label: "Artist", class: "clip", cell: (t) => t.artist },
-      { label: "Title", class: "clip title", cell: (t) => t.title },
-      { label: "Version", class: "clip muted", cell: (t) => t.version || "", optional: (t) => t.version },
-      { label: "BPM", class: "num", cell: (t) => readout(t.dj?.bpm, "bpm", t.dj?.bpm_source, t.dj?.bpm_verified) },
-      { label: "Key", class: "num", cell: (t) => readout(t.dj?.key, "key", t.dj?.key_source, t.dj?.key_verified) },
-      { label: "Time", class: "num", cell: (t) => duration(t.properties?.duration_seconds) },
-      { label: "Format", class: "muted", cell: audioFormat },
-      { label: "File", class: "file", cell: (t) => fileTail(t.path || t.last_known_path) },
-    ],
+      numbered ? { label: "#", class: "num muted c-pos", cell: (t) => position.get(t) } : null,
+      { label: "Title", class: "clip title c-title", cell: (t) => t.title },
+      { label: "Artist", class: "clip c-artist", cell: (t) => t.artist },
+      { label: "Version", class: "clip muted c-ver", cell: (t) => t.version || "", optional: (t) => t.version },
+      {
+        label: "BPM", class: "num c-bpm",
+        cell: (t) => readout(t.dj?.bpm, "bpm", t.dj?.bpm_source, t.dj?.bpm_verified),
+        optional: numbered ? dj("bpm") : null,
+      },
+      {
+        label: "Key", class: "num c-key",
+        cell: (t) => readout(t.dj?.key, "key", t.dj?.key_source, t.dj?.key_verified),
+        optional: numbered ? dj("key") : null,
+      },
+      { label: "Time", class: "num c-time", cell: (t) => duration(t.properties?.duration_seconds) },
+      { label: "Format", class: "muted c-format", cell: audioFormat },
+      { label: "File", class: "file c-file", cell: (t) => fileTail(t.path || t.last_known_path) },
+    ].filter(Boolean),
     tracks,
+    { kind: numbered ? "t-lib numbered" : "t-lib" },
   );
 }
 
@@ -348,8 +631,9 @@ async function library() {
     "aria-label": "Search the library",
     autocomplete: "off",
   });
+  const subtitle = h("p", { class: "sub" }, "Every word must match; case and accents are ignored.");
   const results = h("div");
-  view.append(pageHead("Library", "Every word must match; case and accents are ignored.", input), results);
+  view.append(h("div", { class: "head" }, h("div", null, h("h1", null, "Library"), subtitle), input), results);
   let pending = 0;
 
   async function load(query) {
@@ -363,8 +647,12 @@ async function library() {
       tracks.push(...reply.tracks);
       total = reply.total;
       after = reply.next_cursor;
+      if (!query && total) subtitle.textContent = `${plural(total, "track")}. Search by any words in the artist, title or version.`;
+      const none = query
+        ? empty(`No tracks match “${query}”.`)
+        : empty("No tracks yet. Index your music folder from a terminal:", copyable(commandText("scan")));
       results.replaceChildren(...[
-        tracks.length ? libraryTable(tracks) : empty(query ? `No tracks match “${query}”.` : "Your library is empty."),
+        tracks.length ? libraryTable(tracks) : none,
         tracks.length ? h("p", { class: "muted more" }, `${tracks.length} of ${plural(total, "track")}`) : null,
         after ? h("button", { type: "button", class: "more", onclick: () => page().catch(show) }, "Load more") : null,
       ].filter(Boolean));
@@ -382,49 +670,97 @@ async function library() {
   return view;
 }
 
-function listView({ title, subtitle, path, key, columns, emptyText, href }) {
+function listView({ title, subtitle, path, key, columns, emptyText, href, rowTitle, kind }) {
   return async () => {
     const reply = await api(path, { params: { limit: 100 } });
     const rows = reply[key];
-    const view = h("section", null, pageHead(title, subtitle(reply.total)));
-    view.append(rows.length ? table(columns, rows, { onRow: (row) => { location.hash = href(row); } }) : emptyText());
+    const view = h("section", null, pageHead(title, rows.length ? subtitle(reply.total) : null));
+    view.append(rows.length
+      ? table(columns, rows, {
+        onRow: (row) => { location.hash = href(row); },
+        rowAttrs: rowTitle ? (row) => ({ title: rowTitle(row) }) : null,
+        kind,
+      })
+      : emptyText());
     return view;
   };
 }
 
-const requestsList = listView({
-  title: "Requests",
-  subtitle: (total) => `${plural(total, "saved list")} of songs you want.`,
-  path: "/requests",
-  key: "requests",
-  href: (row) => `#/requests/${encodeURIComponent(row.request_id)}`,
-  emptyText: () => empty(
-    "No request lists yet. Paste a tracklist into a text file, one “Artist - Title” per line, then run:",
-    copyable(commandText("requests", "create", "--text", "tracklist.txt")),
-  ),
-  columns: [
-    { label: "Name", class: "title", cell: (row) => h("a", { href: `#/requests/${encodeURIComponent(row.request_id)}` }, row.name) },
-    { label: "Songs", class: "num", cell: (row) => row.total_items },
-    { label: "Updated", cell: (row) => h("span", { class: "muted" }, ago(row.updated_at || row.created_at)) },
-    { label: "Request", cell: (row) => h("span", { class: "id" }, row.request_id) },
-  ],
-});
+// Run `work` over values, a few at a time; one failure leaves the others alone.
+async function eachLimited(values, limit, work) {
+  let next = 0;
+  const runner = async () => {
+    while (next < values.length) {
+      const value = values[next++];
+      try {
+        await work(value);
+      } catch {
+        // The row keeps the tally it already has.
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, runner));
+}
 
-const REQUEST_STATES = {
-  satisfied: ["ok", "✓", "Owned", "owned"],
-  missing: ["bad", "✗", "Missing", "missing"],
-  ambiguous: ["warn", "!", "Pick a version", "to pick"],
-  unknown: ["pending", "○", "Unknown ID", "unknown IDs"],
-  unavailable: ["warn", "!", "File unavailable", "unavailable"],
-  source_selected: ["info", "◐", "Source picked", "with a source"],
-};
+const GLANCE_ITEMS = 100;
 
-function requestChip(item) {
-  const otherVersion = item.state === "missing" &&
-    (item.candidates || []).some((candidate) => candidate.identity_match === "different_version");
-  if (otherVersion) return chip("warn", "≈", "Other version owned");
-  const [tone, glyph, label] = REQUEST_STATES[item.state] || ["pending", "○", item.state];
-  return chip(tone, glyph, label);
+function setRow(row) {
+  const href = `#/sets/${encodeURIComponent(row.request_id)}`;
+  const badge = h("span", { class: "src-slot", hidden: true });
+  const bar = h("div", { class: "strip compact loading-strip", "aria-hidden": "true" });
+  const counts = h("p", { class: "tally" }, row.counts ? tally(row.counts) : null);
+  const when = ago(row.updated_at || row.created_at);
+  const node = h("li", { title: row.request_id },
+    h("a", { class: "set", href },
+      h("div", { class: "set-name" },
+        h("span", { class: "name", title: row.name }, row.name),
+        h("span", { class: "meta" }, badge, plural(row.total_items, "track"), when ? ` · ${when}` : null)),
+      bar,
+      counts));
+  // The first page of tracks is enough for the badge; a longer list's strip comes from
+  // its counts, grouped, rather than from fetching every page.
+  async function fill() {
+    const ledger = await api(`/requests/${encodeURIComponent(row.request_id)}`, { params: { limit: GLANCE_ITEMS } });
+    const whole = ledger.next_offset === null || ledger.next_offset === undefined;
+    const glance = whole ? ledger.items : null;
+    if (glance) bar.replaceWith(strip(glance, { compact: true }));
+    else if (row.counts) bar.replaceWith(countsStrip(row.counts));
+    const source = setSource(ledger.items);
+    if (source) badge.replaceWith(sourceBadge(source));
+    if (!row.counts && glance) counts.replaceChildren(...tally(countsOf(glance)));
+  }
+  return { node, fill };
+}
+
+async function setsList() {
+  const first = await api("/requests", { params: { limit: 50 } });
+  if (!first.requests.length) {
+    return h("section", null, pageHead("Sets"), empty(
+      "No sets yet. Copy a set's link or tracklist, then run this in a terminal:",
+      copyable(commandText("set", "paste")),
+    ));
+  }
+  const list = h("ol", { class: "sets" });
+  const more = h("div");
+  const view = h("section", null,
+    pageHead("Sets", `${plural(first.total, "set")}, newest first. Owned tracks are in a crate, in set order.`),
+    list, more);
+  const show = (reply) => {
+    const rows = reply.requests.map(setRow);
+    list.append(...rows.map((row) => row.node));
+    more.replaceChildren(reply.next_cursor
+      ? h("button", {
+        type: "button",
+        class: "more",
+        onclick: () => api("/requests", { params: { limit: 50, after: reply.next_cursor } })
+          .then(show).catch((error) => more.replaceChildren(errorNotice(error))),
+      }, "Load more")
+      : h("p", { class: "hint" }, "Check another set: copy its link or tracklist, then run ",
+        h("code", { class: "inline" }, commandText("set", "paste"))));
+    eachLimited(rows, 4, (row) => row.fill());
+  };
+  show(first);
+  return view;
 }
 
 async function requestDetail(requestId) {
@@ -436,17 +772,36 @@ async function requestDetail(requestId) {
     items.push(...ledger.items);
     after = ledger.next_offset;
   } while (after !== null && after !== undefined);
-  const counts = ledger.counts || {};
+  const counts = countsOf(items);
+  const source = setSource(items);
+  const setUrl = source?.url || null;
   const message = h("div");
-  const view = h("section", null, crumb("#/requests", "Requests"));
-  const build = h("button", { type: "button", class: "primary", disabled: !counts.satisfied }, "Build crate from owned tracks");
-  view.append(pageHead(ledger.name, `${plural(ledger.total_items, "song")}, revision ${ledger.revision}`, build), message);
+  const view = h("section", { class: "set-page" }, crumb("#/sets", "Sets"));
+  const build = h("button", { type: "button", class: "primary", disabled: !counts.owned },
+    counts.owned ? `Build crate (${plural(counts.owned, "track")})` : "Build crate");
+  const when = ago(ledger.updated_at || ledger.created_at);
+  view.append(h("div", { class: "set-head" },
+    h("div", { class: "set-title" },
+      h("p", { class: "meta" }, sourceBadge(source), plural(ledger.total_items, "track"), when ? ` · checked ${when}` : null),
+      h("h1", null, ledger.name)),
+    build), message);
 
-  const tally = h("p", { class: "tally" });
-  for (const [stateName, [tone, , , label]] of Object.entries(REQUEST_STATES)) {
-    if (counts[stateName]) tally.append(h("span", { class: tone }, h("b", null, counts[stateName]), ` ${label}`));
-  }
-  view.append(tally);
+  const rows = new Map();
+  const pick = (item) => {
+    const row = rows.get(item);
+    if (!row) return;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    row.classList.remove("flash");
+    void row.offsetWidth; // restart the highlight when the same track is picked twice
+    row.classList.add("flash");
+  };
+  view.append(strip(items, { onPick: pick }));
+
+  const missing = items.filter((item) => ownKind(item) === "missing" && item.input?.kind !== "unknown");
+  view.append(h("div", { class: "set-tally" },
+    h("p", { class: "tally big" }, tally(counts)),
+    missing.length ? copyLines(`Copy ${missing.length} missing`, missing.map((item) => plainLabel(item.input))) : null));
 
   build.addEventListener("click", async () => {
     build.disabled = true;
@@ -460,8 +815,8 @@ async function requestDetail(requestId) {
       const collectionId = job.result?.collection_id;
       if (job.state === "completed" && collectionId) {
         message.replaceChildren(h("div", { class: "notice ok" },
-          `Crate ready with ${plural(job.result.selected_count ?? counts.satisfied, "track")}. `,
-          h("a", { href: `#/collections/${encodeURIComponent(collectionId)}` }, "Open the collection")));
+          `Crate ready with ${plural(job.result.selected_count ?? counts.owned, "track")}, in set order. `,
+          h("a", { href: `#/collections/${encodeURIComponent(collectionId)}` }, "Open the crate")));
       } else {
         message.replaceChildren(notice("bad", `The crate job ended as ${job.state}.`, job.job_id));
       }
@@ -497,44 +852,62 @@ async function requestDetail(requestId) {
     }
   }
 
-  const describe = (item) => {
-    const input = item.input || {};
-    if (input.kind === "unknown") {
-      return h("span", null, h("span", { class: "muted" }, input.label || "Unknown"),
-        input.timestamp ? h("span", { class: "muted" }, ` at ${input.timestamp}`) : null);
-    }
-    return trackLabel(input);
+  const timed = items.some((item) => item.input?.timestamp);
+  const moment = (item) => {
+    const stamp = item.input?.timestamp;
+    if (!stamp) return h("span", { class: "pos" }, item.position);
+    const link = setUrl && listenUrl(setUrl, stampSeconds(stamp));
+    return link
+      ? h("a", { class: "time", href: link, target: "_blank", rel: "noopener noreferrer", title: `Play the set from ${stamp}` }, stamp)
+      : h("span", { class: "time" }, stamp);
   };
 
-  const detail = (item) => {
-    if (item.accepted?.path) return fileTail(item.accepted.path);
+  const own = (item) => {
+    const kind = ownKind(item);
+    const accepted = item.accepted || {};
+    if (kind === "owned") {
+      return [
+        pill("ok", "✓", "Owned", accepted.path || null),
+        accepted.matched_as ? h("div", { class: "own-note" }, `as ${accepted.matched_as}`) : null,
+      ];
+    }
+    if (kind === "id") return pill("id", "○", "ID");
+    if (kind === "other") {
+      return [pill("other", "≈", "Other mix"), h("div", { class: "own-note" }, `You own ${otherMixes(item).join(", ")}`)];
+    }
     const candidates = item.candidates || [];
     if (item.state === "ambiguous" && candidates.length) {
-      return h("ul", { class: "candidates" }, candidates.map((candidate) => {
+      return [pill("warn", "!", "Pick a version"), h("ul", { class: "candidates" }, candidates.map((candidate) => {
         const button = h("button", { type: "button", class: "small" }, "Use this");
         button.addEventListener("click", () => choose(item, candidate, button));
-        return h("li", null, button, fileTail(candidate.path || (candidate.locations || [])[0]),
-          h("span", { class: "id" }, (candidate.sha256 || "").slice(0, 10)));
-      }));
+        return h("li", null, button, fileTail(candidate.path || (candidate.locations || [])[0]));
+      }))];
     }
-    const others = candidates.filter((candidate) => candidate.identity_match === "different_version");
-    if (others.length) {
-      return h("span", { class: "muted" }, "You own: ", others.map((candidate) => candidate.version || candidate.title).join(", "));
+    if (item.state === "unavailable") return pill("warn", "!", "File unavailable", "djlib can't read the file right now");
+    if (item.state === "source_selected") {
+      return [pill("info", "◐", "Source picked"), h("div", { class: "own-note path" }, item.source_selection?.source_url || "")];
     }
-    if (item.source_selection?.source_url) return h("span", { class: "path" }, item.source_selection.source_url);
-    return "";
+    return [pill("bad", "✗", "Missing"), item.input?.kind !== "unknown" ? storeLinksNode(item) : null];
   };
 
   view.append(table(
     [
-      { label: "#", class: "num muted", cell: (item) => item.position },
-      { label: "Status", cell: requestChip },
-      { label: "Requested", cell: describe },
-      { label: "In your library", cell: detail },
+      { label: timed ? "Time" : "#", class: "c-time", cell: moment },
+      { label: "Sure", class: "c-sure", cell: (item) => sureMeter(item.input?.confidence), optional: (item) => item.input?.confidence },
+      { label: "Track", class: "c-track", cell: trackCell },
+      { label: "Own", class: "c-own", cell: own },
     ],
     items,
+    {
+      kind: `t-set${timed ? " timed" : ""}${items.some((item) => item.input?.confidence) ? " sure" : ""}`,
+      rowAttrs: (item) => ({ class: `own-${ownKind(item)}` }),
+      onRender: (item, tr) => rows.set(item, tr),
+    },
   ));
-  view.append(h("p", { class: "muted more" }, "Matched by artist, title and version labels; djlib does not listen to audio."));
+  const unsure = items.some((item) => ["likely", "weak", "conflict"].includes(item.input?.confidence));
+  view.append(h("p", { class: "foot" },
+    "Matched to your files by exact artist, title and version. Another mix is never swapped in.",
+    unsure ? " Likely and weak lines are worth a listen before you play them." : null));
   return view;
 }
 
@@ -547,17 +920,21 @@ async function waitForJob(job) {
 }
 
 const collectionsList = listView({
-  title: "Collections",
-  subtitle: (total) => `${plural(total, "collection")}. A track can sit in several without duplicating files.`,
+  title: "Crates",
+  subtitle: (total) => `${plural(total, "crate")}, newest first. A crate keeps its set's order.`,
   path: "/collections",
   key: "collections",
+  kind: "t-list",
   href: (row) => `#/collections/${encodeURIComponent(row.collection_id)}`,
-  emptyText: () => empty("No collections yet. Build one from a request list or ask your assistant."),
+  rowTitle: (row) => row.collection_id,
+  emptyText: () => empty(["No crates yet. Crates appear when you run ", h("code", { class: "inline" }, "djlib set"), "."]),
   columns: [
-    { label: "Name", class: "title", cell: (row) => h("a", { href: `#/collections/${encodeURIComponent(row.collection_id)}` }, row.name) },
-    { label: "Tracks", class: "num", cell: (row) => row.track_count },
-    { label: "Created", cell: (row) => h("span", { class: "muted" }, ago(row.created_at)) },
-    { label: "Collection", cell: (row) => h("span", { class: "id" }, row.collection_id) },
+    { label: "Name", class: "title c-name", cell: (row) => h("a", { href: `#/collections/${encodeURIComponent(row.collection_id)}` }, row.name) },
+    {
+      label: "Tracks", class: "num c-count",
+      cell: (row) => [row.track_count, h("span", { class: "unit" }, row.track_count === 1 ? " track" : " tracks")],
+    },
+    { label: "Created", class: "c-date", cell: (row) => h("span", { class: "muted" }, ago(row.created_at)) },
   ],
 });
 
@@ -570,27 +947,17 @@ async function collectionDetail(collectionId) {
     tracks.push(...page.tracks);
     after = page.next_cursor;
   } while (after !== null && after !== undefined);
-  const view = h("section", null, crumb("#/collections", "Collections"),
+  const view = h("section", null, crumb("#/collections", "Crates"),
     pageHead(page.name, plural(page.track_count ?? tracks.length, "track")));
   if (!tracks.length) {
-    view.append(empty("This collection has no tracks."));
+    view.append(empty("This crate has no tracks."));
     return view;
   }
-  const position = new Map(tracks.map((track, index) => [track, index + 1]));
-  view.append(table(
-    [
-      { label: "#", class: "num muted", cell: (track) => position.get(track) },
-      { label: "Artist", class: "clip", cell: (t) => t.artist },
-      { label: "Title", class: "clip title", cell: (t) => t.title },
-      { label: "Version", class: "clip muted", cell: (t) => t.version || "", optional: (t) => t.version },
-      { label: "Time", class: "num", cell: (t) => duration(t.properties?.duration_seconds) },
-      { label: "Format", class: "muted", cell: audioFormat },
-      { label: "File", class: "file", cell: (t) => fileTail(t.path || t.last_known_path) },
-    ],
-    tracks,
-  ));
-  view.append(h("h2", null, "Hand it to your DJ app"));
-  view.append(copyable(commandText("export", collectionId)));
+  const short = shortId(collectionId);
+  view.append(h("div", { class: "handoff" },
+    h("div", null, h("h2", null, "Put it in rekordbox"), copyable(commandText("rekordbox", "push", short))),
+    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", short)))));
+  view.append(libraryTable(tracks, { numbered: true }));
   return view;
 }
 
@@ -626,6 +993,7 @@ const deliveriesList = listView({
   path: "/deliveries",
   key: "deliveries",
   href: (row) => `#/deliveries/${encodeURIComponent(row.delivery_id)}`,
+  rowTitle: (row) => row.delivery_id,
   emptyText: () => empty(
     "No deliveries yet. Plan one from a collection:",
     copyable(commandText("delivery", "plan", "--collection", "ID", "--workflow", "rekordbox_import", "--app-version", "VERSION")),
@@ -648,7 +1016,6 @@ const deliveriesList = listView({
       },
     },
     { label: "Updated", cell: (row) => h("span", { class: "muted" }, ago(row.updated_at)) },
-    { label: "Delivery", cell: (row) => h("span", { class: "id" }, row.delivery_id) },
   ],
 });
 
@@ -720,7 +1087,7 @@ async function deliveryDetail(deliveryId) {
   }
   view.append(h("h2", null, "Details"));
   view.append(h("dl", { class: "kv" },
-    h("dt", null, "Delivery"), h("dd", { class: "id" }, delivery.delivery_id),
+    h("dt", null, "Delivery"), h("dd", { class: "ident" }, delivery.delivery_id),
     h("dt", null, "Revision"), h("dd", null, delivery.revision),
     h("dt", null, "Audio"), h("dd", null, request.audio_mode === "preserve" ? "Original format kept" : request.audio_mode),
     h("dt", null, "Created"), h("dd", null, ago(delivery.created_at))));
@@ -754,25 +1121,28 @@ function refreshSoon() {
   state.timer = setTimeout(() => route({ quiet: true }), 2000);
 }
 
+// Sets, Crates and Library are in the navigation; the older pages keep their links.
 const ROUTES = [
-  [/^#\/overview$/, "overview", overview],
-  [/^#\/library$/, "library", library],
-  [/^#\/requests$/, "requests", requestsList],
-  [/^#\/requests\/([\w-]+)$/, "requests", requestDetail],
+  [/^#\/sets$/, "sets", setsList],
+  [/^#\/sets\/([\w-]+)$/, "sets", requestDetail],
+  [/^#\/requests$/, "sets", setsList],
+  [/^#\/requests\/([\w-]+)$/, "sets", requestDetail],
   [/^#\/collections$/, "collections", collectionsList],
   [/^#\/collections\/([\w-]+)$/, "collections", collectionDetail],
-  [/^#\/deliveries$/, "deliveries", deliveriesList],
-  [/^#\/deliveries\/([\w-]+)$/, "deliveries", deliveryDetail],
-  [/^#\/jobs$/, "jobs", jobs],
+  [/^#\/library$/, "library", library],
+  [/^#\/overview$/, null, overview],
+  [/^#\/deliveries$/, null, deliveriesList],
+  [/^#\/deliveries\/([\w-]+)$/, null, deliveryDetail],
+  [/^#\/jobs$/, null, jobs],
 ];
 
 async function route({ quiet = false } = {}) {
   clearTimeout(state.timer);
   const main = document.getElementById("view");
   const render = ++state.render;
-  const hash = location.hash || "#/overview";
+  const hash = location.hash || HOME;
   const match = ROUTES.map(([pattern, tab, view]) => [hash.match(pattern), tab, view]).find(([found]) => found);
-  const [found, tab, view] = match || [["#/overview"], "overview", overview];
+  const [found, tab, view] = match || [[HOME], "sets", setsList];
   for (const link of document.querySelectorAll(".tabs a")) {
     if (link.dataset.tab === tab) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -784,7 +1154,11 @@ async function route({ quiet = false } = {}) {
   if (!quiet) main.replaceChildren(h("p", { class: "loading" }, "Loading…"));
   try {
     const node = await view(...found.slice(1).map(decodeURIComponent));
-    if (render === state.render) main.replaceChildren(node);
+    if (render !== state.render) return;
+    main.replaceChildren(node);
+    // The tab reads like the page: "Kaytranada Boiler Room · djlib".
+    const heading = node.querySelector("h1")?.textContent;
+    document.title = heading ? `${heading} · djlib` : "djlib";
   } catch (error) {
     if (render !== state.render) return;
     main.replaceChildren(error.status === 401 ? locked() : errorNotice(error));
@@ -793,12 +1167,10 @@ async function route({ quiet = false } = {}) {
 
 async function start() {
   readHandoff();
-  window.addEventListener("hashchange", () => route());
-  if (state.token) {
-    api("/capabilities")
-      .then((caps) => { document.getElementById("version").textContent = caps.application_version || ""; })
-      .catch(() => {});
-  }
+  window.addEventListener("hashchange", () => {
+    route();
+    window.scrollTo(0, 0);
+  });
   await route();
 }
 
