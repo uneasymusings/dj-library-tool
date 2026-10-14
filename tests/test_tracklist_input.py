@@ -344,7 +344,9 @@ def test_a_shazam_csv_is_read_as_your_shazams(
     export.write_text(
         "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
         "1,2026-10-10,Halo,Lumen,https://www.shazam.com/track/1,1\n"
-        "2,2026-10-11,Glue,Bicep,https://www.shazam.com/track/2,2\n",
+        "2,2026-10-11,Glue,Bicep,https://www.shazam.com/track/2,2\n"
+        "3,2026-10-09,Slow Burn,Nia Okoro,https://www.shazam.com/track/3,3\n"
+        "4,2026-10-12,Glue,Bicep,https://www.shazam.com/track/2,2\n",
         encoding="utf-8",
     )
     plain = json.loads(invoke(application, "set", export, "--no-rekordbox").stdout)["result"]
@@ -352,9 +354,23 @@ def test_a_shazam_csv_is_read_as_your_shazams(
         "result"
     ]
     assert plain["request_id"] == spec["request_id"] and plain["source"]["provider"] == "Shazam"
-    assert (plain["songs"], plain["owned"]) == (2, 1)
+    assert (plain["songs"], plain["owned"]) == (3, 1)
+    # A song Shazamed twice is one song, and the list says so.
+    assert plain["source"]["title"] == "CSV file, 4 Shazams · 3 different songs"
     pretty = invoke(application, "set", export, "--no-rekordbox", pretty=True)
     assert "Read as a Shazam export." in pretty.stderr
+    # Newest first with the day of each Shazam, as the review page shows it.
+    lines = pretty.stdout.splitlines()
+    rows = [line for line in lines if "Glue" in line or "Slow Burn" in line or "Halo" in line]
+    assert ["Glue" in rows[0], "Halo" in rows[1], "Slow Burn" in rows[2]] == [True] * 3, rows
+    assert "2026-10-11" in rows[0] and any("Shazamed" in line for line in lines)
+    # So does the shopping list, in the terminal and in its file.
+    report = invoke(application, "requests", "report", "last", pretty=True).stdout
+    assert report.index("2026-10-11  Bicep - Glue") < report.index("2026-10-09  Nia Okoro")
+    found = json.loads(invoke(application, "requests", "report", "last").stdout)["result"]
+    assert [song["shazamed"] for song in found["to_buy"]] == ["2026-10-09", "2026-10-11"]
+    text = Path(found["shopping_list"]).read_text(encoding="utf-8")
+    assert text.index("Bicep - Glue") < text.index("Nia Okoro - Slow Burn")
     # Shazam's own TagTime column is enough without the "Shazam Library" line.
     tagged = tmp_path / "tagged.tsv"
     tagged.write_text("TagTime\tArtist\tTitle\n2026-10-10\tLumen\tHalo\n", encoding="utf-8")

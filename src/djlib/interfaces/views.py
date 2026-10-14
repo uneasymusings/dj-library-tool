@@ -2333,6 +2333,11 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
     conflicting line is worth a listen; why each is there is said under the table."""
     if not tracks:
         return False
+    if result.get("shazam"):
+        # Newest first, as the review page shows a Shazam list, with the day of each Shazam.
+        tracks = newest_first(
+            [{**track, "shazamed": shazamed_day(track.get("notes"))} for track in tracks]
+        )
     shown = tracks
     heading = f"{'Your Shazams' if result.get('shazam') else 'The set'} ({number(len(tracks))})"
     big = len(tracks) > BIG_SET
@@ -2352,10 +2357,13 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         return False
     # A pasted tracklist times only its IDs; their time then goes beside them, not in a column.
     timed = any(track.get("timestamp") for track in shown if track.get("own") != "id")
+    days = not timed and any(track.get("shazamed") for track in shown)
     sure = any(track.get("confidence") for track in shown)
     columns: list[tuple[str, dict]] = [("#", {"justify": "right", "style": "muted"})]
     if timed:
         columns.append(("Time", {}))
+    elif days:
+        columns.append(("Shazamed", {"style": "muted"}))
     # The name never loses its mix: it wraps instead of being cut short.
     columns.append(("Track", {"overflow": "fold", "wrap": True, "readable": TITLE_WIDTH}))
     if sure:
@@ -2369,6 +2377,8 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         cells: list[object] = [str(track.get("position") or "")]
         if timed:
             cells.append(set_time(track.get("timestamp"), track.get("listen_url")))
+        elif days:
+            cells.append(track.get("shazamed") or "")
         cells.append(set_track_cell(term, track, timed=timed))
         if sure:
             cells.append(sure_cell(term, track.get("confidence")))
@@ -2961,8 +2971,10 @@ def request_report(term: Terminal, result: dict) -> None:
         )
         fields(term, [("Report", path_text(result.get("report_path")))])
         return
-    others = result.get("other_mixes") or []
-    maybe = result.get("maybe_yours") or []
+    # A Shazam list reads newest first, as on the review page; a set in set order.
+    to_buy = newest_first(to_buy)
+    others = newest_first(result.get("other_mixes") or [])
+    maybe = newest_first(result.get("maybe_yours") or [])
     dash = "—" if term.unicode else "-"
     if to_buy:
         status_line(
@@ -3034,8 +3046,29 @@ def request_report(term: Terminal, result: dict) -> None:
 
 
 def song_moment(song: dict) -> str:
-    """Where a song plays in the set: its time, else its number."""
-    return str(song.get("timestamp") or f"#{song.get('position')}")
+    """Where a song plays in the set: its time, else the day it was Shazamed, else its number."""
+    return str(song.get("timestamp") or song.get("shazamed") or f"#{song.get('position')}")
+
+
+SHAZAMED = re.compile(r"\bShazamed (\d{4}-\d{2}-\d{2})")
+
+
+def shazamed_day(notes: object) -> str | None:
+    """ "2024-12-08" from a Shazam's notes ("Shazamed 2024-12-08 21:14 · Berlin"), else None."""
+    found = SHAZAMED.search(str(notes or ""))
+    return found.group(1) if found else None
+
+
+def newest_first(songs: list[dict]) -> list[dict]:
+    """A Shazam list as the review page shows it: by the day Shazamed, newest first, then by
+    its place in the list, last first. Songs without a Shazam day keep their order."""
+    if not any(song.get("shazamed") for song in songs):
+        return songs
+    return sorted(
+        songs,
+        key=lambda song: (str(song.get("shazamed") or ""), int(song.get("position") or 0)),
+        reverse=True,
+    )
 
 
 # -- delivery ----------------------------------------------------------------------------------

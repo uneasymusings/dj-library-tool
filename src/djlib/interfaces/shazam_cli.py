@@ -56,10 +56,13 @@ def note(item: dict) -> str:
     return " · ".join(parts)[:4000]
 
 
-def describe(loaded: dict, songs: int) -> str:
-    """ "Music Recognition on this Mac, 42 songs since 2026-10-01"."""
+def describe(loaded: dict, songs: int, shazams: int | None = None) -> str:
+    """ "Music Recognition on this Mac, 42 songs since 2026-10-01"; "CSV file, 1,000 Shazams ·
+    983 different songs" when some songs were Shazamed more than once."""
     where = " + ".join(source["label"] for source in loaded["sources"]) or "Shazam"
     text = f"{where}, {songs:,} song{'s' if songs != 1 else ''}"
+    if shazams is not None and shazams > songs:
+        text = f"{where}, {shazams:,} Shazams · {songs:,} different song{'s' if songs != 1 else ''}"
     if loaded["since"]:
         text += f" since {shazam_history.local_time(loaded['since'])}"
     return text
@@ -181,7 +184,7 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
         warnings.append(f"A list holds {MAX_SONGS:,} songs, so this one leaves out {which}.")
     summary = {
         "name": title,
-        "description": describe(loaded, len(items)),
+        "description": describe(loaded, len(items), sum(int(i.get("count") or 1) for i in used)),
         "sources": loaded["sources"],
         "since": loaded["since"],
         "new": loaded["new"],
