@@ -8,6 +8,7 @@ import importlib.util
 import os
 import sys
 from datetime import datetime
+from difflib import get_close_matches
 from functools import wraps
 from pathlib import Path
 from typing import Annotated
@@ -44,12 +45,13 @@ SETTINGS = "Settings"
 AGENTS = "Assistants"
 MORE = "More"
 
+ADVANCED_URL = "https://github.com/uneasymusings/dj-library-tool/blob/main/docs/ADVANCED.md"
+# What the DJ copied: the Mac's clipboard (paste), else what they paste into the terminal (-).
+COPIED = "djlib set paste" if sys.platform == "darwin" else "djlib set -"
 EPILOG = (
-    "[bold]New here?[/]\n"
-    "[bold]djlib init --allow-root ~/Music[/] → [bold]djlib scan[/] → "
-    "[bold]djlib set tracklist.txt[/]\n\n"
-    "Advanced commands (delivery, organize, plan, export…) still work and are listed in "
-    "docs/ADVANCED.md. Output is JSON when piped or with [bold]--json[/]."
+    "[bold]New here?[/]  [bold]djlib set 'LINK'[/]  ·  [bold]djlib shazam status[/]  ·  "
+    f"[bold]{COPIED}[/]\n\n"
+    f"More commands: {ADVANCED_URL}"
 )
 
 # Help lists panels in command order, so keep the journey order explicit.
@@ -67,7 +69,7 @@ ORDER = [
 ]
 
 # Commands that render with a view registered under another name.
-VIEW_NAMES = {"crates": "collections", "crate": "collection"}
+VIEW_NAMES = {"crates": "collections", "crate": "collection", "search": "library"}
 
 # Usual install commands for a missing tool, by platform.
 INSTALL = {
@@ -82,13 +84,51 @@ INSTALL = {
         "win32": "winget install DenoLand.Deno",
     },
 }
-FIRST_STEP = "djlib init --allow-root ~/Music"
+FIRST_STEP = "djlib init ~/Music"
 
 
-class JourneyGroup(typer.core.TyperGroup):
+class VisibleSuggestions(typer.core.TyperGroup):
+    """“Did you mean” names only commands that help lists, never hidden ones."""
+
+    def resolve_command(self, ctx, args):
+        try:
+            return super().resolve_command(ctx, args)
+        except Exception as error:  # Typer's own Click UsageError
+            message = str(getattr(error, "message", ""))
+            if not args or " Did you mean" not in message:
+                raise
+            visible = [name for name, command in self.commands.items() if not command.hidden]
+            matches = get_close_matches(str(args[0]), visible)
+            error.message = message.split(" Did you mean", 1)[0]
+            if matches:
+                error.message += f" Did you mean {', '.join(map(repr, matches))}?"
+            raise
+
+
+class JourneyGroup(VisibleSuggestions):
     def list_commands(self, ctx):
         names = super().list_commands(ctx)
         return sorted(names, key=lambda name: ORDER.index(name) if name in ORDER else len(ORDER))
+
+
+class DefaultCommandGroup(VisibleSuggestions):
+    """A group that runs one of its commands when given none; --help still lists them all."""
+
+    default_command = ""
+
+    def parse_args(self, ctx, args):
+        return super().parse_args(ctx, args or [self.default_command])
+
+
+# `djlib requests` (and `djlib sets`) is `djlib requests list`, `djlib shazam` is
+# `djlib shazam status`.
+DEFAULT_COMMANDS = {
+    "requests": "list",
+    "sets": "list",
+    "shazam": "status",
+    "roots": "list",
+    "jobs": "list",
+}
 
 
 def print_version(value: bool) -> None:
@@ -100,8 +140,8 @@ def print_version(value: bool) -> None:
 app = typer.Typer(
     cls=JourneyGroup,
     help=(
-        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  From a tracklist to rekordbox and a verified USB, "
-        "using the music you own."
+        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]\n\n"
+        "Every track in a set, checked against your music, into rekordbox and onto USB."
     ),
     epilog=EPILOG,
     no_args_is_help=True,
@@ -110,7 +150,9 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 jobs = typer.Typer(help="Watch and control background jobs.", no_args_is_help=True)
-reviews = typer.Typer(help="Resolve metadata conflicts found while indexing.", no_args_is_help=True)
+reviews = typer.Typer(
+    help="Songs whose tags disagree, found while reading your music.", no_args_is_help=True
+)
 service = typer.Typer(help="Start, stop or check the background service.", no_args_is_help=True)
 mcp = typer.Typer(help="Serve djlib's tools to an assistant over MCP.", no_args_is_help=True)
 delivery = typer.Typer(
@@ -193,6 +235,8 @@ def emit(value: dict) -> None:
         term.print_json(value)
         return
     name = terminal.command_name()
+    if name.startswith("sets "):  # the hidden name of `djlib requests`
+        name = "requests" + name.removeprefix("sets")
     if name in views.FOLLOW and value.get("warnings"):
         # Following a job ends with its card and exit code, so say the warnings first.
         print_warnings(term, value["warnings"])
@@ -252,11 +296,14 @@ def configure(
         "--workspace",
         "-w",
         help="Workspace folder. Default: DJLIB_WORKSPACE, else the one set by djlib use or init.",
+        # Help opens on the journey; scripts and assistants find these in docs/ADVANCED.md.
+        hidden=True,
     ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Print JSON (the default when piped).",
+        hidden=True,
     ),
     show_version: bool = typer.Option(
         False,
@@ -277,15 +324,29 @@ def configure(
 @handled
 def init(
     ctx: typer.Context,
+    folders: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            metavar="FOLDER...",
+            help="Your music folders, e.g. ~/Music; drag a folder in to type it.",
+        ),
+    ] = None,
+    # Kept for scripts from before folders were arguments.
     allow_root: list[Path] = typer.Option(
-        None, "--allow-root", help="A music folder djlib may read; repeatable."
+        None, "--allow-root", help="Same as a folder argument; repeatable.", hidden=True
     ),
 ) -> None:
-    """Create a workspace and allow your music folders.
+    """Set up djlib and allow your music folders.
 
     djlib only reads inside these folders and never moves or retags your music.
+
+    Run it again with another folder to add that one.
     """
-    config = ctx.obj.initialize(allow_root)
+    folders = [*(folders or []), *(allow_root or [])]
+    # On an existing workspace the folders are added; say which ones are new.
+    before = ctx.obj.config().allowed_roots if ctx.obj.config_path.is_file() else None
+    config = ctx.obj.initialize(folders)
+    added = [root for root in config.allowed_roots if before is None or root not in before]
     # The first workspace becomes the default, so later commands need no --workspace.
     remembered = False
     if not os.environ.get("DJLIB_WORKSPACE") and remembered_workspace() is None:
@@ -296,6 +357,8 @@ def init(
             "workspace": str(ctx.obj.root),
             "config": config.model_dump(mode="json"),
             "default_workspace": remembered or ctx.obj.root == Workspace(default_workspace()).root,
+            "created": before is None,
+            "added": added,
         }
     )
     reply["warnings"] = media_tool_warnings()
@@ -305,11 +368,13 @@ def init(
 @app.command(rich_help_panel=START)
 @handled
 def status(ctx: typer.Context) -> None:
-    """Your library at a glance: tracks, lists and crates."""
+    """Your library at a glance: tracks, sets and crates."""
     from concurrent.futures import ThreadPoolExecutor
 
     from djlib.exporting.rekordbox_anlz import default_root
     from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists, remembered
+    from djlib.native import rekordbox_mac as ui
+    from djlib.sources.shazam_history import exists, mac_history
 
     local = client(ctx)
     # Reading rekordbox's menu takes about half a second; do it while the summary loads.
@@ -328,6 +393,13 @@ def status(ctx: typer.Context) -> None:
         row["usb"] = done.get("usb")
     summary["rekordbox_checked"] = playlists is not None
     summary["rekordbox_installed"] = default_root() is not None
+    # djlib puts a crate in rekordbox through the app's menus: macOS, with the app installed.
+    summary["rekordbox_app"] = ui.installed() is not None
+    if summary["rekordbox_app"] and playlists is None:
+        # Closed, or open with its playlists out of reach (no track selected, no permission).
+        summary["rekordbox_open"] = ui.process_running()
+    # Whether there are Shazams to check, without opening them (one stat).
+    summary["shazam_history_found"] = exists(mac_history()) is True
     summary["service_url"] = local.discover()
     emit(envelope(summary))
 
@@ -337,10 +409,14 @@ def status(ctx: typer.Context) -> None:
 def use(
     ctx: typer.Context,
     path: Annotated[
-        Path | None, typer.Argument(help="Workspace to use by default; omit to show it.")
+        Path | None,
+        typer.Argument(
+            metavar="FOLDER",
+            help="A djlib folder made by djlib init; leave it out to see which one is used.",
+        ),
     ] = None,
 ) -> None:
-    """Choose the default workspace."""
+    """Choose which djlib folder (your sets and crates) to use."""
     if path is not None:
         workspace = Workspace(path)
         workspace.config()  # only initialized workspaces can become the default
@@ -574,6 +650,8 @@ def doctor(ctx: typer.Context) -> None:
             "workspace_id": config.workspace_id if config else None,
             "workspace": str(ctx.obj.root),
             "workspace_initialized": initialized,
+            # The music folders djlib reads (djlib init FOLDER adds one).
+            "music_folders": list(config.allowed_roots) if config else [],
             "ffmpeg": ffmpeg,
             "ffprobe": ffprobe,
             "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,
@@ -586,6 +664,10 @@ def doctor(ctx: typer.Context) -> None:
             # A locked Mac blocks every rekordbox step; worth seeing before a long wait.
             "screen_locked": locked,
             "rekordbox_analysis_folder": str(analysis) if analysis else None,
+            # The background sync starts after the first `djlib rekordbox sync`.
+            "rekordbox_analysis_synced": (ctx.obj.runtime / "rekordbox-anlz.json").is_file()
+            if initialized
+            else None,
             # The Mac's Music Recognition history, for `djlib set shazam` (macOS only).
             "shazam_history": shazam,
             "song_recognition": recognition,
@@ -609,9 +691,9 @@ def ui(
         True, "--open/--no-open", help="Open the page in your browser (terminal only)."
     ),
 ) -> None:
-    """Open the review page: library, requests, crates, deliveries.
+    """Open the review page: your sets, crates and library.
 
-    The link includes this workspace's local access token; keep it to yourself.
+    The link is private to you; it works while djlib is running.
     """
     from urllib.parse import urlencode
 
@@ -621,11 +703,12 @@ def ui(
     if term.workspace is not None:
         handoff["ws"] = terminal.shell_path(term.workspace)
     page = f"{url}/ui/#{urlencode(handoff)}"
+    opened = False
     if not term.json and open_browser:
         import webbrowser
 
-        webbrowser.open(page)
-    emit(envelope({"url": page}))
+        opened = bool(webbrowser.open(page))
+    emit(envelope({"url": page, "opened": opened}))
 
 
 @app.command(hidden=True)
@@ -726,17 +809,12 @@ def scan(
     if len(replies) == 1:
         emit(replies[0])
         return
-    # In a terminal, follow each folder's scan in turn and exit with the worst outcome.
-    code = 0
-    for reply in replies:
-        try:
-            emit(reply)
-        except typer.Exit as exited:
-            if exited.exit_code == 130:
-                raise
-            code = max(code, exited.exit_code)
-    if code:
-        raise typer.Exit(code)
+    # In a terminal, follow each folder's scan in turn, then say it once: one result and one
+    # Next block, exiting with the worst outcome.
+    print_warnings(term, [warning for reply in replies for warning in reply.get("warnings", [])])
+    views.follow_scans(
+        term, local, [reply["result"] for reply in replies], whole=len(folders) == len(allowed)
+    )
 
 
 @app.command(hidden=True)
@@ -772,15 +850,24 @@ def source_inspect(
 @handled
 def library(
     ctx: typer.Context,
-    query: str = typer.Option("", "--query", "-q", help="Match artist, title or version."),
+    words: Annotated[
+        list[str] | None, typer.Argument(metavar="[QUERY]", help="Artist, title or mix.")
+    ] = None,
+    query: str = typer.Option("", "--query", "-q", help="Match artist, title or mix."),
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ) -> None:
     """Browse and search indexed tracks."""
+    query = " ".join([*(words or []), query]).strip()
+    # The view and its "more" command read the query from here.
+    ctx.params["query"] = query
     params = {"query": query, "limit": limit}
     if after is not None:
         params["after"] = after
     emit(client(ctx).request("GET", "/library", params=params))
+
+
+app.command("search", hidden=True)(library)
 
 
 @handled
@@ -790,7 +877,7 @@ def collections(
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
-    """List your crates (saved collections), newest first."""
+    """Your crates, newest first."""
     from djlib.interfaces.rekordbox_cli import remembered
 
     params = {"query": query, "limit": limit}
@@ -829,13 +916,28 @@ def reconcile(
 @handled
 def collection(
     ctx: typer.Context,
-    collection_id: Annotated[str, typer.Argument(metavar="CRATE", help=CRATE_HELP)],
+    collection_id: Annotated[
+        str,
+        typer.Argument(
+            metavar="[CRATE]",
+            help="Crate name, ID start (6+ characters) or last (the default).",
+            show_default=False,
+        ),
+    ] = "last",
     after: int = typer.Option(0, min=0, help="Offset from the previous page."),
     limit: int = typer.Option(50, min=1, max=100),
 ) -> None:
     """Show the tracks in a crate."""
     local = client(ctx)
-    collection_id = handles.resolve(local, "collection", collection_id)
+    try:
+        collection_id = handles.resolve(local, "collection", collection_id)
+    except AppError as error:
+        newest = collection_id.strip().lower() == "last"
+        if error.code != "NOT_FOUND" or not newest or terminal.current().json:
+            raise
+        # Nothing made yet: the same friendly start as `djlib crates` (JSON keeps the error).
+        views.show(terminal.current(), "collections", envelope({"collections": [], "total": 0}))
+        return
     emit(
         local.request(
             "GET", f"/collections/{collection_id}", params={"after": after, "limit": limit}
@@ -1297,6 +1399,13 @@ register_shazam(app, client, emit, handled, panel=LIBRARY)
 from djlib.interfaces.identify_cli import register_identify  # noqa: E402
 
 register_identify(app, client, emit, handled, panel=START)
+
+for group in app.registered_groups:
+    if group.name in DEFAULT_COMMANDS:
+        default = {"default_command": DEFAULT_COMMANDS[group.name]}
+        group.typer_instance.info.cls = type("DefaultGroup", (DefaultCommandGroup,), default)
+    else:
+        group.typer_instance.info.cls = VisibleSuggestions
 
 
 def hoisted(arguments: list[str]) -> list[str]:

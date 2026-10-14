@@ -629,10 +629,10 @@ Follow Overmono: https://instagram.com/overmono
         "[1:02:30] Four Tet - Baby",
     ]
     assert round_trip(text) == [
-        ("named", "Overmono", "Gem Lingo (ovr now)", None, None),
-        ("named", "Bicep", "Glue (Hammer Edit)", None, None),
+        ("named", "Overmono", "Gem Lingo (ovr now)", None, "00:00"),
+        ("named", "Bicep", "Glue (Hammer Edit)", None, "03:51"),
         ("unknown", None, None, "ID - ID", "07:20"),
-        ("named", "Four Tet", "Baby", None, None),
+        ("named", "Four Tet", "Baby", None, "1:02:30"),
     ]
 
 

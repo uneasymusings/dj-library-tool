@@ -1170,7 +1170,7 @@ async def test_a_scan_stops_when_every_window_fails_in_a_row(monkeypatch, tmp_pa
             on_probe=lambda probe, *_: probes.append(probe),
         )
     assert failing.value.code == "RECOGNITION_FAILING" and failing.value.retryable
-    assert "10 listening windows in a row" in failing.value.message
+    assert "couldn't hear 10 parts of the set in a row" in failing.value.message
     assert "could not read this part of the set" in failing.value.message
     assert len(probes) == recognition.FAILING_WINDOWS
     # Failures broken up by answers are the set, not the service: the scan goes on.

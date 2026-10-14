@@ -63,14 +63,13 @@ class Workspace:
     def initialize(self, allowed_roots: list[Path] | None = None) -> WorkspaceConfig:
         if self.config_path.exists():
             config = self.config()
+            # Adding a folder only lets djlib read it, so init with a new one just adds it.
+            # (ROOTS_NOT_UPDATED, which earlier releases raised here, is no longer used.)
             if allowed_roots and any(
                 str(p.expanduser().resolve()) not in config.allowed_roots for p in allowed_roots
             ):
-                raise AppError(
-                    "ROOTS_NOT_UPDATED",
-                    "This workspace exists. Use 'roots add PATH' to explicitly add folders.",
-                    409,
-                )
+                self.add_roots(allowed_roots)
+                return self.config()
             return config
         if self.root.exists() and any(self.root.iterdir()):
             raise AppError("WORKSPACE_NOT_EMPTY", "Choose an empty directory for a new workspace.")
@@ -125,9 +124,7 @@ class Workspace:
 
     def config(self) -> WorkspaceConfig:
         if not self.config_path.is_file():
-            raise AppError(
-                "WORKSPACE_REQUIRED", f"djlib isn't set up yet (no workspace in {self.root})."
-            )
+            raise AppError("WORKSPACE_REQUIRED", f"There is no djlib workspace in {self.root} yet.")
         try:
             return WorkspaceConfig.model_validate_json(self.config_path.read_text(encoding="utf-8"))
         except (ValueError, OSError) as exc:
@@ -154,7 +151,14 @@ class Workspace:
             ) from exc
         roots = [self.root, *(Path(p) for p in self.config().allowed_roots)]
         if not any(path.is_relative_to(root) for root in roots):
-            raise AppError("SOURCE_NOT_ALLOWED", f"djlib isn't allowed to read {path} yet.", 403)
+            # The folder to allow, so the fix is one command that pastes as is.
+            folder = path if path.is_dir() else path.parent
+            raise AppError(
+                "SOURCE_NOT_ALLOWED",
+                f"{path} is outside your music folders.",
+                403,
+                details={"path": str(folder)},
+            )
         if directory and not path.is_dir():
             raise AppError("DIRECTORY_REQUIRED", "The scan requires a directory.")
         if not directory and not path.is_file():

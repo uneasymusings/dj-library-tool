@@ -73,6 +73,29 @@ async def lookup(wiki: Wiki, **wanted):
         return await mixesdb.lookup(client=client, **wanted)
 
 
+class Clock:
+    """A monotonic clock that sleeping moves forward at once."""
+
+    def __init__(self):
+        self.at = 1000.0
+        self.slept: list[float] = []
+
+    def now(self) -> float:
+        return self.at
+
+    async def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.at += seconds
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch):
+    """Requests keep MixesDB's Crawl-delay on a clock that skips the wait."""
+    found = Clock()
+    monkeypatch.setattr(mixesdb, "SPACING", mixesdb.Spacing(clock=found.now, sleep=found.sleep))
+    return found
+
+
 # Pages
 
 
@@ -754,3 +777,106 @@ async def test_the_callers_client_stays_open():
     async with wiki.client() as client:
         await mixesdb.lookup(title="x", url="https://youtu.be/-5EQIiabJvk", client=client)
         assert not client.is_closed
+
+
+async def test_requests_keep_mixesdb_s_crawl_delay(clock):
+    """robots.txt on mixesdb.com asks for 4 seconds between requests, across sets too."""
+    asked_at = []
+
+    def answer(query):
+        asked_at.append(clock.now())
+        return EMPTY
+
+    wiki = Wiki(answer)
+    await lookup(
+        wiki,
+        title="Some DJ | Some Room: Some City",
+        uploader="Some Channel",
+        duration=3600,
+        url="https://www.youtube.com/watch?v=-5EQIiabJvk",
+    )
+    first = len(asked_at)
+    assert first == mixesdb.MAX_REQUESTS == 4  # spacing keeps every fallback lookup
+    await lookup(wiki, title="Kaytranada | Boiler Room: Montreal", duration=2526)
+    assert len(asked_at) > first
+    gaps = [later - earlier for earlier, later in zip(asked_at, asked_at[1:], strict=False)]
+    assert min(gaps) >= mixesdb.CRAWL_DELAY == 4
+    # Waits for a turn come on top of a lookup's 20 seconds of asking.
+    assert mixesdb.DEADLINE == 20
+
+
+async def test_sets_looked_up_at_once_each_get_their_answer(monkeypatch):
+    """Four `djlib set` runs at once: the last in line still gets MixesDB's page, because
+    waiting for a turn doesn't count against its deadline (time scaled down 1:40)."""
+    spacing = mixesdb.Spacing(delay=0.1)
+    monkeypatch.setattr(mixesdb, "SPACING", spacing)
+    monkeypatch.setattr(mixesdb, "DEADLINE", 0.5)  # shorter than the queue of turns
+    turns = []
+
+    def reserve():
+        wait = mixesdb.Spacing.reserve(spacing)
+        turns.append(spacing.next_at - spacing.delay)
+        return wait
+
+    monkeypatch.setattr(spacing, "reserve", reserve)
+
+    def answer(query):
+        return reply("kaytranada-montreal.json") if "kaytranada-boiler-room" in query else EMPTY
+
+    async def one(**wanted):
+        return await lookup(Wiki(answer), strict=True, **wanted)  # strict: a timeout raises
+
+    elsewhere = [
+        {
+            "title": f"DJ {n} | Room {n}",
+            "uploader": "x",
+            "duration": 3600,
+            "url": f"https://youtu.be/{n * 11}",
+        }
+        for n in ("a", "b", "c")
+    ]
+    *others, kaytranada = await asyncio.gather(
+        *(one(**wanted) for wanted in elsewhere),
+        one(
+            title="Kaytranada | Boiler Room: Montreal",
+            duration=2526,
+            url="https://soundcloud.com/platform/kaytranada-boiler-room",
+        ),
+    )
+    assert others == [None, None, None] and kaytranada["page_url"] == MONTREAL
+    # One request per turn, each turn a delay after the last; the queue outlasted a deadline.
+    gaps = [later - earlier for earlier, later in zip(turns, turns[1:], strict=False)]
+    assert min(gaps) == pytest.approx(0.1) and turns[-1] - turns[0] > mixesdb.DEADLINE
+
+
+def test_spacing_waits_only_what_is_left_of_the_delay():
+    clock = Clock()
+    spacing = mixesdb.Spacing(clock=clock.now)
+    assert spacing.reserve() == 0
+    clock.at += 1.5  # the answer took a second and a half
+    assert spacing.reserve() == 2.5
+    assert spacing.reserve() == 6.5  # another set's request, right after: the turn after that
+    clock.at += 20.0  # nothing asked for a while
+    assert spacing.reserve() == 0
+
+
+async def test_a_set_looked_up_moments_ago_asks_mixesdb_nothing(monkeypatch):
+    from djlib.application import identification
+
+    wiki = Wiki(lambda query: reply("kaytranada-montreal.json"))
+
+    async def looked_up(**wanted):
+        async with wiki.client() as client:
+            return await mixesdb.lookup(client=client, **wanted)
+
+    monkeypatch.setattr(identification, "mixesdb_lookup", looked_up)
+    page = {
+        "url": "https://soundcloud.com/platform/kaytranada-boiler-room",
+        "title": "Kaytranada | Boiler Room: Montreal",
+        "duration_seconds": 2526,
+    }
+    found, answered = await identification.mixesdb_answer(page)
+    assert answered and found["page_url"] == MONTREAL
+    asked = len(wiki.asked)
+    again, answered = await identification.mixesdb_answer(page)
+    assert answered and again == found and len(wiki.asked) == asked

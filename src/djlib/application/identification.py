@@ -52,6 +52,7 @@ from djlib.application.set_identification import (
     listed_tracklist,
     mixesdb_listing,
     segments,
+    track_also,
     track_notes,
     tracklist_text,
 )
@@ -114,8 +115,8 @@ INSTALLER = recognition.INSTALLER
 RECOGNIZER_LABELS = {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}
 UNOFFICIAL_SHAZAM = (
     "djlib uses Shazam the way the Shazam app does; Apple doesn't offer it to other apps, so "
-    "it may slow down or stop working. For a licensed service (AudD or ACRCloud, with "
-    "DJLIB_RECOGNIZER), see djlib doctor."
+    "it may slow down or stop working. For a licensed service (AudD or ACRCloud), djlib doctor "
+    "shows how."
 )
 
 
@@ -133,18 +134,19 @@ def canonical_url(url: str) -> str:
     playlist parameters dropped); SoundCloud links lose tracking parameters. Other sites are
     refused with the way forward.
     """
-    text = str(url or "").strip()
+    text = web.unescaped(str(url or "").strip())
     try:
         parts = urlsplit(text)
         host = (parts.hostname or "").lower()
     except ValueError:
         parts, host = None, ""
-    if parts is not None and _domain(host, "1001tracklists.com"):
+    site = web.set_site(text)
+    if site == "1001tracklists":
         raise AppError(
-            "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it.",
-            details={"next": "djlib identify SET_LINK --tracklist FILE"},
+            "SOURCE_BROWSER_ONLY", web.BROWSER_ONLY, details=web.browser_only_details("identify")
         )
+    if site == "mixcloud":
+        raise AppError("SOURCE_UNSUPPORTED", web.mixcloud_message(), details=web.mixcloud_details())
     if (
         parts is None
         or parts.scheme not in {"http", "https"}
@@ -236,6 +238,42 @@ def finished(workspace: Workspace, url: str) -> dict | None:
 
 PREVIOUS = "previous"
 RESULT_FILES = ("probes.jsonl", "tracklist.json", "tracklist.txt")
+# A page read that fails for a moment (the site or the network), not for good.
+PAGE_PASSING = frozenset({"SOURCE_FAILED", "SOURCE_TIMEOUT", "SOURCE_RATE_LIMITED"})
+
+
+def saved_page(workspace: Workspace, url: str, comments: int = COMMENTS) -> dict | None:
+    """The page a finished identification of this set was made with (page.json, ``read_at``
+    saying when), marked ``from_saved_page``: what `djlib set` uses when the page can't be
+    read just now. It has the keys of a fresh read with ``comments`` comments. None when
+    djlib never finished listening to the set."""
+    if finished(workspace, url) is None:
+        return None
+    page = _json(set_folder(workspace, url) / "page.json")
+    if not page.get("url"):
+        return None
+    duration = page.get("duration_seconds")
+    if isinstance(duration, float) and duration.is_integer():
+        duration = int(duration)
+    kept = [comment for comment in page.get("comments") or [] if isinstance(comment, dict)]
+    return {
+        "identity_evidence": web.PAGE_EVIDENCE,
+        "description_truncated": False,
+        **page,
+        "duration_seconds": duration,
+        "comments": kept[:comments],
+        "from_saved_page": True,
+    }
+
+
+# Sets whose page just couldn't be read (a moment's outage, PAGE_PASSING): the identification
+# `djlib set` starts next makes its tracklist from page.json instead of trying again.
+PAGE_FAILURES: dict[str, tuple[float, str]] = {}
+
+
+def page_failed(url: str, code: str) -> None:
+    with contextlib.suppress(AppError):
+        _keep(PAGE_FAILURES, canonical_url(url), code)
 
 
 def _age(stamp: object) -> float:
@@ -298,8 +336,11 @@ async def mixesdb_answer(page: dict) -> tuple[dict | None, bool]:
     it is worth asking again later.
 
     An answer from the last 15 minutes, such as the one `djlib set` got a moment before the
-    identification it starts, is reused; failures are not kept.
+    identification it starts, is reused; failures are not kept. With MixesDB turned off
+    (``mixesdb.enabled``) nothing is asked and nothing is kept, so turning it on asks again.
     """
+    if not mixesdb.enabled():
+        return None, False
     try:
         url = canonical_url(page.get("url") or "")
     except AppError:
@@ -498,6 +539,10 @@ class _Attempt:
     stride: float = STRIDE
     progress: dict = field(default_factory=dict)
     notices: list[str] = field(default_factory=list)
+    # The audio's length once downloaded, and the time the recognizer kept djlib waiting.
+    seconds: float | None = None
+    waited: float = 0.0
+    wait_started: float | None = None
 
 
 def _receipt_path(receipt: dict) -> Path:
@@ -537,7 +582,7 @@ def full_disk_error(folder: Path, seconds: float | None = None) -> AppError:
         )
     return AppError(
         "DISK_FULL",
-        f"The disk with djlib's workspace is full ({free / 1e6:.0f} MB free).{need} Free some "
+        f"The disk with djlib's folder is full ({free / 1e6:.0f} MB free).{need} Free some "
         "space, then run the same command again.",
         507,
         True,
@@ -642,7 +687,7 @@ class IdentifyRunner:
                     else AppError(
                         "JOB_FAILED",
                         "The identification stopped unexpectedly; try again. If it keeps "
-                        "failing, the service log in the workspace's runtime folder says why.",
+                        "failing, runtime/service.log in djlib's folder says why.",
                         500,
                         True,
                     )
@@ -762,6 +807,7 @@ class IdentifyRunner:
             "windows_total": counts.get("windows_total"),
             "songs_heard": self.songs(attempt),
             "eta_seconds": None,
+            **self.set_time(attempt, counts.get("windows_done"), counts.get("windows_total")),
         }
         with self.app.db.transaction() as session:
             job = require(session, Job, attempt.job_id)
@@ -784,21 +830,49 @@ class IdentifyRunner:
         eta = None
         if fresh >= 3:
             eta = round((now - attempt.phase_started) / fresh * left)
+        if attempt.wait_started is not None:  # an answer ends the wait
+            attempt.waited += now - attempt.wait_started
+            attempt.wait_started = None
         attempt.progress = {
             "phase": attempt.phase,
             "windows_done": done,
             "windows_total": total,
             "songs_heard": self.songs(attempt),
             "eta_seconds": eta,
+            **self.set_time(attempt, done, total),
         }
         self.save(attempt, progress=attempt.progress)
 
+    def set_time(self, attempt: _Attempt, done: int | None, total: int | None) -> dict:
+        """How far the first listen got in the set's own time (``position_seconds``, null in
+        other phases), the set's length, and how long the recognizer kept djlib waiting."""
+        seconds, position = attempt.seconds, None
+        if attempt.phase == "listening" and seconds and total:
+            done = done or 0
+            position = seconds if done >= total else min(done * attempt.stride, seconds)
+        return {
+            "position_seconds": None if position is None else round(position),
+            "duration_seconds": None if seconds is None else round(seconds),
+            "waited_seconds": self.waited(attempt),
+        }
+
+    def waited(self, attempt: _Attempt) -> int:
+        waited = attempt.waited
+        if attempt.wait_started is not None:
+            waited += time.monotonic() - attempt.wait_started
+        return round(waited)
+
     def waiting(self, attempt: _Attempt, service: str):
-        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer)."""
+        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer).
+        No time left is promised meanwhile: the wait has no known end."""
 
         def wait(seconds: float, reason: str, left: float | None) -> None:
+            if attempt.wait_started is None:
+                attempt.wait_started = time.monotonic()
             attempt.progress = {
                 **attempt.progress,
+                "eta_seconds": None,
+                "waited_seconds": self.waited(attempt),
                 "waiting": {
                     "service": service,
                     "reason": reason,
@@ -919,6 +993,7 @@ class IdentifyRunner:
         seconds = await asyncio.to_thread(windows.duration, path)
         self.check_preview(page, receipt, seconds, folder)
         total = self.check_whole(attempt, page, receipt, seconds)
+        attempt.seconds = seconds
 
         starts = recognition.placements(
             seconds, window=WINDOW, stride=attempt.stride, offset=OFFSET
@@ -1042,7 +1117,12 @@ class IdentifyRunner:
         folder = attempt.folder
         saved = _json(folder / "page.json")
         fresh = recent_page(url)
-        stale = fresh is None and _age(saved.get("read_at")) >= REFRESH_SECONDS
+        # A page `djlib set` just couldn't read is not tried again: page.json makes the list.
+        stale = (
+            fresh is None
+            and _recent(PAGE_FAILURES, url) is None
+            and _age(saved.get("read_at")) >= REFRESH_SECONDS
+        )
         unknown = not _usable(saved.get("mixesdb")) and (
             _age(saved.get("mixesdb_checked_at")) >= REFRESH_SECONDS
         )
@@ -1098,8 +1178,8 @@ class IdentifyRunner:
             reason = f" ({last.rstrip('.')})" if last else ""
             raise AppError(
                 "RECOGNITION_FAILING",
-                f"{_label(name)} failed on {failed} of {len(starts)} listening windows{reason}, "
-                "so a tracklist would miss most of the set.",
+                f"{_label(name)} couldn't hear {failed} of {len(starts)} parts of the set"
+                f"{reason}, so a tracklist would miss most of it.",
                 502,
                 True,
                 details={"windows_failed": failed, "windows": len(starts)},
@@ -1178,6 +1258,7 @@ class IdentifyRunner:
             "uploader": str(page.get("uploader") or ""),
             "duration_seconds": float(duration) if isinstance(duration, int | float) else None,
             "description": str(page.get("description") or ""),
+            "description_truncated": bool(page.get("description_truncated")),
             "chapters": [c for c in page.get("chapters") or [] if isinstance(c, dict)],
             "comments": [c for c in page.get("comments") or [] if isinstance(c, dict)],
             "comments_skipped": bool(page.get("comments_skipped")),
@@ -1203,7 +1284,7 @@ class IdentifyRunner:
             details={
                 "heard_seconds": round(seconds, 1),
                 "set_seconds": float(expected),
-                "next": f"djlib set FILE --source {shlex.quote(str(page.get('url') or ''))}",
+                "next": f"djlib set paste --source {shlex.quote(str(page.get('url') or ''))}",
             },
         )
 
@@ -1220,9 +1301,12 @@ class IdentifyRunner:
     ) -> dict:
         url = attempt.request["url"]
         listed, found = _listed(page, listings, url)
+        # A tracklist given before is used again quietly: its skipped lines were said then.
+        given = bool(attempt.request.get("tracklists"))
         skipped = [
             {"source": source["source"], **line}
-            for source in listed
+            for index, source in enumerate(listed)
+            if given or index >= len(listings)
             for line in source["skipped"]
             if line["reason"] != HEADING  # the set's name above its tracklist
         ][:50]
@@ -1277,11 +1361,15 @@ class IdentifyRunner:
                 f"{shlex.quote(url)} --again --recognizer {wanted}"
             )
         audio = next((s for s in tracklist["sources"] if s["source"] == "audio"), None)
-        if audio and audio.get("errors"):
+        if audio and audio.get("errors") and not reused:
+            # Said once, by the listen it happened in; a saved result doesn't repeat it.
+            stride = _stride(probes)
+            missed = max(1, round(audio["errors"] * stride / 60))
+            length = duration if isinstance(duration, int | float) and duration > 0 else None
+            minutes = max(missed, round((length or audio["windows"] * stride) / 60))
             notices.append(
-                f"{_label(listener.get('name') or '') or 'Song recognition'} failed on "
-                f"{audio['errors']} of {audio['windows']} listening windows; those parts count "
-                "as not heard."
+                f"{_label(listener.get('name') or '') or 'Song recognition'} couldn't answer "
+                f"for {missed} of {minutes} minutes; those parts count as not heard."
             )
         if page.get("comments_skipped"):
             notices.append("Reading the listener comments took too long, so they were skipped.")
@@ -1301,6 +1389,7 @@ class IdentifyRunner:
             "notices": notices,
             "skipped_lines": skipped,
             "identified_at": created,
+            "listened_at": _listened_at(folder) or created,
         }
 
     def first_shazam(self) -> bool:
@@ -1333,8 +1422,8 @@ class IdentifyRunner:
             heard = len({p["at"] for p in load_probes(folder) if not p.get("error")})
             return AppError(
                 error.code,
-                f"{error.message} What djlib heard so far ({heard} listening windows) is "
-                f"saved, so running the same command later picks up from there.{kept}",
+                f"{error.message} What djlib heard so far is saved, so running the same "
+                f"command later picks up from there.{kept}",
                 error.status,
                 True,
                 details={**(error.details or {}), "windows_heard": heard, "resumes": True},
@@ -1384,6 +1473,16 @@ def _failed_windows(probes: list[dict], starts: list[float]) -> tuple[int, str |
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _listened_at(folder: Path) -> str | None:
+    """When djlib last heard the set: a saved result is merged again on every reuse, but its
+    windows file only changes while djlib listens."""
+    try:
+        heard = (folder / "probes.jsonl").stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(heard, UTC).isoformat(timespec="seconds")
 
 
 def _label(name: str) -> str:
@@ -1494,6 +1593,9 @@ def _candidate(candidate: dict) -> dict:
             at=_clock(candidate.get("at")),
             strength=candidate.get("strength"),
         )
+        if candidate.get("also_heard"):
+            # The other times it was heard in the set, as unplaced songs say them.
+            found["also_at"] = [_clock(moment.get("at")) for moment in candidate["also_heard"]]
     elif candidate.get("source") == "comments":
         found.update(
             mentions=candidate.get("mentions"),
@@ -1518,6 +1620,10 @@ def compact_track(track: dict) -> dict:
         "status": track.get("status"),
         "evidence": track_notes(track),
     }
+    if also := track_also(track):
+        # Other spellings of its credits the library check also owns it under: a request item
+        # made from this track carries them (RequestItem.also), as `djlib set` does.
+        compact["also"] = also
     every = track.get("candidates") or []
     # The best three, and up to two listener suggestions after them.
     shown = every[:3] + [c for c in every[3:] if c.get("source") == "comments"][:2]
@@ -1555,9 +1661,19 @@ def summary(result: dict) -> dict:
         for entry in tracklist.get("sources") or []
         if entry.get("source") not in {"audio", "comments"}
     ]
+    from djlib.interfaces.set_sources import listen_url
+
+    link, tracks = source.get("url"), tracklist.get("tracks") or []
+    named = [track for track in tracks if track.get("kind") != "unknown"]
+    heard_tracks = sum(
+        1
+        for track in named
+        if any(entry.get("source") == "audio" for entry in track.get("evidence") or [])
+    )
     return {
         "source": source,
         "recognizer": result.get("recognizer"),
+        "listened_at": result.get("listened_at"),
         "duration": _clock(duration),
         "coverage": {
             "duration_seconds": duration,
@@ -1570,13 +1686,30 @@ def summary(result: dict) -> dict:
                 for gap in coverage.get("gaps") or []
             ],
         },
-        "counts": {"tracks": len(tracklist.get("tracks") or []), **(result.get("counts") or {})},
-        "tracks": [compact_track(track) for track in tracklist.get("tracks") or []],
+        "counts": {
+            "tracks": len(tracks),
+            **(result.get("counts") or {}),
+            # Songs as a DJ counts them: heard in the set, only on a tracklist, or IDs.
+            "heard": heard_tracks,
+            "listed_only": len(named) - heard_tracks,
+            "ids": len(tracks) - len(named),
+        },
+        "tracks": [
+            {**compact_track(track), "listen_url": listen_url(link, track.get("start"))}
+            for track in tracks
+        ],
         "unplaced": [
             {
                 "label": _candidate(song)["label"],
                 "heard_by": _label(str(song.get("provider") or "")),
                 "at": _clock(song.get("at")),
+                "listen_url": listen_url(link, song.get("at")),
+                # The other times it was heard, each once too: it played more than once.
+                **(
+                    {"also_at": [_clock(m.get("at")) for m in song["also_heard"]]}
+                    if song.get("also_heard")
+                    else {}
+                ),
             }
             for song in (tracklist.get("unplaced") or [])[:20]
         ],
@@ -1598,17 +1731,23 @@ LOW_COVERAGE = 70
 def next_steps(found: dict) -> list[str]:
     """What to run after an identification (``summary``): check it against the music, and
     add a 1001Tracklists tracklist while IDs, weak or conflicting tracks are left or little of
-    the set is named, unless one was given."""
+    the set is named, unless the DJ gave a tracklist (from 1001Tracklists, MixesDB or a file;
+    the MixesDB page djlib looked up itself names its page_url). Checking it makes no rekordbox
+    playlist."""
     url = shlex.quote((found.get("source") or {}).get("url") or "LINK")
-    steps = [f"djlib set {url}"]
+    steps = [f"djlib set {url} --no-rekordbox"]
     tracks = found.get("tracks") or []
     unresolved = any(
         t.get("kind") == "unknown" or t.get("status") in {"weak", "conflict"} for t in tracks
     )
-    given = any(s.get("source") == "1001tracklists" for s in found.get("sources") or [])
+    given = any(
+        s.get("source") in {"1001tracklists", "file"}
+        or (s.get("source") == "mixesdb" and not s.get("page_url"))
+        for s in found.get("sources") or []
+    )
     percent = (found.get("coverage") or {}).get("percent")
     if not given and (unresolved or percent is None or percent < LOW_COVERAGE):
-        steps.append(f"djlib identify {url} --tracklist FILE")
+        steps.append(f"djlib identify {url} --tracklist paste")
     return steps
 
 

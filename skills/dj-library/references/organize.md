@@ -60,7 +60,7 @@ Only supplied fields change, and `null` clears a field. Other fields: `genres`, 
 
 Catalog, jobs and saved lists take `query`, `limit` (1–100) and an opaque `after`; pass `next_cursor` back with the same query until it is null. Rows show recorded locations, not freshly checked availability. A collection's app/device state is `not_tracked_here`, which doesn't mean rekordbox lacks it: `djlib crates` adds a `rekordbox` record per crate (playlist, `pushed_at`, last `usb` check), the same one `djlib status` uses.
 
-Add only folders the user names: `djlib_add_roots` with `{"paths": ["/Users/NAME/Music/New"]}`. Existing roots stay and no music moves. `init --allow-root` on an existing workspace returns `ROOTS_NOT_UPDATED` instead of adding roots.
+Add only folders the user names: `djlib_add_roots` with `{"paths": ["/Users/NAME/Music/New"]}`, or in the CLI `djlib roots add FOLDER` (`djlib init FOLDER` on an existing setup adds it too). Existing folders stay and no music moves; run `djlib scan` afterwards. `SOURCE_NOT_ALLOWED` means a file is outside these folders; `details.path` names the folder to add.
 
 ## A file changed on disk
 

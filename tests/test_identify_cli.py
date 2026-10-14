@@ -78,6 +78,10 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "weak": 0,
         "conflict": 0,
         "unidentified": 0,
+        # As a DJ counts them: heard in the set, only on a tracklist, IDs.
+        "heard": 2,
+        "listed_only": 0,
+        "ids": 1,
     }
     halo, glue_id, burn = result["tracks"]
     assert halo == {
@@ -89,17 +93,20 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "title": "Halo",
         "version": "",
         "status": "confirmed",
-        "evidence": "Shazam: 4 windows from 00:09; also in 1001Tracklists",
+        "evidence": "Shazam heard it at 00:09 (4×); also in 1001Tracklists",
+        # Plays the set from that moment.
+        "listen_url": "https://www.youtube.com/watch?v=fridayset1&t=9s",
     }
     # The ID stays an ID; what Shazam heard there is a candidate, never its name.
     assert (glue_id["kind"], glue_id["artist"], glue_id["title"]) == ("unknown", None, None)
     assert glue_id["status"] == "likely"
     assert glue_id["candidates"][0]["label"] == "Bicep - Glue"
-    assert glue_id["evidence"].startswith("ID (likely Bicep - Glue): Shazam heard it in 3 windows")
+    assert glue_id["evidence"].startswith("ID (likely Bicep - Glue): Shazam heard it at ")
     assert burn["title"] == "Slow Burn"
     assert [source["source"] for source in result["sources"]] == ["audio", "1001tracklists"]
     # A 1001Tracklists tracklist was given, so the ID left is not a reason to ask for one.
-    assert result["next"] == [f"djlib set '{URL}'"]
+    # Checking what you own makes no rekordbox playlist nobody asked for.
+    assert result["next"] == [f"djlib set '{URL}' --no-rekordbox"]
     assert result["tracklist_file"].endswith("tracklist.txt")
     # The one-time note about the unofficial Shazam service.
     assert envelope["warnings"] == [identification.UNOFFICIAL_SHAZAM]
@@ -133,7 +140,10 @@ def test_identify_without_a_tracklist_suggests_one_when_little_was_named(
     assert [track["status"] for track in result["tracks"]] == ["confirmed", "unidentified"]
     assert result["coverage"]["percent"] < identification.LOW_COVERAGE
     # Quoted, so zsh doesn't read "?" in the link as a glob.
-    assert result["next"] == [f"djlib set '{URL}'", f"djlib identify '{URL}' --tracklist FILE"]
+    assert result["next"] == [
+        f"djlib set '{URL}' --no-rekordbox",
+        f"djlib identify '{URL}' --tracklist paste",
+    ]
 
 
 def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_http, setup):
@@ -142,12 +152,20 @@ def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_h
     assert reply.exit_code == 0, reply.output
     text = reply.stdout
     assert "Friday Set" in text and "YouTube · 05:00" in text
-    assert "3 tracks, 67% of the set named, 92% heard" in text and "2 confirmed, 1 likely" in text
+    # Songs as a DJ counts them; percentages and listening windows stay in the JSON.
+    assert "3 tracks · 2 heard by Shazam · 1 ID" in text
+    assert "% heard" not in text and "window" not in text and "unidentified" not in text
     rows = [line for line in text.splitlines() if "Halo" in line or "Glue" in line]
     assert "✓ confirmed" in rows[0] and "Lumen - Halo" in rows[0]
     assert "ID — likely Bicep - Glue" in rows[1]
-    assert "Shazam  unofficial; may slow down or stop working" in text
-    assert f"set {terminal.quote(URL)}" in text  # the next step, quoted for the shell
+    heard_by = next(line for line in text.splitlines() if "Heard by" in line)
+    assert "Shazam · listened " in heard_by
+    # Said by the listen that leans on Shazam the first time, not by every view after it.
+    assert "unofficial; may slow down or stop working" in heard_by
+    # The next step checks what you own without making a rekordbox playlist.
+    assert f"set {terminal.quote(URL)} --no-rekordbox" in text
+    again = invoke(application, "identify", URL, pretty=True).stdout
+    assert "Shazam · listened " in again and "unofficial" not in again
 
 
 def test_ctrl_c_cancels_the_identification(application, library_http, setup, monkeypatch):
@@ -211,18 +229,97 @@ def test_progress_lines_say_what_djlib_is_doing():
     def job(phase, state="running", **progress):
         return {"state": state, "result": {"progress": {"phase": phase, **progress}}}
 
-    listening = job("listening", windows_done=34, windows_total=124, songs_heard=6, eta_seconds=130)
-    assert identify_cli.progress_line(listening) == (
-        "Listening to the set… 34 of 124 windows · 6 songs so far · about 2 min left"
+    listening = job(
+        "listening",
+        windows_done=31,
+        windows_total=84,
+        songs_heard=5,
+        eta_seconds=130,
+        position_seconds=930,
+        duration_seconds=2525,
     )
-    assert identify_cli.progress_line(job("checking_gaps", windows_total=30, eta_seconds=40)) == (
-        "Listening again where songs change… 0 of 30 windows · less than a minute left"
-    )
+    # The set's own time, and no countdown: Shazam's waits make any time left wrong.
+    assert identify_cli.progress_line(listening) == "Listening… 15:30 of 42:05 · 5 songs so far"
+    hour = job("listening", windows_total=62, position_seconds=3725, duration_seconds=3925)
+    assert identify_cli.progress_line(hour) == "Listening… 1:02:05 of 1:05:25"
+    # A service from before set time was kept counts the parts heard.
+    older = job("listening", windows_done=34, windows_total=124, songs_heard=6, eta_seconds=130)
+    assert identify_cli.progress_line(older) == "Listening… 34 of 124 parts · 6 songs so far"
+    gaps = job("checking_gaps", windows_done=9, windows_total=31, songs_heard=8, eta_seconds=40)
+    assert identify_cli.progress_line(gaps) == "Checking the transitions… 9 of 31 · 8 songs so far"
     downloading = job("downloading", downloaded_bytes=45_200_000)
     assert identify_cli.progress_line(downloading) == "Downloading the set's audio… 45 MB"
     assert identify_cli.progress_line({"state": "queued", "result": {}}) == "Starting…"
     waiting = {"state": "queued", "result": {"progress": {"phase": "queued", "ahead": 1}}}
     assert identify_cli.progress_line(waiting) == "Waiting for the set before it to finish…"
+    for line in (identify_cli.progress_line(x) for x in (listening, older, gaps, downloading)):
+        assert "window" not in line and "left" not in line
+
+
+def test_a_slow_shazam_is_a_calm_line_that_fits_the_terminal():
+    from rich.cells import cell_len
+
+    slow = {"service": "Shazam", "reason": "rate_limited", "retry_in": 40, "gives_up_in": 640}
+    progress = {
+        "phase": "listening",
+        "windows_done": 31,
+        "windows_total": 84,
+        "songs_heard": 5,
+        "eta_seconds": None,
+        "position_seconds": 930,
+        "duration_seconds": 2525,
+        "waiting": slow,
+    }
+    job = {"state": "running", "result": {"progress": progress}}
+    line = identify_cli.progress_line(job)
+    assert line == "Listening… 15:30 of 42:05 · 5 songs · Shazam is slow, waiting (Ctrl-C is safe)"
+    assert cell_len(line) <= 80 and "40" not in line and "min" not in line
+    # Longer sets and more songs drop the count first, then the reassurance; never wrap.
+    long = {**progress, "songs_heard": 12, "position_seconds": 3725, "duration_seconds": 3925}
+    line = identify_cli.progress_line({"state": "running", "result": {"progress": long}})
+    assert line == "Listening… 1:02:05 of 1:05:25 · Shazam is slow, waiting (Ctrl-C is safe)"
+    narrow = identify_cli.progress_line({"state": "running", "result": {"progress": long}}, 60)
+    assert narrow == "Listening… 1:02:05 of 1:05:25 · Shazam is slow, waiting"
+    gone = {**progress, "waiting": {**slow, "reason": "unreachable"}}
+    line = identify_cli.progress_line({"state": "running", "result": {"progress": gone}})
+    assert "Shazam isn't answering, waiting (Ctrl-C is safe)" in line
+
+
+def test_set_says_why_it_listens_and_how_long_that_takes(application, monkeypatch):
+    def reason(text, choice=None, complete=True):
+        return identify_cli.listen_reason(
+            choice, text, URL, application.workspace, complete=complete
+        )
+
+    assert reason("") == "no_tracklist"
+    assert reason(LISTED) == "ids"
+    assert reason("Lumen - Halo\nBicep - Glue\n", complete=False) == "incomplete"
+    assert reason("Lumen - Halo\nBicep - Glue\n") is None
+    assert reason("Lumen - Halo\n", choice=True) == "asked"
+    assert reason(LISTED, choice=False) is None
+
+    def notice(why, text=""):
+        return identify_cli.listening_notice(why, text, URL, application.workspace)
+
+    assert notice("no_tracklist") == (
+        "The page has no tracklist, so djlib is listening to the set to find the songs. "
+        "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "Ctrl-C stops it, and the same command carries on."
+    )
+    assert notice("ids", LISTED) == (
+        "The tracklist has 1 ID, so djlib is listening to the set to name it. "
+        "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "--no-identify skips it."
+    )
+    two = "Lumen - Halo\nID - ID\nID\nNia Okoro - Slow Burn\n"
+    assert notice("ids", two).startswith("The tracklist has 2 IDs, so djlib is listening to")
+    assert notice("incomplete").startswith(
+        "MixesDB marks its tracklist incomplete, so djlib is listening to the set. An hour-long"
+    )
+    assert notice(None) is None and notice("identified_before") is None
+    # A set identified before shows at once: nothing to wait for.
+    monkeypatch.setattr(identification, "finished", lambda workspace, url: {"complete": True})
+    assert notice("ids", LISTED) is None
 
 
 def test_watching_an_identify_job_shows_its_windows():
@@ -250,7 +347,7 @@ def test_lines_a_tracklist_could_not_use_are_warnings(application, library_http,
     envelope = json.loads(invoke(application, "identify", URL, "--tracklist", listing).stdout)
     # The heading names the set; the note is reported.
     assert envelope["warnings"][1:] == [
-        "The tracklist file, line 5 skipped (no “Artist - Title” separator): “just a note”"
+        "Your tracklist, line 5 skipped (no “Artist - Title” separator): “just a note”"
     ]
 
 

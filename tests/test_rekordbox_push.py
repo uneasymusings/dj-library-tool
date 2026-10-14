@@ -718,7 +718,10 @@ def test_set_from_a_link_fetches_clear_matches_and_reads_comments_for_ids(
 
 
 def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkeypatch):
+    from djlib.sources import web
+
     FakeRekordbox(monkeypatch)
+    monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works
     reply = CliRunner().invoke(
         cli_app,
         [
@@ -730,7 +733,28 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
     )
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
-    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set FILE"
+    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set paste"
+    pretty = CliRunner(env={"DJLIB_OUTPUT": "pretty", "COLUMNS": "80", "NO_COLOR": "1"}).invoke(
+        cli_app,
+        [
+            "--workspace",
+            str(application.workspace.root),
+            "set",
+            "https://www.1001tracklists.com/tracklist/abc/some-set.html",
+        ],
+    )
+    # Both ways forward, each command under its label (the long one doesn't line up), in the
+    # order that keeps the copied tracklist on the clipboard; every line fits 80 columns.
+    lines = pretty.stderr.splitlines()
+    start = next(n for n, line in enumerate(lines) if "→" in line)
+    assert [line.rstrip() for line in lines[start:]] == [
+        "  → Copy the tracklist on the page, then",
+        "    djlib set paste",
+        "  → Better: add the set's YouTube or SoundCloud link (under the player)",
+        "    djlib set 'LINK' --tracklist paste",
+        "    Put the link in place of LINK, then copy the tracklist and press Enter.",
+    ]
+    assert max(len(line) for line in lines) <= 80
 
 
 @pytest.mark.parametrize("flag", ["--no-rekordbox", None])
@@ -838,6 +862,32 @@ def test_a_set_that_gained_songs_becomes_a_new_playlist_version(
     assert grown["owned"] == 2 and grown["collection_id"] != first["collection_id"]
     assert grown["playlist"] == "Friday (2)" and grown["rekordbox"]["status"] == "imported"
     assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
+
+
+def test_a_tracklist_edited_without_changing_its_songs_keeps_its_playlist(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_headline_workflow import build as build_keyed
+
+    build_keyed(library_http, [audio_factory("e1.wav", frequency=350)], [("Lumen", "Halo")], "e-1")
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nID - ID\nLumen - Rain\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    def run():
+        reply = CliRunner().invoke(cli_app, [*workspace, "set", str(tracklist)])
+        assert reply.exit_code == 0, reply.output
+        return json.loads(reply.stdout)["result"]
+
+    first = run()
+    # Times added to the same songs: the same list, crate and playlist, now with the times.
+    tracklist.write_text("[00:00] Lumen - Halo\n[03:10] ID - ID\nLumen - Rain\n", encoding="utf-8")
+    timed = run()
+    assert timed["request_id"] == first["request_id"]
+    assert timed["collection_id"] == first["collection_id"]
+    assert timed["rekordbox"]["status"] == "already_in_rekordbox" and len(fake.imported) == 1
+    assert [item["label"] for item in timed["missing"]] == ["ID - ID @ 03:10", "Lumen - Rain"]
 
 
 def test_a_new_version_keeps_its_playlist_name_for_usb_and_later_pushes(

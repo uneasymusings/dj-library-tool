@@ -299,7 +299,7 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
         "notes": "Listed as an ID in the description",
         "confidence": "unidentified",
     }
-    assert mirage["notes"] == "Shazam: 11 windows from 06:00; also in the description"
+    assert mirage["notes"] == "Shazam heard it at 06:00 (11×); also in the description"
     assert mirage["confidence"] == "confirmed"
     assert items[4]["notes"] == "From the description; the time is approximate"
     assert items[4]["confidence"] == "likely"
@@ -307,7 +307,7 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     assert late_id["label"] == "ID" and late_id["timestamp"] == "48:30"
     assert late_id["notes"].startswith(
         "ID (likely Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)): "
-        "Shazam heard it in 2 windows from 50:30"
+        "Shazam heard it at 50:30 (2×)"
     )
     assert items[11]["version"] == "Antdot & Maz Edit"
     heard_only = request_items(keinemusik_heard_only, SET_URL)
@@ -315,9 +315,12 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     assert heard_only[8]["notes"].startswith(
         "Not identified from 39:12 to 50:30, about 2 songs at this set's pace; possibly Q-Force"
     )
-    # An ID needs a time or a link to listen to.
+    # An ID keeps its place in the set without a time or a link to listen to.
     timeless = {"tracks": [{**keinemusik["tracks"][0], "start": None}]}
-    assert request_items(timeless) == []
+    (untimed,) = valid_request(request_items(timeless)).items
+    assert (untimed.kind, untimed.label, untimed.timestamp) == ("unknown", "ID", None)
+    # Listing and audio agree on every confirmed song here: no other spelling to own it by.
+    assert not any("also" in item for item in items + heard_only)
 
 
 @pytest.mark.parametrize("which", ["keinemusik", "keinemusik_heard_only"])
@@ -376,13 +379,27 @@ def test_keinemusik_live_run_keeps_to_the_description():
         ("BR1S4", "THIS IS BRAZIL", "51:09"),
     ]
     # Songs heard once between Celebration and Wish I Didn't Miss You are no ID of their own.
+    # The ID's two candidates were heard there too: twice in all, so neither reads "once",
+    # and they aren't listed again as heard once, not placed.
     assert [(u["title"], clock(u["at"])) for u in result["unplaced"]] == [
         ("U Sure Do", "55:39"),
         ("New Millenium (feat. Topazz)", "55:54"),
         ("Salva Mea", "56:09"),
-        ("All I Got", "56:24"),
-        ("THIS IS BRAZIL", "56:39"),
     ]
+    assert [c["also_heard"] for c in late_id["candidates"]] == [
+        [{"at": 3384.0, "hits": 1}],
+        [{"at": 3399.0, "hits": 1}],
+    ]
+    # The summary assistants read (`identify --json`, djlib_job) keeps those times too.
+    from djlib.application.identification import compact_track
+
+    shown = compact_track(late_id)["candidates"]
+    assert [(c["at"], c["also_at"]) for c in shown] == [("50:09", ["56:24"]), ("51:09", ["56:39"])]
+    assert track_notes(late_id) == (
+        "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I Got "
+        "(Chris Fortier 20yr Dub) (Shazam heard it at 50:09 and 56:24); possibly BR1S4 - THIS "
+        "IS BRAZIL (Shazam heard it at 51:09 and 56:39)"
+    )
     # Named is not heard: the opening ID, Deixa Passar, and Back To Life to Celebration.
     coverage = result["coverage"]
     assert coverage["gaps"] == [
@@ -775,8 +792,8 @@ def test_single_window_songs_alone_make_one_id():
     assert result["unplaced"] == [] and result["coverage"]["unknown"] == 1
     (item,) = valid_request(request_items(result, SET_URL)).items
     assert item.notes == (
-        "Not identified from 00:00 to 30:00; possibly Lumen - Halo (Shazam, 1 window at 05:00); "
-        "possibly Ana - Rain (Shazam, 1 window at 15:00)"
+        "Not identified from 00:00 to 30:00; possibly Lumen - Halo (Shazam heard it once at "
+        "05:00); possibly Ana - Rain (Shazam heard it once at 15:00)"
     )
     assert tracklist_text(result) == "[00:00] ID - ID"
 
@@ -885,12 +902,12 @@ def test_text_and_strong_audio_disagreeing_keeps_both():
     ]
     glue_item, sky_item = request_items(result)[1:3]
     assert glue_item["notes"] == (
-        "From the description; but Shazam heard Kettama - Fall Into The Sky here "
-        "(4 windows from 02:00); the time is approximate"
+        "From the description; but Shazam heard Kettama - Fall Into The Sky at 02:00 (4×); "
+        "the time is approximate"
     )
     assert (
         sky_item["notes"]
-        == "Shazam: 4 windows from 02:00; but the description lists Bicep - Glue here"
+        == "Shazam heard it at 02:00 (4×); but the description lists Bicep - Glue here"
     )
     # Two windows are not enough to dispute a listing: the song is added beside it.
     probes[4:8] = probes[4:6]
@@ -967,7 +984,7 @@ def test_a_song_heard_again_soon_after_is_one_track():
         ("07:30", "Snow", "confirmed", False),
     ]
     assert request_items({"tracks": tracks})[1]["notes"] == (
-        "Shazam: 4 windows from 02:00; Shazam: 3 windows from 05:30; also in the description"
+        "Shazam heard it at 02:00 (4×) and 05:30 (3×); also in the description"
     )
     unlisted = build_tracklist(duration=570, probes=back)["tracks"]
     assert [t["title"] for t in unlisted] == ["Halo", "Rain", "Sky", "Rain", "Snow"]
@@ -1032,9 +1049,9 @@ def test_only_the_audio_confirms_a_listed_song():
         ("05:00", "Snow", "confirmed", False),  # one window where the listings place it
     ]
     assert [item["notes"] for item in request_items(result)] == [
-        "Shazam: 4 windows from 00:00; also in the description and MixesDB",
+        "Shazam heard it at 00:00 (4×); also in the description and MixesDB",
         "From the description and MixesDB; the time is approximate",
-        "Shazam: 1 window at 05:00; also in the description and MixesDB",
+        "Shazam heard it once at 05:00; also in the description and MixesDB",
     ]
     # Heard in three or more windows confirms a song no listing names.
     alone = build_tracklist(duration=390, probes=probes)["tracks"]
@@ -1123,10 +1140,10 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     ]
     notes = [track_notes(track) for track in result["tracks"]]
     assert notes[0] == (
-        "Shazam: 3 windows from 00:00; also in MixesDB; "
-        "listed in MixesDB as Robert Glasper - Move Love (Kaytranada Edition)"
+        "Shazam heard it at 00:00 (3×); also in MixesDB; "
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
     )
-    assert notes[3] == "Shazam: 3 windows from 08:00; also in MixesDB"
+    assert notes[3] == "Shazam heard it at 08:00 (3×); also in MixesDB"
     # One window where the listing places it is enough (windows go a minute apart with a
     # timed tracklist); without a listing one window is no track at all.
     once = build_tracklist(duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"))
@@ -1137,8 +1154,8 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     )
     assert rows(fixed) == [("Armand Van Helden", "Full Moon", "", "confirmed")]
     assert track_notes(fixed["tracks"][0]) == (
-        "Shazam: 1 window at 00:00; also in MixesDB; "
-        "listed in MixesDB as Armand Val Helden - Full Moon"
+        "Shazam heard it once at 00:00; also in MixesDB; "
+        "MixesDB spells it Armand Val Helden - Full Moon"
     )
     # Other credits are another song or a remix's sample: the listing's label stays.
     other = build_tracklist(
@@ -1149,6 +1166,226 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     assert rows(other)[0][:2] == ("Common", "Full Moon")
 
 
+def test_a_corrected_song_is_also_owned_under_the_listings_spelling():
+    """The DJ's file is often tagged as the listing spells it ("Robert Glasper"), so the
+    request carries that spelling too, but only for confirmed songs whose listed label was
+    replaced by the heard one, and never for what the audio alone named."""
+    probes = [
+        *song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Edition)"),
+        *song(360, 2, "Armand Van Helden", "Full Moon (feat. Common)"),
+        *song(480, 3, "Azealia Banks", "Atm Jam (Kaytranada Alternate Mix)"),
+    ]
+    listed = listing(
+        "mixesdb",
+        "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)",
+        "2. [06:00] Armand Val Helden Feat. Common - Full Moon",
+        "3. [08:00] Azealia Banks Feat. Pharrell Williams - ATM Jam (Kaytranada Edition)",
+    )
+    result = build_tracklist(duration=660, probes=probes, listed=[listed])
+    glasper, full_moon, atm = result["tracks"]
+    assert glasper["also_named"] == {
+        "source": "mixesdb",
+        "label": "Robert Glasper - Move Love (Kaytranada Edition)",
+        "artist": "Robert Glasper",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+    }
+    assert atm["also_named"]["source"] == "audio" and "artist" not in atm["also_named"]
+    items = request_items(result, SET_URL)
+    valid_request(items)
+    assert items[0]["also"] == [
+        {
+            "artist": "Robert Glasper",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "source": "mixesdb",
+        }
+    ]
+    assert items[1]["also"][0]["artist"] == "Armand Val Helden Feat. Common"
+    assert "also" not in items[2]  # Shazam's own name for a song listed as shown
+    for status in ("likely", "weak", "conflict"):
+        unsure = {"tracks": [{**glasper, "status": status}]}
+        assert "also" not in request_items(unsure, SET_URL)[0]
+
+
+def test_the_listings_spelling_never_brings_another_mix():
+    """The listing's credits count, its mix name does not: Shazam heard the Kaytranada Remix
+    where MixesDB lists the Edition, or named the Edition where MixesDB names no mix."""
+    probes = [
+        *song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Remix)"),
+        *song(300, 3, "Robert Glasper Experiment", "Black Radio (Kaytranada Edition)"),
+    ]
+    listed = listing(
+        "mixesdb",
+        "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)",
+        "2. [05:00] Robert Glasper - Black Radio",
+    )
+    result = build_tracklist(duration=600, probes=probes, listed=[listed])
+    assert rows(result) == [
+        ("Robert Glasper Experiment", "Move Love", "Kaytranada Remix", "confirmed"),
+        ("Robert Glasper Experiment", "Black Radio", "Kaytranada Edition", "confirmed"),
+    ]
+    items = request_items(result, SET_URL)
+    valid_request(items)
+    assert [item["also"] for item in items] == [
+        [
+            {
+                "artist": "Robert Glasper",
+                "title": "Move Love",
+                "version": "Kaytranada Remix",
+                "source": "mixesdb",
+            }
+        ],
+        [
+            {
+                "artist": "Robert Glasper",
+                "title": "Black Radio",
+                "version": "Kaytranada Edition",
+                "source": "mixesdb",
+            }
+        ],
+    ]
+    # The notes still say how the listing wrote it.
+    assert items[0]["notes"].endswith(
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+
+
+KAYTRANADA_HEARD = [
+    *song(0, 2, "Kaytranada", "Roots (Silent Treatment Intro)"),
+    *song(69, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Edition)"),
+    *song(235, 3, "Flume", "Holdin On (Kaytranada Edit)"),
+    *song(510, 3, "Full Crate Feat. Papa Ghana", "L'afrique"),
+    *song(632, 3, "Kaytranada", "At All"),
+    *song(1993, 3, "Armand Van Helden", "Full Moon (feat. Common)"),
+]
+KAYTRANADA_MIXESDB = listing(
+    "mixesdb",
+    "1. [00:00] Kaytranada - Roots [Silent Treatment Intro]",
+    "2. [00:45] Robert Glasper - Move Love (Kaytranada Edition)",
+    "3. [03:08] KenLo Croqnote - Facteur Humidex",
+    "4. [03:55] Flume - Holdin On (Kaytranada Edit)",
+    "5. [06:37] SebastiAn - Arabest",
+    "6. [08:30] Full Crate Feat. Papa Ghana - L'afrique",
+    "7. [10:32] Kaytranada - At All",
+    "8. [12:46] De La Soul - Me, Myself & I",
+    "9. [24:10] Pomo - So Fine",
+    "10. [26:00] Bell Biv DeVoe - Poison",
+    "11. [28:36] Janet Jackson - If (Kaytranada Remix)",
+    "12. [33:25] Armand Val Helden Feat. Common - Full Moon",
+)
+
+
+def test_a_pasted_tracklist_that_agrees_with_shazam_keeps_mixesdbs_spelling():
+    """1001Tracklists spells it as Shazam heard it ("Robert Glasper Experiment"); MixesDB and
+    the DJ's file say "Robert Glasper". Pasting the list must not lose the song you own."""
+    pasted = listing(
+        "1001tracklists",
+        "01:09 Robert Glasper Experiment - Move Love (Kaytranada Edition)",
+        "33:25 Armand Van Helden Feat. Common - Full Moon",
+    )
+    result = build_tracklist(
+        duration=2525, probes=KAYTRANADA_HEARD, listed=[pasted, KAYTRANADA_MIXESDB]
+    )
+    tracks = {track["title"]: track for track in result["tracks"]}
+    glasper, full_moon = tracks["Move Love"], tracks["Full Moon"]
+    assert glasper["artist"] == "Robert Glasper Experiment"
+    assert glasper["also_named"]["label"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert full_moon["also_named"]["artist"] == "Armand Val Helden Feat. Common"
+    items = {item.get("title"): item for item in request_items(result, SET_URL)}
+    valid_request(list(items.values()))
+    assert items["Move Love"]["also"] == [
+        {
+            "artist": "Robert Glasper",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "source": "mixesdb",
+        }
+    ]
+    assert items["Full Moon"]["also"][0]["artist"] == "Armand Val Helden Feat. Common"
+    assert items["Move Love"]["notes"].endswith(
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+
+
+def test_every_listings_spelling_is_kept_for_the_library_check():
+    """Two listings, two other spellings of what Shazam heard: the file may carry either."""
+    pasted = listing("file", "[01:09] Robert Glaspar Experiment - Move Love (Kaytranada Edition)")
+    result = build_tracklist(
+        duration=2525, probes=KAYTRANADA_HEARD, listed=[pasted, KAYTRANADA_MIXESDB]
+    )
+    (glasper,) = [track for track in result["tracks"] if track["title"] == "Move Love"]
+    assert glasper["artist"] == "Robert Glasper Experiment"
+    assert [spelling["source"] for spelling in glasper["also_spellings"]] == ["file", "mixesdb"]
+    item = request_items({"tracks": [glasper]}, SET_URL)[0]
+    valid_request([item])
+    assert [credit["artist"] for credit in item["also"]] == [
+        "Robert Glaspar Experiment",
+        "Robert Glasper",
+    ]
+    assert item["notes"].endswith(
+        "your tracklist spells it Robert Glaspar Experiment - Move Love (Kaytranada Edition); "
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        # Timed, as 1001Tracklists copies some of a set
+        (
+            "[00:00] Kaytranada - Roots (Silent Treatment Intro)",
+            "[01:09] Robert Glasper - Move Love (Kaytranada Remix)",
+            "[06:37] SebastiAn - Arabest",
+            "[10:32] Kaytranada - At All",
+            "[26:00] Bell Biv DeVoe - Poison",
+        ),
+        # Without times
+        (
+            "Kaytranada - Roots (Silent Treatment Intro)",
+            "Robert Glasper - Move Love (Kaytranada Remix)",
+            "SebastiAn - Arabest",
+            "Kaytranada - At All",
+            "Bell Biv DeVoe - Poison",
+        ),
+        # Every other song
+        (
+            "[03:08] KenLo Croqnote - Facteur Humidex",
+            "[06:37] SebastiAn - Arabest",
+            "[12:46] De La Soul - Me, Myself & I",
+            "[26:00] Bell Biv DeVoe - Poison",
+        ),
+    ],
+)
+def test_a_partial_pasted_tracklist_never_doubles_a_song_nobody_heard(pasted):
+    """A paste aligns to the songs Shazam heard on its own, so a song nobody heard could land
+    on the other side of a heard one than in MixesDB: "Poison" twice at 26:00."""
+    result = build_tracklist(
+        duration=2525,
+        probes=KAYTRANADA_HEARD,
+        listed=[listing("file", *pasted), KAYTRANADA_MIXESDB],
+    )
+    titles = [track["title"] for track in result["tracks"]]
+    assert len(titles) == 12 and len(set(titles)) == 12
+    poison = result["tracks"][titles.index("Poison")]
+    assert (clock(poison["start"]), poison["approx"], poison["status"]) == (
+        "26:00",
+        False,
+        "likely",
+    )
+    assert track_notes(poison) == "From your tracklist and MixesDB"
+
+
+def test_a_song_listed_twice_far_apart_stays_two_plays():
+    """The same song early in one listing and late in another, both timed: two plays."""
+    result = build_tracklist(
+        duration=2525,
+        probes=KAYTRANADA_HEARD,
+        listed=[listing("file", "[02:00] Pomo - So Fine"), KAYTRANADA_MIXESDB],
+    )
+    assert [track["title"] for track in result["tracks"]].count("So Fine") == 2
+
+
 def test_heard_and_listed_under_other_names_says_what_each_side_has():
     """A remix heard as its sample: likely, and the notes don't read as agreement."""
     probes = song(0, 3, "Kerri Chandler", "Rain")
@@ -1156,7 +1393,7 @@ def test_heard_and_listed_under_other_names_says_what_each_side_has():
     (track,) = build_tracklist(duration=200, probes=probes, listed=[listed])["tracks"]
     assert (track["artist"], track["status"]) == ("Lumen", "likely")
     assert track_notes(track) == (
-        "MixesDB lists it; Shazam heard Kerri Chandler - Rain here (3 windows from 00:00)"
+        "MixesDB lists it; Shazam heard Kerri Chandler - Rain at 00:00 (3×)"
     )
 
 

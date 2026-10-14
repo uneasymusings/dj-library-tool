@@ -2,17 +2,36 @@
 
 Start with [status](docs/STATUS.md), [architecture](docs/ARCHITECTURE.md), and the [product plan](PLAN.md). This is an experimental local engine; useful improvements should advance an actual DJ or assistant workflow.
 
-## Environment
+## Architecture
 
-Python 3.12+; uv; FFmpeg/ffprobe for compressed audio; optional yt-dlp download extra.
+```mermaid
+flowchart LR
+    A[Claude Code / Codex + skill] --> B[MCP stdio]
+    C[CLI: terminal views or JSON] --> D[Authenticated loopback coordinator]
+    B --> D
+    C --> R[rekordbox via its menus, macOS]
+    D --> E[SQLite catalog + durable jobs]
+    D --> F[Background worker: scans, downloads, exports, analysis sync]
+    D --> G[Set identification: listens to one set at a time]
+    R --> U[USB stick: read back from export.pdb]
+```
+
+One coordinator owns a workspace and exits after 30 idle minutes when it was started implicitly. Recordings, immutable byte revisions, file locations and collection membership are separate entities, so a renamed or retagged file never silently changes a crate. Read the [architecture](docs/ARCHITECTURE.md), the [CLI/API contract](docs/CONTRACT.md), [coverage](docs/COVERAGE.md) and the [product plan](PLAN.md). The MCP server and skill are described in [agent setup](docs/AGENTS.md).
+
+## Development
+
+Requires Python 3.12+ and uv; FFmpeg/ffprobe for compressed audio; the optional `download` extra for yt-dlp.
 
 ```bash
+git clone https://github.com/uneasymusings/dj-library-tool.git && cd dj-library-tool
 uv sync --locked --extra download
 uv run pytest -q
 uv run ruff check src scripts tests
 uv run ruff format --check src scripts tests
 uv build
 ```
+
+Prefix any `djlib` command with `uv run` to run your checkout. CI runs tests, lint, formatting and packaging on Linux, macOS and Windows with Python 3.12 and 3.13; tagged releases are built and checked before publishing. See [validation](docs/VALIDATION.md) and [security](SECURITY.md).
 
 Use a separate initialized workspace and synthetic or appropriately licensed media. Never commit personal paths, workspace databases, credentials, source downloads, or copyrighted audio fixtures. The built-in demo generates original tones.
 
@@ -25,10 +44,17 @@ Use a separate initialized workspace and synthetic or appropriately licensed med
 - Treat source metadata as untrusted data. Preserve provenance and recording/version evidence.
 - Use comments for operational invariants and non-obvious tradeoffs; let ordinary names and functions explain straightforward mechanics.
 - Document behavioral changes, compatibility limitations, and migration requirements in the same change.
+- Write DJ-facing text (README, quick start, terminal views, the review page) in short, plain sentences and DJ words: set, tracklist, crate, playlist, owned, missing, ID, stick. Keep words like envelope, coordinator, revision and workspace internals in developer docs.
 
 Model changes require a new Alembic revision; do not rewrite a migration already used by others. `alembic.ini` targets an ignored development database. Runtime migrations are packaged with the application and receive the coordinator's existing connection.
 
 After changing public request contracts, regenerate the checked-in schemas with `uv run python scripts/export_schemas.py`. The artifact intentionally omits per-call request IDs so generation stays deterministic.
+
+## Sources djlib reads
+
+- **MixesDB:** at most 4 requests per lookup, at least 4 seconds apart across all lookups (its robots.txt `Crawl-delay: 4`), with an honest User-Agent naming djlib, its version and this repository. Its robots.txt also has `Disallow: /*?action=`, which a literal reading applies to the `/w/api.php?action=query` requests djlib makes. Before tagging a release, the owner asks the MixesDB admins whether user-triggered, per-set lookups at this pace are welcome, and records the answer here. If they decline, turn the lookup off by default before tagging. Anyone can turn it off with `DJLIB_MIXESDB=off` (or `0`, `false`, `no`), which `djlib set`, `djlib identify` and the MCP tools all follow; the background service reads it when it starts.
+- **1001Tracklists:** never fetched. DJs or their assistants copy the tracklist in a browser.
+- **Shazam:** used unofficially, one request at a time from one address, with back-off when it slows down. No address rotation and no parallel listening. AudD and ACRCloud are the licensed options.
 
 ## Pull requests and issues
 
@@ -40,7 +66,7 @@ Runtime tests use original generated audio, isolated workspaces, controlled sour
 
 ## GitHub releases
 
-Update the project, engine, and lockfile version together. Update the pinned public install URLs in the README and installation references. Run the full checks above, then:
+Update the project, engine, and lockfile version together. Update the pinned wheel URL and `DJLIB_VERSION` example in [installation](docs/INSTALL.md) and the version in the README's alpha note. Run the full checks above, then:
 
 ```bash
 uv run --locked python scripts/check_distribution.py

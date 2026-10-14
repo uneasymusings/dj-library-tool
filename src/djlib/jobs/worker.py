@@ -261,6 +261,34 @@ class Worker:
                     job.state, job.outcome = "queued", None
                     add_event(session, job, "requeued", {"counts": dict(counts)})
                     return
+                if kind == "scan":
+                    # A rescan says how many files are new, not only how many it read again;
+                    # and, as the library counts them, how many songs it holds and are new (a
+                    # second copy of a song is a file, not a song).
+                    done = (
+                        select(func.count())
+                        .select_from(JobItem)
+                        .where(JobItem.job_id == job_id, JobItem.state == "succeeded")
+                    )
+                    new = session.scalar(
+                        done.where(func.json_extract(JobItem.result, "$.reused") == 0)
+                    )
+                    songs = session.scalar(
+                        select(
+                            func.count(
+                                func.distinct(func.json_extract(JobItem.result, "$.recording_id"))
+                            )
+                        ).where(JobItem.job_id == job_id, JobItem.state == "succeeded")
+                    )
+                    new_songs = session.scalar(
+                        done.where(func.json_extract(JobItem.result, "$.new_recording") == 1)
+                    )
+                    job.result = {
+                        **(job.result or {}),
+                        "new_tracks": new or 0,
+                        "recordings": songs or 0,
+                        "new_recordings": new_songs or 0,
+                    }
                 if kind not in {"delivery", "delivery_check", "organize"}:
                     job.state = "needs_attention" if counts["needs_input"] else "completed"
                     job.outcome = (
@@ -478,7 +506,10 @@ class Worker:
                     # Original acquisition bytes remain in incoming/. Only the managed
                     # derivative gets chosen labels; its *final* bytes are cataloged.
                     original_hash = inspection.sha256
-                    await asyncio.to_thread(tag_download_copy, staging, track, suffix)
+                    url = (item_request.get("provenance") or {}).get("source_url") or (
+                        item_request.get("source") or {}
+                    ).get("url")
+                    await asyncio.to_thread(tag_download_copy, staging, track, suffix, url)
                     tagged = staging.with_suffix(suffix)
                     os.replace(staging, tagged)
                     staging = tagged
@@ -669,6 +700,8 @@ class Worker:
                     recording = existing
             if not recording and job.kind == "download":
                 recording = self.equivalent_recording(session, track)
+            # A song the catalog didn't know: a scan's "new", unlike a second copy of a song.
+            new_recording = recording is None
             if not recording:
                 recording = Recording(
                     id=new_id("rec"),
@@ -779,6 +812,7 @@ class Worker:
                 "asset_revision_id": revision.id,
                 "recording_id": recording.id,
                 "reused": reused,
+                "new_recording": new_recording,
                 "path": str(location),
             }
             if source := item.request.get("source"):

@@ -250,6 +250,7 @@ class LocalClient:
                     result.get("workspace_id") == self.workspace.config().workspace_id
                     and result.get("protocol_version") == "1"
                 )
+                and self._same_root(result.get("workspace_root"))
             ):
                 self._observe_health(url, result)
                 return url
@@ -264,6 +265,22 @@ class LocalClient:
         self.last_discovery_error = "identity_mismatch"
         self._forget_coordinator()
         return None
+
+    def _same_root(self, value) -> bool:
+        """Whether a service serves this workspace's folder, not a copy's original.
+
+        A copied workspace shares the original's ID and token, so only the folder tells them
+        apart. Services before 0.1.0a16 don't say; the version check replaces those. Compared
+        on disk: macOS spells one folder several ways (case, accents); a copy is another folder.
+        """
+        if value is None:
+            return True
+        if not isinstance(value, str):
+            return False
+        try:
+            return os.path.samefile(value, self.workspace.root)
+        except (OSError, ValueError):
+            return Path(value) == self.workspace.root
 
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.workspace.token()}"}
@@ -378,9 +395,10 @@ class LocalClient:
         timeout = 15
         if path == "/sources/inspect":
             # Fetching listener comments takes up to the adapter's 240-second budget, and a
-            # MixesDB lookup up to 20 seconds more.
+            # MixesDB lookup 20 seconds of asking plus its turns, 4 seconds apart (more when
+            # other sets are looked up at the same time).
             timeout = 260 if (data or {}).get("comments") else 100
-            timeout += 25 if (data or {}).get("mixesdb") else 0
+            timeout += 60 if (data or {}).get("mixesdb") else 0
         elif path == "/sources/search":
             # Up to 90 seconds of searching, then 30 of availability checks.
             timeout = 130

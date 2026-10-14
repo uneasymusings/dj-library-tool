@@ -1,6 +1,9 @@
+import importlib.abc
 import json
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -109,33 +112,64 @@ def test_assistant_sessions_counts_running_mcp_servers(monkeypatch):
     assert upgrade_cli.assistant_sessions() == 0
 
 
-@pytest.mark.parametrize("sessions", [0, 1, 2])
-def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
-    tmp_path, monkeypatch, sessions
-):
-    latest = {"version": "99.0.0", "tag": "v99.0.0", "url": "https://e/w.whl", "notes": "n"}
+class EnvironmentReplaced(importlib.abc.MetaPathFinder):
+    """What uv leaves behind: anything not yet imported is gone (rich's Unicode tables were)."""
+
+    def __init__(self):
+        self.attempts: list[str] = []
+
+    def find_spec(self, name, path=None, target=None):
+        self.attempts.append(name)
+        raise ModuleNotFoundError(f"No module named {name!r}")
+
+
+def fake_upgrade(monkeypatch, *, version="99.0.0", running=False, finish_code=0):
+    """`djlib upgrade` up to the install; returns the commands it runs and what it imported."""
+    latest = {"version": version, "tag": f"v{version}", "url": "https://e/w.whl", "notes": "n"}
     monkeypatch.setattr(upgrade_cli, "latest_release", lambda: latest)
-    # No `claude` on PATH: the plugin can't be updated here, so the user is told how.
     monkeypatch.setattr(
         upgrade_cli.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
     )
     monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
-    monkeypatch.setattr(LocalClient, "discover", lambda self: None)
-    installs = []
+    url = "http://127.0.0.1:1" if running else None
+    monkeypatch.setattr(LocalClient, "discover", lambda self: url)
+    stopped = []
+    monkeypatch.setattr(
+        LocalClient, "request", lambda self, method, path, **kw: stopped.append(path) or {}
+    )
+    state = {"commands": [], "stopped": stopped, "replaced": EnvironmentReplaced()}
 
-    def uv(command, **kwargs):
-        installs.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
+    def run(command, **kwargs):
+        state["commands"].append(command)
+        if command[1:3] == ["tool", "install"]:
+            # uv swaps the tool environment underneath this process.
+            state["modules"] = set(sys.modules)
+            sys.meta_path.insert(0, state["replaced"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(command, finish_code)
 
-    monkeypatch.setattr(upgrade_cli.subprocess, "run", uv)
-    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: sessions)
-    plugin_cache("0.1.0a12")
-    reply = CliRunner().invoke(cli_app, ["--workspace", str(tmp_path / "w"), "upgrade"])
+    monkeypatch.setattr(upgrade_cli.subprocess, "run", run)
+    return state
+
+
+def upgrade(tmp_path, state, *arguments, pretty=False):
+    env = {"DJLIB_OUTPUT": "pretty", "COLUMNS": "100", "NO_COLOR": "1"} if pretty else {}
+    try:
+        return CliRunner(env=env).invoke(cli_app, ["--workspace", str(tmp_path / "w"), *arguments])
+    finally:
+        if state["replaced"] in sys.meta_path:
+            sys.meta_path.remove(state["replaced"])
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_upgrade_finishes_in_the_newly_installed_djlib(tmp_path, monkeypatch, running):
+    """After the install nothing new is imported: the new djlib finishes and prints."""
+    state = fake_upgrade(monkeypatch, running=running)
+    reply = upgrade(tmp_path, state, "upgrade")
     assert reply.exit_code == 0, reply.output
-    envelope = json.loads(reply.stdout)
-    assert envelope["result"]["updated"] is True and len(installs) == 1
+    install, finish = state["commands"]
     # Song recognition (shazamio) has macOS and Windows wheels for Python 3.12, not 3.13.
-    assert installs[0] == [
+    assert install == [
         "/usr/bin/uv",
         "tool",
         "install",
@@ -144,15 +178,117 @@ def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
         "3.12",
         "dj-library-tool[download,recognize] @ https://e/w.whl",
     ]
-    assert envelope["result"]["assistant_sessions"] == sessions
+    assert finish == [
+        sys.executable,
+        "-m",
+        "djlib.interfaces.cli",
+        "--workspace",
+        str((tmp_path / "w").resolve()),
+        "--json",
+        "upgrade",
+        "--finished-from",
+        __version__,
+        "--notes",
+        "n",
+        *(["--restart-service"] if running else []),
+    ]
+    assert state["stopped"] == (["/shutdown"] if running else [])
+    assert state["replaced"].attempts == [] and set(sys.modules) == state["modules"]
+    assert reply.stdout == ""  # the new djlib wrote the reply
+
+
+def test_a_terminal_upgrade_renders_nothing_after_the_install(tmp_path, monkeypatch):
+    """The a15 repair upgrade crashed drawing its result: rich imported its Unicode tables
+    after uv had deleted them. The terminal view now comes from the new djlib."""
+    state = fake_upgrade(monkeypatch, running=True)
+    reply = upgrade(tmp_path, state, "upgrade", pretty=True)
+    assert reply.exit_code == 0, reply.output
+    assert "--json" not in state["commands"][1] and "--restart-service" in state["commands"][1]
+    # One line while uv works, said before it starts; nothing from this process after.
+    assert state["replaced"].attempts == [] and reply.stdout == ""
+    assert reply.stderr == "Installing djlib 99.0.0…\n"
+
+
+def test_upgrade_exits_with_the_finishing_steps_code(tmp_path, monkeypatch):
+    state = fake_upgrade(monkeypatch, finish_code=4)
+    assert upgrade(tmp_path, state, "upgrade").exit_code == 4
+
+
+def test_upgrade_says_it_installed_when_the_new_djlib_cannot_start(tmp_path, monkeypatch):
+    state = fake_upgrade(monkeypatch)
+
+    def run(command, **kwargs):
+        if command[1:3] == ["tool", "install"]:
+            sys.meta_path.insert(0, state["replaced"])
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise FileNotFoundError(command[0])
+
+    monkeypatch.setattr(upgrade_cli.subprocess, "run", run)
+    reply = upgrade(tmp_path, state, "upgrade")
+    assert reply.exit_code == 0 and state["replaced"].attempts == []
+    result = json.loads(reply.stdout)["result"]
+    assert result["updated"] is True and result["latest"] == "99.0.0"
+    assert result["current"] == __version__
+
+
+def finish(tmp_path, *arguments, pretty=False):
+    env = {"DJLIB_OUTPUT": "pretty", "COLUMNS": "100", "NO_COLOR": "1"} if pretty else {}
+    return CliRunner(env=env).invoke(
+        cli_app,
+        ["--workspace", str(tmp_path / "w"), "upgrade", "--finished-from", *arguments],
+    )
+
+
+@pytest.mark.parametrize("sessions", [0, 1, 2])
+def test_the_new_djlib_says_which_sessions_and_plugin_still_run_the_old_one(
+    tmp_path, monkeypatch, sessions
+):
+    # No `claude` on PATH: the plugin can't be updated here, so the user is told how.
+    monkeypatch.setattr(upgrade_cli.shutil, "which", lambda name: None)
+    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: sessions)
+    plugin_cache("0.1.0a12")
+    reply = finish(tmp_path, "0.1.0a12", "--notes", "https://e/notes")
+    assert reply.exit_code == 0, reply.output
+    envelope = json.loads(reply.stdout)
+    result = envelope["result"]
+    assert result == {
+        "current": "0.1.0a12",
+        "latest": __version__,
+        "notes": "https://e/notes",
+        "update_available": True,
+        "updated": True,
+        "assistant_sessions": sessions,
+    }
     warnings = envelope["warnings"]
     assert len(warnings) == 1 + bool(sessions)
     assert warnings[-1].startswith("The Claude Code plugin is still 0.1.0a12")
     assert upgrade_cli.PLUGIN_UPDATE in warnings[-1]
     if sessions:
         count = "1 assistant session is" if sessions == 1 else "2 assistant sessions are"
-        assert warnings[0].startswith(f"{count} still running djlib {__version__}")
-        assert "/mcp → djlib → Reconnect" in warnings[0] and "uses 99.0.0" in warnings[0]
+        assert warnings[0].startswith(f"{count} still running djlib 0.1.0a12")
+        assert "/mcp → djlib → Reconnect" in warnings[0] and f"uses {__version__}" in warnings[0]
+    pretty = finish(tmp_path, "0.1.0a12", "--notes", "https://e/notes", pretty=True).stdout
+    assert pretty.startswith(f"✓ djlib {__version__} installed  from 0.1.0a12")
+    assert "Release notes  https://e/notes" in pretty and pretty.rstrip().endswith("doctor")
+
+
+def test_the_new_djlib_restarts_the_service_it_replaced(tmp_path, monkeypatch):
+    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 0)
+    requests = []
+    monkeypatch.setattr(
+        LocalClient, "request", lambda self, method, path, **kw: requests.append(path) or {}
+    )
+    reply = json.loads(finish(tmp_path, "0.1.0a12", "--restart-service").stdout)
+    assert requests == ["/roots"] and reply["result"]["service_restarted"] is True
+
+    def refused(self, method, path, **kwargs):
+        raise AppError("SERVICE_START_FAILED", "no")
+
+    monkeypatch.setattr(LocalClient, "request", refused)
+    reply = json.loads(finish(tmp_path, "0.1.0a12", "--restart-service").stdout)
+    assert reply["ok"] is True and reply["result"]["service_restarted"] is False
+    assert "the next djlib command starts it" in reply["warnings"][0]
+    assert "service_restarted" not in json.loads(finish(tmp_path, "0.1.0a12").stdout)["result"]
 
 
 def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
@@ -168,16 +304,18 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
 
     def run(command, **kwargs):
         commands.append(command)
+        if command[1:3] == ["plugin", "update"]:
+            # Claude Code installs the marketplace's newest plugin into its cache.
+            plugin_cache(*{__version__} - {upgrade_cli.claude_plugin_version()})
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(upgrade_cli.subprocess, "run", run)
     plugin_cache("0.1.0a12")
     workspace = ["--workspace", str(tmp_path / "w")]
-    reply = CliRunner().invoke(cli_app, [*workspace, "upgrade"])
-    assert reply.exit_code == 0, reply.output
-    envelope = json.loads(reply.stdout)
-    assert envelope["result"]["plugin_updated"] == {"from": "0.1.0a12", "to": "99.0.0"}
-    assert commands[1:] == [
+    # The newly installed djlib (here: this one) updates the plugin to its own release.
+    envelope = json.loads(finish(tmp_path, "0.1.0a12").stdout)
+    assert envelope["result"]["plugin_updated"] == {"from": "0.1.0a12", "to": __version__}
+    assert commands == [
         ["/usr/local/bin/claude", "plugin", "marketplace", "update", "dj-library-tool"],
         ["/usr/local/bin/claude", "plugin", "update", "djlib@dj-library-tool"],
     ]
@@ -186,6 +324,8 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     # Already on the newest engine: an outdated plugin is still brought up to date.
     commands.clear()
     latest["version"] = __version__
+    shutil.rmtree(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "plugins/cache/dj-library-tool/djlib")
+    plugin_cache("0.1.0a12")
     current = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
     assert current["result"]["updated"] is False
     assert current["result"]["plugin_updated"]["to"] == __version__ and len(commands) == 2
@@ -194,6 +334,17 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     commands.clear()
     checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
     assert "plugin_updated" not in checked["result"] and commands == []
+
+    # `claude` answers fine, but its marketplace has no newer plugin yet: not updated.
+    shutil.rmtree(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "plugins/cache/dj-library-tool/djlib")
+    plugin_cache("0.1.0a12")
+    monkeypatch.setattr(
+        upgrade_cli.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 0)
+    )
+    behind = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
+    assert "plugin_updated" not in behind["result"]
+    assert behind["warnings"][-1].startswith("The Claude Code plugin is still 0.1.0a12 (its ")
+    assert f"marketplace doesn't offer {__version__} yet" in behind["warnings"][-1]
 
     def refused(command, **kwargs):
         return subprocess.CompletedProcess(command, 1, "", "Marketplace not found")
@@ -218,30 +369,32 @@ def test_the_installer_installs_song_recognition_on_python_3_12():
 def test_upgrade_repairs_song_recognition_an_earlier_upgrade_left_out(tmp_path, monkeypatch):
     """0.1.0a14's upgrade installed newer releases without the recognize extra, on Python
     3.13; rerunning upgrade on the newest release installs it again with song recognition."""
-    latest = {"version": __version__, "tag": "v", "url": "https://e/w.whl", "notes": "n"}
-    monkeypatch.setattr(upgrade_cli, "latest_release", lambda: latest)
-    monkeypatch.setattr(
-        upgrade_cli.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
-    )
-    monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
+    state = fake_upgrade(monkeypatch, version=__version__)
     monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 0)
     monkeypatch.setattr(upgrade_cli, "recognition_installed", lambda: False)
-    monkeypatch.setattr(LocalClient, "discover", lambda self: None)
-    installs = []
-
-    def uv(command, **kwargs):
-        installs.append(command)
-        return subprocess.CompletedProcess(command, 0, "", "")
-
-    monkeypatch.setattr(upgrade_cli.subprocess, "run", uv)
     workspace = ["--workspace", str(tmp_path / "w")]
     checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
-    assert checked["result"]["recognition_installed"] is False and installs == []
-    reply = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)["result"]
-    assert reply["updated"] is True and reply["repaired"] == "song recognition"
-    assert reply["update_available"] is False
-    assert installs[0][-3:] == [
+    assert checked["result"]["recognition_installed"] is False and state["commands"] == []
+    assert checked["result"]["repair_available"] is True
+    env = {"DJLIB_OUTPUT": "pretty", "COLUMNS": "100", "NO_COLOR": "1"}
+    told = CliRunner(env=env).invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout
+    assert "Song recognition  not installed" in told
+    assert "→ Add song recognition" in told and told.rstrip().endswith(" upgrade")
+    assert upgrade(tmp_path, state, "upgrade").exit_code == 0
+    install, finish_step = state["commands"]
+    assert install[-3:] == [
         "--python",
         "3.12",
         "dj-library-tool[download,recognize] @ https://e/w.whl",
     ]
+    assert finish_step[-2:] == ["n", "--repaired"]
+    reply = json.loads(finish(tmp_path, __version__, "--repaired").stdout)["result"]
+    assert reply["updated"] is True and reply["repaired"] == "song recognition"
+    assert reply["update_available"] is False
+    pretty = finish(tmp_path, __version__, "--repaired", pretty=True).stdout
+    assert pretty.startswith(f"✓ djlib {__version__} installed again  with song recognition")
+    assert "Release notes" not in pretty  # the same release
+    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 1)
+    warning = json.loads(finish(tmp_path, __version__, "--repaired").stdout)["warnings"][0]
+    assert warning.startswith("1 assistant session is still running the djlib from before")
+    assert warning.endswith("so it uses the new install.")

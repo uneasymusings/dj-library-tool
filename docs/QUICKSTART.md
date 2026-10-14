@@ -1,176 +1,90 @@
-# Quickstart
+# Quick start
 
-Install djlib with [INSTALL](INSTALL.md); [status](STATUS.md) has the test evidence and limits. Commands use the workspace `djlib init` created and remembered; add `--workspace PATH` (or set `DJLIB_WORKSPACE`) only for another one. In a terminal, every command prints a readable view; piped or with `--json` it prints the JSON envelope. Contributors can prefix commands with `uv run` in their checkout.
+From a set link or your Shazams to a USB stick, on one page. Every command here is safe to run again.
 
-## 1. Workspace and music
+## 1. Install
 
-```bash
-djlib init --allow-root ~/Music
-djlib scan
-djlib doctor
-djlib status
-```
-
-The workspace holds the catalog, a runtime token, managed media and exports; its folder must be empty the first time. Add another folder later with `djlib roots add /path/to/folder` (`init` doesn't add folders to an existing workspace and says so with `ROOTS_NOT_UPDATED`). Adding access never moves music, and symlinks outside allowed folders are rejected.
-
-`scan` indexes WAV, MP3, FLAC, AIFF and M4A files in place, using their artist/title tags or `Artist - Title` file names. It never renames or retags files, and rescans decode only new bytes. A hash proves byte identity, not musical identity; untagged files keep a provisional identity. Up to 10,000 files per scan; pass subfolders for larger libraries.
-
-## 2. A set
+Paste this to Claude Code or Codex: “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”. Or in Terminal (Mac or Linux):
 
 ```bash
-djlib set tracklist.txt --no-rekordbox     # what you own and the crate, nothing else
-djlib set tracklist.txt                    # … and a rekordbox playlist (macOS)
-djlib set tracklist.txt --usb              # … and your USB stick, verified from the stick
-djlib set 'https://soundcloud.com/USER/SET' --fetch
-djlib set shazam:new                       # the songs you Shazamed since last time
+curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 ```
 
-See the [README](../README.md#how-it-works) for what each step does and [the CLI reference](../skills/dj-library/references/cli.md#one-command-for-a-set) for the result fields. On Linux and Windows the rekordbox step is skipped with the reason shown; the crate is still built.
+It asks where your music is (drag the folder in) and indexes it. Nothing is moved, renamed or retagged. Skipped that? Run `djlib init ~/Music && djlib scan`. Music on another drive? `djlib init '/Volumes/DJ Drive/Music'` adds it; then `djlib scan`. Windows: [Install](INSTALL.md).
 
-### Find saved work and page the catalog
+## 2. Every track in a set
 
 ```bash
-djlib library --query "Artist" --limit 100
-djlib library --query "Artist" --limit 100 --after NEXT_CURSOR
-djlib collections --query "Warm"
-djlib requests list --query "Friday"
-djlib delivery list --query "Friday"
-djlib jobs list --query "Friday"
+djlib set 'https://www.youtube.com/watch?v=…' --no-rekordbox
 ```
 
-Continue with each reply's `next_cursor` and the same query until it is null. Rows show recorded locations, not freshly checked availability. A collection's app/device state is `not_tracked_here`: rekordbox pushes are listed by `djlib status`, and working-copy deliveries keep their own evidence.
+djlib reads the description, chapters, MixesDB and the comments. When the tracklist is missing or has IDs, it says so and listens to the set with Shazam. An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take half an hour. Ctrl-C stops it; run the same command later to carry on. A set djlib already heard comes back at once. You get the whole set in order: time, track, how sure, and what you own. Where your terminal shows links, each time opens the set at that moment.
 
-### Track exact requests
+| Sure | What it means |
+| --- | --- |
+| ✓ confirmed | Shazam heard it where a tracklist puts it, or heard it 3 or more times. |
+| ◐ likely | A tracklist names it but Shazam didn't hear it, or Shazam heard it twice. |
+| ! weak | Only a listener's comment names it, or Shazam heard it just once. |
+| ✗ conflict | The tracklist names one song; Shazam heard another there. |
+| ○ ID | Nobody knows yet. Shazam's guess shows as “ID — maybe …”, never as its name. |
 
-`set` saves its tracklist as a request list. To work with one directly, save `wanted.json`:
+Likely and weak lines are worth a listen before you play them. Want just the tracklist, to post or share? `djlib identify 'LINK'`.
 
-```json
-{
-  "name": "Friday requests",
-  "idempotency_key": "friday-requests-v1",
-  "items": [
-    {"artist": "Artist", "title": "Track", "version": "Extended Mix"},
-    {"kind": "unknown", "label": "Unidentified track in the set", "timestamp": "00:47:12"}
-  ]
-}
-```
+**Have the 1001Tracklists list?** djlib never fetches 1001Tracklists, so copy it yourself (or let an assistant that can browse do it). Type `djlib set 'LINK' --tracklist paste` with the set's own YouTube or SoundCloud link, then copy the tracklist on the page and press Enter. djlib merges it with what Shazam hears, so it listens to the set first (5–10 minutes an hour; at once if it heard the set before). Your list is kept for that set; another `--tracklist` replaces it. No time to listen? Copy the list and run `djlib set paste`: at once, with your list's own times but no links into the set.
 
-```bash
-djlib requests create --file wanted.json         # or --text tracklist.txt
-djlib requests get REQUEST_ID
-djlib requests refresh REQUEST_ID --revision CURRENT_REVISION
-djlib requests collect REQUEST_ID
-djlib requests report REQUEST_ID --revision CURRENT_REVISION
-```
+**Just a tracklist?** Copy it and run `djlib set paste`. One “Artist - Title (Mix)” per line; numbers, times, `[Label]` and IDs are fine, and a heading line names the set. A spreadsheet with Artist and Title columns works too: copy the cells with the header row, or run `djlib set 'Warehouse Friday.csv'`.
 
-Matching uses normalized artist/title/version labels; another mix never substitutes, and "(Original Mix)" counts as no version. Several matching byte revisions stay ambiguous until you choose. Reads show saved evidence; create, refresh and resolve check files. Unknown IDs stay explicit. Selecting a source with `requests resolve` records a candidate only; it doesn't download it. Details: [requests](../skills/dj-library/references/requests.md).
+## 3. Your Shazams (Mac)
 
-## 3. Collections from local files
+Run `djlib shazam status`. It finds the songs you Shazamed on this Mac, and your iPhone's once Shazam syncs with iCloud, and gives you the command to check them: your last 30 days first, when you have more than 100. If it finds nothing, it prints three steps to turn on the sync: do them, Shazam one song, and check again in a few minutes.
 
-Create `request.json`:
+- `djlib set shazam:2026-10-10`: what you Shazamed since that day.
+- `djlib set shazam:new`: what's new since your last Shazam set. The first time, that's everything.
+- `djlib set shazam`: your whole history, oldest first, 1,000 songs at a time. `djlib shazam status` then offers the rest.
+- `djlib set ~/Downloads/shazamlibrary.csv`: a CSV from shazam.com/myshazam (Download CSV, if your account shows it).
+- No iPhone sync? `djlib set shazam:apple-music` reads Apple Music's “My Shazam Tracks” playlist, if Shazam saves your songs there. Music opens, and macOS asks once whether djlib may use it.
 
-```json
-{
-  "name": "Friday warm-up",
-  "profile": "club",
-  "tracks": [
-    {"path": "/path/to/music/track.flac", "artist": "Artist", "title": "Track", "version": "Extended Mix"}
-  ]
-}
-```
+## 4. What do I own?
 
-```bash
-djlib plan --file request.json
-djlib start PLAN_ID --revision 1 --key friday-v1
-djlib reviews list --job-id JOB_ID
-djlib reviews resolve REVIEW_ID --revision 1 --choice use_file_metadata
-```
+- **✓ owned**: you have this exact mix. It goes in the crate, in set order. “Owned under another spelling” means your file is tagged the way a tracklist (MixesDB, or the one you pasted) spells the artist (Robert Glasper, not Robert Glasper Experiment). Same mix.
+- **? maybe yours**: you have a file with the same title and mix under another artist name (Robert Glasper for Robert Glasper Experiment). Common with Shazams, which have no tracklist to spell it. It stays off your shopping list; if it's the song, pick Use this on the review page and it counts as owned.
+- **✗ missing**: you don't have it. It goes on your shopping list.
+- **≈ Radio Edit**: you own another mix. djlib only counts the exact mix, so it stays out of the crate; drag yours into the playlist if it's the one you play. Shazam often names the streaming version, so this is common with Shazams.
+- **! owned, pick a copy**: you have this mix more than once. Pick one on the review page with Use this.
+- **! owned, file unavailable**: the drive with that file isn't plugged in.
 
-`club` references existing files; `archive` copies accepted files into the workspace's `media/`. Requested labels that disagree with the file's tags produce a review: `accept_requested`, `use_file_metadata` or `skip`. A choice records your decision; it doesn't establish acoustic identity.
+`djlib ui` opens the review page: your sets, crates and library in the browser. A set's page has its times (each opens the set at that moment), how sure djlib is, store searches, a “Copy N to buy” button, and its crate with the commands for rekordbox and your USB. A long Shazam list opens on the songs you don't own yet, newest first.
 
-### Keep notes and sort explicit selections
+## 5. rekordbox and your USB (Mac)
 
-```bash
-djlib organize metadata RECORDING_ID --asset-revision-id ASSET_REVISION_ID
-djlib organize get RECORDING_ID --asset-revision-id ASSET_REVISION_ID
-djlib organize annotate --file annotations.json
-djlib organize collection --file organized.json
-djlib rekordbox sync                  # BPM and cues from rekordbox's analysis files
-djlib rekordbox pull                  # adds key through one XML export (macOS)
-```
+`djlib set 'LINK'` also makes a rekordbox playlist; `djlib set 'LINK' --usb` puts it on your USB stick too. The first time, allow the app you run djlib in (Terminal, iTerm, VS Code or Claude) under System Settings → Privacy & Security → Accessibility.
 
-Embedded BPM/key/genre are read as unverified evidence; missing or conflicting values stay unknown. Annotations (notes, tags, set role, energy, BPM/key with their source) patch only the fields you supply, never retag originals and never set cues. rekordbox's analysis arrives as `source: rekordbox_analysis`, unverified, and values you set are kept. `organize collection` builds an ordered, filtered crate (BPM range, keys, genres, tags, roles) and reports what it excluded; unknown values are excluded unless you choose `include`. JSON examples: [organize](../skills/dj-library/references/organize.md).
+djlib makes the playlist through rekordbox's own menus, so tracks rekordbox already knows keep their analysis and cues. For the USB, click the playlist in rekordbox once when asked. rekordbox exports it; djlib reads the stick back and checks every track, in order, byte for byte. Test the stick on a player before a gig.
 
-### Reconcile a file edited outside djlib
+Checked a set already? `djlib rekordbox push last` or `djlib rekordbox usb last` (`last` is the set you checked most recently, and its crate). `djlib rekordbox push last --when-idle 60` waits until you step away from the computer.
 
-Don't rescan changed bytes and assume old crates now point at them. Submit `djlib reconcile --file reconciliation.json` with the old revision and the current file's SHA-256 (`tag_only` for tag edits, `replace_audio` for new audio), then wait for the job. Old crates and notes stay pinned to the old bytes; see [organize](../skills/dj-library/references/organize.md#a-file-changed-on-disk).
+## 6. Missing songs
 
-## 4. Set links, Shazams and downloads
+`djlib requests report last` is your shopping list: each missing song with Beatport, Bandcamp and Traxsource searches, saved as “Set name - to buy.txt” in the “Shopping lists” folder of djlib's folder. Check it's the mix you want before you buy. After buying, run `djlib scan`, then `djlib requests refresh last`. `djlib set 'LINK' --fetch` downloads clear matches from YouTube and SoundCloud as MP3 after you confirm, official uploads first. That's stream-quality audio, marked “buy before playing out” in rekordbox's Comments: buy the real file for the club.
 
-```bash
-djlib identify 'https://www.youtube.com/watch?v=VIDEO'
-djlib identify 'https://soundcloud.com/USER/SET' --tracklist 1001.txt
-djlib source-inspect 'https://soundcloud.com/USER/SET'
-djlib download --file downloads.json
-```
+## Limits
 
-`identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition (every minute when a tracklist with times says what plays), listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
+- Shazam is used unofficially and can slow down or stop working. AudD and ACRCloud are licensed options with your own key: [song recognition](INSTALL.md#song-recognition).
+- Songs Shazam doesn't know, short blends and heavy edits stay IDs.
+- Set links: YouTube and SoundCloud only. Mixcloud doesn't allow downloads; use the same set on YouTube or SoundCloud, or its copied tracklist.
+- `paste` reads the clipboard on a Mac. On Linux and Windows, save the tracklist as a text file, or pipe it in with `-`.
+- Driving rekordbox needs a Mac. On Linux and Windows djlib builds the crate, and you import it yourself.
+- djlib checks the stick, not the player. CDJ and XDJ playback isn't verified.
+- Up to 100,000 files per scan.
 
-- **confirmed**: djlib heard the song, where a tracklist lists it or in three or more windows;
-- **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other), two listening windows, or a listed song djlib heard under another name (the Why column says what each side has);
-- **weak**: only a listener's comment, or a single window;
-- **conflict**: the tracklist names one song where djlib heard another;
-- **unidentified**: an ID nothing named.
+## What djlib won't do
 
-When djlib heard a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), it uses the spelling it heard, so your files are found, and notes how the tracklist wrote it. An ID stays an ID: the song djlib most likely heard there is shown as a candidate (“ID — likely …”), never as its name; a long stretch nobody named says about how many songs it holds. Songs heard in one window that fit nowhere are listed apart, not as tracks. The coverage line says how much of the set has a named song.
+- Scrape or copy 1001Tracklists, or get round its captcha.
+- Rotate addresses or listen in parallel to get past Shazam's limits.
+- Buy music or fill shopping carts. It gives you search links.
+- Post tracklists anywhere for you.
+- Edit rekordbox's database or write to your USB stick. rekordbox does the export.
+- Move, rename or retag your music.
+- Download anything unless you ask with `--fetch`.
 
-`set URL` does this by itself when the set's published tracklist is missing or has IDs (`--no-identify` uses the published list only) and reuses an earlier identification for free. Without song recognition installed, it uses the published list and says so. 1001Tracklists only serves browsers: copy its tracklist into a file and add it with `--tracklist FILE` to `identify` or `set` with the set's own link; djlib merges it with what it hears.
-
-Song recognition uses Shazam by default, the way the Shazam app does. Apple doesn't offer it to other apps, so it may slow down or stop working; the first identification says so once. For a licensed service with your own account, see [song recognition](INSTALL.md#song-recognition).
-
-`djlib set shazam` makes a set of the songs you Shazamed, in the order you heard them: from your Mac's Music Recognition history, which includes your iPhone's Shazams once Shazam syncs with iCloud. `shazam:new` takes only those since the last import, `shazam:2026-10-01` those since a date, and `shazam:apple-music` or `shazam:PATH` (an iPhone backup folder, a `ShazamDataModel.sqlite` or a CSV export) read other sources. `djlib shazam status` shows what djlib finds and how to turn on the sync.
-
-`source-inspect` reads a YouTube or SoundCloud set's description and chapters; `set URL` turns them into a tracklist and adds listeners' comments around each ID as hints.
-
-`set --fetch` searches YouTube and SoundCloud for missing songs and downloads clear matches after you confirm. `download --file` takes selected URLs:
-
-```json
-{
-  "name": "Friday web selections",
-  "idempotency_key": "friday-web-v1",
-  "tracks": [
-    {"url": "https://soundcloud.com/ARTIST/RECORDING", "artist": "Artist", "title": "Track", "version": ""}
-  ]
-}
-```
-
-Downloads need the `download` extra and FFmpeg; YouTube also needs Deno or Node 22+. Public HTTPS YouTube, SoundCloud and Bandcamp recordings only, no playlists, up to 30 minutes each. Each download is saved as MP3 (copied when the source already is MP3) and tagged with your artist/title/version; its source quality stays unverified. The downloaded file stays untouched in `incoming/`; the catalog records its hash, the tagged copy's hash and the conversion. djlib doesn't buy tracks, use browser cookies or download DRM content, and you are responsible for having the rights.
-
-## 5. Into rekordbox, onto USB
-
-```bash
-djlib rekordbox push COLLECTION_ID --when-idle 60
-djlib rekordbox usb COLLECTION_ID
-```
-
-`push` imports a crate as a playlist of your original files through rekordbox's own File > Import > Import Playlist (macOS, with the Accessibility permission). `usb` waits for you to click the playlist, runs Playlist > Export Playlist to your stick and checks every file there against your originals, in order. Playback on the player itself is not verified: test the stick before a gig.
-
-Other handoffs:
-
-- `djlib export COLLECTION_ID --key friday-export-v1` writes a hash-checked `manifest.json`, `collection.m3u8` and an experimental `rekordbox.xml` (no invented BPM, key, grids or cues).
-- **Serato:** import the referenced files through the Files panel and add them to a crate. Serato working copies are supported in [DJ delivery](DJ_DELIVERY.md) but untested with real music.
-- [DJ delivery](DJ_DELIVERY.md) also covers separate, tagged working copies for rekordbox, with guided native-app and USB checks.
-- `djlib usb-preflight /Volumes/DJ_USB --required-bytes 1000000000` only reads free space. djlib never formats, writes or ejects a USB stick.
-
-Keep referenced files where they are: rekordbox and Serato point at them.
-
-## 6. Long work
-
-```bash
-djlib jobs wait JOB_ID --timeout 30
-djlib jobs items JOB_ID --state failed
-djlib jobs control JOB_ID pause|resume|cancel|retry
-djlib service stop
-```
-
-Reuse the same `--key` after a lost reply; a changed request with that key is rejected. Retry keeps successful items, and cancelling keeps accepted files. Stopping the service keeps unfinished work, which resumes on the next start. Logs are in the workspace's `runtime/service.log`; redact them before sharing. Staging and incoming files are not cleaned up automatically. Errors and recovery: [troubleshooting](TROUBLESHOOTING.md).
+More: [Troubleshooting](TROUBLESHOOTING.md) · [Advanced commands](ADVANCED.md)
