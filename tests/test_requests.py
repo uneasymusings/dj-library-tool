@@ -992,6 +992,44 @@ def test_a_set_checked_again_with_a_pasted_tracklist_keeps_its_list(ledger_app):
     assert again["items"][0]["input"]["artist"] == "Full Crate ft. Papa Ghana"
 
 
+async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, audio_factory):
+    """Check set A, then set B, then A again: `last` is A and A's crate, not B (the newest
+    one added), so "djlib rekordbox push last" pushes the set the DJ just checked."""
+    from djlib.application.catalog_paging import latest, saved
+
+    await owned(ledger_app, audio_factory)
+
+    async def crate(result):
+        job = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+        done = await execute(ledger_app, job["job_id"])
+        return done["result"]["collection_id"]
+
+    first = same_list(ledger_app, [named()], "a")
+    first_crate = await crate(first)
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    second_crate = await crate(second)
+    assert latest(ledger_app) == {
+        "request_id": second["request_id"],
+        "collection_id": second_crate,
+    }
+    again = same_list(ledger_app, [named(notes="checked again")], "a-again")
+    assert again["request_id"] == first["request_id"]
+    requests.refresh_request(
+        ledger_app, again["request_id"], RequestRefresh(revision=again["revision"])
+    )
+    assert latest(ledger_app) == {"request_id": first["request_id"], "collection_id": first_crate}
+    made_from = {
+        row["collection_id"]: row["request_id"]
+        for row in saved(ledger_app, "collections")["collections"]
+    }
+    assert made_from[first_crate] == first["request_id"]
+    assert made_from[second_crate] == second["request_id"]
+
+
 def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):
     first = same_list(ledger_app, [named(), named(title="Second")], "one")
     for number, (name, items) in enumerate(

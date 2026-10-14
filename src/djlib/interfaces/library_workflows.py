@@ -62,6 +62,12 @@ def register_http(app, application, envelope):
             await asyncio.to_thread(export_missing_report, application, request_id, body.revision)
         )
 
+    @app.get("/latest")
+    async def latest_route():
+        from djlib.application.catalog_paging import latest
+
+        return envelope(await asyncio.to_thread(latest, application))
+
     @app.get("/summary")
     async def summary_route():
         from djlib.application.catalog_paging import summary

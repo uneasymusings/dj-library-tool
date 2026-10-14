@@ -1127,7 +1127,7 @@ def status_view(term: Terminal, result: dict) -> None:
         key: row
         for row in requests
         if (key := row.get("request_id")) in made
-        and int(row.get("owned") or 0) > int(made[key].get("tracks") or 0)
+        and crate_size(row) > int(made[key].get("tracks") or 0)
     }
     # Other crates: the newest of each name that no set's line already shows.
     paired = {row.get("collection_id") for row in made.values()}
@@ -1178,12 +1178,32 @@ def set_counts(row: dict) -> dict:
     """Owned, missing, other mix and ID counts of a saved set; older services send only the
     first two (and songs)."""
     counts = row.get("counts") if isinstance(row.get("counts"), dict) else {}
-    found = {key: int(counts.get(key) or 0) for key in ("owned", "missing", "other_mix", "ids")}
+    found = {
+        key: int(counts.get(key) or 0)
+        for key in ("owned", "missing", "other_mix", "ids", "to_check")
+    }
     if not counts:
         found.update(owned=int(row.get("owned") or 0), missing=int(row.get("missing") or 0))
     songs = row.get("songs", row.get("total_items"))
     found["songs"] = int(songs) if isinstance(songs, int) else sum(found.values())
     return found
+
+
+def in_crate(items: list[dict]) -> int:
+    """How many files a crate from these items holds (catalog_paging.in_crate)."""
+    return len(
+        {
+            (item.get("accepted") or {}).get("asset_revision_id") or item.get("item_id")
+            for item in items
+            if item.get("state") == "satisfied"
+        }
+    )
+
+
+def crate_size(row: dict) -> int:
+    """How many tracks a crate from this set holds (one file per song, however often the set
+    lists it); services before 0.1.0a16 count owned songs."""
+    return int(row.get("in_crate", row.get("owned")) or 0)
 
 
 def set_crates(requests: list[dict], collections: list[dict]) -> dict[str, dict]:
@@ -1203,10 +1223,13 @@ def set_crates(requests: list[dict], collections: list[dict]) -> dict[str, dict]
 
 
 def status_tally(term: Terminal, counts: dict) -> list[Text]:
-    """``12 of 22 owned``, ``8 missing``, ``2 in another mix``, ``2 IDs``: the parts that
-    are there."""
-    parts = [Text(f"{counts['owned']} of {counts['songs']} owned")]
+    """``12 of 22 owned``, ``1 to check``, ``8 missing``, ``2 in another mix``, ``2 IDs``: the
+    parts that are there, counted as `djlib set` counts them (an owned song waiting on a pick
+    or an unreadable file is "to check", not owned yet)."""
+    owned = counts["owned"] - counts.get("to_check", 0)
+    parts = [Text(f"{owned} of {counts['songs']} owned")]
     for key, label, style in (
+        ("to_check", "to check", "warn"),
         ("missing", "missing", "warn"),
         ("other_mix", "in another mix", "warn"),
         ("ids", "IDs", "muted"),
@@ -1221,7 +1244,11 @@ def set_line(
 ) -> None:
     """``○ Friday  12 of 22 owned · 10 missing · crate 12 · ✓ in rekordbox`` for status."""
     counts = set_counts(row)
-    done = not row.get("unresolved") if "unresolved" in row else counts["owned"] == counts["songs"]
+    done = (
+        not row.get("unresolved")
+        if "unresolved" in row
+        else counts["owned"] - counts["to_check"] == counts["songs"]
+    )
     parts = status_tally(term, counts)
     if crate:
         parts.append(Text(f"crate {int(crate.get('tracks') or 0)}"))
@@ -1261,7 +1288,7 @@ def crate_line(term: Terminal, row: dict, outdated: dict | None, *, app: bool = 
     line.append(f"  {plural(int(row.get('tracks') or 0), 'track')}", style="heading")
     if outdated:
         line.append(
-            f"  {term.glyph('warn')} outdated: you now own {outdated.get('owned')} of its songs",
+            f"  {term.glyph('warn')} outdated: you now own {crate_size(outdated)} of its songs",
             style="warn",
         )
     return line.append_text(crate_places(term, row, app=app))
@@ -1326,7 +1353,7 @@ def status_steps(
         # Pushing the old crate would leave the new songs out of the set.
         steps.append(
             (
-                f"Rebuild “{row['name']}” with the {plural(int(row['owned']), 'song')} you own",
+                f"Rebuild “{row['name']}” with the {plural(crate_size(row), 'song')} you own",
                 ("requests", "collect", row["request_id"]),
             )
         )
@@ -1353,7 +1380,12 @@ def status_steps(
             )
             break
     for row in requests:
+        if row.get("to_pick"):
+            # Two copies of an owned song: checking again finds both again.
+            steps.append((f"Pick which copy to use in “{row['name']}”", ("ui",)))
+            break
         if row.get("needs_check"):
+            # A file on a drive that isn't plugged in: check again once it is.
             steps.append((f"Re-check “{row['name']}”", ("requests", "refresh", row["request_id"])))
             break
     for row in requests:
@@ -2068,7 +2100,8 @@ def set_view(term: Terminal, result: dict) -> None:
     if fetched:
         rows.append(("Fetched", fetched_line(term, fetched)))
     if result.get("collection_id"):
-        rows.append(("Crate", marked(term, "ok", f"{plural(owned, 'track')}, in set order")))
+        size = int(result.get("crate_tracks") or owned)
+        rows.append(("Crate", marked(term, "ok", f"{plural(size, 'track')}, in set order")))
         if rekordbox.get("reason_code") == "NOT_REQUESTED":
             rows.append(("rekordbox", Text("not added yet (--no-rekordbox)", "muted")))
         elif rekordbox.get("status") == "skipped":
@@ -3148,10 +3181,11 @@ def spelled_as(item: dict) -> str:
 REQUEST_STATES = {
     "satisfied": ("ok", "ok", "owned"),
     "missing": ("bad", "bad", "missing"),
-    "ambiguous": ("warn", "warn", "ambiguous"),
+    "ambiguous": ("warn", "warn", "pick a copy"),
     "unknown": ("todo", "muted", "ID"),
-    "unavailable": ("warn", "warn", "unavailable"),
+    "unavailable": ("warn", "warn", "file unavailable"),
     "source_selected": ("run", "info", "source picked"),
+    "to_check": ("warn", "warn", "to check"),
 }
 ID_LABEL = re.compile(r"^\s*(?:id\s*-\s*)?id\s*$", re.IGNORECASE)  # "ID - ID" is an ID
 
@@ -3180,11 +3214,18 @@ def requests_list(term: Terminal, result: dict) -> None:
         return
     # Services before 0.1.0a16 say only how many songs each set has.
     counted = any(isinstance(row.get("counts"), dict) for row in rows)
+    # Owned songs waiting on a pick or a file: counted as `djlib set` counts them.
+    checking = counted and any(set_counts(row)["to_check"] for row in rows)
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         *(
             [
                 ("Owned", {"justify": "right"}),
+                *(
+                    [("To check", {"justify": "right", "style": "warn", "drop": 4})]
+                    if checking
+                    else []
+                ),
                 ("Missing", {"justify": "right", "style": "warn"}),
                 ("Other mix", {"justify": "right", "style": "warn", "drop": 3}),
                 ("IDs", {"justify": "right", "style": "muted", "drop": 2}),
@@ -3199,7 +3240,8 @@ def requests_list(term: Terminal, result: dict) -> None:
         counts = set_counts(row)
         cells = (
             [
-                f"{counts['owned']} of {counts['songs']}",
+                f"{counts['owned'] - counts['to_check']} of {counts['songs']}",
+                *([str(counts["to_check"] or "")] if checking else []),
                 str(counts["missing"] or ""),
                 str(counts["other_mix"] or ""),
                 str(counts["ids"] or ""),
@@ -3266,14 +3308,15 @@ def request_view(term: Terminal, result: dict) -> None:
     if result.get("next_offset") is None and not result.get("offset"):
         counts["other_mix"] = sum(1 for item in result.get("items") or [] if other_mix(item))
         counts["missing"] = int(counts.get("missing", 0)) - counts["other_mix"]
+    # Owned songs waiting on a pick or a file read "to check", as `djlib set` says it.
+    counts["to_check"] = int(counts.pop("ambiguous", 0)) + int(counts.pop("unavailable", 0))
     summary = Text()
     for state in (
         "satisfied",
+        "to_check",
         "other_mix",
         "missing",
-        "ambiguous",
         "unknown",
-        "unavailable",
         "source_selected",
     ):
         amount = int(counts.get(state, 0))
@@ -3346,7 +3389,13 @@ def request_view(term: Terminal, result: dict) -> None:
     steps: list[Step] = []
     owned = int(counts.get("satisfied", 0))
     crate = result.get("crate") if isinstance(result.get("crate"), dict) else {}
-    if owned and crate.get("tracks") == owned:
+    items = result.get("items") or []
+    whole = result.get("next_offset") is None and not result.get("offset") and len(items) == total
+    # One file per song in a crate, however often the set lists it.
+    size = in_crate(items) if whole else owned
+    if any(item.get("state") == "ambiguous" for item in result.get("items") or []):
+        steps.append(("Pick which copy to use", ("ui",)))
+    if owned and crate.get("tracks") == size:
         # Collecting again would only find this same crate.
         steps.append(("See the crate", ("crate", crate["collection_id"])))
     elif owned:

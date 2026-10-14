@@ -1,8 +1,10 @@
 """Short handles for saved crates and request lists, so nobody has to paste a long ID.
 
-``resolve(local, "collection", value)`` accepts a full ID, ``last`` (the newest), an exact
-name (any case) or a unique ID prefix of at least six characters, with or without the
-``collection_`` / ``request_`` prefix. It only reads the saved-list endpoints.
+``resolve(local, "collection", value)`` accepts a full ID, ``last``, an exact name (any
+case) or a unique ID prefix of at least six characters, with or without the ``collection_`` /
+``request_`` prefix. ``last`` is the set checked most recently (checking one again counts),
+and the crate made or used last: that set's crate unless a newer one was made since. It only
+reads the saved-list endpoints and ``/latest``.
 """
 
 import re
@@ -36,6 +38,9 @@ def resolve(local, kind: str, value: str) -> str:
     if not text:
         raise AppError("INPUT_INVALID", f"Name a {noun}: its name, an ID, or last.")
     if lowered == "last":
+        found = _latest(local).get(field)
+        if found:
+            return found
         newest = _rows(local, path, key, "", limit=1, pages=1)
         if not newest:
             raise AppError("NOT_FOUND", f"There is no {noun} yet; nothing to pick as last.", 404)
@@ -64,6 +69,14 @@ def resolve(local, kind: str, value: str) -> str:
         f"the first {MIN_PREFIX} characters of an ID, or last.",
         404,
     )
+
+
+def _latest(local) -> dict:
+    """``/latest``, or nothing from a background service older than it."""
+    try:
+        return local.request("GET", "/latest")["result"] or {}
+    except AppError:
+        return {}
 
 
 def _rows(local, path: str, key: str, query: str, *, limit: int = PAGE, pages: int = MAX_PAGES):
