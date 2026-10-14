@@ -1052,42 +1052,49 @@ def status_view(term: Terminal, result: dict) -> None:
             ),
         ],
     )
-    # A tracklist checked again after edits makes a new list, and a rebuilt crate a new
-    # collection; show the newest of each name.
+    # A tracklist checked again after edits makes a new set, and a rebuilt crate a new
+    # collection; show the newest set of each name, with the newest crate made from it.
     newest: dict[str, dict] = {}
     for row in result.get("recent_requests") or []:
         newest.setdefault(row.get("name") or row.get("request_id"), row)
     requests = list(newest.values())
-    crates: dict[str, dict] = {}
-    for row in result.get("recent_collections") or []:
-        crates.setdefault(row.get("name") or row.get("collection_id"), row)
-    collections = list(crates.values())
-    # A list that owns more songs than its crate holds was re-checked after new music.
+    recent = result.get("recent_collections") or []
+    made = set_crates(requests, recent)
+    # A set that owns more songs than its crate holds was re-checked after new music. Only
+    # songs with one verified copy ("owned" here) go into a crate.
     outdated = {
-        row.get("name"): row
+        key: row
         for row in requests
-        if row.get("name") in crates
-        and set_counts(row)["owned"] > int(crates[row["name"]].get("tracks") or 0)
+        if (key := row.get("request_id")) in made
+        and int(row.get("owned") or 0) > int(made[key].get("tracks") or 0)
     }
-    # One line per set, with its crate and where that crate is; other crates come after.
-    others = [row for row in collections if row.get("name") not in newest]
+    # Other crates: the newest of each name that no set's line already shows.
+    paired = {row.get("collection_id") for row in made.values()}
+    names = {row.get("name") for row in made.values()}
+    crates: dict[str, dict] = {}
+    for row in recent:
+        if row.get("collection_id") not in paired and row.get("name") not in names:
+            crates.setdefault(row.get("name") or row.get("collection_id"), row)
+    others = list(crates.values())
+    listed = paired | {row.get("collection_id") for row in others}
+    collections = [row for row in recent if row.get("collection_id") in listed]
     unread = result.get("rekordbox_checked") is False
-    for title, rows in (("Sets", requests), ("Other crates", others)):
+    for title, rows in (("Sets", requests), ("Other crates" if requests else "Crates", others)):
         if not rows:
             continue
         term.out.print()
         heading = Text.assemble((title, "heading"))
-        if unread and any(row.get("name") in crates for row in rows):
+        if unread and (title != "Sets" or any(row.get("request_id") in made for row in rows)):
             heading.append("  rekordbox: not readable right now", style="muted")
             unread = False
         term.out.print(heading)
         for row in rows:
-            name = row.get("name")
             if title == "Sets":
-                set_line(term, row, crates.get(name), outdated.get(name))
+                key = row.get("request_id")
+                set_line(term, row, made.get(key), outdated.get(key))
             else:
                 term.out.print(indented(crate_line(term, row, None)))
-    steps = status_steps(result, requests, collections, outdated)
+    steps = status_steps(result, requests, collections, outdated, made)
     if not steps:
         steps.append(("Check a set's tracklist against your music", ("set", "TRACKLIST.txt")))
     next_steps(term, steps)
@@ -1105,36 +1112,69 @@ def set_counts(row: dict) -> dict:
     return found
 
 
-def set_tally(term: Terminal, counts: dict) -> Text:
-    """``12 of 22 owned · 8 missing · 2 in another mix · 2 IDs``."""
-    dot = f" {term.glyph('dot')} "
-    text = Text(f"{counts['owned']} of {counts['songs']} owned")
+def set_crates(requests: list[dict], collections: list[dict]) -> dict[str, dict]:
+    """The newest crate collected from each set, by set (request) ID.
+
+    Every Shazam import is called "Shazam", so a crate goes with the set it was collected
+    from. Services before 0.1.0a16 don't say which that was; pair those by name.
+    """
+    by_name = {row.get("name"): row.get("request_id") for row in requests}
+    shown = set(by_name.values())
+    made: dict[str, dict] = {}
+    for row in collections:  # newest first
+        source = row["request_id"] if "request_id" in row else by_name.get(row.get("name"))
+        if source in shown:
+            made.setdefault(source, row)
+    return made
+
+
+def set_tally(term: Terminal, counts: dict) -> list[Text]:
+    """``12 of 22 owned``, ``8 missing``, ``2 in another mix``, ``2 IDs``: the parts that
+    are there."""
+    parts = [Text(f"{counts['owned']} of {counts['songs']} owned")]
     for key, label, style in (
         ("missing", "missing", "warn"),
         ("other_mix", "in another mix", "warn"),
         ("ids", "IDs", "muted"),
     ):
-        if counts.get(key):
-            text.append(dot, style="muted")
-            amount = counts[key]
-            text.append(f"{amount} {'ID' if key == 'ids' and amount == 1 else label}", style)
-    return text
+        if amount := counts.get(key):
+            parts.append(Text(f"{amount} {'ID' if key == 'ids' and amount == 1 else label}", style))
+    return parts
 
 
 def set_line(term: Terminal, row: dict, crate: dict | None, outdated: dict | None) -> None:
     """``○ Friday  12 of 22 owned · 10 missing · crate 12 · ✓ in rekordbox`` for status."""
     counts = set_counts(row)
     done = not row.get("unresolved") if "unresolved" in row else counts["owned"] == counts["songs"]
-    line = Text(str(row.get("name") or ""), style="heading")
-    line.append("  ").append_text(set_tally(term, counts))
+    parts = set_tally(term, counts)
     if crate:
-        dot = f" {term.glyph('dot')} "
-        line.append(dot, style="muted").append(f"crate {int(crate.get('tracks') or 0)}")
+        parts.append(Text(f"crate {int(crate.get('tracks') or 0)}"))
         if outdated:
-            line.append(dot, style="muted").append(f"{term.glyph('warn')} outdated", "warn")
-        line.append_text(crate_places(term, crate, Text(dot, style="muted")))
+            parts.append(Text(f"{term.glyph('warn')} outdated", style="warn"))
+        parts += place_parts(term, crate)
     glyph = Text(term.glyph("ok" if done else "todo"), style="ok" if done else "muted")
+    name = Text(str(row.get("name") or ""), style="heading")
+    # Indent, glyph and the gap after it.
+    width = term.out.width - 2 - glyph.cell_len - 1
+    line = unbroken(name, parts, Text(f" {term.glyph('dot')} ", style="muted"), width)
     hanging(term.out, glyph, line, indent=2)
+
+
+def unbroken(first: Text, parts: list[Text], sep: Text, width: int) -> Text:
+    """``first  part · part · part`` wrapped between parts only, so "crate 12" or "7 missing"
+    never splits over two lines."""
+    line, used = first.copy(), first.cell_len
+    for index, part in enumerate(parts):
+        joint = Text("  ") if index == 0 else sep
+        if used and used + joint.cell_len + part.cell_len > width:
+            line.append("\n")
+            used = 0
+        else:
+            line.append_text(joint)
+            used += joint.cell_len
+        line.append_text(part)
+        used += part.cell_len
+    return line
 
 
 def crate_line(term: Terminal, row: dict, outdated: dict | None) -> Text:
@@ -1153,26 +1193,43 @@ def crate_line(term: Terminal, row: dict, outdated: dict | None) -> Text:
 def crate_places(term: Terminal, row: dict, sep: Text | None = None) -> Text:
     """``  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago``: where djlib put a crate."""
     line, sep = Text(), sep or Text("  ")
-    if row.get("in_rekordbox") is True:
-        line.append_text(sep).append_text(marked(term, "ok", "in rekordbox"))
-    elif row.get("in_rekordbox") is False:
-        line.append_text(sep).append("not in rekordbox yet", style="muted")
-    elif row.get("pushed_at"):
-        line.append_text(sep).append(f"pushed to rekordbox {ago(row['pushed_at'])}", "muted")
-    usb = row.get("usb") or {}
-    if usb and usb_failed(usb):
-        line.append_text(sep).append_text(
-            marked(term, "bad", f"USB check failed on {usb.get('device')}: {usb_problem(usb)}")
-        )
-    elif usb:
-        line.append_text(sep).append_text(marked(term, "ok", f"on {usb.get('device')}"))
-        line.append(f" {ago(usb.get('checked_at'))}", style="muted")
+    for part in place_parts(term, row):
+        line.append_text(sep).append_text(part)
     return line
 
 
+def place_parts(term: Terminal, row: dict) -> list[Text]:
+    """``✓ in rekordbox``, ``✓ on RICARDO_AM 1d ago``: each place djlib put a crate.
+
+    ``in_rekordbox`` is what rekordbox shows right now (None: unread); without it, only
+    that djlib pushed it once, which the DJ may have deleted since.
+    """
+    parts: list[Text] = []
+    if row.get("in_rekordbox") is True:
+        parts.append(marked(term, "ok", "in rekordbox"))
+    elif row.get("in_rekordbox") is False:
+        parts.append(Text("not in rekordbox yet", style="muted"))
+    elif row.get("pushed_at"):
+        parts.append(Text(f"pushed to rekordbox {ago(row['pushed_at'])}", style="muted"))
+    usb = row.get("usb") or {}
+    if usb and usb_failed(usb):
+        problem = f"USB check failed on {usb.get('device')}: {usb_problem(usb)}"
+        parts.append(marked(term, "bad", problem))
+    elif usb:
+        place = marked(term, "ok", f"on {usb.get('device')}")
+        parts.append(place.append(f" {ago(usb.get('checked_at'))}", style="muted"))
+    return parts
+
+
 def status_steps(
-    result: dict, requests: list[dict], collections: list[dict], outdated: dict[str, dict]
+    result: dict,
+    requests: list[dict],
+    collections: list[dict],
+    outdated: dict[str, dict],
+    made: dict[str, dict],
 ) -> list[Step]:
+    """What to do next on the status screen; ``outdated`` and ``made`` (each set's crate) are
+    keyed by set ID."""
     tracks = int(result.get("tracks") or 0)
     bpm, key = int(result.get("with_bpm") or 0), int(result.get("with_key") or 0)
     steps: list[Step] = []
@@ -1192,7 +1249,17 @@ def status_steps(
             )
         )
         break
-    current = [row for row in collections if row.get("name") not in outdated]
+    stale = {made[key].get("collection_id") for key in outdated}
+    paired = {row.get("collection_id") for row in made.values()}
+    names = {row.get("name") for row in requests}
+    # A crate named like a newer set came from an older one (a Shazam import, an edited
+    # tracklist): pushing it isn't putting that set anywhere.
+    current = [
+        row
+        for row in collections
+        if row.get("collection_id") not in stale
+        and (row.get("collection_id") in paired or row.get("name") not in names)
+    ]
     for row in current:
         if row.get("in_rekordbox") is False:
             steps.append(
@@ -1204,11 +1271,7 @@ def status_steps(
             steps.append((f"Re-check “{row['name']}”", ("requests", "refresh", row["request_id"])))
             break
     for row in requests:
-        if (
-            row.get("owned")
-            and not row.get("needs_check")
-            and not any(c.get("name") == row.get("name") for c in collections)
-        ):
+        if row.get("owned") and not row.get("needs_check") and row.get("request_id") not in made:
             steps.append(
                 (f"Make a crate from “{row['name']}”", ("requests", "collect", row["request_id"]))
             )

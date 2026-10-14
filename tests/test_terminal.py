@@ -1055,6 +1055,106 @@ def test_status_lists_each_set_once_with_its_crate(capsys):
     assert "Old crate  5 tracks" in others and "Warm-up" not in others
 
 
+def test_status_gives_a_crate_only_to_the_set_it_came_from(capsys):
+    """Every Shazam import is called "Shazam"; the old one's crate isn't the new one's."""
+    new, old = REQUEST, "request_" + "1" * 32
+    sets = [
+        {"request_id": new, "name": "Shazam", "songs": 40, "owned": 2, "missing": 38},
+        {"request_id": old, "name": "Shazam", "songs": 3, "owned": 2, "unresolved": 1},
+    ]
+    crate = {
+        "collection_id": COLLECTION,
+        "name": "Shazam",
+        "tracks": 2,
+        "request_id": old,
+        "in_rekordbox": True,
+    }
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[crate]),
+        width=160,
+        capsys=capsys,
+    )
+    line = next(line for line in out.splitlines() if "of 40 owned" in line)
+    assert "crate" not in line and "rekordbox" not in line
+    assert "Other crates" in out and "Shazam  2 tracks  ✓ in rekordbox" in out
+    steps = out.split("Next\n", 1)[1]
+    assert f"Make a crate from “Shazam”  djlib requests collect {SHORT_REQUEST}" in steps
+    assert "rekordbox usb" not in steps  # the old crate isn't this set's
+    # Collected from the new set: on its line, and no second crate below.
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[{**crate, "request_id": new}]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "2 of 40 owned · 38 missing · crate 2 · ✓ in rekordbox" in out
+    assert "crates" not in out.lower().replace("djlib crates", "")
+    assert "Make a crate" not in out
+    # Services before 0.1.0a16 don't say; a crate goes with the set of its name.
+    del crate["request_id"]
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[crate]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "crate 2" in out
+
+
+def test_status_lists_crates_without_sets_as_crates(capsys):
+    crates = [{"collection_id": COLLECTION, "name": "Friday", "tracks": 8, "in_rekordbox": True}]
+    out = render("status", status_result(recent_collections=crates), width=120, capsys=capsys)
+    assert "Crates\n" in out and "Other crates" not in out and "Sets" not in out
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+def test_status_set_lines_wrap_between_counts(width, capsys):
+    sets = [
+        {
+            "request_id": REQUEST,
+            "name": "Kaytranada @ Boiler Room Montreal (1001TL paste)",
+            "songs": 22,
+            "owned": 12,
+            "unresolved": 10,
+            "counts": {"owned": 12, "missing": 7, "other_mix": 1, "ids": 2},
+        }
+    ]
+    crates = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Kaytranada @ Boiler Room Montreal (1001TL paste)",
+            "tracks": 12,
+            "request_id": REQUEST,
+            "in_rekordbox": False,
+        }
+    ]
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=crates),
+        width=width,
+        capsys=capsys,
+    )
+    for part in ("12 of 22 owned", "7 missing", "1 in another mix", "2 IDs", "crate 12"):
+        assert part in out, (part, out)
+    assert "not in rekordbox yet" in out
+    assert all(len(line) <= width for line in out.splitlines())
+
+
+def test_upgrade_check_offers_song_recognition_when_upgrade_can_add_it(capsys):
+    result = {
+        "current": "0.1.0a16",
+        "latest": "0.1.0a16",
+        "update_available": False,
+        "updated": False,
+        "recognition_installed": False,
+    }
+    out = render("upgrade", {**result, "repair_available": True}, width=100, capsys=capsys)
+    assert "Add song recognition  djlib upgrade" in out
+    # Not installed with uv: `djlib upgrade` can't add it, so it isn't offered.
+    assert "Next" not in render("upgrade", result, width=100, capsys=capsys)
+
+
 def test_request_lists_show_owned_and_missing(capsys):
     rows = [
         {
