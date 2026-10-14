@@ -590,6 +590,54 @@ def test_paged_screens_keep_a_single_next_block(capsys):
     assert out.count("Next\n") == 1 and f"requests get {REQUEST} --after 1" in out
 
 
+def test_a_song_owned_under_the_listings_spelling_says_so(capsys):
+    """Shazam's credits are requested; the file is tagged as MixesDB spells them."""
+    glasper = {
+        "artist": "Robert Glasper Experiment",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+    }
+    also = {**glasper, "artist": "Robert Glasper", "source": "mixesdb"}
+    accepted = {
+        "path": "/music/09 - Move Love.mp3",
+        "matched_as": "Robert Glasper - Move Love (Kaytranada Edition)",
+        "matched_as_source": "mixesdb",
+    }
+    request = {
+        "request_id": REQUEST,
+        "revision": 1,
+        "name": "Kaytranada",
+        "total_items": 3,
+        "counts": {"satisfied": 3},
+        "items": [
+            {
+                "position": 1,
+                "state": "satisfied",
+                "input": {**glasper, "also": [also]},
+                "accepted": accepted,
+            },
+            {
+                "position": 2,
+                "state": "satisfied",
+                "input": {"artist": "Busta Rhymes", "title": "Woo", "also": [also]},
+                "accepted": accepted,
+            },
+            {
+                "position": 3,
+                "state": "satisfied",
+                "input": glasper,
+                "accepted": {"path": "/music/10 - Move Love.mp3"},
+            },
+        ],
+    }
+    out = render("requests get", request, width=200, capsys=capsys)
+    rows = [line for line in out.splitlines() if "music/" in line]
+    assert rows[0].rstrip().endswith("music/09 - Move Love.mp3  as Robert Glasper")
+    # When more than the names differ, the whole label the file matched.
+    assert rows[1].rstrip().endswith("as Robert Glasper - Move Love (Kaytranada Edition)")
+    assert " as " not in rows[2]
+
+
 def test_request_lists_lead_with_building_the_crate(capsys):
     request = {
         "request_id": REQUEST,

@@ -718,8 +718,6 @@
             "source": {
               "default": "file",
               "maxLength": 40,
-              "minLength": 1,
-              "pattern": "^[a-z0-9][a-z0-9_.-]*$",
               "title": "Source",
               "type": "string"
             },
@@ -1068,9 +1066,53 @@
     },
     "RequestCreate": {
       "$defs": {
+        "AlsoCredit": {
+          "additionalProperties": false,
+          "description": "The same song and mix under another spelling of its credits, e.g. the listing's\n\"Robert Glasper\" for Shazam's \"Robert Glasper Experiment\". Matched by the same exact rule.",
+          "properties": {
+            "artist": {
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Artist",
+              "type": "string"
+            },
+            "source": {
+              "default": "",
+              "maxLength": 40,
+              "title": "Source",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "maxLength": 300,
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "artist",
+            "title"
+          ],
+          "title": "AlsoCredit",
+          "type": "object"
+        },
         "RequestItem": {
           "additionalProperties": false,
           "properties": {
+            "also": {
+              "items": {
+                "$ref": "#/$defs/AlsoCredit"
+              },
+              "maxItems": 1,
+              "title": "Also",
+              "type": "array"
+            },
             "artist": {
               "anyOf": [
                 {
@@ -1084,6 +1126,25 @@
               ],
               "default": null,
               "title": "Artist"
+            },
+            "confidence": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "confirmed",
+                    "likely",
+                    "weak",
+                    "conflict",
+                    "unidentified"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Confidence"
             },
             "kind": {
               "default": "named",
