@@ -378,9 +378,9 @@ class LocalClient:
         timeout = 15
         if path == "/sources/inspect":
             # Fetching listener comments takes up to the adapter's 240-second budget, and a
-            # MixesDB lookup up to 20 seconds more.
+            # MixesDB lookup up to 30 seconds more.
             timeout = 260 if (data or {}).get("comments") else 100
-            timeout += 25 if (data or {}).get("mixesdb") else 0
+            timeout += 35 if (data or {}).get("mixesdb") else 0
         elif path == "/sources/search":
             # Up to 90 seconds of searching, then 30 of availability checks.
             timeout = 130

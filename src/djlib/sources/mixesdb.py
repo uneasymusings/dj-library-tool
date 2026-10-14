@@ -10,7 +10,9 @@ import asyncio
 import html
 import logging
 import re
+import time
 import unicodedata
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date
@@ -28,8 +30,10 @@ API = "https://www.mixesdb.com/w/api.php"
 PAGES = "https://www.mixesdb.com/w/"
 USER_AGENT = f"djlib/{__version__} (+https://github.com/uneasymusings/dj-library-tool)"
 MAX_REQUESTS = 4
+# mixesdb.com's robots.txt asks for 4 seconds between requests (Crawl-delay: 4).
+CRAWL_DELAY = 4.0
 TIMEOUT = httpx.Timeout(8.0, connect=5.0)
-DEADLINE = 20.0  # seconds for a whole lookup
+DEADLINE = 30.0  # seconds for a whole lookup: four spaced requests fit
 MAX_REPLY_BYTES = 4 * 1024 * 1024
 MAX_PAGE_CHARS = 300_000
 MAX_LINE_CHARS = 2000
@@ -575,8 +579,33 @@ def _only_part(wanted: Wanted, page: Page) -> bool:
 # Network
 
 
+class Spacing:
+    """At least CRAWL_DELAY seconds between requests to mixesdb.com, across every lookup in
+    this process: each request takes the next free moment, then waits for it."""
+
+    def __init__(
+        self,
+        delay: float = CRAWL_DELAY,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
+    ):
+        self.delay, self.clock, self.sleep = delay, clock, sleep
+        self.next_at: float | None = None
+
+    async def wait(self) -> None:
+        now = self.clock()
+        start = now if self.next_at is None else max(now, self.next_at)
+        self.next_at = start + self.delay
+        if start > now:
+            await self.sleep(start - now)
+
+
+SPACING = Spacing()
+
+
 class Api:
-    """MixesDB's MediaWiki API, at most MAX_REQUESTS requests per lookup."""
+    """MixesDB's MediaWiki API, at most MAX_REQUESTS requests per lookup, spaced out."""
 
     def __init__(self, client: httpx.AsyncClient):
         self.client = client
@@ -608,6 +637,7 @@ class Api:
         if self.spent:
             return []
         self.requests += 1
+        await SPACING.wait()
         query = {
             "action": "query",
             "format": "json",
@@ -726,9 +756,10 @@ async def lookup(
 ) -> dict | None:
     """The MixesDB tracklist of the set at ``url`` (titled ``title``), or None.
 
-    At most MAX_REQUESTS requests within DEADLINE seconds; no page, or a doubtful one, is
-    None. So is an error or no answer in time, unless ``strict``: then that raises (an
-    AppError, or TimeoutError), so callers can ask again later instead of keeping None.
+    At most MAX_REQUESTS requests, CRAWL_DELAY seconds apart, within DEADLINE seconds; no
+    page, or a doubtful one, is None. So is an error or no answer in time, unless ``strict``:
+    then that raises (an AppError, or TimeoutError), so callers can ask again later instead
+    of keeping None.
     Returns ``{"source": "mixesdb", "page_title", "page_url", "text",
     "complete", "tracklist" ("complete", "incomplete" or "unknown"), "tracks",
     "duration_seconds", "players", "match": {"by", "score"}}``. ``match.by`` is "url" when the

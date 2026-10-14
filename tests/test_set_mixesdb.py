@@ -37,6 +37,16 @@ def setup(monkeypatch):
     return fakes(monkeypatch)
 
 
+@pytest.fixture(autouse=True)
+def no_crawl_delay(monkeypatch):
+    """Recorded replies need no Crawl-delay (tests/test_mixesdb.py checks it)."""
+
+    async def at_once(seconds):
+        return None
+
+    monkeypatch.setattr(mixesdb, "SPACING", mixesdb.Spacing(sleep=at_once))
+
+
 @pytest.fixture
 def wiki(monkeypatch):
     """MixesDB, answering every request as the test says (nothing found by default)."""
