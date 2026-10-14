@@ -110,6 +110,25 @@ def finish_checks(local, reply: dict) -> dict:
             reply = local.request("POST", f"/requests/{result['request_id']}/refresh", data=body)
 
 
+def built_crate(local, result: dict) -> dict | None:
+    """The crate `requests collect` last made from this list, if any.
+
+    Found by the collect job's retry token, which names the list, so sets that share a name
+    (every Shazam import is "Shazam") never share a crate.
+    """
+    owned = int((result.get("counts") or {}).get("satisfied") or 0)
+    if not owned or not result.get("name") or not result.get("request_id"):
+        return None
+    prefix = f"request-collection:{result['request_id']}:"
+    params = {"query": str(result["name"])[:500], "limit": 20}
+    for job in local.request("GET", "/jobs", params=params)["result"].get("jobs") or []:
+        made = job.get("result") if isinstance(job.get("result"), dict) else {}
+        key = str(job.get("idempotency_key") or "")
+        if job.get("state") == "completed" and key.startswith(prefix) and made.get("collection_id"):
+            return {"collection_id": made["collection_id"], "tracks": made.get("selected_count")}
+    return None
+
+
 def current_revision(local, request_id: str) -> int:
     """The request list's revision right now, for commands that default to it."""
     return local.request("GET", f"/requests/{request_id}", params={"limit": 1})["result"][
@@ -136,7 +155,7 @@ def register_commands(app, client, emit, handled, panel=None):
     from djlib.interfaces.handles import resolve
 
     requests = typer.Typer(
-        help="Wanted songs: owned, missing or unknown.",
+        help="Sets you checked: owned, missing, IDs.",
         no_args_is_help=True,
     )
     organize = typer.Typer(
@@ -146,6 +165,19 @@ def register_commands(app, client, emit, handled, panel=None):
     app.add_typer(organize, name="organize", hidden=True)
     request_help = "List name, ID start (6+ characters) or last."
     revision_help = "Request list revision; defaults to the current one."
+
+    def emit_list(local, reply: dict) -> None:
+        """A request list; a terminal also learns the crate already made from it."""
+        from djlib.interfaces import terminal
+
+        if not terminal.current().json and isinstance(reply.get("result"), dict):
+            try:
+                crate = built_crate(local, reply["result"])
+            except AppError:
+                crate = None  # the list still shows; the view offers to build the crate
+            if crate:
+                reply["result"]["crate"] = crate
+        emit(reply)
 
     @requests.command("create")
     @handled
@@ -174,7 +206,7 @@ def register_commands(app, client, emit, handled, panel=None):
         local = client(ctx)
         reply = created(local, body)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
-        emit(reply)
+        emit_list(local, reply)
 
     @requests.command("get")
     @handled
@@ -187,8 +219,11 @@ def register_commands(app, client, emit, handled, panel=None):
         """Show a request list and each song's status."""
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
-        emit(
-            local.request("GET", f"/requests/{request_id}", params={"after": after, "limit": limit})
+        emit_list(
+            local,
+            local.request(
+                "GET", f"/requests/{request_id}", params={"after": after, "limit": limit}
+            ),
         )
 
     @requests.command("collect")
@@ -199,7 +234,7 @@ def register_commands(app, client, emit, handled, panel=None):
         name: str | None = typer.Option(None, help="Crate name; defaults to the list's."),
         revision: int | None = typer.Option(None, min=1, help=revision_help),
     ):
-        """Make a crate of the songs you own in a request list, in order."""
+        """Make a crate of the songs you own in a set, in set order."""
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         if revision is None:
@@ -225,10 +260,11 @@ def register_commands(app, client, emit, handled, panel=None):
         body = {"revision": revision}
         if item_id is not None:
             body["item_ids"] = item_id
-        emit(
+        emit_list(
+            local,
             finish_checks(
                 local, local.request("POST", f"/requests/{request_id}/refresh", data=body)
-            )
+            ),
         )
 
     @requests.command("report")
@@ -261,10 +297,11 @@ def register_commands(app, client, emit, handled, panel=None):
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         body = resolution_body(text, revision, lambda: current_revision(local, request_id))
-        emit(
+        emit_list(
+            local,
             local.request(
                 "POST", f"/requests/{request_id}/items/{item_id}", data=body.model_dump(mode="json")
-            )
+            ),
         )
 
     @requests.command("list")
@@ -275,7 +312,7 @@ def register_commands(app, client, emit, handled, panel=None):
         limit: int = typer.Option(20, min=1, max=100),
         after: str | None = typer.Option(None, help="Cursor from the previous page."),
     ):
-        """List saved request lists, newest first."""
+        """The sets you checked, newest first."""
         params = {"query": query, "limit": limit}
         if after is not None:
             params["after"] = after

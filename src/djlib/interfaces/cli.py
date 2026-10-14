@@ -838,7 +838,7 @@ def collections(
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ):
-    """List your crates (saved collections), newest first."""
+    """Your crates, newest first."""
     from djlib.interfaces.rekordbox_cli import remembered
 
     params = {"query": query, "limit": limit}
