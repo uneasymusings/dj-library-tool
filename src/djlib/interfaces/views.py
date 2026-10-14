@@ -1218,9 +1218,9 @@ def status_view(term: Terminal, result: dict) -> None:
         for row in rows:
             if title == "Sets":
                 key = row.get("request_id")
-                set_line(term, row, made.get(key), outdated.get(key), app=app)
+                set_line(term, row, made.get(key), outdated.get(key), app=app, unread=unread)
             else:
-                term.out.print(indented(crate_line(term, row, None, app=app)))
+                term.out.print(indented(crate_line(term, row, None, app=app, unread=unread)))
     if unread and app and collections:
         # Its playlists can only be read while it runs; "not in rekordbox yet" is djlib's.
         if result.get("rekordbox_open") is False:
@@ -1311,9 +1311,15 @@ def status_tally(term: Terminal, counts: dict) -> list[Text]:
 
 
 def set_line(
-    term: Terminal, row: dict, crate: dict | None, outdated: dict | None, *, app: bool = True
+    term: Terminal,
+    row: dict,
+    crate: dict | None,
+    outdated: dict | None,
+    *,
+    app: bool = True,
+    unread: bool = False,
 ) -> None:
-    """``○ Friday  12 of 22 owned · 10 missing · crate 12 · ✓ in rekordbox`` for status."""
+    """``• Friday  12 of 22 owned · 10 missing · crate 12 · ✓ in rekordbox`` for status."""
     counts = set_counts(row)
     done = (
         not row.get("unresolved")
@@ -1325,8 +1331,8 @@ def set_line(
         parts.append(Text(f"crate {number(int(crate.get('tracks') or 0))}"))
         if outdated:
             parts.append(Text(f"{term.glyph('warn')} outdated", style="warn"))
-        parts += place_parts(term, crate, app=app)
-    glyph = Text(term.glyph("ok" if done else "todo"), style="ok" if done else "muted")
+        parts += place_parts(term, crate, app=app, unread=unread)
+    glyph = Text(term.glyph("ok" if done else "item"), style="ok" if done else "muted")
     name = Text(str(row.get("name") or ""), style="heading")
     # Indent, glyph and the gap after it.
     width = term.out.width - 2 - glyph.cell_len - 1
@@ -1351,7 +1357,9 @@ def unbroken(first: Text, parts: list[Text], sep: Text, width: int) -> Text:
     return line
 
 
-def crate_line(term: Terminal, row: dict, outdated: dict | None, *, app: bool = True) -> Text:
+def crate_line(
+    term: Terminal, row: dict, outdated: dict | None, *, app: bool = True, unread: bool = False
+) -> Text:
     """``Friday  8 tracks  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago`` for the status screen.
     Without rekordbox to put it in (``app`` False), a crate says nothing about rekordbox."""
     # The rekordbox playlist name tells versions of one set apart ("Friday (2)").
@@ -1362,31 +1370,39 @@ def crate_line(term: Terminal, row: dict, outdated: dict | None, *, app: bool = 
             f"  {term.glyph('warn')} outdated: you now own {crate_size(outdated)} of its songs",
             style="warn",
         )
-    return line.append_text(crate_places(term, row, app=app))
+    return line.append_text(crate_places(term, row, app=app, unread=unread))
 
 
-def crate_places(term: Terminal, row: dict, sep: Text | None = None, *, app: bool = True) -> Text:
+def crate_places(
+    term: Terminal,
+    row: dict,
+    sep: Text | None = None,
+    *,
+    app: bool = True,
+    unread: bool = False,
+) -> Text:
     """``  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago``: where djlib put a crate."""
     line, sep = Text(), sep or Text("  ")
-    for part in place_parts(term, row, app=app):
+    for part in place_parts(term, row, app=app, unread=unread):
         line.append_text(sep).append_text(part)
     return line
 
 
-def place_parts(term: Terminal, row: dict, *, app: bool = True) -> list[Text]:
+def place_parts(term: Terminal, row: dict, *, app: bool = True, unread: bool = False) -> list[Text]:
     """``✓ in rekordbox``, ``✓ on RICARDO_AM 1d ago``: each place djlib put a crate.
 
     ``in_rekordbox`` is what rekordbox shows right now (None: unread); without it, only
     that djlib pushed it once, which the DJ may have deleted since. Without rekordbox to put
-    it in (``app`` False), a crate never pushed says nothing about rekordbox.
+    it in (``app`` False), a crate never pushed says nothing about rekordbox, and neither does
+    one while rekordbox's playlists can't be read (``unread``: status says so once).
     """
     parts: list[Text] = []
     if row.get("in_rekordbox") is True:
         parts.append(marked(term, "ok", "in rekordbox"))
     elif row.get("in_rekordbox") is None and row.get("pushed_at"):
         parts.append(Text(f"pushed to rekordbox {ago(row['pushed_at'])}", style="muted"))
-    elif row.get("in_rekordbox") is False or app:
-        # rekordbox says it isn't there, or is closed and djlib never pushed it.
+    elif row.get("in_rekordbox") is False or (app and not unread):
+        # rekordbox says it isn't there, or djlib never pushed it and has nothing to read.
         parts.append(Text("not in rekordbox yet", style="muted"))
     usb = row.get("usb") or {}
     if usb and usb_failed(usb):
