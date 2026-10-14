@@ -1277,11 +1277,15 @@ class IdentifyRunner:
                 f"{shlex.quote(url)} --again --recognizer {wanted}"
             )
         audio = next((s for s in tracklist["sources"] if s["source"] == "audio"), None)
-        if audio and audio.get("errors"):
+        if audio and audio.get("errors") and not reused:
+            # Said once, by the listen it happened in; a saved result doesn't repeat it.
+            stride = _stride(probes)
+            missed = max(1, round(audio["errors"] * stride / 60))
+            length = duration if isinstance(duration, int | float) and duration > 0 else None
+            minutes = max(missed, round((length or audio["windows"] * stride) / 60))
             notices.append(
-                f"{_label(listener.get('name') or '') or 'Song recognition'} failed on "
-                f"{audio['errors']} of {audio['windows']} listening windows; those parts count "
-                "as not heard."
+                f"{_label(listener.get('name') or '') or 'Song recognition'} couldn't answer "
+                f"for {missed} of {minutes} minutes; those parts count as not heard."
             )
         if page.get("comments_skipped"):
             notices.append("Reading the listener comments took too long, so they were skipped.")
