@@ -217,12 +217,17 @@ def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_pat
     again = json.loads(invoke("scan", "--key", "k", workspace=local_http.root).stdout)
     assert [s["job_id"] for s in again["result"]["scans"]][:2] == [s["job_id"] for s in scans]
     assert len(again["result"]["scans"]) == 3 and again["warnings"] == []
-    unplugged.rmdir()
+    # A song on the drive while it is plugged in...
+    audio_factory("../unplugged/c.wav", frequency=440, artist="Bicep", title="Glue")
+    plugged = invoke("scan", pretty=True, workspace=local_http.root)
+    assert plugged.stdout.startswith("✓ 3 tracks in 3 folders"), plugged.output
+    shutil.rmtree(unplugged)
 
     pretty = invoke("scan", pretty=True, workspace=local_http.root)
     assert pretty.exit_code == 0, pretty.output
-    # Scanned again: nothing is new, said once for both folders, with one Next block.
-    assert pretty.stdout.startswith("✓ 2 tracks in 2 folders, 0 new\n")
+    # Scanned again: nothing is new, said once for both folders, with one Next block; the
+    # song on the unplugged drive isn't counted as in them.
+    assert pretty.stdout.startswith("✓ 2 tracks in 2 folders, 0 new\n"), pretty.output
     assert pretty.stdout.count("✓") == 1 and pretty.stdout.count("Next") == 1
     assert "unplugged drive?" in pretty.stderr
 

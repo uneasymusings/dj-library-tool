@@ -599,10 +599,12 @@ def scanned_songs(job: dict) -> tuple[int, int | None]:
     return int(counts.get("succeeded", 0)), new if isinstance(new, int) else None
 
 
-def follow_scans(term: Terminal, client, jobs: list[dict]) -> None:
+def follow_scans(term: Terminal, client, jobs: list[dict], whole: bool = True) -> None:
     """`djlib scan` over several music folders: each folder's scan followed in turn, then one
     result ("✓ 23 tracks in 2 folders, 0 new") and one Next block. A scan that failed or left
-    files out keeps its own card. Exits with the worst outcome, as `jobs wait` would."""
+    files out keeps its own card. Exits with the worst outcome, as `jobs wait` would.
+    ``whole`` says every music folder was scanned (no drive unplugged), so the library's own
+    count is the folders' count."""
     done = []
     for job in jobs:
         followed = follow(term, client, job)
@@ -620,8 +622,9 @@ def follow_scans(term: Terminal, client, jobs: list[dict]) -> None:
         songs = [scanned_songs(job) for job in clean]
         tracks = sum(count for count, _ in songs)
         new = [fresh for _, fresh in songs]
-        if len(clean) == len(done):
-            # A song in two folders is one track, as the library counts it.
+        if whole and len(clean) == len(done):
+            # A song in two folders is one track, as the library counts it. With a drive
+            # unplugged the library also counts the songs on it, so the folders' sum is told.
             with contextlib.suppress(AppError, KeyError, TypeError, ValueError):
                 tracks = int(client.request("GET", "/summary")["result"]["tracks"])
         where = plural(len(clean), "folder")
