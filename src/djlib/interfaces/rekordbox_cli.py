@@ -1120,9 +1120,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         """TRACKLIST_NOT_FOUND: why djlib couldn't listen first, with its fix as the next
         step; else the way to give it a tracklist. What listeners named comes last."""
         from djlib.interfaces import identify_cli, set_sources
+        from djlib.sources import mixesdb
 
         comments = page.get("comments") or []
         missing = "no tracklist in its description or chapters, and none on MixesDB"
+        if not mixesdb.enabled():
+            missing = "no tracklist in its description or chapters (MixesDB lookups are off)"
         fix = identify_cli.listen_fix(problem) if problem is not None else None
         if problem is not None:
             reason = identify_cli.cannot_listen(problem)

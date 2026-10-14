@@ -52,7 +52,7 @@ After changing public request contracts, regenerate the checked-in schemas with 
 
 ## Sources djlib reads
 
-- **MixesDB:** at most 4 requests per lookup, at least 4 seconds apart across all lookups (its robots.txt `Crawl-delay: 4`), with an honest User-Agent naming djlib, its version and this repository. Its robots.txt also has `Disallow: /*?action=`, which a literal reading applies to the `/w/api.php?action=query` requests djlib makes. Before tagging a release, the owner asks the MixesDB admins whether user-triggered, per-set lookups at this pace are welcome, and records the answer here. If they decline, turn the lookup off by default before tagging.
+- **MixesDB:** at most 4 requests per lookup, at least 4 seconds apart across all lookups (its robots.txt `Crawl-delay: 4`), with an honest User-Agent naming djlib, its version and this repository. Its robots.txt also has `Disallow: /*?action=`, which a literal reading applies to the `/w/api.php?action=query` requests djlib makes. Before tagging a release, the owner asks the MixesDB admins whether user-triggered, per-set lookups at this pace are welcome, and records the answer here. If they decline, turn the lookup off by default before tagging. Anyone can turn it off with `DJLIB_MIXESDB=off` (or `0`, `false`, `no`), which `djlib set`, `djlib identify` and the MCP tools all follow; the background service reads it when it starts.
 - **1001Tracklists:** never fetched. DJs or their assistants copy the tracklist in a browser.
 - **Shazam:** used unofficially, one request at a time from one address, with back-off when it slows down. No address rotation and no parallel listening. AudD and ACRCloud are the licensed options.
 

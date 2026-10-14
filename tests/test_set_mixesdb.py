@@ -294,3 +294,31 @@ async def test_mcp_tools_name_the_mixesdb_page(application, library_http, setup,
             await asyncio.sleep(0.05)
     assert job["state"] == "completed"
     assert job["result"]["mixesdb"] == MONTREAL
+
+
+@pytest.mark.parametrize("off", ["off", "0", "false", "no", " OFF "])
+async def test_the_owner_can_turn_mixesdb_lookups_off(off, monkeypatch, wiki):
+    """DJLIB_MIXESDB=off: djlib never asks MixesDB, and keeps no answer, so turning the
+    lookups back on asks again."""
+    monkeypatch.setenv("DJLIB_MIXESDB", off)
+    page = {"url": KAYTRANADA, "title": "Kaytranada | Boiler Room: Montreal"}
+    assert await identification.mixesdb_answer(page) == (None, False) and wiki.asked == []
+    monkeypatch.setenv("DJLIB_MIXESDB", "on")
+    wiki.answer = lambda query: reply("kaytranada-montreal.json")
+    found, answered = await identification.mixesdb_answer(page)
+    assert answered and found["page_title"] == MONTREAL["page_title"] and wiki.asked
+
+
+def test_with_mixesdb_off_set_and_the_mcp_tools_never_ask_it(
+    application, library_http, setup, wiki, monkeypatch
+):
+    kaytranada(setup, wiki)
+    monkeypatch.setenv("DJLIB_MIXESDB", "off")
+    FakeRekordbox(monkeypatch)
+    error = json.loads(invoke(application, "set", KAYTRANADA, "--no-identify").stdout)["error"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND" and "MixesDB lookups are off" in error["message"]
+    # What djlib_source_inspect asks for.
+    body = {"url": KAYTRANADA, "comments": identification.COMMENTS, "mixesdb": True}
+    page = library_http.post("/sources/inspect", json=body)
+    assert page.json()["result"]["mixesdb"] is None
+    assert wiki.asked == []

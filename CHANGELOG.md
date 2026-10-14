@@ -58,7 +58,7 @@
 - One name for IDs: “ID”, or “ID — maybe <song>” when djlib heard something there. `djlib identify` reads “13 tracks · 8 heard by Shazam · 3 from tracklists only · 2 IDs”, with no percentages, and lists each song heard once, not placed, by its time. A song Shazam heard in one place and again in another counts as heard twice: an ID's guess reads “Shazam heard it at 51:09 and 56:39”, not “once”, and isn't listed again as heard once.
 - After `--no-rekordbox` the next step is “Put it in rekordbox” (`djlib rekordbox push <crate>`) or “Or straight onto your USB”. After `djlib identify`, the first next step checks the set against your music without making a rekordbox playlist.
 - A 1001Tracklists link (also 1001.tl) says what works: copy the tracklist, then `djlib set paste`; better, the set's own YouTube or SoundCloud link with `--tracklist paste`. A Mixcloud link says Mixcloud doesn't allow downloads and what to use instead.
-- MixesDB lookups wait 4 seconds between requests, as its robots.txt asks. Sets looked up at the same time each get their answer.
+- MixesDB lookups wait 4 seconds between requests, as its robots.txt asks. Sets looked up at the same time each get their answer. `DJLIB_MIXESDB=off` (or `0`, `false`, `no`) turns the lookups off for `djlib set`, `djlib identify` and assistants; they stay on by default.
 
 *Your Shazams*
 - With more than 100 Shazams and none checked yet, `djlib shazam status` suggests the last 30 days first, then your whole history. A list cut at 1,000 says which days it covers, and “The next 520 Shazams” brings the rest; status keeps offering them until they are checked.
