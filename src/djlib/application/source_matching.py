@@ -755,10 +755,26 @@ PROMO = re.compile(
     r"(?i)\b(?:subscribe|follow|out now|stream(?:ing)?|download|buy|pre-?order|pre-?save|"
     r"tickets?|merch|booking|contact|management|listen|available|copyright|all rights|support|"
     r"newsletter|tour dates|mastered|artwork|filmed|recorded|video by|directed|thanks|"
-    r"thank you)\b|[©℗]"
+    r"thank you|presented by|in (?:partnership|association) with|powered by|sponsored by)\b|[©℗]"
 )
 TRAILING_TIME = re.compile(r"\s*[-–—|@]?\s*[\[(]?(\d{1,2}(?::[0-5]\d){1,2})[\])]?\s*$")
 JUNK_TITLE = re.compile(r"(?i)^(?:intro|outro|start|end|chapter\s*\d+|untitled|break)$")
+# A publisher's line about the set, not a track in it: "Mura Masa – live from Boiler Room x
+# Cupra at Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza".
+PERFORMED = re.compile(
+    r"(?i)^(?:(?:recorded|filmed|streamed|broadcast)\b"
+    r"|(?:(?:dj|live|hybrid|vinyl|b2b|closing|opening|full)\s*-?\s*)+set\b)"
+)
+# "Live at the Barbeque" is a song: "live at" names the set only with an event beside it.
+LIVE_AT = re.compile(r"(?i)^(?:recorded\s+)?live\s*(?:(?:from|at|in|on|for)\b|@)")
+YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# The day the set was played: "Sep 12 / 2022", "12.09.2022", "2022-09-12".
+DATE = re.compile(
+    r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?"
+    r"\s*[,/.]?\s*(?:19|20)\d{2}\b|\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b"
+    r"|\b(?:19|20)\d{2}-\d{2}-\d{2}\b"
+)
+BRACKETED = re.compile(r"[\(\[][^\(\)\[\]]*[\)\]]")
 
 
 def _clock(seconds: float) -> str:
@@ -773,7 +789,41 @@ def _track_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def _chapter_lines(chapters: list[dict]) -> list[tuple[float | None, str]]:
+def names_the_set(line: str, uploader: str = "") -> bool:
+    """Whether a publisher's "Artist - Title" line is about the set, not a track it plays.
+
+    Such a line names a set or show ("Kaytranada - Boiler Room Montreal", "… DJ set"), says
+    where or when it was played or recorded ("Mura Masa – live from Boiler Room x Cupra at
+    Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza", "Bicep - Glastonbury
+    2019", "Avalon Emerson - HÖR - Sep 12 / 2022"), or pairs the uploader with a venue
+    ("Cercle - Château de Chambord" from Cercle). A song's
+    mix in brackets ("(Live at Dekmantel 2019)") is not read, and "Live at the Barbeque"
+    stays a song: "live at" counts only with an event, a year or the uploader beside it.
+    """
+    plain = " ".join(BRACKETED.sub(" ", line).split())
+    words = _text(plain)
+    if any(_has(words, phrase) for phrase in SET_PHRASES):
+        return True
+    parts = SEPARATOR.split(plain, maxsplit=1)
+    if len(parts) != 2:
+        return False
+    artist, title = (part.strip() for part in parts)
+    if PERFORMED.match(title) or DATE.search(title):
+        return True
+    heading = _text(title)
+    venue = any(_has(words, term) for term in VENUES)
+    host = _uploader_core(uploader) if uploader.strip() else ""
+    if LIVE_AT.match(title) and (
+        venue or YEAR.search(title) or X_JOIN.search(title) or _has(heading, host)
+    ):
+        return True
+    # "Primavera Sound Barcelona 2023": the title is the event itself.
+    if YEAR.search(title) and any(heading.startswith(f" {term} ") for term in VENUES):
+        return True
+    return venue and any(_same_name(host, fold(side)) for side in (artist, title))
+
+
+def _chapter_lines(chapters: list[dict], uploader: str = "") -> list[tuple[float | None, str]]:
     found = []
     for chapter in chapters:
         if not isinstance(chapter, dict):
@@ -782,12 +832,13 @@ def _chapter_lines(chapters: list[dict]) -> list[tuple[float | None, str]]:
         if match := TIMESTAMP.match(title):
             title = title[match.end() :]
         title = _track_text(title)
-        if LETTER.search(title) and not JUNK_TITLE.match(title):
+        set_line = names_the_set(title, uploader)
+        if LETTER.search(title) and not JUNK_TITLE.match(title) and not set_line:
             found.append((_seconds(chapter.get("start_time")), title))
     return sorted(found, key=lambda line: line[0] if line[0] is not None else math.inf)
 
 
-def _description_lines(description: str) -> list[tuple[float | None, str]]:
+def _description_lines(description: str, uploader: str = "") -> list[tuple[float | None, str]]:
     found = []
     for raw in description.splitlines()[:MAX_LINES]:
         line = NUMBERING.sub("", HEADER.sub("", " ".join(raw.split()), count=1), count=1)
@@ -801,7 +852,7 @@ def _description_lines(description: str) -> list[tuple[float | None, str]]:
         ):
             continue
         line = _track_text(line)
-        if not LETTER.search(line) or JUNK_TITLE.match(line):
+        if not LETTER.search(line) or JUNK_TITLE.match(line) or names_the_set(line, uploader):
             continue
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
@@ -811,15 +862,18 @@ def _description_lines(description: str) -> list[tuple[float | None, str]]:
     return timed if len(timed) >= 2 and len(timed) * 2 >= len(found) else found
 
 
-def tracklist_from_source(description: str, chapters: list[dict]) -> str:
+def tracklist_from_source(description: str, chapters: list[dict], uploader: str = "") -> str:
     """Tracklist text ("[mm:ss] Artist - Title" per line) from a set's chapters or description.
 
     Three or more chapters win; otherwise description lines that look like tracks are kept and
-    links, hashtags, handles, headers and promo lines are dropped.
+    links, hashtags, handles, headers and promo lines are dropped, as are lines about the set
+    itself (``names_the_set``; ``uploader`` is the upload's channel or account).
     """
     named = [c for c in chapters or [] if isinstance(c, dict) and str(c.get("title") or "")]
-    lines = _chapter_lines(named) if len(named) >= 3 else []
-    lines = lines or _description_lines(description or "") or _chapter_lines(named)
+    lines = _chapter_lines(named, uploader) if len(named) >= 3 else []
+    lines = (
+        lines or _description_lines(description or "", uploader) or _chapter_lines(named, uploader)
+    )
     return "\n".join(
         f"[{_clock(seconds)}] {text}" if seconds is not None else text for seconds, text in lines
     )
