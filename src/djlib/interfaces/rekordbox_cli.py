@@ -650,18 +650,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             ),
         ] = None,
         name: str | None = typer.Option(
-            None, help="Set name; defaults to the tracklist's heading, file name or upload title."
+            None,
+            "--name",
+            metavar="NAME",
+            help="Set name. Default: the tracklist's heading, file name or upload title.",
         ),
         source: str | None = typer.Option(
             None,
-            help="With a file: the set's link, kept as evidence for unknown IDs; with "
-            "--identify or --tracklist, djlib also listens to it.",
+            "--source",
+            metavar="LINK",
+            help="With a tracklist file: the set's link (see above).",
         ),
         fetch: bool = typer.Option(
             False,
             "--fetch",
-            help="Download missing songs as MP3 from YouTube or SoundCloud when the match is "
-            "clear (asks first; --yes to skip).",
+            help="Download clear matches for missing songs as MP3 (asks first).",
         ),
         yes: bool = typer.Option(False, "--yes", "-y", help="With --fetch: don't ask first."),
         usb: bool = typer.Option(
@@ -670,51 +673,64 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         when_idle: int = typer.Option(
             0,
             "--when-idle",
-            min=0,
-            help="Import into rekordbox only once the keyboard and mouse have been idle this "
-            "many seconds.",
+            metavar="SECONDS",
+            show_default=False,
+            help="Wait until you've been away from the keyboard this long, then use rekordbox.",
         ),
-        use_rekordbox: bool = typer.Option(
-            True,
-            "--rekordbox/--no-rekordbox",
-            help="Import the crate into rekordbox when it can be driven (macOS); "
-            "--no-rekordbox only builds the crate.",
+        no_rekordbox: bool = typer.Option(
+            False,
+            "--no-rekordbox",
+            help="Check the set and build the crate only; leave rekordbox alone.",
         ),
+        # The default; kept so scripts that pass it still work.
+        rekordbox_flag: bool = typer.Option(False, "--rekordbox", hidden=True),
         device: Path | None = typer.Option(
-            None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
+            None,
+            "--device",
+            metavar="STICK",
+            help="Your USB stick, e.g. /Volumes/DJ_USB (found by itself).",
         ),
         timeout: int = typer.Option(
-            600, min=10, help="With --usb: seconds to wait for you to click the playlist."
+            600,
+            "--timeout",
+            metavar="SECONDS",
+            show_default=False,
+            help="With --usb: how long to wait for your click (default 600).",
         ),
-        identify: bool | None = typer.Option(
-            None,
-            "--identify/--no-identify",
-            help="Listen to the set to find its songs (minutes; see djlib identify). By "
-            "default only when its tracklist is missing or has IDs, or it was identified before.",
+        listen: bool = typer.Option(
+            False,
+            "--identify",
+            help="Listen to the set even when its tracklist looks complete.",
+        ),
+        no_listen: bool = typer.Option(
+            False,
+            "--no-identify",
+            help="Never listen; use the tracklist the set's page publishes.",
         ),
         tracklists: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="With a link or --source: a tracklist for the set (e.g. from 1001Tracklists: "
-            "a text file, or paste for the one you copied), merged with what djlib hears; "
-            "repeatable.",
+            metavar="TRACKLIST",
+            help="A tracklist to merge with what djlib hears: a file, or paste (see above).",
         ),
     ) -> None:
-        """Tracklist → owned songs → rekordbox playlist → USB.
+        """Every track in a set, which you own, a crate, a rekordbox playlist, your USB.
 
-        Takes a YouTube/SoundCloud set link, a text file, or paste for what you copied.
+        Takes a YouTube or SoundCloud set link, a text file, or paste for what you copied.
 
-        A set link whose tracklist is missing or has IDs is listened to (see djlib identify).
+        A link whose tracklist is missing or has IDs is listened to (see djlib identify).
+
+        An hour-long set takes about 5–10 minutes, up to half an hour when Shazam is busy.
+
+        --tracklist adds one you copied (1001Tracklists) to a set link, checked by listening.
+
+        --source LINK goes with a tracklist file: the set's link, for IDs and listening.
 
         djlib set shazam takes the songs you Shazamed, oldest first, 1,000 at a time.
 
-        shazam:2026-09-13 takes only those since that date; shazam:new only those since last time.
+        shazam:2026-09-13 takes those since that date; shazam:new those since last time.
 
-        Matches exact artist/title/version; other versions are never swapped in.
-
-        --fetch downloads clear matches for missing songs as MP3.
-
-        --usb exports the playlist to your stick and checks every file.
+        Matches the exact artist, title and mix; another mix is never swapped in.
         """
         from djlib.application import identification
         from djlib.interfaces import identify_cli, set_sources, shazam_cli
@@ -731,6 +747,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         if tracklist is None:
             raise identify_cli.nothing_given("set")
+        use_rekordbox = not no_rekordbox
+        if listen and no_listen:
+            raise AppError("INPUT_INVALID", "Use --identify or --no-identify, not both.")
+        identify = True if listen else False if no_listen else None
+        if when_idle < 0:
+            raise AppError("INPUT_INVALID", "--when-idle takes seconds: 0 or more.")
+        if timeout < 10:
+            raise AppError("INPUT_INVALID", "--timeout takes seconds: 10 or more.")
         if usb and not use_rekordbox:
             raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
         if yes and not fetch:
