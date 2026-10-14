@@ -800,11 +800,16 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             complete = listing is None or bool(listing.get("complete"))
             warnings = []
             problem = None
-            if given or identify_cli.wanted(
-                identify, text, tracklist, workspace, complete=complete
-            ):
+            # --tracklist merges with what djlib hears, so it asks for a listen.
+            reason = identify_cli.listen_reason(
+                True if given else identify, text, tracklist, workspace, complete=complete
+            )
+            if reason:
+                notice = identify_cli.listening_notice(reason, text, tracklist, workspace)
                 try:
-                    identified = identify_cli.listen(local, tracklist, given, name)
+                    identified = identify_cli.listen(
+                        local, tracklist, given, name, reason=reason, notice=notice
+                    )
                 except AppError as error:
                     # By default a published tracklist still makes the set without listening.
                     fallback = error.code in identify_cli.UNAVAILABLE
@@ -872,8 +877,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     {"source": identify_cli.tracklist_source(path, content), "text": content},
                     *identify_cli.read_tracklists(tracklists),
                 ]
+                reason = "asked" if identify or tracklists else "identified_before"
+                notice = identify_cli.listening_notice(reason, listing, source, workspace)
                 try:
-                    identified = identify_cli.listen(local, source, given, body.name)
+                    identified = identify_cli.listen(
+                        local, source, given, body.name, reason=reason, notice=notice
+                    )
                 except AppError as error:
                     if not free:
                         raise

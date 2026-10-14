@@ -646,7 +646,7 @@ def failing_error(recognizer: Recognizer, windows: int, last: str | None) -> App
     reason = f" ({last.rstrip('.')})" if last else ""
     return AppError(
         "RECOGNITION_FAILING",
-        f"{label} failed on {windows} listening windows in a row{reason}.",
+        f"{label} couldn't hear {windows} parts of the set in a row{reason}.",
         502,
         True,
     )

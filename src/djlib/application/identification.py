@@ -139,12 +139,13 @@ def canonical_url(url: str) -> str:
         host = (parts.hostname or "").lower()
     except ValueError:
         parts, host = None, ""
-    if parts is not None and _domain(host, "1001tracklists.com"):
+    site = web.set_site(text)
+    if site == "1001tracklists":
         raise AppError(
-            "SOURCE_BROWSER_ONLY",
-            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it.",
-            details={"next": "djlib identify SET_LINK --tracklist FILE"},
+            "SOURCE_BROWSER_ONLY", web.BROWSER_ONLY, details=web.browser_only_details("identify")
         )
+    if site == "mixcloud":
+        raise AppError("SOURCE_UNSUPPORTED", web.mixcloud_message())
     if (
         parts is None
         or parts.scheme not in {"http", "https"}
@@ -498,6 +499,10 @@ class _Attempt:
     stride: float = STRIDE
     progress: dict = field(default_factory=dict)
     notices: list[str] = field(default_factory=list)
+    # The audio's length once downloaded, and the time the recognizer kept djlib waiting.
+    seconds: float | None = None
+    waited: float = 0.0
+    wait_started: float | None = None
 
 
 def _receipt_path(receipt: dict) -> Path:
@@ -762,6 +767,7 @@ class IdentifyRunner:
             "windows_total": counts.get("windows_total"),
             "songs_heard": self.songs(attempt),
             "eta_seconds": None,
+            **self.set_time(attempt, counts.get("windows_done"), counts.get("windows_total")),
         }
         with self.app.db.transaction() as session:
             job = require(session, Job, attempt.job_id)
@@ -784,21 +790,49 @@ class IdentifyRunner:
         eta = None
         if fresh >= 3:
             eta = round((now - attempt.phase_started) / fresh * left)
+        if attempt.wait_started is not None:  # an answer ends the wait
+            attempt.waited += now - attempt.wait_started
+            attempt.wait_started = None
         attempt.progress = {
             "phase": attempt.phase,
             "windows_done": done,
             "windows_total": total,
             "songs_heard": self.songs(attempt),
             "eta_seconds": eta,
+            **self.set_time(attempt, done, total),
         }
         self.save(attempt, progress=attempt.progress)
 
+    def set_time(self, attempt: _Attempt, done: int | None, total: int | None) -> dict:
+        """How far the first listen got in the set's own time (``position_seconds``, null in
+        other phases), the set's length, and how long the recognizer kept djlib waiting."""
+        seconds, position = attempt.seconds, None
+        if attempt.phase == "listening" and seconds and total:
+            done = done or 0
+            position = seconds if done >= total else min(done * attempt.stride, seconds)
+        return {
+            "position_seconds": None if position is None else round(position),
+            "duration_seconds": None if seconds is None else round(seconds),
+            "waited_seconds": self.waited(attempt),
+        }
+
+    def waited(self, attempt: _Attempt) -> int:
+        waited = attempt.waited
+        if attempt.wait_started is not None:
+            waited += time.monotonic() - attempt.wait_started
+        return round(waited)
+
     def waiting(self, attempt: _Attempt, service: str):
-        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer)."""
+        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer).
+        No time left is promised meanwhile: the wait has no known end."""
 
         def wait(seconds: float, reason: str, left: float | None) -> None:
+            if attempt.wait_started is None:
+                attempt.wait_started = time.monotonic()
             attempt.progress = {
                 **attempt.progress,
+                "eta_seconds": None,
+                "waited_seconds": self.waited(attempt),
                 "waiting": {
                     "service": service,
                     "reason": reason,
@@ -919,6 +953,7 @@ class IdentifyRunner:
         seconds = await asyncio.to_thread(windows.duration, path)
         self.check_preview(page, receipt, seconds, folder)
         total = self.check_whole(attempt, page, receipt, seconds)
+        attempt.seconds = seconds
 
         starts = recognition.placements(
             seconds, window=WINDOW, stride=attempt.stride, offset=OFFSET
@@ -1098,8 +1133,8 @@ class IdentifyRunner:
             reason = f" ({last.rstrip('.')})" if last else ""
             raise AppError(
                 "RECOGNITION_FAILING",
-                f"{_label(name)} failed on {failed} of {len(starts)} listening windows{reason}, "
-                "so a tracklist would miss most of the set.",
+                f"{_label(name)} couldn't hear {failed} of {len(starts)} parts of the set"
+                f"{reason}, so a tracklist would miss most of it.",
                 502,
                 True,
                 details={"windows_failed": failed, "windows": len(starts)},
@@ -1338,8 +1373,8 @@ class IdentifyRunner:
             heard = len({p["at"] for p in load_probes(folder) if not p.get("error")})
             return AppError(
                 error.code,
-                f"{error.message} What djlib heard so far ({heard} listening windows) is "
-                f"saved, so running the same command later picks up from there.{kept}",
+                f"{error.message} What djlib heard so far is saved, so running the same "
+                f"command later picks up from there.{kept}",
                 error.status,
                 True,
                 details={**(error.details or {}), "windows_heard": heard, "resumes": True},
@@ -1634,14 +1669,20 @@ LOW_COVERAGE = 70
 def next_steps(found: dict) -> list[str]:
     """What to run after an identification (``summary``): check it against the music, and
     add a 1001Tracklists tracklist while IDs, weak or conflicting tracks are left or little of
-    the set is named, unless one was given. Checking it makes no rekordbox playlist."""
+    the set is named, unless the DJ gave a tracklist (from 1001Tracklists, MixesDB or a file;
+    the MixesDB page djlib looked up itself names its page_url). Checking it makes no rekordbox
+    playlist."""
     url = shlex.quote((found.get("source") or {}).get("url") or "LINK")
     steps = [f"djlib set {url} --no-rekordbox"]
     tracks = found.get("tracks") or []
     unresolved = any(
         t.get("kind") == "unknown" or t.get("status") in {"weak", "conflict"} for t in tracks
     )
-    given = any(s.get("source") == "1001tracklists" for s in found.get("sources") or [])
+    given = any(
+        s.get("source") in {"1001tracklists", "file"}
+        or (s.get("source") == "mixesdb" and not s.get("page_url"))
+        for s in found.get("sources") or []
+    )
     percent = (found.get("coverage") or {}).get("percent")
     if not given and (unresolved or percent is None or percent < LOW_COVERAGE):
         steps.append(f"djlib identify {url} --tracklist paste")

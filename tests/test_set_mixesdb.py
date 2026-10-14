@@ -17,7 +17,7 @@ from djlib.interfaces import mcp_server
 from djlib.sources import mixesdb
 from tests.test_headline_workflow import build
 from tests.test_identification import URL, Setup, folder, run, submit
-from tests.test_identify_cli import fakes, invoke
+from tests.test_identify_cli import events, fakes, invoke
 from tests.test_mixesdb import Wiki, reply
 from tests.test_rekordbox_push import FakeRekordbox
 
@@ -35,6 +35,16 @@ LONDON = "2022-06-29 - Fred Again.. @ Boiler Room, London"
 @pytest.fixture
 def setup(monkeypatch):
     return fakes(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def no_crawl_delay(monkeypatch):
+    """Recorded replies need no Crawl-delay (tests/test_mixesdb.py checks it)."""
+
+    async def at_once(seconds):
+        return None
+
+    monkeypatch.setattr(mixesdb, "SPACING", mixesdb.Spacing(sleep=at_once))
 
 
 @pytest.fixture
@@ -211,8 +221,10 @@ def test_set_listens_to_a_set_whose_mixesdb_tracklist_is_incomplete(
 ):
     fred_again(setup, wiki)
     FakeRekordbox(monkeypatch)
-    result = json.loads(invoke(application, "set", FRED).stdout)["result"]
+    reply = invoke(application, "set", FRED)
+    result = json.loads(reply.stdout)["result"]
     assert result["identified"]["counts"]["tracks"] >= 25 and setup.fetched == [FRED]
+    assert events(reply)[0]["identify_reason"] == "incomplete"
     assert result["mixesdb"]["page_title"] == LONDON
     assert result["mixesdb"]["tracklist"] == "incomplete"
     # The identification reused what `djlib set` looked up a moment before.

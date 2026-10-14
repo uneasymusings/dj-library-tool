@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from djlib.domain.errors import AppError
 
-BROWSER_ONLY = ("1001tracklists.com",)
+BROWSER_ONLY = ("1001tracklists.com", "1001.tl")
 SET_HOSTS = ("youtube.com", "youtu.be", "soundcloud.com")
 COMMENTS = 1000
 TIME = re.compile(r"^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$")
@@ -29,7 +29,7 @@ def host(url: str) -> str:
 
 def browser_only(url: str, command: str = "set") -> None:
     """1001Tracklists: SOURCE_BROWSER_ONLY, with the ways to hand djlib its tracklist."""
-    from djlib.interfaces.identify_cli import ways
+    from djlib.sources.web import browser_only_details
 
     name = host(url)
     if any(name == blocked or name.endswith("." + blocked) for blocked in BROWSER_ONLY):
@@ -37,22 +37,17 @@ def browser_only(url: str, command: str = "set") -> None:
             "SOURCE_BROWSER_ONLY",
             "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
             "An assistant that can browse can copy it for you.",
-            details=ways(
-                [
-                    ("Copy the tracklist on the page, then", "djlib set paste"),
-                    (
-                        "Better: the set's own YouTube or SoundCloud link (under the player) "
-                        "plus that copy",
-                        f"djlib {command} 'LINK' --tracklist paste",
-                    ),
-                ]
-            ),
+            details=browser_only_details(command),
         )
 
 
 def check_set_url(url: str) -> None:
+    from djlib.sources.web import mixcloud_message
+
     browser_only(url)
     name = host(url)
+    if name == "mixcloud.com" or name.endswith(".mixcloud.com"):
+        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message())
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")
 
