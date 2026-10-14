@@ -89,13 +89,13 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "title": "Halo",
         "version": "",
         "status": "confirmed",
-        "evidence": "Shazam: 4 windows from 00:09; also in 1001Tracklists",
+        "evidence": "Shazam heard it at 00:09 (4×); also in 1001Tracklists",
     }
     # The ID stays an ID; what Shazam heard there is a candidate, never its name.
     assert (glue_id["kind"], glue_id["artist"], glue_id["title"]) == ("unknown", None, None)
     assert glue_id["status"] == "likely"
     assert glue_id["candidates"][0]["label"] == "Bicep - Glue"
-    assert glue_id["evidence"].startswith("ID (likely Bicep - Glue): Shazam heard it in 3 windows")
+    assert glue_id["evidence"].startswith("ID (likely Bicep - Glue): Shazam heard it at ")
     assert burn["title"] == "Slow Burn"
     assert [source["source"] for source in result["sources"]] == ["audio", "1001tracklists"]
     # A 1001Tracklists tracklist was given, so the ID left is not a reason to ask for one.

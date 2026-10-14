@@ -299,7 +299,7 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
         "notes": "Listed as an ID in the description",
         "confidence": "unidentified",
     }
-    assert mirage["notes"] == "Shazam: 11 windows from 06:00; also in the description"
+    assert mirage["notes"] == "Shazam heard it at 06:00 (11×); also in the description"
     assert mirage["confidence"] == "confirmed"
     assert items[4]["notes"] == "From the description; the time is approximate"
     assert items[4]["confidence"] == "likely"
@@ -307,7 +307,7 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     assert late_id["label"] == "ID" and late_id["timestamp"] == "48:30"
     assert late_id["notes"].startswith(
         "ID (likely Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)): "
-        "Shazam heard it in 2 windows from 50:30"
+        "Shazam heard it at 50:30 (2×)"
     )
     assert items[11]["version"] == "Antdot & Maz Edit"
     heard_only = request_items(keinemusik_heard_only, SET_URL)
@@ -775,8 +775,8 @@ def test_single_window_songs_alone_make_one_id():
     assert result["unplaced"] == [] and result["coverage"]["unknown"] == 1
     (item,) = valid_request(request_items(result, SET_URL)).items
     assert item.notes == (
-        "Not identified from 00:00 to 30:00; possibly Lumen - Halo (Shazam, 1 window at 05:00); "
-        "possibly Ana - Rain (Shazam, 1 window at 15:00)"
+        "Not identified from 00:00 to 30:00; possibly Lumen - Halo (Shazam heard it once at "
+        "05:00); possibly Ana - Rain (Shazam heard it once at 15:00)"
     )
     assert tracklist_text(result) == "[00:00] ID - ID"
 
@@ -885,12 +885,12 @@ def test_text_and_strong_audio_disagreeing_keeps_both():
     ]
     glue_item, sky_item = request_items(result)[1:3]
     assert glue_item["notes"] == (
-        "From the description; but Shazam heard Kettama - Fall Into The Sky here "
-        "(4 windows from 02:00); the time is approximate"
+        "From the description; but Shazam heard Kettama - Fall Into The Sky at 02:00 (4×); "
+        "the time is approximate"
     )
     assert (
         sky_item["notes"]
-        == "Shazam: 4 windows from 02:00; but the description lists Bicep - Glue here"
+        == "Shazam heard it at 02:00 (4×); but the description lists Bicep - Glue here"
     )
     # Two windows are not enough to dispute a listing: the song is added beside it.
     probes[4:8] = probes[4:6]
@@ -967,7 +967,7 @@ def test_a_song_heard_again_soon_after_is_one_track():
         ("07:30", "Snow", "confirmed", False),
     ]
     assert request_items({"tracks": tracks})[1]["notes"] == (
-        "Shazam: 4 windows from 02:00; Shazam: 3 windows from 05:30; also in the description"
+        "Shazam heard it at 02:00 (4×) and 05:30 (3×); also in the description"
     )
     unlisted = build_tracklist(duration=570, probes=back)["tracks"]
     assert [t["title"] for t in unlisted] == ["Halo", "Rain", "Sky", "Rain", "Snow"]
@@ -1032,9 +1032,9 @@ def test_only_the_audio_confirms_a_listed_song():
         ("05:00", "Snow", "confirmed", False),  # one window where the listings place it
     ]
     assert [item["notes"] for item in request_items(result)] == [
-        "Shazam: 4 windows from 00:00; also in the description and MixesDB",
+        "Shazam heard it at 00:00 (4×); also in the description and MixesDB",
         "From the description and MixesDB; the time is approximate",
-        "Shazam: 1 window at 05:00; also in the description and MixesDB",
+        "Shazam heard it once at 05:00; also in the description and MixesDB",
     ]
     # Heard in three or more windows confirms a song no listing names.
     alone = build_tracklist(duration=390, probes=probes)["tracks"]
@@ -1123,10 +1123,10 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     ]
     notes = [track_notes(track) for track in result["tracks"]]
     assert notes[0] == (
-        "Shazam: 3 windows from 00:00; also in MixesDB; "
-        "listed in MixesDB as Robert Glasper - Move Love (Kaytranada Edition)"
+        "Shazam heard it at 00:00 (3×); also in MixesDB; "
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
     )
-    assert notes[3] == "Shazam: 3 windows from 08:00; also in MixesDB"
+    assert notes[3] == "Shazam heard it at 08:00 (3×); also in MixesDB"
     # One window where the listing places it is enough (windows go a minute apart with a
     # timed tracklist); without a listing one window is no track at all.
     once = build_tracklist(duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"))
@@ -1137,8 +1137,8 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     )
     assert rows(fixed) == [("Armand Van Helden", "Full Moon", "", "confirmed")]
     assert track_notes(fixed["tracks"][0]) == (
-        "Shazam: 1 window at 00:00; also in MixesDB; "
-        "listed in MixesDB as Armand Val Helden - Full Moon"
+        "Shazam heard it once at 00:00; also in MixesDB; "
+        "MixesDB spells it Armand Val Helden - Full Moon"
     )
     # Other credits are another song or a remix's sample: the listing's label stays.
     other = build_tracklist(
@@ -1156,7 +1156,7 @@ def test_heard_and_listed_under_other_names_says_what_each_side_has():
     (track,) = build_tracklist(duration=200, probes=probes, listed=[listed])["tracks"]
     assert (track["artist"], track["status"]) == ("Lumen", "likely")
     assert track_notes(track) == (
-        "MixesDB lists it; Shazam heard Kerri Chandler - Rain here (3 windows from 00:00)"
+        "MixesDB lists it; Shazam heard Kerri Chandler - Rain at 00:00 (3×)"
     )
 
 

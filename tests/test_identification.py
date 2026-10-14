@@ -553,7 +553,7 @@ async def test_the_keinemusik_set_end_to_end(application, setup, monkeypatch):
         "confirmed",
     )
     # Checking gaps listened between windows; those listens never count as windows.
-    assert mirage["evidence"] == "Shazam: 11 windows from 06:00; also in the description"
+    assert mirage["evidence"] == "Shazam heard it at 06:00 (11×); also in the description"
     assert len([p for p in probes(application) if p["pass"] == "refine"]) > 10
     late_id = tracks["48:30"]
     assert (late_id["kind"], late_id["artist"], late_id["status"]) == ("unknown", None, "likely")
@@ -730,10 +730,17 @@ async def test_recognition_failing_on_most_windows_is_no_tracklist(application, 
     assert done["result"]["tracklist"]["sources"][0]["errors"] == 0
 
 
-async def test_a_few_failed_windows_are_reported(application, setup):
+async def test_a_few_failed_windows_are_reported_by_the_listen_only(application, setup):
     setup.listener.failures[99.0] = AppError("RECOGNITION_FAILED", "Shazam could not read.", 502)
     result = (await run(application, submit(application)))["result"]
-    assert any("Shazam failed on 1 of " in n for n in result["notices"])
+    # In set time, not listening windows.
+    assert (
+        "Shazam couldn't answer for 1 of 5 minutes; those parts count as not heard."
+        in (result["notices"])
+    )
+    # A saved result doesn't say it again.
+    reused = (await run(application, submit(application)))["result"]
+    assert reused["reused"] and not any("couldn't answer" in n for n in reused["notices"])
 
 
 async def test_retryable_download_errors_keep_the_partial_download(application, setup):
