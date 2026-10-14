@@ -1130,7 +1130,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         comments = page.get("comments") or []
         missing = "no tracklist in its description or chapters, and none on MixesDB"
-        if not mixesdb.enabled():
+        # The service asks MixesDB, with the setting it started with; older ones don't say.
+        if not page.get("mixesdb_enabled", mixesdb.enabled()):
             missing = "no tracklist in its description or chapters (MixesDB lookups are off)"
         fix = identify_cli.listen_fix(problem) if problem is not None else None
         if problem is not None:

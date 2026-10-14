@@ -321,4 +321,28 @@ def test_with_mixesdb_off_set_and_the_mcp_tools_never_ask_it(
     body = {"url": KAYTRANADA, "comments": identification.COMMENTS, "mixesdb": True}
     page = library_http.post("/sources/inspect", json=body)
     assert page.json()["result"]["mixesdb"] is None
+    assert page.json()["result"]["mixesdb_enabled"] is False
     assert wiki.asked == []
+
+
+def test_mixesdb_off_is_said_as_the_service_has_it(
+    application, library_http, setup, wiki, monkeypatch
+):
+    """The background service asks MixesDB with the setting it started with: a terminal with
+    DJLIB_MIXESDB=off, talking to a service started without it, says MixesDB had none."""
+    from djlib.interfaces.client import LocalClient
+
+    kaytranada(setup, wiki)
+    asked = LocalClient.request
+
+    def started_with_lookups_on(self, method, path, **kwargs):
+        reply = asked(self, method, path, **kwargs)
+        if path == "/sources/inspect":
+            reply["result"]["mixesdb_enabled"] = True
+        return reply
+
+    monkeypatch.setattr(LocalClient, "request", started_with_lookups_on)
+    monkeypatch.setenv("DJLIB_MIXESDB", "off")
+    FakeRekordbox(monkeypatch)
+    error = json.loads(invoke(application, "set", KAYTRANADA, "--no-identify").stdout)["error"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND" and "none on MixesDB" in error["message"]

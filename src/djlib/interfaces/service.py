@@ -244,8 +244,12 @@ def create_app(
 
         result = await inspect_source(body.url, body.comments)
         if body.mixesdb:
+            from djlib.sources import mixesdb
+
             listed = await asyncio.to_thread(page_tracklist, result)
             result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
+            # Whether this service asks MixesDB at all: it read DJLIB_MIXESDB when it started.
+            result["mixesdb_enabled"] = mixesdb.enabled()
         # `djlib set` reads the page first; an identification it starts then reuses it.
         remember_page(result, body.comments)
         if body.comments:
