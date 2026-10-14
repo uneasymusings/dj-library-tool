@@ -1396,6 +1396,32 @@ def test_status_gives_a_crate_only_to_the_set_it_came_from(capsys):
     assert "crate 2" in out
 
 
+def test_status_suggests_pushing_the_set_at_the_top_of_its_list(capsys):
+    """A set checked again comes first and is `last`, while its crate is older than another
+    set's: the next step pushes its crate, not the newer one below it."""
+    paste = "request_" + "1" * 32
+    sets = [
+        {"request_id": REQUEST, "name": "Kaytranada Boiler Room", "songs": 22, "owned": 14},
+        {"request_id": paste, "name": "Kaytranada @ Boiler Room 2013", "songs": 7, "owned": 3},
+    ]
+    crates = [  # newest first, as made
+        {"collection_id": "collection_" + "2" * 32, "name": sets[1]["name"], "tracks": 3},
+        {"collection_id": COLLECTION, "name": sets[0]["name"], "tracks": 14},
+    ]
+    crates[0]["request_id"], crates[1]["request_id"] = paste, REQUEST
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=crates, rekordbox_app=True),
+        width=160,
+        capsys=capsys,
+    )
+    steps = out.split("Next\n", 1)[1]
+    assert (
+        f"Put “Kaytranada Boiler Room” in rekordbox  djlib rekordbox push {SHORT_COLLECTION}"
+        in steps
+    )
+
+
 def test_status_lists_crates_without_sets_as_crates(capsys):
     crates = [{"collection_id": COLLECTION, "name": "Friday", "tracks": 8, "in_rekordbox": True}]
     out = render("status", status_result(recent_collections=crates), width=120, capsys=capsys)

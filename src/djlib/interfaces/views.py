@@ -1473,11 +1473,15 @@ def status_steps(
     stale = {made[key].get("collection_id") for key in outdated}
     paired = {row.get("collection_id") for row in made.values()}
     names = {row.get("name") for row in requests}
+    # The sets' crates first, in the Sets list's order (the set checked last first, as `last`
+    # names it; checking a set again keeps its older crate), then the other crates.
+    ordered = [made[row["request_id"]] for row in requests if row.get("request_id") in made]
+    ordered += [row for row in collections if row.get("collection_id") not in paired]
     # A crate named like a newer set came from an older one (a Shazam import, an edited
     # tracklist): pushing it isn't putting that set anywhere.
     current = [
         row
-        for row in collections
+        for row in ordered
         if row.get("collection_id") not in stale
         and (row.get("collection_id") in paired or row.get("name") not in names)
     ]
