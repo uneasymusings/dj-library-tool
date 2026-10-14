@@ -895,7 +895,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
             # Only now: when a step above fails, rerunning shazam:new rebuilds the same list
             # (same idempotency key) and finishes it.
-            remember_import(workspace, shazam, request["request_id"])
+            remember_import(workspace, shazam, request["request_id"], result["collection_id"])
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)
