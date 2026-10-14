@@ -112,7 +112,8 @@ def register_http(app, application, envelope):
 def register_mcp(server, request, read, write, intent):
     @server.tool(structured_output=True, annotations=write)
     async def djlib_create_request(request_body: RequestCreate) -> ResponseEnvelope:
-        """Persist an exact-song list and hash-check owned matches; unknown IDs remain explicit."""
+        """Check a tracklist against the user's music: owned (exact version), missing, other
+        versions they own, IDs."""
         return await request("POST", "/requests", request_body.model_dump(mode="json"))
 
     @server.tool(structured_output=True, annotations=read)
