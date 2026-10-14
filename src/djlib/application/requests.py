@@ -610,7 +610,9 @@ def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None)
     """The saved list ``payload`` repeats (``ledger_id``, else the newest one with its name and
     songs), with each item's input updated to ``payload``'s; ``key`` then names it.
 
-    Item IDs, operator choices and selected sources stay; a refresh re-checks the evidence.
+    Item IDs, operator choices and selected sources stay; a refresh re-checks the evidence. A
+    list of IDs alone names no song, so two sets with one title can't be told apart: only its
+    key finds it.
     """
     songs = _songs(payload["items"])
     with app.db.transaction() as session:
@@ -630,6 +632,8 @@ def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None)
                 .where(RequestLedger.name == payload["name"])
                 .order_by(RequestLedger.updated_at.desc(), RequestLedger.id.desc())
             )
+            if any(songs)
+            else []
         )
         ledger = next(
             (each for each in named if _songs([item["input"] for item in each.items]) == songs),

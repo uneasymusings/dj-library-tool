@@ -968,6 +968,9 @@ def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):
             ("Friday Set", [named(), named(title="Second", version="Dub")]),  # another mix
             ("Friday Set", [named(), named(title="Second"), named(title="Third")]),
             ("Saturday Set", [named(), named(title="Second")]),
+            # Two sets of IDs alone under one title can't be told apart: never merged.
+            ("IDs", [RequestItem(kind="unknown", label="ID", timestamp="01:00")]),
+            ("IDs", [RequestItem(kind="unknown", label="ID", timestamp="09:00")]),
         )
     ):
         made = requests.create_request(
