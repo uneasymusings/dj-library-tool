@@ -270,9 +270,30 @@ def shopping_text(name: str, found: dict) -> str:
 SHOPPING_LISTS = "Shopping lists"
 
 
-def save_shopping_list(workspace, report_path: str | None, name: str, found: dict) -> str | None:
+def shopping_list_code(local, request_id: str, name: str) -> str | None:
+    """The set's short code when an older set's shopping list has the same file name (Shazam
+    lists and pastes are named alike, and Macs and Windows ignore case), else None: the
+    oldest set keeps "<set> - to buy.txt", so no set's list replaces another's."""
+    from djlib.interfaces.handles import rows
+    from djlib.interfaces.rekordbox_cli import playlist_file_name
+    from djlib.interfaces.terminal import short_id
+
+    stem = playlist_file_name(name).casefold()
+    alike = [
+        (str(row.get("created_at") or ""), row["request_id"])
+        for row in rows(local, "request", name)
+        if row.get("request_id")
+        and playlist_file_name(row.get("name") or "").casefold() == stem
+    ]
+    oldest = min(alike, default=None)
+    return None if oldest is None or oldest[1] == request_id else short_id(request_id)
+
+
+def save_shopping_list(
+    workspace, report_path: str | None, name: str, found: dict, code: str | None = None
+) -> str | None:
     """Write "<set> - to buy.txt" in the "Shopping lists" folder of djlib's folder, replacing
-    the last one for that set's name."""
+    the last one for that set; "<set> (<code>) - to buy.txt" when sets share the name."""
     import os
 
     from djlib.interfaces.rekordbox_cli import playlist_file_name
@@ -282,7 +303,8 @@ def save_shopping_list(workspace, report_path: str | None, name: str, found: dic
     folder = workspace.root / SHOPPING_LISTS
     try:
         folder.mkdir(exist_ok=True)
-        path = folder / f"{playlist_file_name(name)} - to buy.txt"
+        stem = playlist_file_name(name) + (f" ({code})" if code else "")
+        path = folder / f"{stem} - to buy.txt"
         temporary = folder / f".{path.name}.partial"
         temporary.write_text(shopping_text(name, found), encoding="utf-8")
         os.replace(temporary, path)
@@ -476,8 +498,9 @@ def register_commands(app, client, emit, handled, panel=None):
         name = ledger.get("name") or "Set"
         result = reply["result"]
         result.update(name=name, **found)
+        code = shopping_list_code(local, request_id, name)
         result["shopping_list"] = save_shopping_list(
-            ctx.obj, result.get("report_path"), name, found
+            ctx.obj, result.get("report_path"), name, found, code
         )
         emit(reply)
 

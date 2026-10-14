@@ -758,6 +758,30 @@ def test_requests_report_is_a_shopping_list_saved_beside_the_report(friday):
     assert [("shop" in item) for item in items] == [False, True, False, True]
 
 
+def test_sets_named_alike_keep_their_own_shopping_lists(friday, tmp_path):
+    """Two sets called Friday (and one FRIDAY: Macs and Windows ignore case) each keep their
+    own shopping list: the first one's is “Friday - to buy.txt”, the others' add the set's
+    code, whichever is reported first."""
+    djlib, _ = friday
+    songs = {
+        "a": "Friday\nLumen - Halo\nBicep - Glue\n",
+        "b": "Friday\nNia Okoro - Slow Burn\nFloating Points - Silhouettes\n",
+        "c": "FRIDAY\nRival Consoles - Persona\nBicep - Atlas\n",
+    }
+    saved = {}
+    for key, text in songs.items():
+        path = tmp_path / f"{key}.txt"
+        path.write_text(text, encoding="utf-8")
+        saved[key] = djlib("set", path, "--no-rekordbox")["request_id"]
+    for key in ("c", "a", "b", "a"):
+        path = Path(djlib("requests", "report", saved[key])["shopping_list"])
+        code = saved[key].split("_")[1][:8]
+        named = {"a": "Friday - to buy.txt", "b": f"Friday ({code}) - to buy.txt"}
+        assert path.name == named.get(key, f"FRIDAY ({code}) - to buy.txt")
+        assert songs[key].splitlines()[2] in path.read_text(encoding="utf-8")
+    assert len(list(path.parent.glob("*to buy.txt"))) == 3
+
+
 # -- next steps that paste and work ------------------------------------------------------------
 
 PLACEHOLDERS = ("TRACKLIST.txt", "PATH", "FOLDER", "wanted.json", "FILE")
