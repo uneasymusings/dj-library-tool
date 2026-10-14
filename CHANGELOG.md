@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a17 (unreleased)
+
+From a test run where two sets came back with “djlib didn't listen to the set (The site didn't answer just now. Try again in a minute)”:
+- **Listening survives a refused download.** YouTube turns away about one set download in five on its very first request (HTTP 403), and the YouTube helper djlib uses gives up on that at once, so djlib used the description or MixesDB tracklist instead of listening. Now djlib tries the download once more after 5 seconds, which works, and keeps anything that already arrived. Meanwhile the progress line says “Downloading the set's audio… trying again”. Rate limits, logins and removed uploads are not tried again.
+- **Why a download failed is written down.** Each failed try goes into `runtime/downloads.log` in djlib's folder (`djlib doctor` shows where it is), with the last thing YouTube or SoundCloud said. Links (they carry tokens), cookies and your home folder are left out, and only the newest 64 kB are kept.
+- **For scripts and assistants:** additions only (listed in [CONTRACT](docs/CONTRACT.md)). Identify progress has `download_retry` (`try`, `of`, `after`) while the second try runs, and `djlib identify --json` writes an `identify_progress` event for it at once. A download that failed both tries has `details.tries: 2`; its code and message are unchanged.
+
 ## 0.1.0a16
 
 **New:**
