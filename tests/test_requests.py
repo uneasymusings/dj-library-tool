@@ -663,6 +663,69 @@ async def test_original_mix_means_no_special_version(ledger_app, audio_factory):
     assert [c["identity_match"] for c in lumen] == ["different_version"]
 
 
+@pytest.mark.parametrize(
+    ("catalog", "requested"),
+    [
+        (("De La Soul", "Me, Myself & I"), ("De La Soul", "Me Myself and I")),
+        (("De La Soul", "Me Myself and I"), ("De La Soul", "Me, Myself & I")),
+        (
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+            ("Fahlberg", "Bad Love (Antdot & Maz Remix)"),
+        ),
+        (
+            ("Fahlberg", "Bad Love (Antdot & Maz Remix)"),
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+        ),
+    ],
+)
+async def test_and_for_ampersand_and_a_remixers_country_tag_still_match(
+    ledger_app, audio_factory, catalog, requested
+):
+    track = await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["recording_id"] == track["recording_id"]
+    assert item["accepted"]["identity_match"] == "equivalent_labels"
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested", "you_own"),
+    [
+        (("Lumen", "Rain"), ("Lumen", "Rain (VIP)"), ["Rain"]),
+        (("Lumen", "Salt and Pepper (Extended Mix)"), ("Lumen", "Salt & Pepper (Dub)"), None),
+    ],
+)
+async def test_folded_titles_are_still_exact_about_the_mix(
+    ledger_app, audio_factory, catalog, requested, you_own
+):
+    await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    assert [c["identity_match"] for c in item["candidates"]] == ["different_version"]
+    assert set_item(item)["you_own"] == (you_own or ["Extended Mix"])
+
+
+def test_matching_folds_leave_identity_keys_as_they_were():
+    from djlib.domain.contracts import recording_key
+
+    assert [
+        recording_key(*labels)
+        for labels in (
+            ("De La Soul", "Me, Myself & I"),
+            ("De La Soul", "Me Myself and I"),
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+            ("Antdot & Maz (BR) & Flip", "Deixa Passar"),
+            ("Lumen", "Rain", "VIP"),
+        )
+    ] == [
+        "de la soul|me myself i|",
+        "de la soul|me myself and i|",
+        "fahlberg|bad love antdot maz br remix|",
+        "antdot maz br flip|deixa passar|",
+        "lumen|rain|vip",
+    ]
+
+
 def test_tracklist_lines_with_control_characters_or_hidden_marks_still_read():
     """Mojibake ("\\x80\\x99" for "’") or an escape code in a pasted or published line loses no
     track and never fails the set; marks that reorder text can't disguise a name."""

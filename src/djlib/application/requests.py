@@ -7,6 +7,7 @@ Saved matches are observations at refresh time, not acoustic or playback verific
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 import unicodedata
@@ -44,6 +45,9 @@ MAX_LOCATIONS = 10
 MAX_VERIFY_BYTES = 1024**3
 MAX_VERIFY_SECONDS = 30
 STATES = ("satisfied", "missing", "ambiguous", "unknown", "unavailable", "source_selected")
+# Titles whose matching form is not their key's: "Me Myself and I" is filed as "me myself i"
+# and "Bad Love (Antdot & Maz (BR) Remix)" as "bad love antdot maz br remix".
+FOLDED = re.compile(r"&|(?i:\band\b)|\([A-Z]{2,3}\)\s+\w")
 
 
 class _Verification:
@@ -244,11 +248,24 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                 .order_by(Recording.id, AssetRevision.id)
                 .limit(MAX_TITLE_ROWS)
             ).all()
+            if names and FOLDED.search(f"{requested['title']} {requested['version']}"):
+                # Its key may spell the title another way: look the song up by its artists.
+                titled += session.execute(
+                    select(Recording, AssetRevision)
+                    .join(Asset, Asset.recording_id == Recording.id)
+                    .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                    .where(
+                        *(Recording.identity_key.contains(name, autoescape=True) for name in names)
+                    )
+                    .order_by(Recording.id, AssetRevision.id)
+                    .limit(MAX_TITLE_ROWS)
+                ).all()
             matching = []
             for row in titled:
                 labels = row[0].artist, row[0].title, row[0].version
                 if row[1].id in seen:
                     continue
+                seen.add(row[1].id)
                 if _equivalent(labels, requested):
                     matching.append(row)
                 elif credit_base_form(row[0].artist, row[0].title) == credits[0]:
