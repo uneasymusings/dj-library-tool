@@ -132,7 +132,7 @@ async def test_an_identification_merges_the_sets_mixesdb_tracklist(application, 
         "confirmed",
     )
     # MixesDB times every song, so the windows went every minute; checking gaps found 00:54.
-    assert tracks[2]["evidence"] == "Shazam: 2 windows from 00:54; also in MixesDB"
+    assert tracks[2]["evidence"] == "Shazam heard it twice from 00:54; also in MixesDB"
     assert (tracks[5]["artist"], tracks[5]["evidence"]) == ("SebastiAn", "From MixesDB")
     assert len(tracks) == 22
     page = json.loads((folder(application, KAYTRANADA) / "page.json").read_text())

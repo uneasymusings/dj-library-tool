@@ -1160,8 +1160,8 @@ class IdentifyRunner:
             reason = f" ({last.rstrip('.')})" if last else ""
             raise AppError(
                 "RECOGNITION_FAILING",
-                f"{_label(name)} failed on {failed} of {len(starts)} listening windows{reason}, "
-                "so a tracklist would miss most of the set.",
+                f"{_label(name)} couldn't hear {failed} of {len(starts)} parts of the set"
+                f"{reason}, so a tracklist would miss most of it.",
                 502,
                 True,
                 details={"windows_failed": failed, "windows": len(starts)},
@@ -1341,8 +1341,8 @@ class IdentifyRunner:
         audio = next((s for s in tracklist["sources"] if s["source"] == "audio"), None)
         if audio and audio.get("errors"):
             notices.append(
-                f"{_label(listener.get('name') or '') or 'Song recognition'} failed on "
-                f"{audio['errors']} of {audio['windows']} listening windows; those parts count "
+                f"{_label(listener.get('name') or '') or 'Song recognition'} couldn't hear "
+                f"{audio['errors']} of {audio['windows']} parts of the set; those parts count "
                 "as not heard."
             )
         if page.get("comments_skipped"):
@@ -1395,8 +1395,8 @@ class IdentifyRunner:
             heard = len({p["at"] for p in load_probes(folder) if not p.get("error")})
             return AppError(
                 error.code,
-                f"{error.message} What djlib heard so far ({heard} listening windows) is "
-                f"saved, so running the same command later picks up from there.{kept}",
+                f"{error.message} What djlib heard so far is saved, so running the same "
+                f"command later picks up from there.{kept}",
                 error.status,
                 True,
                 details={**(error.details or {}), "windows_heard": heard, "resumes": True},

@@ -963,7 +963,9 @@ def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(caps
     """At 80 columns the track name used to be cut to fit a fragment of the Why column; the
     name now gets the room, and the lines worth a listen say why under the table."""
     tracks = [
-        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam: 6 windows from 34:39"),
+        identified(
+            1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam heard it 6 times from 34:39"
+        ),
         identified(2, "Love & Pain (Kaytranada Remix)", "likely", "From MixesDB"),
         identified(3, "", "unidentified", "Not identified from 03:00 to 06:00", kind="unknown"),
     ]
@@ -978,7 +980,7 @@ def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(caps
     # Wide enough, the Why column is back and nothing is repeated under the table.
     views.identify_view(sized(200), result)
     wide = capsys.readouterr().out
-    assert "Why" in wide and "Shazam: 6 windows from 34:39" in wide and "#2 From" not in wide
+    assert "Why" in wide and "Shazam heard it 6 times from 34:39" in wide and "#2 From" not in wide
 
 
 def test_lines_with_the_same_reason_share_one_line_under_the_table(capsys):
