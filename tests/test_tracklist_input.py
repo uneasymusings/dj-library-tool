@@ -271,10 +271,13 @@ def test_1001tracklists_links_point_to_paste(application, monkeypatch):
     )
     # Copied from the address bar: the same way out, never a fetch of the page.
     clipboard(monkeypatch, link)
-    for command in ("set", "identify"):
+    for command, first in (
+        ("set", "djlib set paste"),
+        ("identify", "djlib identify 'LINK' --tracklist paste"),
+    ):
         error = json.loads(invoke(application, command, "paste").stdout)["error"]
         assert error["code"] == "SOURCE_BROWSER_ONLY", command
-        assert error["details"]["next"] == "djlib set paste"
+        assert error["details"]["next"] == first
 
 
 # -- a Shazam CSV given as the set's file ------------------------------------------------------
