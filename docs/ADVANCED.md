@@ -138,7 +138,7 @@ Keep referenced files where they are: rekordbox and Serato point at them.
 
 ## The review page
 
-`djlib ui` opens Sets · Crates · Library. The older pages are still there at `#/overview`, `#/deliveries` and `#/jobs`. The Sure column uses the terminal's words: “◐ likely”, “! weak” in amber, “✗ conflict” in red, nothing for confirmed. Times link to that moment of the set when djlib knows its link (every set `djlib set` checks from a link). A set's crate opens with one click, with its rekordbox and USB commands. A list over 60 tracks opens on the songs to act on, 50 at a time, and a Shazam list reads newest first. A song marked “Not in stores yet” gets no store search and isn't in “Copy N to buy”. An untimed line in a timed set shows “—”. `djlib ui --no-open` prints the link without opening it; the link holds a private token, so keep it to yourself.
+`djlib ui` opens Sets · Crates · Library. The older pages are still there at `#/overview`, `#/deliveries` and `#/jobs`. The Sure column uses the terminal's words: “◐ likely”, “! weak” in amber, “✗ conflict” in red, nothing for confirmed, nor for an ID (its Own column says ID). Times link to that moment of the set when djlib knows its link (every set `djlib set` checks from a link). A set's crate opens with one click, with its rekordbox and USB commands. A list over 60 tracks opens on the songs to act on, 50 at a time, and a Shazam list reads newest first. A song marked “Not in stores yet” gets no store search and isn't in “Copy N to buy”. An untimed line in a timed set shows “—”. `djlib ui --no-open` prints the link without opening it; the link holds a private token, so keep it to yourself.
 
 ## Paging and saved work
 
