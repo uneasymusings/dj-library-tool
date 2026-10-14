@@ -252,21 +252,6 @@ def saved_page(workspace: Workspace, url: str) -> dict | None:
     return {**page, "from_saved_page": True} if page.get("url") else None
 
 
-def recent_saved_page(workspace: Workspace, url: str, comments: int) -> dict | None:
-    """page.json of a set djlib finished listening to, read with its comments within the day
-    (as a reused identification takes it), so checking the set again comes back at once;
-    else None."""
-    try:
-        page = saved_page(workspace, url)
-    except AppError:
-        return None
-    if page is None or page.get("comments_skipped") or comments > COMMENTS:
-        return None
-    if _age(page.get("read_at")) >= REFRESH_SECONDS:
-        return None
-    return {key: value for key, value in page.items() if key != "from_saved_page"}
-
-
 def _age(stamp: object) -> float:
     """Seconds since an ISO time saved in a set's folder; unknown is forever."""
     try:

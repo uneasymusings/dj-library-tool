@@ -242,30 +242,24 @@ def create_app(
         from djlib.application.identification import (
             PAGE_PASSING,
             mixesdb_tracklist,
-            recent_saved_page,
             remember_page,
             saved_page,
         )
         from djlib.interfaces.set_sources import comment_list, page_tracklist
 
-        # A set djlib heard today comes back at once: its page as djlib read it then.
-        result = recent_saved_page(workspace, body.url, body.comments) if body.comments else None
-        saved = result is not None
-        if result is None:
-            try:
-                result = await inspect_source(body.url, body.comments)
-            except AppError as error:
-                # A set djlib heard before still comes back while its site doesn't answer.
-                result = saved_page(workspace, body.url) if error.code in PAGE_PASSING else None
-                if result is None:
-                    raise
-                saved = True
+        try:
+            result = await inspect_source(body.url, body.comments)
+        except AppError as error:
+            # A set djlib heard before still comes back while its site doesn't answer.
+            saved = saved_page(workspace, body.url) if error.code in PAGE_PASSING else None
+            if saved is None:
+                raise
+            result = saved
         if body.mixesdb:
             from djlib.sources import mixesdb
 
             listed = await asyncio.to_thread(page_tracklist, result)
-            if saved:
-                # What MixesDB said then; a reused identification asks again when it's stale.
+            if result.get("from_saved_page"):
                 result["mixesdb"] = None if listed else result.get("mixesdb")
             else:
                 result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
@@ -273,7 +267,7 @@ def create_app(
             result["mixesdb_enabled"] = mixesdb.enabled()
         # `djlib set` reads the page first; an identification it starts then reuses it (a
         # saved page isn't a fresh read, so it isn't kept as one).
-        if not saved:
+        if not result.get("from_saved_page"):
             remember_page(result, body.comments)
         if body.comments:
             # What listeners named, in set order: the useful part of hundreds of comments.
