@@ -113,6 +113,14 @@ def latest_release() -> dict:
     raise AppError("UPDATE_CHECK_FAILED", "No published djlib release was found.", 502, True)
 
 
+def recognition_installed() -> bool:
+    """Whether song recognition imports here. djlib 0.1.0a14's upgrade installed newer
+    releases without it (no `recognize` extra, Python 3.13), so upgrade repairs that."""
+    from djlib.application.identification import shazam_installed
+
+    return shazam_installed()
+
+
 def installed_by_uv() -> bool:
     """Whether this djlib lives in a `uv tool` environment (so uv can replace it)."""
     return "/uv/tools/" in sys.prefix.replace("\\", "/") or "uv-tools" in sys.prefix
@@ -132,13 +140,17 @@ def register_upgrade(app, client, emit, handled, panel=None):
         latest = latest_release()
         newer = version_key(latest["version"]) > version_key(__version__)
         result = {"current": __version__, "latest": latest["version"], "notes": latest["notes"]}
-        if check or not newer:
+        uv = shutil.which("uv")
+        # The same release again, with song recognition, when an earlier upgrade left it out.
+        repair = not newer and not recognition_installed() and bool(uv) and installed_by_uv()
+        if check or not (newer or repair):
             reply = envelope({**result, "update_available": newer, "updated": False})
-            if not check:
+            if check:
+                reply["result"]["recognition_installed"] = recognition_installed()
+            else:
                 sync_plugin(reply, __version__)
             emit(reply)
             return
-        uv = shutil.which("uv")
         command = [
             "uv",
             "tool",
@@ -169,7 +181,13 @@ def register_upgrade(app, client, emit, handled, panel=None):
         # Assistant sessions keep the old djlib in memory until their host restarts them.
         sessions = assistant_sessions()
         reply = envelope(
-            {**result, "update_available": True, "updated": True, "assistant_sessions": sessions}
+            {
+                **result,
+                "update_available": newer,
+                "updated": True,
+                "assistant_sessions": sessions,
+                **({"repaired": "song recognition"} if repair else {}),
+            }
         )
         if sessions:
             count = f"{sessions} assistant session" + (" is" if sessions == 1 else "s are")

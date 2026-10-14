@@ -44,6 +44,9 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     missing = {item["position"]: item for item in result["missing"]}
     assert missing[2]["label"].startswith("ID @ ")
     assert missing[2]["notes"].startswith("ID (likely Bicep - Glue)")
+    # How sure djlib is goes with each song, so an assistant can suggest a listen.
+    assert missing[2]["confidence"] == "likely" and missing[3]["confidence"] == "confirmed"
+    assert result["owned_to_check"] == []  # Halo, the song owned, was heard: confirmed
     assert fake.imported[-1].name == "Friday Set.m3u8"
     assert identification.UNOFFICIAL_SHAZAM in envelope["warnings"]
     assert len(setup.inspected) == 1  # the identification reused the page djlib set read
@@ -75,7 +78,7 @@ def test_no_identify_uses_the_published_tracklist_as_it_is(
     assert [item["label"] for item in result["missing"]] == ["ID - ID", "Nia Okoro - Slow Burn"]
     setup.page["description"] = ""
     error = json.loads(invoke(application, "set", URL, "--no-identify").stdout)["error"]
-    assert error["code"] == "TRACKLIST_NOT_FOUND" and "leave out --no-identify" in error["message"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND" and "Leave out --no-identify" in error["message"]
 
 
 def test_set_identify_listens_even_to_a_complete_tracklist(
@@ -105,18 +108,25 @@ def test_without_song_recognition_set_falls_back_or_says_how_to_install_it(
     envelope = json.loads(invoke(application, "set", URL).stdout)
     assert envelope["result"]["identified"] is None and envelope["result"]["songs"] == 3
     assert envelope["warnings"][0] == (
-        "djlib didn't listen to the set: song recognition isn't installed; install it with: "
-        f"{identification.INSTALLER}. This uses the tracklist in its description."
+        "djlib didn't listen to the set (song recognition isn't installed), so it uses the "
+        "tracklist in its description."
     )
+    # The fix is a next step of its own, in one piece.
+    assert envelope["result"]["listen_fix"] == identification.INSTALLER
+    pretty = invoke(application, "set", URL, "--no-rekordbox", pretty=True).stdout
+    assert identification.INSTALLER in pretty
     explicit = json.loads(invoke(application, "set", URL, "--identify").stdout)["error"]
     assert explicit["code"] == "DEPENDENCY_REQUIRED"
     fakes.page["description"] = ""
     missing = json.loads(invoke(application, "set", URL).stdout)["error"]
     assert missing["code"] == "TRACKLIST_NOT_FOUND"
-    assert missing["message"].endswith(
-        "djlib could listen to the set and find its songs itself, but song recognition isn't "
-        f"installed; install it with: {identification.INSTALLER}"
+    # Why djlib couldn't listen comes first, and its fix is the next step.
+    assert missing["message"].startswith(
+        "djlib couldn't listen to this set (song recognition isn't installed), and it has no "
+        "tracklist in its description or chapters, and none on MixesDB."
     )
+    assert missing["details"]["next"] == identification.INSTALLER
+    assert missing["details"]["tracklist_next"] == f"djlib set FILE --source '{URL}'"
 
 
 def test_set_merges_a_1001tracklists_file_with_what_it_hears(

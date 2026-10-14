@@ -943,3 +943,48 @@ def test_text_from_pages_and_comments_never_reaches_the_terminal_as_escape_codes
 
     shown = Text("Evil\x1b[2J - Song\x1b]8;;https://evil.example/\x1b\\x \u202eolaH\x9b\tok\n")
     assert shown.plain == "Evil[2J - Song]8;;https://evil.example/\\x olaH\tok\n"
+
+
+def identified(n: int, title: str, status: str, evidence: str, kind: str = "named") -> dict:
+    return {
+        "n": n,
+        "start": f"{n:02d}:00",
+        "approx": False,
+        "kind": kind,
+        "artist": "Azealia Banks" if kind == "named" else None,
+        "title": title if kind == "named" else None,
+        "version": "",
+        "status": status,
+        "evidence": evidence,
+    }
+
+
+def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(capsys):
+    """At 80 columns the track name used to be cut to fit a fragment of the Why column; the
+    name now gets the room, and the lines worth a listen say why under the table."""
+    tracks = [
+        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam: 6 windows from 34:39"),
+        identified(2, "Love & Pain (Kaytranada Remix)", "likely", "From MixesDB"),
+        identified(3, "", "unidentified", "Not identified from 03:00 to 06:00", kind="unknown"),
+    ]
+    result = {"source": {"url": "https://soundcloud.com/a/b"}, "tracks": tracks, "counts": {}}
+    views.identify_view(sized(80), result)
+    out = capsys.readouterr().out
+    assert "Azealia Banks - ATM Jam (Kaytranada Edition)" in out
+    assert "Azealia Banks - Love & Pain (Kaytranada Remix)" in out
+    assert "Why" not in out
+    assert "#2 From MixesDB" in out and "#3 Not identified from 03:00 to 06:00" in out
+    assert "Shazam: 6 windows" not in out  # confirmed lines need no reason under the table
+    # Wide enough, the Why column is back and nothing is repeated under the table.
+    views.identify_view(sized(200), result)
+    wide = capsys.readouterr().out
+    assert "Why" in wide and "Shazam: 6 windows from 34:39" in wide and "#2 From" not in wide
+
+
+def test_an_optional_column_with_nothing_in_it_takes_no_room():
+    import io
+
+    grid = views.Grid(("Name", {"overflow": "ellipsis"}), ("You own", {"drop": 2}))
+    grid.add_row("Lumen - Halo", "")
+    Console(width=80, file=io.StringIO(), theme=terminal.THEME).print(grid)
+    assert grid.shown == ["Name"]

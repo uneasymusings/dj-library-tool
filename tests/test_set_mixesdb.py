@@ -230,8 +230,8 @@ def test_without_song_recognition_set_uses_the_mixesdb_tracklist_and_says_so(
     assert result["identified"] is None and result["songs"] == 25
     assert result["mixesdb"]["page_title"] == LONDON
     assert envelope["warnings"] == [
-        "djlib didn't listen to the set: song recognition isn't installed; install it with: "
-        f"{identification.INSTALLER}. This uses the tracklist on MixesDB.",
+        "djlib didn't listen to the set (song recognition isn't installed), so it uses the "
+        "tracklist on MixesDB.",
         "MixesDB marks this tracklist incomplete: songs may be missing.",
     ]
 
@@ -243,8 +243,7 @@ def test_no_tracklist_anywhere_says_mixesdb_had_none(
     error = json.loads(invoke(application, "set", URL, "--no-identify").stdout)["error"]
     assert error["code"] == "TRACKLIST_NOT_FOUND"
     assert error["message"].startswith(
-        "This upload has no tracklist in its description or chapters, and djlib found none on "
-        "MixesDB."
+        "This upload has no tracklist in its description or chapters, and none on MixesDB."
     )
     assert wiki.asked  # MixesDB was asked, and had no page for the set
 

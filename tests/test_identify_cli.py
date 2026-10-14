@@ -98,7 +98,8 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
     assert glue_id["evidence"].startswith("ID (likely Bicep - Glue): Shazam heard it in 3 windows")
     assert burn["title"] == "Slow Burn"
     assert [source["source"] for source in result["sources"]] == ["audio", "1001tracklists"]
-    assert result["next"] == [f"djlib set {URL}"]
+    # A 1001Tracklists tracklist was given, so the ID left is not a reason to ask for one.
+    assert result["next"] == [f"djlib set '{URL}'"]
     assert result["tracklist_file"].endswith("tracklist.txt")
     # The one-time note about the unofficial Shazam service.
     assert envelope["warnings"] == [identification.UNOFFICIAL_SHAZAM]
@@ -130,8 +131,9 @@ def test_identify_without_a_tracklist_suggests_one_when_little_was_named(
     assert reply.exit_code == 0, reply.output
     result = json.loads(reply.stdout)["result"]
     assert [track["status"] for track in result["tracks"]] == ["confirmed", "unidentified"]
-    assert result["coverage"]["percent"] < identify_cli.LOW_COVERAGE
-    assert result["next"] == [f"djlib set {URL}", f"djlib identify {URL} --tracklist FILE"]
+    assert result["coverage"]["percent"] < identification.LOW_COVERAGE
+    # Quoted, so zsh doesn't read "?" in the link as a glob.
+    assert result["next"] == [f"djlib set '{URL}'", f"djlib identify '{URL}' --tracklist FILE"]
 
 
 def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_http, setup):
@@ -184,7 +186,10 @@ def test_identify_failures_explain_what_to_do(application, library_http, setup):
 def test_identify_needs_song_recognition(application, library_http):
     reply = invoke(application, "identify", URL)
     error = json.loads(reply.stdout)["error"]
-    assert error["code"] == "DEPENDENCY_REQUIRED" and "--python 3.12" in error["message"]
+    assert error["code"] == "DEPENDENCY_REQUIRED" and "installer" in error["message"]
+    assert error["details"]["next"] == identification.INSTALLER
+    pretty = invoke(application, "identify", URL, pretty=True).stderr
+    assert "Install song recognition" in pretty and "install.sh | sh" in pretty
     browser = json.loads(
         invoke(application, "identify", "https://www.1001tracklists.com/tracklist/1/x").stdout
     )["error"]

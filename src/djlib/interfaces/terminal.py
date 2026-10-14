@@ -448,7 +448,12 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
         None,
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
-    "SOURCE_BROWSER_ONLY": ("Paste the tracklist into a text file, then", ("set", "FILE")),
+    "SOURCE_BROWSER_ONLY": ("Copy the tracklist into a text file, then", ("set", "FILE")),
+    "SET_PREVIEW_ONLY": ("Paste the set's tracklist into a text file, then", None),
+    "TRACKLIST_NOT_FOUND": (
+        "Paste the set's tracklist (e.g. from 1001Tracklists) into a file",
+        None,
+    ),
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
     "RECOGNITION_FAILING": ("Run the same command later; it continues", None),
@@ -458,7 +463,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
         "Restart the background service so it reads your settings",
         ("service", "stop"),
     ),
-    "SHAZAM_HISTORY_NOT_FOUND": ("See what djlib finds on this Mac", ("shazam", "status")),
+    "SHAZAM_HISTORY_NOT_FOUND": ("See how to turn on Shazam sync", ("shazam", "status")),
 }
 
 
@@ -482,6 +487,11 @@ def render_error(term: Terminal, error: dict) -> None:
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
     term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    if isinstance(details.get("next"), str) and details["next"]:
+        # The exact command for this error, unbroken under its label.
+        label = details.get("next_label") or (hint[0] if hint else "Next")
+        hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
     if hint:

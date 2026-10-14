@@ -652,8 +652,10 @@ def test_no_history_explains_how_to_turn_on_sync(home, monkeypatch):
         shazam_history.load()
     error = missing.value
     assert error.code == "SHAZAM_HISTORY_NOT_FOUND"
-    # One step per line, numbered, so the terminal shows a list rather than a paragraph.
-    lines = error.message.splitlines()
+    # One sentence; the steps, one per line and numbered, are in the details (and in
+    # djlib shazam status).
+    assert error.message == "No Shazam history was found on this Mac."
+    lines = error.details["steps"].splitlines()
     assert lines[0] == "No Shazam history was found on this Mac. To bring your Shazams here:"
     for line, words in zip(
         lines[1:],
@@ -848,10 +850,9 @@ def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypat
     assert json.loads(source.stdout)["error"]["code"] == "INPUT_INVALID"
     pretty = invoke(application.workspace, "set", "shazam", pretty=True).output
     assert "No Shazam history found" in pretty
-    steps = [line.strip() for line in pretty.splitlines()]
-    assert any(line.startswith("1. On your iPhone: Settings") for line in steps)
-    assert any(line.startswith("3. Open Control Center") for line in steps)
-    assert "See what djlib finds on this Mac" in pretty and "shazam status" in pretty
+    # The steps are one command away, laid out as a list there; the error stays short.
+    assert "See how to turn on Shazam sync" in pretty and "shazam status" in pretty
+    assert len(pretty.strip().splitlines()) <= 4
 
 
 def test_shazam_status_and_list(application, home, tmp_path):

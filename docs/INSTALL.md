@@ -35,7 +35,7 @@ Reading the songs you Shazamed (`djlib set shazam`) needs none of this. On a Mac
 
 ## Update
 
-`djlib upgrade` installs the newest release, restarts the background service and updates the Claude Code plugin (rerunning the one-line installer does the same, Codex plugin included). By hand: stop the background service, then install the newer release's wheel URL over the old one. Your workspace, catalog and music stay as they are.
+`djlib upgrade` installs the newest release (with song recognition: run it again on the newest release when `djlib doctor` says song recognition isn't installed, as after upgrading from 0.1.0a14), restarts the background service and updates the Claude Code plugin (rerunning the one-line installer does the same, Codex plugin included). By hand: stop the background service, then install the newer release's wheel URL over the old one. Your workspace, catalog and music stay as they are.
 
 ```bash
 djlib service stop

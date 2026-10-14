@@ -8,6 +8,7 @@ macOS lets drive another app once allowed; the background coordinator never touc
 
 import json
 import re
+import shlex
 import shutil
 import time
 from contextlib import nullcontext
@@ -149,7 +150,20 @@ def set_item(item: dict) -> dict:
     if source.get("notes"):
         # Why it is in the set, e.g. what Shazam heard, or the likely song behind an ID.
         found["notes"] = source["notes"]
+    if source.get("confidence"):
+        found["confidence"] = source["confidence"]
     return found
+
+
+def to_check(items: list[dict]) -> list[dict]:
+    """Owned songs going into the crate that the identification is not sure of: worth a
+    listen before the gig."""
+    return [
+        {**set_item(item), "state": "satisfied"}
+        for item in items
+        if item.get("state") == "satisfied"
+        and (item.get("input") or {}).get("confidence") not in {None, "confirmed"}
+    ]
 
 
 def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None):
@@ -679,7 +693,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         volume = usb_target(device) if usb else None
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
-        page = shazam = identified = listing = None
+        page = shazam = identified = listing = listen_fix = None
         if shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
@@ -698,7 +712,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 raise AppError(
                     "INPUT_INVALID",
                     "--tracklist is merged with what djlib hears; leave out --no-identify, or "
-                    f"run djlib set FILE --source {tracklist}",
+                    "give the file itself with --source.",
+                    details={"next": f"djlib set FILE --source {shlex.quote(tracklist)}"},
                 )
             given = identify_cli.read_tracklists(tracklists)
             with status("Reading the set's description and listener comments…"):
@@ -719,11 +734,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     if identify or given or (not fallback and not text.strip()):
                         raise
                     problem = error
+                    listen_fix = identify_cli.listen_fix(error)
                     if text.strip():
                         where = "on MixesDB" if listing else "in its description"
                         warnings.append(
-                            f"djlib didn't listen to the set: {identify_cli.cannot_listen(error)}"
-                            f". This uses the tracklist {where}."
+                            f"djlib didn't listen to the set ({identify_cli.cannot_listen(error)}),"
+                            f" so it uses the tracklist {where}."
                         )
             if identified is not None:
                 body = identify_cli.identified_request(
@@ -821,11 +837,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "songs": len(items),
             "owned": len(owned),
             "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
+            "owned_to_check": to_check(items),
             "id_hints": set_sources.id_hints(items, (page or {}).get("comments") or []),
             "identified": None
             if identified is None
             else identify_cli.identified_summary(identified["job_id"], identified["result"]),
             "fetched": fetched,
+            # The command that lets djlib listen to sets when it couldn't this time.
+            "listen_fix": listen_fix,
             "collection_id": None,
             "playlist": None,
             "replaces": None,
@@ -884,33 +903,32 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             raise typer.Exit(4)
 
     def no_tracklist(page: dict, url: str, identify: bool | None, problem) -> AppError:
-        """TRACKLIST_NOT_FOUND, with what listeners named and how djlib could listen instead."""
+        """TRACKLIST_NOT_FOUND: why djlib couldn't listen first, with its fix as the next
+        step; else the way to give it a tracklist. What listeners named comes last."""
         from djlib.interfaces import identify_cli, set_sources
 
         comments = page.get("comments") or []
-        message = (
-            "This upload has no tracklist in its description or chapters, and djlib found "
-            "none on MixesDB."
-            + set_sources.named_in_comments(comments)
-            + " Copy its tracklist (for example from 1001Tracklists) into a text file, "
-            f"then run: djlib set FILE --source {url}"
-        )
-        if identify is False:
-            message += ". Or leave out --no-identify, so djlib listens to the set itself."
-        elif problem is not None:
-            message += (
-                ". djlib could listen to the set and find its songs itself, but "
-                + identify_cli.cannot_listen(problem)
-            )
-        return AppError(
-            "TRACKLIST_NOT_FOUND",
-            message,
-            details={
-                "source": {k: page.get(k) for k in ("url", "provider", "title", "uploader")},
-                # Listeners' guesses, in set order: a starting point, not a tracklist.
-                "named_in_comments": set_sources.comment_list(comments),
-            },
-        )
+        missing = "no tracklist in its description or chapters, and none on MixesDB"
+        fix = identify_cli.listen_fix(problem) if problem is not None else None
+        if problem is not None:
+            reason = identify_cli.cannot_listen(problem)
+            message = f"djlib couldn't listen to this set ({reason}), and it has {missing}."
+        else:
+            message = f"This upload has {missing}."
+            if identify is False:
+                message += " Leave out --no-identify, so djlib listens to the set itself."
+        message += set_sources.named_in_comments(comments)
+        details = {
+            "source": {k: page.get(k) for k in ("url", "provider", "title", "uploader")},
+            # Listeners' guesses, in set order: a starting point, not a tracklist.
+            "named_in_comments": set_sources.comment_list(comments),
+            "tracklist_next": f"djlib set FILE --source {shlex.quote(url)}",
+        }
+        if fix:
+            details.update(next=fix, next_label="Fix it so djlib can listen, then run it again")
+        else:
+            details["next"] = details["tracklist_next"]
+        return AppError("TRACKLIST_NOT_FOUND", message, details=details)
 
     def rekordbox_unavailable(ui) -> tuple[str, str] | None:
         """Why rekordbox can't be driven right now (message, code), or None when it can."""

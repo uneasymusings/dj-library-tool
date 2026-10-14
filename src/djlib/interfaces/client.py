@@ -398,11 +398,13 @@ class LocalClient:
                 value = response.json()
                 if not value.get("ok"):
                     error = value.get("error") or {}
+                    details = error.get("details")
                     raise AppError(
                         error.get("code", "REQUEST_FAILED"),
                         error.get("message", "Local request failed."),
                         response.status_code,
                         error.get("retryable", False),
+                        details if isinstance(details, dict) else None,
                     )
                 if (
                     method.upper() == "GET"

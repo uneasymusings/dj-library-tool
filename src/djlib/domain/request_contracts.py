@@ -38,6 +38,8 @@ class RequestItem(RequestContract):
     timestamp: str | None = Field(default=None, min_length=1, max_length=100)
     source_url: str | None = Field(default=None, min_length=1, max_length=4096)
     notes: str = Field(default="", max_length=4000)
+    # How sure an identification is that the set plays this song (djlib set LINK).
+    confidence: Literal["confirmed", "likely", "weak", "conflict", "unidentified"] | None = None
 
     @field_validator("artist", "title", "label", "timestamp")
     @classmethod
