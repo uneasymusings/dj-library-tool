@@ -134,7 +134,7 @@ def canonical_url(url: str) -> str:
     playlist parameters dropped); SoundCloud links lose tracking parameters. Other sites are
     refused with the way forward.
     """
-    text = str(url or "").strip()
+    text = web.unescaped(str(url or "").strip())
     try:
         parts = urlsplit(text)
         host = (parts.hostname or "").lower()

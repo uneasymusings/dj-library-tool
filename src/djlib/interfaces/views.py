@@ -316,6 +316,7 @@ class Grid:
 
     def __rich_console__(self, console, options):
         flexible = [bool(spec.get("overflow")) for _, spec in self.columns]
+
         def width(cell) -> int:
             if isinstance(cell, Text):
                 return cell.cell_len
@@ -2961,7 +2962,9 @@ def request_report(term: Terminal, result: dict) -> None:
     maybe = result.get("maybe_yours") or []
     dash = "—" if term.unicode else "-"
     if to_buy:
-        status_line(term, "ok", f"{result.get('name') or 'Set'} {dash} {number(len(to_buy))} to buy")
+        status_line(
+            term, "ok", f"{result.get('name') or 'Set'} {dash} {number(len(to_buy))} to buy"
+        )
     else:
         status_line(term, "ok", result.get("name") or "Set", "nothing to buy")
     width = max((cell_len(song_moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
@@ -2979,7 +2982,9 @@ def request_report(term: Terminal, result: dict) -> None:
     if len(to_buy) > BIG_ROWS:
         more = len(to_buy) - BIG_ROWS
         # One unbroken line, so the path can be copied whole.
-        line = Text(f"  {'…' if term.unicode else '...'} and {number(more)} more in ", style="muted")
+        line = Text(
+            f"  {'…' if term.unicode else '...'} and {number(more)} more in ", style="muted"
+        )
         line.append(short_path(result.get("shopping_list")) or "the report", style="path")
         term.out.print(line, soft_wrap=True)
     if maybe:

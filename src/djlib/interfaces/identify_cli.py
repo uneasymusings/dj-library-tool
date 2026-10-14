@@ -88,11 +88,27 @@ def unreadable(message: str) -> AppError:
 
 
 def unquoted(value: str) -> str:
-    """The argument without one pair of quotes around it, unless a file has that very name."""
+    """The argument without one pair of quotes around it, unless a file has that very name; a
+    link also loses the backslashes zsh puts before its ? and = when it is pasted."""
+    from djlib.sources.web import unescaped
+
     text = value.strip()
     if len(text) > 2 and QUOTES.get(text[0]) == text[-1] and not Path(value).exists():
-        return text[1:-1].strip()
-    return value
+        return unescaped(text[1:-1].strip())
+    return unescaped(value)
+
+
+def with_https(value: str) -> str:
+    """A YouTube or SoundCloud link typed without https:// (and no file of that name) with it,
+    saying so in a terminal; anything else as given."""
+    text = value.strip()
+    if not BARE_LINK.match(text) or Path(text).exists():
+        return value
+    link = f"https://{text}"
+    term = terminal.current()
+    if not term.json:
+        term.err.print(Text(f"Reading it as {link}", style="muted"), soft_wrap=True)
+    return link
 
 
 def from_rich_text(data: bytes, name: str) -> bytes:
@@ -810,7 +826,7 @@ def register_identify(app, client, emit, handled, panel=None):
 
         if url is None:
             raise nothing_given("identify")
-        url = unquoted(url)
+        url = with_https(unquoted(url))
         if kind := typed(url):
             link, text = read_typed(kind)
             if link is None:
