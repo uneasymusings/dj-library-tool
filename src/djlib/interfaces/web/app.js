@@ -139,8 +139,13 @@ function crumb(href, label) {
 
 // -- formatting -------------------------------------------------------------------------------
 
+// "1,000": counts read with thousands separators, as in the terminal.
+function number(count) {
+  return typeof count === "number" ? count.toLocaleString("en-US") : String(count ?? "");
+}
+
 function plural(count, word, many) {
-  return `${count} ${count === 1 ? word : many || `${word}s`}`;
+  return `${number(count)} ${count === 1 ? word : many || `${word}s`}`;
 }
 
 function ago(iso) {
@@ -491,7 +496,7 @@ function tally(counts) {
     ["id", counts.ids || 0, counts.ids === 1 ? "ID" : "IDs"],
   ];
   return parts.filter(([kind, count]) => count || kind === "owned")
-    .map(([kind, count, word]) => h("span", { class: `t ${kind}` }, h("b", null, count), ` ${word}`));
+    .map(([kind, count, word]) => h("span", { class: `t ${kind}` }, h("b", null, number(count)), ` ${word}`));
 }
 
 function tallyText(counts) {
@@ -955,7 +960,7 @@ async function requestDetail(requestId) {
   const missing = items.filter((item) => ownKind(item) === "missing" && !unreleased(item.input));
   view.append(h("div", { class: "set-tally" },
     h("p", { class: "tally big" }, tally(counts)),
-    missing.length ? copyLines(`Copy ${missing.length} to buy`, missing.map((item) => plainLabel(item.input))) : null));
+    missing.length ? copyLines(`Copy ${number(missing.length)} to buy`, missing.map((item) => plainLabel(item.input))) : null));
   const credit = mixesdbCredit(ledger.mixesdb);
   if (credit) view.append(credit);
   if (current) view.append(handoff(crate.collection_id));

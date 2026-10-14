@@ -338,8 +338,13 @@ def size(value) -> str:
     return ""
 
 
+def number(count) -> str:
+    """``1,000``: counts read with thousands separators, as on every DJ screen."""
+    return f"{count:,}" if isinstance(count, int) and not isinstance(count, bool) else str(count)
+
+
 def plural(count: int, word: str, many: str | None = None) -> str:
-    return f"{count} {word if count == 1 else many or word + 's'}"
+    return f"{number(count)} {word if count == 1 else many or word + 's'}"
 
 
 # -- errors ------------------------------------------------------------------------------------
@@ -602,8 +607,8 @@ def numbered_steps(term: Terminal, error: dict) -> None:
     steps = details.get("setup")
     if not isinstance(steps, list):
         return
-    for number, step in enumerate(steps, 1):
-        hanging(term.err, Text(f"{number}.", style="muted"), Text(str(step)), indent=2)
+    for index, step in enumerate(steps, 1):
+        hanging(term.err, Text(f"{index}.", style="muted"), Text(str(step)), indent=2)
 
 
 # -- live job progress -------------------------------------------------------------------------
