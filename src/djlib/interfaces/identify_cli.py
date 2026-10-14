@@ -659,12 +659,19 @@ def listen_fix(error: AppError) -> str | None:
     return INSTALLER
 
 
+def named_songs(text: str, url: str) -> int:
+    """How many songs a tracklist names, IDs aside."""
+    from djlib.application.tracklists import parse_tracklist
+
+    if not text.strip():
+        return 0
+    return sum(item.kind == "named" for item in parse_tracklist(text, url)[0])
+
+
 def too_few(text: str, url: str, duration=None) -> int | None:
     """How many songs a published tracklist names when that is too few for the set (one, or
     fewer than one per ``MINUTES_PER_SONG`` minutes of ``duration`` seconds), else None."""
-    from djlib.application.tracklists import parse_tracklist
-
-    songs = len(parse_tracklist(text, url)[0]) if text.strip() else 0
+    songs = named_songs(text, url)
     if not songs:
         return None
     length = duration if isinstance(duration, int | float) and duration > 0 else 0
@@ -736,7 +743,7 @@ def listening_notice(
         why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
     elif reason == "sparse":
         names = "MixesDB lists" if mixesdb else "The description names"
-        songs = plural(len(parse_tracklist(text, url)[0]), "song")
+        songs = plural(named_songs(text, url), "song")
         why = f"{names} only {songs}, so djlib is listening to the set to find the rest."
     else:
         return f"djlib is listening to the set. {LISTEN_TIME}; {carry_on}."
