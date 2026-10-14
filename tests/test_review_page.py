@@ -172,6 +172,17 @@ def test_page_short_ids_match_the_terminal():
 
 
 @needs_node
+def test_page_counts_read_like_the_terminal():
+    """Thousands separators, as `djlib set` prints them."""
+    assert run_page(
+        'plural(1000, "track")',
+        'plural(1, "set")',
+        "number(1520)",
+        "number(undefined)",
+    ) == ["1,000 tracks", "1 set", "1,520", ""]
+
+
+@needs_node
 def test_page_links_only_to_the_set_and_store_searches():
     youtube = "https://www.youtube.com/watch?v=cmgN8X7Pp_0"
     soundcloud = "https://soundcloud.com/platform/kaytranada-boiler-room"
