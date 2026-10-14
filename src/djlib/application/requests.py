@@ -21,12 +21,15 @@ from djlib.application.service import new_id, require
 from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.contracts import (
     base_form,
+    base_title,
     credit_base_form,
     credit_form,
     equivalent_labels,
     label_form,
     normalize,
+    recording_key,
     related_prefixes,
+    split_featured,
     title_lookup,
     version_prefixes,
 )
@@ -45,9 +48,17 @@ MAX_LOCATIONS = 10
 MAX_VERIFY_BYTES = 1024**3
 MAX_VERIFY_SECONDS = 30
 STATES = ("satisfied", "missing", "ambiguous", "unknown", "unavailable", "source_selected")
-# Titles whose matching form is not their key's: "Me Myself and I" is filed as "me myself i"
-# and "Bad Love (Antdot & Maz (BR) Remix)" as "bad love antdot maz br remix".
-FOLDED = re.compile(r"&|(?i:\band\b)|\([A-Z]{2,3}\)\s+\w")
+# Titles whose matching form is not their key's: "Me, Myself & I" is filed as "me myself i"
+# and "Me Myself and I" as "me myself and i". (A tag inside a mix name, "(Antdot & Maz (BR)
+# Remix)", comes after the base title, which the title lookup already finds.)
+AND = re.compile(r"&|\band\b", re.IGNORECASE)
+
+
+def _before_and(title: str) -> str | None:
+    """The key form of a base title's words before its first "&" or "and" ("me myself"),
+    which both spellings' identity keys start with; None when it has neither."""
+    parts = AND.split(base_title(split_featured(title)[0]), maxsplit=1)
+    return recording_key("", parts[0]).split("|")[1] if len(parts) == 2 else None
 
 
 class _Verification:
@@ -248,14 +259,19 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                 .order_by(Recording.id, AssetRevision.id)
                 .limit(MAX_TITLE_ROWS)
             ).all()
-            if names and FOLDED.search(f"{requested['title']} {requested['version']}"):
-                # Its key may spell the title another way: look the song up by its artists.
+            if names and (head := _before_and(requested["title"])) is not None:
+                # Its key may spell the title another way: look the song up by the words they
+                # share (by its artists alone when the title starts with "&" or "and").
+                shared = [f"|{head} "] if head else []
                 titled += session.execute(
                     select(Recording, AssetRevision)
                     .join(Asset, Asset.recording_id == Recording.id)
                     .join(AssetRevision, AssetRevision.asset_id == Asset.id)
                     .where(
-                        *(Recording.identity_key.contains(name, autoescape=True) for name in names)
+                        *(
+                            Recording.identity_key.contains(fragment, autoescape=True)
+                            for fragment in [*shared, *names]
+                        )
                     )
                     .order_by(Recording.id, AssetRevision.id)
                     .limit(MAX_TITLE_ROWS)

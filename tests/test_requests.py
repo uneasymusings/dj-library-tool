@@ -800,6 +800,34 @@ async def test_and_for_ampersand_and_a_remixers_country_tag_still_match(
     assert item["accepted"]["identity_match"] == "equivalent_labels"
 
 
+async def test_an_and_title_is_found_among_many_songs_by_its_artist(
+    ledger_app, audio_factory, monkeypatch
+):
+    """The other spelling is looked up by the words before "&", not by the artist alone, so
+    an artist with many songs in the library can't hide it past the row limit."""
+    monkeypatch.setattr(requests, "MAX_TITLE_ROWS", 2)
+    for n in range(3):
+        await owned(
+            ledger_app,
+            audio_factory,
+            name=f"filler{n}",
+            frequency=200 + 50 * n,
+            artist="De La Soul",
+            title=f"Filler {n}",
+        )
+    track = await owned(
+        ledger_app,
+        audio_factory,
+        name="target",
+        frequency=900,
+        artist="De La Soul",
+        title="Me, Myself & I",
+    )
+    item = create(ledger_app, [named(artist="De La Soul", title="Me Myself and I")])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["recording_id"] == track["recording_id"]
+
+
 @pytest.mark.parametrize(
     ("artist", "spellings"),
     [
