@@ -494,15 +494,20 @@ def render_error(term: Terminal, error: dict) -> None:
         hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
-    if hint:
-        label, parts = hint
+    # Several ways forward, each with its command (e.g. for a 1001Tracklists link).
+    steps = [
+        (str(step["label"]), str(step["command"]))
+        for step in details.get("next_steps") or []
+        if isinstance(step, dict) and step.get("label") and step.get("command")
+    ]
+    for label, parts in steps or ([hint] if hint else []):
         line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), (label, ""))
         if parts:
             command = parts if isinstance(parts, str) else term.command(*parts)
             line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
             line.append(command, style="cmd")
         term.err.print(line, soft_wrap=True)
-    elif error.get("retryable"):
+    if not steps and not hint and error.get("retryable"):
         term.err.print(
             Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")
         )

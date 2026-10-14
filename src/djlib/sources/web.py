@@ -110,6 +110,33 @@ def resolve_link(url: str, transport: httpx.BaseTransport | None = None) -> str:
     return validate_url(f"https://soundcloud.com{target.path}")
 
 
+MIXCLOUD = (
+    "Mixcloud doesn't allow downloads, so djlib can't listen to it. If the set is also on "
+    "YouTube or SoundCloud, use that link; otherwise copy its tracklist and run djlib set paste."
+)
+
+
+def check_set_site(url: str) -> None:
+    """1001Tracklists and Mixcloud links refused with what works instead, as `djlib set`
+    refuses them (an assistant meets these through djlib_source_inspect)."""
+    try:
+        host = (urlsplit(str(url).strip()).hostname or "").lower()
+    except ValueError:
+        return
+    if host == "1001tracklists.com" or host.endswith(".1001tracklists.com"):
+        raise AppError(
+            "SOURCE_UNSUPPORTED",
+            "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
+            "An assistant that can browse can copy it for you.",
+            details={
+                "next": "djlib_identify_set with the set's YouTube or SoundCloud link and "
+                "tracklist_text"
+            },
+        )
+    if host == "mixcloud.com" or host.endswith(".mixcloud.com"):
+        raise AppError("SOURCE_UNSUPPORTED", MIXCLOUD)
+
+
 async def resolved(url: str) -> str:
     """``resolve_link`` without blocking, then checked (``validate_url``)."""
     return validate_url(await asyncio.to_thread(resolve_link, url))
@@ -325,6 +352,7 @@ async def inspect_source(url: str, comments: int = 0) -> dict:
     SoundCloud comments carry their position in the set (``start_time``); YouTube comments
     often write timestamps in their text. Both are untrusted evidence, not identification.
     """
+    check_set_site(url)
     url = await resolved(url)
     extra = []
     if comments:

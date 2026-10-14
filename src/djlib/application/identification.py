@@ -126,6 +126,27 @@ def _domain(host: str, name: str) -> bool:
     return host == name or host.endswith("." + name)
 
 
+# What works instead of a 1001Tracklists link, first step first: its tracklist copied, best
+# with the set's own YouTube or SoundCloud link, which djlib listens to. Labels stay short
+# enough for the command to follow on an 80-column line.
+BROWSER_ONLY_STEPS = {
+    "set": (
+        {"label": "Copy the tracklist on the page, then", "command": "djlib set paste"},
+        {
+            "label": "Better: with the set's YouTube or SoundCloud link (under the player)",
+            "command": "djlib set 'LINK' --tracklist paste",
+        },
+    ),
+    "identify": (
+        {
+            "label": "Copy the tracklist, then with the set's YouTube or SoundCloud link",
+            "command": "djlib identify 'LINK' --tracklist paste",
+        },
+        {"label": "Or check that copy against your music", "command": "djlib set paste"},
+    ),
+}
+
+
 def canonical_url(url: str) -> str:
     """One spelling per set, so every link to it shares one folder and one identification.
 
@@ -140,11 +161,18 @@ def canonical_url(url: str) -> str:
     except ValueError:
         parts, host = None, ""
     if parts is not None and _domain(host, "1001tracklists.com"):
+        first, other = BROWSER_ONLY_STEPS["identify"]
         raise AppError(
             "SOURCE_BROWSER_ONLY",
             "1001Tracklists only shows tracklists to people in a browser; djlib can't read it.",
-            details={"next": "djlib identify SET_LINK --tracklist FILE"},
+            details={
+                "next": first["command"],
+                "next_label": first["label"],
+                "next_steps": [first, other],
+            },
         )
+    if parts is not None and _domain(host, "mixcloud.com"):
+        raise AppError("SOURCE_UNSUPPORTED", web.MIXCLOUD)
     if (
         parts is None
         or parts.scheme not in {"http", "https"}

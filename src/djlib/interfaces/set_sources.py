@@ -28,14 +28,24 @@ def host(url: str) -> str:
 
 
 def check_set_url(url: str) -> None:
+    from djlib.application.identification import BROWSER_ONLY_STEPS
+    from djlib.sources.web import MIXCLOUD
+
     name = host(url)
     if any(name == blocked or name.endswith("." + blocked) for blocked in BROWSER_ONLY):
+        first, better = BROWSER_ONLY_STEPS["set"]
         raise AppError(
             "SOURCE_BROWSER_ONLY",
             "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
             "An assistant that can browse can copy it for you.",
-            details={"next": "djlib set FILE"},
+            details={
+                "next": first["command"],
+                "next_label": first["label"],
+                "next_steps": [first, better],
+            },
         )
+    if name == "mixcloud.com" or name.endswith(".mixcloud.com"):
+        raise AppError("SOURCE_UNSUPPORTED", MIXCLOUD)
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")
 
