@@ -1,15 +1,20 @@
 # Implementation status
 
-## Unreleased
+## 0.1.0a15
 
-Adds set identification (`djlib identify LINK`, `djlib_identify_set`, and `djlib set LINK` listening when a set's tracklist is missing or has IDs) and Shazam history (`djlib set shazam[:new|DATE|apple-music|PATH]`, `djlib shazam status|list`, `djlib_shazam_history`), with song recognition installed by default on Python 3.12. See the [changelog](../CHANGELOG.md#unreleased).
+Adds set identification (`djlib identify LINK`, `djlib_identify_set`, and `djlib set LINK` listening when a set's tracklist is missing or has IDs), automatic MixesDB tracklists, and Shazam history (`djlib set shazam[:new|DATE|apple-music|PATH]`, `djlib shazam status|list`, `djlib_shazam_history`), with song recognition installed by default on Python 3.12. See the [changelog](../CHANGELOG.md#010a15).
 
-Evidence so far:
-- **A real set, replayed.** A 62-minute Keinemusik set (Antdot & Maz at Cercle) was scanned with Shazam during development, one 12-second window every 30 s, and that scan is test data. Replayed through the identification job with the set's description, it gives 13 tracks with 85% of the set named: 8 confirmed (e.g. Antdot – Mirage at 06:00, from 11 windows and the description), 4 likely and the opening ID unidentified. The ID at 48:30 stays an ID, likely Chris Fortier & Neil Kolo – All I Got (Chris Fortier 20yr Dub), heard in 2 windows, and three songs heard once stay out of the tracklist. Two engine faults found this way are fixed: windows from the gap check counted as full windows, and a description that times only its IDs lost its other tracks.
-- **Install.** The wheel built from this branch installs with `uv tool install --python 3.12 'dj-library-tool[download,recognize] @ …'` (Python 3.12.12, `shazamio` imports); `djlib doctor` shows “✓ Song recognition Shazam, unofficial”; against a scratch workspace and its own background service, `djlib identify` on a 1001Tracklists link answers `SOURCE_BROWSER_ONLY`.
-- **Tests.** Recognition, merging, the identify job (restart, pause and cancel, rate limits, SoundCloud previews), `djlib identify`, `djlib set` listening and its fallbacks, the MCP tools and the Shazam history readers run against fakes; no test reaches a real service.
+Live on 2026-10-13, from a wheel installed the way the installer does (`uv tool install --python 3.12 'dj-library-tool[download,recognize] @ …'`) into a scratch workspace with its own background service:
+- **Keinemusik radio show (YouTube, 62 minutes, tracklist with times in the description).** 13 of 13 rows, every named song right: 8 confirmed, 3 likely (in the description, not heard), the opening ID unidentified, and the ID at 48:30 weak with Chris Fortier & Neil Kolo – All I Got as its first candidate. Confirmed songs start within 24 s of the answer key's times (12.8 s on average). 157 windows every 30 s took 7:23. With windows every minute (the spacing a timed tracklist now gets), 93 windows gave the same 13 rows and counts, but took 32 minutes: Shazam kept asking djlib to slow down after a day of testing.
+- **Kaytranada at Boiler Room Montreal (SoundCloud, 42 minutes, no tracklist in the description).** MixesDB's page was found automatically (by title and length) and named in the result. 22 of 22 rows, every label the answer key's or Shazam's spelling. 115 windows every 30 s took 25:42 under almost continuous rate limiting (12 confirmed, 10 likely); 63 windows every minute took 6:52 (9 confirmed, 13 likely). Audio alone found 13 of the 22 songs.
+- **`djlib set LINK`** reused both identifications (3.8 s and 14 s, most of it reading the page again), with each request item's time, confidence and evidence.
+- **MCP** (`djlib mcp serve` over stdio): 22 tools; `djlib_identify_set` reused the Keinemusik result in 2 s; `djlib_shazam_history` without history answers `SHAZAM_HISTORY_NOT_FOUND` with the iCloud steps and alternatives.
+- **Stopping.** Ctrl-C and `djlib jobs control JOB cancel` during a listen keep what was heard; `--again` kept the earlier tracklist until a new one was made.
+- **Shazam history** without any history on the Mac: `djlib set shazam` and `djlib shazam status` explain the iCloud steps; a 3-row Shazam CSV became a set.
 
-Not verified yet: a live identification of a YouTube or SoundCloud set end to end with this code (download, Shazam, merge), and AudD and ACRCloud against their real services. Local validation on this branch: 1066 tests passed with five Windows-only skips.
+Before release, four independent reviews (runtime, output, security, accuracy) reproduced 48 findings against fakes, a real coordinator and the recorded live listens; the high and medium ones are fixed (see the changelog), with tests. Not verified: AudD and ACRCloud against their real services, a set longer than two hours, Shazam history on a Mac that has it (the test Mac has none), and how Shazam's limits behave for one set a day rather than dozens.
+
+Local validation: the full suite passes on macOS with five Windows-only skips; Ruff is clean.
 
 ## 0.1.0a14
 

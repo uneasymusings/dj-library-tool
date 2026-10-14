@@ -72,7 +72,7 @@ KIND = "identify"
 WINDOW, STRIDE, OFFSET = 12.0, 30.0, 9.0
 # With a tracklist that times its songs, the windows only have to find each listed song, so
 # they go every minute: half the requests to the recognizer, and so fewer rate limits.
-# Replaying two live sets (a 62-minute house set, a 40-minute hip-hop set) this way named
+# Replaying two live sets (a 62-minute house set, a 42-minute hip-hop set) this way named
 # every track; without a tracklist, the hip-hop set lost half its songs.
 GUIDED_STRIDE, GUIDE_TRACKS = 60.0, 5
 # Checking gaps spends at most half as many windows as the first listen.

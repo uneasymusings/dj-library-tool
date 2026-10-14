@@ -683,7 +683,7 @@ wheels = [
 
 [[package]]
 name = "dj-library-tool"
-version = "0.1.0a15.dev0"
+version = "0.1.0a15"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

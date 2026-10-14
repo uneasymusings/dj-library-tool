@@ -8,7 +8,7 @@ On macOS or Linux, one line installs uv if missing, the newest release (with dow
 2. **djlib**:
 
    ```bash
-   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a14/dj_library_tool-0.1.0a14-py3-none-any.whl'
+   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a15/dj_library_tool-0.1.0a15-py3-none-any.whl'
    djlib init --allow-root ~/Music    # Windows: --allow-root "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor

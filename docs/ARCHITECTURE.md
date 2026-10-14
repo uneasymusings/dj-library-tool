@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-This document describes **0.1.0a14** and the unreleased set identification and Shazam history in the [changelog](../CHANGELOG.md#unreleased). a7–a10 added the tracklist-to-crate workflow, rekordbox automation on macOS (push, background analysis, USB export with device-library read-back) and the terminal and review-page interfaces; a6 added catalog reconciliation/discovery and durable native checks; a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
+This document describes **0.1.0a15**, which adds set identification and Shazam history (see the [changelog](../CHANGELOG.md#010a15)). a7–a10 added the tracklist-to-crate workflow, rekordbox automation on macOS (push, background analysis, USB export with device-library read-back) and the terminal and review-page interfaces; a6 added catalog reconciliation/discovery and durable native checks; a3 added delivery, request tracking, annotations and native snapshots to a2. Implementation, validation and publication evidence are distinguished in [status](STATUS.md).
 
 ## Execution boundary
 
