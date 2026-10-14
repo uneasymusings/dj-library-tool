@@ -122,9 +122,9 @@ function empty(...lines) {
   return h("div", { class: "empty" }, lines.map((line) => h("p", null, line)));
 }
 
-function notice(tone, message, code) {
-  return h("div", { class: `notice ${tone}`, role: tone === "bad" ? "alert" : "status" },
-    message, code ? h("span", { class: "code" }, code) : null);
+// Error codes are for scripts; the page says what happened in words.
+function notice(tone, message) {
+  return h("div", { class: `notice ${tone}`, role: tone === "bad" ? "alert" : "status" }, message);
 }
 
 function pageHead(title, subtitle, ...extra) {
@@ -198,11 +198,19 @@ function fileTail(path) {
   return h("span", { class: "tail", title: path }, parts.slice(-2).join("/"));
 }
 
+// "Poison (Extended Mix)" typed as the title: the mix reads muted, as on identified sets.
+// A remixer's country tag may sit inside it: "Bad Love (Antdot & Maz (BR) Remix)".
+const TRAILING_MIX = /^(.*\S)\s*\(((?:[^()]|\([A-Z]{2,3}\))*?\b(?:mix|edit|remix|dub|vip|rework|version|edition|bootleg|flip|instrumental)\b(?:[^()]|\([A-Z]{2,3}\))*)\)$/i;
+
 function trackLabel(track) {
+  let title = track.title || "Untitled";
+  let version = track.version || "";
+  const mix = !version && TRAILING_MIX.exec(title);
+  if (mix) [title, version] = [mix[1], mix[2]];
   return h("span", null,
     track.artist || "Unknown artist", " – ",
-    h("b", null, track.title || "Untitled"),
-    track.version ? h("span", { class: "muted" }, ` (${track.version})`) : null);
+    h("b", null, title),
+    version ? h("span", { class: "muted" }, ` (${version})`) : null);
 }
 
 // "Artist - Title (Version)": how a DJ types it into a store search or a notes app.
@@ -439,10 +447,17 @@ function otherMixes(item) {
 // You own the exact mix: one copy, two to pick from, or a file djlib can't read right now.
 const OWNED_STATES = new Set(["satisfied", "ambiguous", "unavailable"]);
 
-// owned | missing | other | id: the same four answers as the terminal's Own column.
+// A file with the same title and mix under a shorter or longer artist credit.
+function maybeFile(item) {
+  if (item.state !== "missing" || item.input?.kind === "unknown") return null;
+  return (item.candidates || []).find((candidate) => candidate.identity_match === "similar_credits") || null;
+}
+
+// owned | maybe | missing | other | id: the same answers as the terminal's Own column.
 function ownKind(item) {
   if (OWNED_STATES.has(item.state)) return "owned";
   if (item.input?.kind === "unknown") return "id";
+  if (maybeFile(item)) return "maybe";
   return otherMixes(item).length ? "other" : "missing";
 }
 
@@ -451,17 +466,26 @@ function unreleased(input) {
   return /\bunreleased\b/i.test(`${input?.title || ""} ${input?.version || ""}`);
 }
 
-// The same tally as a /requests row's counts, for items the page has in hand.
+// The same tally as a /requests row's counts, for items the page has in hand. "to_check"
+// counts owned songs waiting on a pick or a file (they are in "owned" too).
 function countsOf(items) {
-  const counts = { owned: 0, missing: 0, other_mix: 0, ids: 0 };
-  const keys = { owned: "owned", missing: "missing", other: "other_mix", id: "ids" };
-  for (const item of items) counts[keys[ownKind(item)]] += 1;
+  const counts = { owned: 0, missing: 0, other_mix: 0, ids: 0, to_check: 0, maybe: 0 };
+  const keys = { owned: "owned", missing: "missing", other: "other_mix", id: "ids", maybe: "maybe" };
+  for (const item of items) {
+    counts[keys[ownKind(item)]] += 1;
+    if (item.state === "ambiguous" || item.state === "unavailable") counts.to_check += 1;
+  }
   return counts;
 }
 
+// "12 owned, 1 to check, 1 maybe yours, 1 other mix, 7 missing, 2 IDs", as `djlib set` says it:
+// owned is what the crate holds; an owned song waiting on a pick or a file is to check.
 function tally(counts) {
+  const check = counts.to_check || 0;
   const parts = [
-    ["owned", counts.owned || 0, "owned"],
+    ["owned", (counts.owned || 0) - check, "owned"],
+    ["check", check, "to check"],
+    ["maybe", counts.maybe || 0, "maybe yours"],
     ["other", counts.other_mix || 0, "other mix"],
     ["missing", counts.missing || 0, "missing"],
     ["id", counts.ids || 0, counts.ids === 1 ? "ID" : "IDs"],
@@ -495,7 +519,7 @@ function strip(items, { compact = false, onPick } = {}) {
 // For lists too long to fetch for a glance: the same colours, grouped.
 function countsStrip(counts) {
   const bar = h("div", { class: "strip compact grouped", role: "img", "aria-label": tallyText(counts) });
-  for (const [kind, key] of [["owned", "owned"], ["other", "other_mix"], ["missing", "missing"], ["id", "ids"]]) {
+  for (const [kind, key] of [["owned", "owned"], ["maybe", "maybe"], ["other", "other_mix"], ["missing", "missing"], ["id", "ids"]]) {
     if (!counts[key]) continue;
     const segment = h("span", { class: `seg ${kind}` });
     segment.style.setProperty("flex-grow", String(counts[key]));
@@ -504,8 +528,15 @@ function countsStrip(counts) {
   return bar;
 }
 
-// Where the set came from, from the link its IDs carry, or a Shazam list's notes.
-function setSource(items) {
+// Where the set came from: the set's own page (djlib set keeps it), else the link its IDs
+// carry, or a Shazam list's notes.
+function setSource(items, ledger) {
+  const given = ledger?.source;
+  if (given) {
+    const kind = provider(given.url);
+    if (kind) return { kind, url: parsedHttps(given.url).href };
+    if (/^shazam$/i.test(given.provider || "")) return { kind: "shazam", url: null };
+  }
   for (const item of items) {
     const url = item.input?.source_url;
     const kind = provider(url);
@@ -524,20 +555,23 @@ function sourceBadge(source) {
   return source ? h("span", { class: `src ${source.kind}` }, SOURCE_NAMES[source.kind]) : null;
 }
 
+// How sure djlib is, in the terminal's words. A confirmed line needs no word, and an ID says
+// "ID" in its Own column; the lines worth a listen before you play them stand out.
 const SURE = {
-  confirmed: [3, "Confirmed: heard and listed, or heard many times"],
-  likely: [2, "Likely: one good source, such as a tracklist"],
-  weak: [1, "Weak: heard once, or a listener's guess. Worth a listen"],
-  conflict: [1, "Conflict: listed as one song, heard as another"],
-  unidentified: [0, "Not identified yet"],
+  likely: ["◐", "likely", "Likely: one good source, such as a tracklist. Worth a listen"],
+  weak: ["!", "weak", "Weak: heard once, or a listener's guess. Listen before you play it"],
+  conflict: ["✗", "conflict", "Conflict: listed as one song, heard as another"],
 };
 
-function sureMeter(confidence) {
-  if (!confidence) return "";
-  const [level, title] = SURE[confidence] || [0, confidence];
-  return h("span", { class: `meter m${level}${confidence === "conflict" ? " conflict" : ""}`, title, role: "img", "aria-label": title },
-    [1, 2, 3].map((bar) => h("i", { class: bar <= level ? "on" : null })));
+function sureWord(confidence) {
+  const word = SURE[confidence];
+  if (!word) return "";
+  const [glyph, label, title] = word;
+  return h("span", { class: `sure-word ${confidence}`, title, "aria-label": title },
+    h("span", { class: "g", "aria-hidden": "true" }, glyph), h("span", { class: "l" }, label));
 }
+
+const UNSURE = new Set(Object.keys(SURE));
 
 // "possibly X (Shazam heard it at 50:09 (3×))" or a15's "(Shazam, 1 window at 51:09)": one
 // guess per "; " part, so a match never runs into the next guess.
@@ -569,13 +603,15 @@ function idName(label) {
   return text.replace(/\s+-\s+/, " – ");
 }
 
-function trackCell(item) {
+function trackCell(item, { timed = true, at = null } = {}) {
   const input = item.input || {};
   if (input.kind === "unknown") {
     const { hint, rest } = idHint(input.notes);
     const name = idName(input.label);
+    // Without a Time column an ID keeps its time beside it ("ID · 15:00"), as in the terminal.
+    const when = !timed && input.timestamp ? [" · ", at ? at(item) : input.timestamp] : null;
     return [
-      h("div", { class: "name id" }, h("b", null, name), hint ? h("span", { class: "muted" }, ` — ${hint}`) : null),
+      h("div", { class: "name id" }, h("b", null, name), when, hint ? h("span", { class: "muted" }, ` — ${hint}`) : null),
       rest ? h("div", { class: "note", title: input.notes }, capital(rest)) : null,
     ];
   }
@@ -625,15 +661,17 @@ function libraryTable(tracks, { numbered = false } = {}) {
       { label: "Title", class: "clip title c-title", cell: (t) => t.title },
       { label: "Artist", class: "clip c-artist", cell: (t) => t.artist },
       { label: "Version", class: "clip muted c-ver", cell: (t) => t.version || "", optional: (t) => t.version },
+      // Shown once some track has them: until rekordbox's analysis is read, a column of
+      // dashes says nothing.
       {
         label: "BPM", class: "num c-bpm",
         cell: (t) => readout(t.dj?.bpm, "bpm", t.dj?.bpm_source, t.dj?.bpm_verified),
-        optional: numbered ? dj("bpm") : null,
+        optional: dj("bpm"),
       },
       {
         label: "Key", class: "num c-key",
         cell: (t) => readout(t.dj?.key, "key", t.dj?.key_source, t.dj?.key_verified),
-        optional: numbered ? dj("key") : null,
+        optional: dj("key"),
       },
       { label: "Time", class: "num c-time", cell: (t) => duration(t.properties?.duration_seconds) },
       { label: "Format", class: "muted c-format", cell: audioFormat },
@@ -653,7 +691,7 @@ async function library() {
     "aria-label": "Search the library",
     autocomplete: "off",
   });
-  const subtitle = h("p", { class: "sub" }, "Every word must match; case and accents are ignored.");
+  const subtitle = h("p", { class: "sub" }, "Type words from the artist, title or mix; every word must match.");
   const results = h("div");
   view.append(h("div", { class: "head" }, h("div", null, h("h1", null, "Library"), subtitle), input), results);
   let pending = 0;
@@ -669,11 +707,16 @@ async function library() {
       tracks.push(...reply.tracks);
       total = reply.total;
       after = reply.next_cursor;
-      if (!query && total) subtitle.textContent = `${plural(total, "track")}. Search by any words in the artist, title or version.`;
+      if (!query && total) subtitle.textContent = `${plural(total, "track")}. Type words from the artist, title or mix; every word must match.`;
       const none = query
         ? empty(`No tracks match “${query}”.`)
         : empty("No tracks yet. Index your music folder from a terminal:", copyable(commandText("scan")));
+      // BPM and key come from rekordbox's analysis, once djlib has read it.
+      const unread = !query && tracks.length && !tracks.some((t) => t.dj?.bpm || t.dj?.key);
       results.replaceChildren(...[
+        unread ? h("div", { class: "hint-box" },
+          h("p", { class: "hint" }, "No BPM or key yet. To read them from rekordbox's analysis, run:"),
+          copyable(commandText("rekordbox", "sync"))) : null,
         tracks.length ? libraryTable(tracks) : none,
         tracks.length ? h("p", { class: "muted more" }, `${tracks.length} of ${plural(total, "track")}`) : null,
         after ? h("button", { type: "button", class: "more", onclick: () => page().catch(show) }, "Load more") : null,
@@ -732,7 +775,7 @@ function setRow(row) {
   const bar = h("div", { class: "strip compact loading-strip", "aria-hidden": "true" });
   const counts = h("p", { class: "tally" }, row.counts ? tally(row.counts) : null);
   const when = ago(row.created_at); // the list is newest first by when the set was added
-  const node = h("li", { title: row.request_id },
+  const node = h("li", null,
     h("a", { class: "set", href },
       h("div", { class: "set-name" },
         h("span", { class: "name", title: row.name }, row.name),
@@ -747,7 +790,7 @@ function setRow(row) {
     const glance = whole ? ledger.items : null;
     if (glance) bar.replaceWith(strip(glance, { compact: true }));
     else if (row.counts) bar.replaceWith(countsStrip(row.counts));
-    const source = setSource(ledger.items);
+    const source = setSource(ledger.items, ledger);
     if (source) badge.replaceWith(sourceBadge(source));
     if (!row.counts && glance) counts.replaceChildren(...tally(countsOf(glance)));
   }
@@ -760,6 +803,8 @@ async function setsList() {
     return h("section", null, pageHead("Sets"), empty(
       "No sets yet. Copy a set's link or tracklist, then run this in a terminal:",
       copyable(commandText("set", "paste")),
+      "Or check the songs you Shazamed:",
+      copyable(commandText("shazam", "status")),
     ));
   }
   const list = h("ol", { class: "sets" });
@@ -785,6 +830,50 @@ async function setsList() {
   return view;
 }
 
+// The spelling an owned song's file matched under (accepted.matched_as): only the artist when
+// the title and mix are the song's own ("as Robert Glasper"), else the whole label.
+function spelledAs(item) {
+  const label = item.accepted?.matched_as || "";
+  if (!label) return "";
+  const input = item.input || {};
+  const credits = Array.isArray(input.also) ? input.also : [];
+  const same = (one, other) => String(one || "").trim().toLowerCase() === String(other || "").trim().toLowerCase();
+  const credit = credits.find((c) => plainLabel({ ...c, kind: "named" }) === label) || credits[0];
+  if (credit?.artist && same(credit.title, input.title) && same(credit.version, input.version)) return credit.artist;
+  return label;
+}
+
+// The MixesDB page a set's tracklist comes from: credited and linked under the tally.
+function mixesdbCredit(credit) {
+  if (!credit) return null;
+  const url = parsedHttps(credit.page_url);
+  const ours = url && ["www.mixesdb.com", "mixesdb.com"].includes(url.hostname);
+  const name = ours
+    ? h("a", { href: url.href, target: "_blank", rel: "noopener noreferrer", title: credit.page_title || null }, "Tracklist from MixesDB ↗")
+    : h("span", null, "Tracklist from MixesDB");
+  return h("p", { class: "credit" }, name,
+    credit.tracklist === "incomplete" ? h("span", { class: "warn" }, " · MixesDB marks it incomplete") : null);
+}
+
+// Above this many tracks (a Shazam history) the set opens on the songs to act on, a page at a
+// time; the strip and the tally stay whole.
+const LONG_SET = 60;
+const PAGE_ROWS = 50;
+const FILTERS = [
+  ["missing", "Missing"],
+  ["maybe", "Maybe yours"],
+  ["other", "Other mix"],
+  ["owned", "Owned"],
+  ["id", "IDs"],
+  ["all", "All"],
+];
+
+// A Shazam list reads newest first: by the day you Shazamed, then by its place in the list.
+function newestFirst(items) {
+  const day = (item) => (/Shazamed (\d{4}-\d{2}-\d{2})/.exec(item.input?.notes || "") || [])[1] || "";
+  return [...items].sort((a, b) => day(b).localeCompare(day(a)) || (b.position || 0) - (a.position || 0));
+}
+
 async function requestDetail(requestId) {
   const items = [];
   let ledger = null;
@@ -795,31 +884,62 @@ async function requestDetail(requestId) {
     after = ledger.next_offset;
   } while (after !== null && after !== undefined);
   const counts = countsOf(items);
-  const source = setSource(items);
+  const source = setSource(items, ledger);
   const setUrl = source?.url || null;
-  // Only songs with one readable copy go into the crate; the rest of what you own waits.
-  const ready = items.filter((item) => item.state === "satisfied").length;
+  // Only songs with one readable copy go into the crate, one file each however often the set
+  // lists the song; the rest of what you own waits.
+  const ready = new Set(items.filter((item) => item.state === "satisfied")
+    .map((item) => item.accepted?.asset_revision_id || item.item_id)).size;
   const twice = items.filter((item) => item.state === "ambiguous").length;
   const unread = items.filter((item) => item.state === "unavailable").length;
+  const maybe = items.filter((item) => ownKind(item) === "maybe").length;
   const message = h("div");
   const waiting = [
     twice ? `You own ${plural(twice, "song")} twice: pick the copy for the crate below.` : null,
     unread ? `djlib can't read ${plural(unread, "song")} you own right now (is the drive plugged in?), so the crate leaves ${unread === 1 ? "it" : "them"} out.` : null,
+    maybe ? `${maybe === 1 ? "One song" : `${maybe} songs`} may be yours under another artist name: if it's the same song, Use this.` : null,
   ].filter(Boolean);
   const view = h("section", { class: "set-page" }, crumb("#/sets", "Sets"));
-  const build = h("button", { type: "button", class: "primary", disabled: !ready },
-    ready ? `Build crate (${plural(ready, "track")})` : "Build crate");
+
+  // The crate djlib set already made: open it. Build one, or update it when you own more now.
+  const crate = ledger.crate?.collection_id ? ledger.crate : null;
+  const current = crate && crate.tracks === ready;
+  const crateHref = (id) => `#/collections/${encodeURIComponent(id)}`;
+  const action = current
+    ? h("a", { class: "button primary", href: crateHref(crate.collection_id) }, `Open crate (${plural(crate.tracks, "track")})`)
+    : h("button", { type: "button", class: "primary", disabled: !ready },
+      !ready ? "Build crate" : `${crate ? "Update" : "Build"} crate (${plural(ready, "track")})`);
   const when = ago(ledger.updated_at || ledger.created_at);
   view.append(h("div", { class: "set-head" },
     h("div", { class: "set-title" },
       h("p", { class: "meta" }, sourceBadge(source), plural(ledger.total_items, "track"), when ? ` · checked ${when}` : null),
       h("h1", null, ledger.name)),
-    build));
+    action));
   if (waiting.length) view.append(notice("warn", waiting.join(" ")));
   view.append(message);
 
+  // Where the crate goes next, as on the crate's own page.
+  const handoff = (collectionId) => h("div", { class: "handoff" },
+    h("div", null, h("h2", null, "Put it in rekordbox"), copyable(commandText("rekordbox", "push", shortId(collectionId)))),
+    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", shortId(collectionId)))));
+
   const rows = new Map();
+  let filter = "all";
+  let limit = Infinity;
+  const tableSlot = h("div");
+  const filterBar = h("div", { class: "filters", role: "group", "aria-label": "Show" });
+  const moreSlot = h("div");
+  const sure = items.some((item) => UNSURE.has(item.input?.confidence));
+  const shazam = source?.kind === "shazam";
+  const order = shazam ? newestFirst(items) : items;
+  const long = items.length > LONG_SET;
   const pick = (item) => {
+    if (!rows.has(item)) {
+      // A track the list hides: show it, then go there.
+      filter = "all";
+      limit = Math.max(limit, order.indexOf(item) + 1);
+      render();
+    }
     const row = rows.get(item);
     if (!row) return;
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -834,31 +954,36 @@ async function requestDetail(requestId) {
   const missing = items.filter((item) => ownKind(item) === "missing" && !unreleased(item.input));
   view.append(h("div", { class: "set-tally" },
     h("p", { class: "tally big" }, tally(counts)),
-    missing.length ? copyLines(`Copy ${missing.length} missing`, missing.map((item) => plainLabel(item.input))) : null));
+    missing.length ? copyLines(`Copy ${missing.length} to buy`, missing.map((item) => plainLabel(item.input))) : null));
+  const credit = mixesdbCredit(ledger.mixesdb);
+  if (credit) view.append(credit);
+  if (current) view.append(handoff(crate.collection_id));
 
-  build.addEventListener("click", async () => {
-    build.disabled = true;
-    message.replaceChildren(notice("ok", "Building the crate…"));
-    try {
-      let job = await api(`/requests/${encodeURIComponent(requestId)}/collection`, {
-        method: "POST",
-        body: { revision: ledger.revision, name: null },
-      });
-      job = await waitForJob(job);
-      const collectionId = job.result?.collection_id;
-      if (job.state === "completed" && collectionId) {
-        message.replaceChildren(h("div", { class: "notice ok" },
-          `Crate ready with ${plural(job.result.selected_count ?? ready, "track")}, in set order. `,
-          h("a", { href: `#/collections/${encodeURIComponent(collectionId)}` }, "Open the crate")));
-      } else {
-        message.replaceChildren(notice("bad", `The crate job ended as ${job.state}.`, job.job_id));
+  if (!current) {
+    action.addEventListener("click", async () => {
+      action.disabled = true;
+      message.replaceChildren(notice("ok", "Building the crate…"));
+      try {
+        let job = await api(`/requests/${encodeURIComponent(requestId)}/collection`, {
+          method: "POST",
+          body: { revision: ledger.revision, name: null },
+        });
+        job = await waitForJob(job);
+        const collectionId = job.result?.collection_id;
+        if (job.state === "completed" && collectionId) {
+          message.replaceChildren(h("div", { class: "notice ok" },
+            `Crate ready with ${plural(job.result.selected_count ?? ready, "track")}, in set order. `,
+            h("a", { href: crateHref(collectionId) }, "Open the crate")), handoff(collectionId));
+        } else {
+          message.replaceChildren(notice("bad", "The crate couldn't be built. See why in a terminal: djlib jobs"));
+        }
+      } catch (error) {
+        message.replaceChildren(errorNotice(error));
+      } finally {
+        action.disabled = false;
       }
-    } catch (error) {
-      message.replaceChildren(errorNotice(error));
-    } finally {
-      build.disabled = false;
-    }
-  });
+    });
+  }
 
   async function choose(item, candidate, button) {
     button.disabled = true;
@@ -877,7 +1002,7 @@ async function requestDetail(requestId) {
     } catch (error) {
       if (error.code === "REQUEST_STALE") {
         await route();
-        document.getElementById("view").prepend(notice("bad", "This list changed elsewhere, so it was reloaded. Choose again.", error.code));
+        document.getElementById("view").prepend(notice("bad", "This set changed elsewhere, so it was reloaded. Choose again."));
       } else {
         message.replaceChildren(errorNotice(error));
         button.disabled = false;
@@ -885,16 +1010,19 @@ async function requestDetail(requestId) {
     }
   }
 
-  const timed = items.some((item) => item.input?.timestamp);
-  const moment = (item) => {
+  // A Time column when the tracklist times its songs; an ID's time alone goes beside it.
+  const timed = items.some((item) => item.input?.kind !== "unknown" && item.input?.timestamp);
+  const stamped = (item) => {
     const stamp = item.input?.timestamp;
-    // In a timed set a bare number would read as a time; say there is none instead.
-    if (!stamp && timed) return h("span", { class: "pos", title: `Track ${item.position}: no time in the tracklist` }, "—");
-    if (!stamp) return h("span", { class: "pos" }, item.position);
     const link = setUrl && listenUrl(setUrl, stampSeconds(stamp));
     return link
       ? h("a", { class: "time", href: link, target: "_blank", rel: "noopener noreferrer", title: `Play the set from ${stamp}` }, stamp)
       : h("span", { class: "time" }, stamp);
+  };
+  const moment = (item) => {
+    if (!timed) return h("span", { class: "pos" }, item.position);
+    if (!item.input?.timestamp) return h("span", { class: "pos", title: `Track ${item.position}: no time for it` }, "—");
+    return stamped(item);
   };
 
   const own = (item) => {
@@ -903,7 +1031,7 @@ async function requestDetail(requestId) {
     if (kind === "owned" && item.state === "ambiguous") {
       // Only readable copies of this exact mix; djlib refuses anything else.
       const copies = (item.candidates || []).filter((candidate) => candidate.availability === "verified"
-        && !["different_version", "different_labels"].includes(candidate.identity_match));
+        && !["different_version", "different_labels", "similar_credits"].includes(candidate.identity_match));
       return [
         pill("warn", "!", "Owned, pick a copy", "You own this mix more than once"),
         copies.length ? h("ul", { class: "candidates" }, copies.map((candidate) => {
@@ -917,12 +1045,23 @@ async function requestDetail(requestId) {
       return pill("warn", "!", "Owned, file unavailable", "djlib can't read the file right now. Is the drive plugged in?");
     }
     if (kind === "owned") {
+      const spelling = spelledAs(item);
       return [
         pill("ok", "✓", "Owned", accepted.path || null),
-        accepted.matched_as ? h("div", { class: "own-note" }, `as ${accepted.matched_as}`) : null,
+        spelling ? h("div", { class: "own-note" }, `as ${spelling}`) : null,
       ];
     }
     if (kind === "id") return pill("id", "○", "ID");
+    if (kind === "maybe") {
+      // The same title and mix under other credits: the DJ says whether it's the song.
+      const file = maybeFile(item);
+      const button = h("button", { type: "button", class: "small" }, "Use this");
+      button.addEventListener("click", () => choose(item, file, button));
+      return [
+        pill("maybe", "?", "Maybe yours", "A file with the same title and mix, under another artist name"),
+        h("div", { class: "own-note" }, `You have ${plainLabel({ ...file, kind: "named" })} `, button),
+      ];
+    }
     if (kind === "other") {
       return [pill("other", "≈", "Other mix"), h("div", { class: "own-note" }, `You own ${otherMixes(item).join(", ")}`)];
     }
@@ -931,28 +1070,69 @@ async function requestDetail(requestId) {
     }
     return [
       pill("bad", "✗", "Missing"),
-      unreleased(item.input) ? h("span", { class: "buy" }, "Not in stores yet") : storeLinksNode(item),
+      // Plain words, not a store link: they stay on a phone, where store links don't fit.
+      unreleased(item.input) ? h("div", { class: "own-note" }, "Not in stores yet") : storeLinksNode(item),
     ];
   };
 
-  view.append(table(
-    [
-      { label: timed ? "Time" : "#", class: "c-time", cell: moment },
-      { label: "Sure", class: "c-sure", cell: (item) => sureMeter(item.input?.confidence), optional: (item) => item.input?.confidence },
-      { label: "Track", class: "c-track", cell: trackCell },
-      { label: "Own", class: "c-own", cell: own },
-    ],
-    items,
-    {
-      kind: `t-set${timed ? " timed" : ""}${items.some((item) => item.input?.confidence) ? " sure" : ""}`,
-      rowAttrs: (item) => ({ class: `own-${ownKind(item)}` }),
-      onRender: (item, tr) => rows.set(item, tr),
-    },
-  ));
-  const unsure = items.some((item) => ["likely", "weak", "conflict"].includes(item.input?.confidence));
+  if (long) {
+    const kinds = new Map(FILTERS.map(([kind]) => [kind, 0]));
+    for (const item of items) kinds.set(ownKind(item), kinds.get(ownKind(item)) + 1);
+    filter = ["missing", "maybe", "other"].find((kind) => kinds.get(kind)) || "all";
+    limit = PAGE_ROWS;
+    for (const [kind, label] of FILTERS) {
+      const amount = kind === "all" ? items.length : kinds.get(kind);
+      if (!amount) continue;
+      const button = h("button", { type: "button", class: "small", "data-kind": kind }, `${label} (${amount})`);
+      button.addEventListener("click", () => {
+        filter = kind;
+        limit = PAGE_ROWS;
+        render();
+      });
+      filterBar.append(button);
+    }
+    view.append(filterBar);
+  }
+
+  function render() {
+    for (const button of filterBar.querySelectorAll("button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.kind === filter));
+    }
+    const shown = order.filter((item) => filter === "all" || ownKind(item) === filter);
+    const visible = shown.slice(0, limit);
+    rows.clear();
+    tableSlot.replaceChildren(table(
+      [
+        { label: timed ? "Time" : "#", class: "c-time", cell: moment },
+        { label: "Sure", class: "c-sure", cell: (item) => sureWord(item.input?.confidence), optional: (item) => UNSURE.has(item.input?.confidence) },
+        { label: "Track", class: "c-track", cell: (item) => trackCell(item, { timed, at: stamped }) },
+        { label: "Own", class: "c-own", cell: own },
+      ],
+      visible,
+      {
+        kind: `t-set${timed ? " timed" : ""}${sure ? " sure" : ""}`,
+        rowAttrs: (item) => ({ class: `own-${ownKind(item)}` }),
+        onRender: (item, tr) => rows.set(item, tr),
+      },
+    ));
+    const left = shown.length - visible.length;
+    moreSlot.replaceChildren(left > 0
+      ? h("button", {
+        type: "button",
+        class: "more",
+        onclick: () => {
+          limit += PAGE_ROWS;
+          render();
+        },
+      }, `Show ${Math.min(left, PAGE_ROWS)} more (${left} left)`)
+      : "");
+  }
+  render();
+  view.append(tableSlot, moreSlot);
   view.append(h("p", { class: "foot" },
-    "Matched to your files by exact artist, title and version. Another mix is never swapped in.",
-    unsure ? " Likely and weak lines are worth a listen before you play them." : null));
+    "Matched to your files by exact artist, title and mix. Another mix is never swapped in.",
+    shazam ? " Newest Shazams first." : null,
+    sure ? " Lines marked likely or weak are worth a listen before you play them." : null));
   return view;
 }
 
@@ -971,7 +1151,7 @@ const collectionsList = listView({
   key: "collections",
   kind: "t-list",
   href: (row) => `#/collections/${encodeURIComponent(row.collection_id)}`,
-  rowTitle: (row) => row.collection_id,
+  rowTitle: (row) => shortId(row.collection_id),
   emptyText: () => empty(["No crates yet. Crates appear when you run ", h("code", { class: "inline" }, "djlib set"), "."]),
   columns: [
     { label: "Name", class: "title c-name", cell: (row) => h("a", { href: `#/collections/${encodeURIComponent(row.collection_id)}` }, row.name) },
@@ -1150,7 +1330,15 @@ async function jobs() {
 // -- shell ------------------------------------------------------------------------------------
 
 function errorNotice(error) {
-  return notice("bad", error.message || "Something went wrong.", error.code);
+  return notice("bad", error.message || "Something went wrong.");
+}
+
+// A link to a set or crate that's gone (deleted, or from another djlib folder).
+function goneNotice(tab) {
+  const [what, href, back] = tab === "collections"
+    ? ["This crate isn't here any more.", "#/collections", "See your crates"]
+    : ["This set isn't here any more.", "#/sets", "See your sets"];
+  return h("div", { class: "notice bad", role: "alert" }, what, " ", h("a", { href }, back));
 }
 
 function locked() {
@@ -1206,7 +1394,8 @@ async function route({ quiet = false } = {}) {
     document.title = heading ? `${heading} · djlib` : "djlib";
   } catch (error) {
     if (render !== state.render) return;
-    main.replaceChildren(error.status === 401 ? locked() : errorNotice(error));
+    const gone = error.code === "NOT_FOUND" && ["sets", "collections"].includes(tab);
+    main.replaceChildren(error.status === 401 ? locked() : gone ? goneNotice(tab) : errorNotice(error));
   }
 }
 

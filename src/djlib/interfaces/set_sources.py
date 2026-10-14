@@ -27,6 +27,19 @@ def host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower().removeprefix("www.").removeprefix("m.")
 
 
+def provider_of(url: str | None) -> str | None:
+    """ "YouTube" or "SoundCloud" for an https link to a set there; None for anything else."""
+    try:
+        if not url or urlsplit(url).scheme != "https":
+            return None
+        name = host(url)
+    except ValueError:
+        return None
+    if name in {"youtube.com", "youtu.be"}:
+        return "YouTube"
+    return "SoundCloud" if name == "soundcloud.com" else None
+
+
 def browser_only(url: str, command: str = "set") -> None:
     """1001Tracklists: SOURCE_BROWSER_ONLY, with the ways to hand djlib its tracklist."""
     from djlib.sources.web import browser_only_details

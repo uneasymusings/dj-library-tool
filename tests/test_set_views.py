@@ -660,6 +660,10 @@ def test_set_json_adds_the_whole_set_and_keeps_missing_as_it_was(friday):
         "maybe": 0,
     }
     assert result["crate_tracks"] == 1
+    # The set keeps its link, for the review page's badge and links into the set.
+    saved = djlib("requests", "get", result["request_id"])
+    assert saved["source"] == {"url": LINK, "provider": "YouTube", "title": None, "uploader": None}
+    assert saved["crate"]["collection_id"] == result["collection_id"]
     assert result["rekordbox"] == {
         "status": "skipped",
         "reason": "not requested (--no-rekordbox)",
