@@ -1,4 +1,4 @@
-"""`djlib set LINK` listens to a set when its tracklist is missing or has IDs.
+"""`djlib set LINK` listens to a set when its tracklist is missing, has IDs or is too short.
 
 Everything runs through the real coordinator; the page, the download and the recognizer are
 the fakes of tests/test_identification.py.
@@ -339,3 +339,55 @@ def test_set_says_why_it_listens_before_a_long_listen(
     assert again.exit_code == 0 and "listening to the set" not in again.stderr
     started = events(invoke(application, "set", URL, "--no-rekordbox"))[0]
     assert started["identify_reason"] == "no_tracklist"
+
+
+def test_a_boiler_room_description_is_no_tracklist(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Boiler Room's one line says who played where: djlib listens instead of making it a
+    song, and the line never shows up in the set."""
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    setup.page["uploader"] = "Boiler Room"
+    setup.page["description"] = (
+        "Lumen – live from Boiler Room x Cupra at Primavera Sound Barcelona.\n\n"
+        "►  Listen to Boiler Room’s archive on Apple Music: https://apple.co/BoilerRoom\n"
+        "►  Subscribe to Boiler Room: https://blrrm.tv/YT\n"
+    )
+    reply = invoke(application, "set", URL, "--no-rekordbox")
+    assert reply.exit_code == 0, reply.output
+    assert events(reply)[0]["identify_reason"] == "no_tracklist"
+    result = json.loads(reply.stdout)["result"]
+    labels = [track["label"] for track in result["tracks"]]
+    assert labels == ["Lumen - Halo", "Bicep - Glue", "Nia Okoro - Slow Burn"]
+    assert result["identified"]["counts"]["tracks"] == 3
+
+
+def test_set_listens_when_the_description_names_too_few_songs(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    setup.page["description"] = "Lumen - Halo\n"
+    reply = invoke(application, "set", URL, "--no-rekordbox", pretty=True, columns=100)
+    assert reply.exit_code == 0, reply.output
+    said = " ".join(reply.stderr.split())
+    assert (
+        "The description names only 1 song, so djlib is listening to the set to find the "
+        "rest. An hour-long set usually takes 5–10 minutes" in said
+    )
+    result = json.loads(invoke(application, "set", URL, "--no-rekordbox").stdout)["result"]
+    assert result["songs"] == 3 and result["identified"]["reused"] is True
+    # Without listening, an hour-long set with two songs listed says songs may be missing.
+    setup.page["description"] = "Lumen - Halo\nBicep - Glue\n"
+    setup.page["duration_seconds"] = 3431
+    envelope = json.loads(
+        invoke(application, "set", "https://youtu.be/otherset99", "--no-identify").stdout
+    )
+    assert envelope["result"]["identified"] is None and envelope["result"]["songs"] == 2
+    assert (
+        "The description names only 2 songs for this 57-minute set: songs may be missing."
+        in envelope["warnings"]
+    )
+    started = events(invoke(application, "set", "https://youtu.be/otherset98"))[0]
+    assert started["identify_reason"] == "sparse"

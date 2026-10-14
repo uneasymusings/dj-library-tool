@@ -772,7 +772,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         Takes a YouTube or SoundCloud set link, a text file, or paste for what you copied.
 
-        A link whose tracklist is missing or has IDs is listened to (see djlib identify).
+        A link whose tracklist is missing, has IDs or is too short is listened to.
 
         An hour-long set takes about 5–10 minutes, up to half an hour when Shazam is busy.
 
@@ -882,12 +882,20 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if page.get("from_saved_page"):
                 warnings.append(set_sources.saved_page_note(page, tracklist))
             problem = None
+            length = page.get("duration_seconds")
             # --tracklist merges with what djlib hears, so it asks for a listen.
             reason = identify_cli.listen_reason(
-                True if given else identify, text, tracklist, workspace, complete=complete
+                True if given else identify,
+                text,
+                tracklist,
+                workspace,
+                complete=complete,
+                duration=length,
             )
             if reason:
-                notice = identify_cli.listening_notice(reason, text, tracklist, workspace)
+                notice = identify_cli.listening_notice(
+                    reason, text, tracklist, workspace, mixesdb=listing is not None
+                )
                 try:
                     identified = identify_cli.listen(
                         local, tracklist, given, name, reason=reason, notice=notice
@@ -921,6 +929,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     warnings.append(
                         "MixesDB marks this tracklist incomplete: songs may be missing."
                     )
+                elif few := identify_cli.sparse_warning(
+                    text, tracklist, length, mixesdb=listing is not None
+                ):
+                    warnings.append(few)
         else:
             path = Path(tracklist).expanduser()
             if (identify or tracklists) and not source:

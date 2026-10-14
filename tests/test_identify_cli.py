@@ -322,6 +322,49 @@ def test_set_says_why_it_listens_and_how_long_that_takes(application, monkeypatc
     assert notice("ids", LISTED) is None
 
 
+def test_set_listens_when_the_published_tracklist_is_too_short_for_the_set(application):
+    """One song, or fewer than one per 12 minutes of the set, leaves most of it out."""
+
+    def reason(text, duration=None, choice=None):
+        return identify_cli.listen_reason(
+            choice, text, URL, application.workspace, duration=duration
+        )
+
+    four, five = ("".join(f"Artist {n} - Song {n}\n" for n in range(count)) for count in (4, 5))
+    assert reason("Lumen - Halo\n") == "sparse"
+    assert reason("Lumen - Halo\n", duration=240) == "sparse"
+    assert reason("Lumen - Halo\nBicep - Glue\n") is None  # how long is unknown
+    assert reason("Lumen - Halo\nBicep - Glue\n", duration=1200) is None
+    assert reason("Lumen - Halo\nBicep - Glue\n", duration=3431) == "sparse"
+    assert reason(four, duration=3431) == "sparse"  # 4 songs in 57 minutes
+    assert reason(five, duration=3431) is None  # 5 in 57 minutes
+    assert reason("Lumen - Halo\n", duration=3431, choice=False) is None
+    assert reason("Lumen - Halo\nID - ID\n", duration=3431) == "ids"
+
+    def notice(text, mixesdb=False):
+        return identify_cli.listening_notice(
+            "sparse", text, URL, application.workspace, mixesdb=mixesdb
+        )
+
+    assert notice("Lumen - Halo\n") == (
+        "The description names only 1 song, so djlib is listening to the set to find the rest. "
+        "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "--no-identify skips it."
+    )
+    assert notice("Lumen - Halo\nBicep - Glue\n", mixesdb=True).startswith(
+        "MixesDB lists only 2 songs, so djlib is listening to the set to find the rest. "
+    )
+    # Used without listening, the list says it may be missing songs.
+    assert identify_cli.sparse_warning("Lumen - Halo\nBicep - Glue\n", URL, 3431) == (
+        "The description names only 2 songs for this 57-minute set: songs may be missing."
+    )
+    assert identify_cli.sparse_warning("Lumen - Halo\n", URL) == (
+        "The description names only 1 song: songs may be missing."
+    )
+    assert identify_cli.sparse_warning(five, URL, 3431) is None
+    assert identify_cli.sparse_warning("", URL, 3431) is None
+
+
 def test_watching_an_identify_job_shows_its_windows():
     from djlib.interfaces import terminal
 

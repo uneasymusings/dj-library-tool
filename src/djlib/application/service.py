@@ -159,7 +159,8 @@ class Application:
                     "set's description, chapters and comments, listens to it with song "
                     "recognition (Shazam, unofficial; or licensed AudD or ACRCloud) and merges "
                     "one timestamped tracklist with a status and evidence per track; djlib set "
-                    "LINK uses it when the published tracklist is missing or has IDs"
+                    "LINK uses it when the published tracklist is missing, has IDs or names "
+                    "too few songs for the set's length"
                 ),
                 "shazam_history": (
                     "djlib set shazam (MCP: djlib_shazam_history lists them) reads the songs "
