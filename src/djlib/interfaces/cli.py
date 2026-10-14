@@ -120,8 +120,15 @@ class DefaultCommandGroup(VisibleSuggestions):
         return super().parse_args(ctx, args or [self.default_command])
 
 
-# `djlib requests` is `djlib requests list`, `djlib shazam` is `djlib shazam status`.
-DEFAULT_COMMANDS = {"requests": "list", "shazam": "status", "roots": "list", "jobs": "list"}
+# `djlib requests` (and `djlib sets`) is `djlib requests list`, `djlib shazam` is
+# `djlib shazam status`.
+DEFAULT_COMMANDS = {
+    "requests": "list",
+    "sets": "list",
+    "shazam": "status",
+    "roots": "list",
+    "jobs": "list",
+}
 
 
 def print_version(value: bool) -> None:
@@ -228,6 +235,8 @@ def emit(value: dict) -> None:
         term.print_json(value)
         return
     name = terminal.command_name()
+    if name.startswith("sets "):  # the hidden name of `djlib requests`
+        name = "requests" + name.removeprefix("sets")
     if name in views.FOLLOW and value.get("warnings"):
         # Following a job ends with its card and exit code, so say the warnings first.
         print_warnings(term, value["warnings"])
