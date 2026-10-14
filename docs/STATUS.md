@@ -1,5 +1,31 @@
 # Implementation status
 
+## 0.1.0a16
+
+A product pass on the two headline jobs: a set link to every track, owned or missing, and your Shazams as a set. It adds the whole set on screen, a shopping list with store searches, `djlib set paste`, recent Shazams first, a Sets view on the review page and listening progress in set time, plus matching fixes that count more owned songs. See the [changelog](../CHANGELOG.md#010a16).
+
+How it was built and checked: a product review of 0.1.0a15 through seven lenses (set link, docs, assistant, first run, review page, Shazam, DJ market) gave a plan, which a critic cut and corrected. Seven streams built it (matching, set views, input, Shazam, listening, CLI, review page). Each stream's work was reviewed independently, with its own sandbox runs, before merging: 68 findings, with the high and medium ones fixed and covered by tests, except the MixesDB question below. A few low ones remain, such as the upgrade's finishing step starting Python from the current folder (`python -m` without `-P`).
+
+Verified on 2026-10-14, on the integrated branch with the version set to 0.1.0a16:
+- **Tests.** The full suite passes on macOS with Python 3.12 (1,493 passed, 5 Windows-only skips); Ruff check and format are clean. A freshly built 0.1.0a16 wheel passes the installed-wheel check (45 MCP tools, 22 by default, skill packaged, request ledger checked), and the plugin manifest carries the same version.
+- **Sets, in a sandbox with 22 tagged MP3s** and identifications cached from the 0.1.0a15 live runs (no new listening). Kaytranada at Boiler Room Montreal: 14 of 22 owned (12 in 0.1.0a15; #2 Robert Glasper and #19 Armand Val Helden were matched under MixesDB's spelling), 1 in another mix (Poison, Radio Edit), 7 missing; each track carries its SoundCloud moment (`listen_url`); it reused the list 0.1.0a15 had saved for that set. Its shopping list printed 7 songs with Beatport, Bandcamp and Traxsource searches and saved “… - to buy.txt”. Keinemusik (`djlib identify`): 13 tracks · 8 heard by Shazam · 3 from tracklists only · 2 IDs. A Shazam CSV given as a file: 2 of 3 owned. A piped tracklist kept its untimed ID at #2. `djlib set` alone showed the three ways in, and `djlib shazam status` with no history showed the three setup steps.
+- **Re-running 0.1.0a15 sets** (stream review, sandbox copy of a 0.1.0a15 workspace): Kaytranada updated its 0.1.0a15 list in place (same request, revision 1 → 3, no second list); Keinemusik matched its 0.1.0a15 key unchanged and kept its crate.
+- **Shazam** (stream review, a synthetic 1,520-song history): the last 30 days first, then the whole history ending in “The next 520 Shazams”, which brought 521 songs (520 new, 1 repeat); “Nothing new” pointed to a crate that opened; without Full Disk Access (folder set to no access), status showed its own headline and step.
+- **Review page** (stream review, screenshots at 1440 and 390 px, light and dark): no sideways scroll at 390 px on any page; the 13-track set page is under 1,800 px tall on a phone.
+- **Terminal** (stream reviews, 50 to 140 columns and a real pty): set and identify times are clickable links in a pty, and the set, shopping list, status, error and installer lines were read at 80 columns.
+- **Upgrade** (stream review): the finishing step ran end to end against a sandboxed `uv tool` install with a fake `uv`, in pretty and JSON output, and tests show the old process imports nothing after the install.
+- **MixesDB** (one fetch of its robots.txt): `Crawl-delay: 4` confirmed; lookups now space requests 4 seconds apart.
+
+Not verified yet:
+- **A live listen with this build.** Every set above reused a 0.1.0a15 identification. The progress line, the “Shazam is slow” wait and the 15-second polling were checked against recorded progress and tests, not a new listen.
+- **Release gate: Shazam history on the owner's Mac (macOS 26.0, 25A354).** Do the three setup steps on the owner's iPhone and Mac, Shazam one song, then confirm that `~/Library/Application Support/com.apple.shazamd` appears and `djlib shazam status` lists the song. That folder was missing on 2026-10-13, because Music Recognition hadn't synced there; the system's sandbox profile still grants shazamd that path. If the gate fails, take `djlib shazam status` out of the help's “New here?” line, the installer's closing lines and the README's ways in, and update the help test in `tests/test_cli_ux.py`.
+- **MixesDB's robots.txt also has `Disallow: /*?action=`.** Read literally, that covers djlib's lookups (`/w/api.php?action=query&…`). They are a few user-triggered requests per set, 4 seconds apart, with an honest User-Agent, not crawling. The owner should ask the MixesDB admins before tagging and record the answer in CONTRIBUTING.md; if they decline, turn the lookup off by default (there is no switch today).
+- **`paste` from a real clipboard.** Reviews used a `pbpaste` stand-in and stdin; copying from 1001Tracklists in a browser and running `djlib set paste` hasn't been tried end to end.
+- **The 0.1.0a15 → 0.1.0a16 upgrade on a real install**, including the traceback 0.1.0a15's upgrade may print after it installs.
+- **rekordbox and USB with this build**: no push or USB export was run. Playback on a CDJ/XDJ is still not verified by djlib at all.
+- **Linux and Windows** (the release CI matrix hasn't run on this branch), AudD and ACRCloud against their real services, and a set longer than two hours.
+- **Review page time links** appear only when djlib knows the set's link, which today means a set whose IDs carry it; a fully identified set shows plain times.
+
 ## 0.1.0a15
 
 Adds set identification (`djlib identify LINK`, `djlib_identify_set`, and `djlib set LINK` listening when a set's tracklist is missing or has IDs), automatic MixesDB tracklists, and Shazam history (`djlib set shazam[:new|DATE|apple-music|PATH]`, `djlib shazam status|list`, `djlib_shazam_history`), with song recognition installed by default on Python 3.12. See the [changelog](../CHANGELOG.md#010a15).
@@ -190,6 +216,6 @@ Do not call the milestone ready for unattended personal-library use until the de
 
 ## Still planned
 
-Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation (blends, repeats, edits) beyond the unreleased set identification; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
+Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation (blends, repeats, edits) beyond what set identification names; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; an early-web public home; and browser parity with the CLI (the local review page, `djlib ui`, shows sets, crates and the library, and its only writes are picking a copy and building a crate).
 
-See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria. No frontend has started.
+See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria.

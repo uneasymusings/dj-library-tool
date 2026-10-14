@@ -1,6 +1,28 @@
-# Delivery: working copies for rekordbox or Serato
+# Delivery: rekordbox, USB sticks and working copies
 
-`djlib set` and `rekordbox push|usb` use the user's original files and are the usual path. Use a delivery instead when the user wants separate, tagged working copies (for example with notes or BPM/key written into the tags), uses Serato, or wants a step-by-step record of a native import and a USB export. Delivery tools are in the full MCP profile (`DJLIB_MCP_TOOLS=full`); the CLI group is `djlib delivery`. Serato working copies are supported but untested with real music.
+## rekordbox and USB from `djlib set`
+
+`djlib set`, `djlib rekordbox push` and `djlib rekordbox usb` use the user's original files through rekordbox's own import and export. They need macOS, the CLI, and the app the user runs djlib in allowed under System Settings → Privacy & Security → Accessibility. djlib never edits rekordbox's database and never writes the stick itself.
+
+- Run them in the background (Claude Code: `run_in_background`; otherwise with a timeout of 15 minutes or more) and read the final JSON when they end. `--usb` waits up to 10 minutes for a click, and `--when-idle` until the user steps away. Never poll rekordbox's window.
+- Pass `--when-idle 60` to pushes you start on your own, and push several crates in one command: `djlib rekordbox push CRATE CRATE --when-idle 60`.
+- **The USB click.** The user clicks the playlist in rekordbox once. Start the command first, wait for `{"event": "select_playlist", "playlist", "device", "instruction"}` on stderr, then relay `instruction` word for word; take the playlist name only from that event. While it waits, `{"event": "waiting", "state", "reason", "seconds_left", "playlist"}` says why nothing has happened yet (rekordbox isn't in front, no playlist selected, the stick isn't listed): tell the user the reason. `{"event": "wrong_playlist", "selected"}` means they clicked another one. rekordbox comes to the front and a macOS notification repeats the instruction. Nothing else is exported. `--usb` can't be combined with `--when-idle` or `--no-rekordbox`.
+- Exit code 4 from a USB step: files are missing from the stick or out of order. Say so plainly; the stick isn't ready. The result's `usb` has `found` of `expected`, `in_order`, `analysis_from_device` and `player_playback_verified: false`: djlib reads the stick back but doesn't play it on a CDJ, so suggest a test on the player before a gig.
+- `complete: false` means `next` lists the exact commands that finish the job (e.g. `djlib rekordbox push 1a2b3c4d` after the user unlocks). A skipped rekordbox step has `rekordbox.reason_code`; `NOT_REQUESTED` (`--no-rekordbox`) and `APP_NOT_INSTALLED` are expected, the others need the user.
+- A crate keeps its playlist name, so later pushes and USB exports reuse that playlist. A set checked again that now owns other songs gets a new crate and a playlist "Name (2)" (`replaces` names the older one).
+- `djlib status` says which crates are in rekordbox (it reads rekordbox's playlists; with rekordbox closed it can't tell). `djlib crates` says when djlib pushed each one and when the stick was last checked.
+
+Errors:
+- `APP_AUTOMATION_NOT_ALLOWED`: ask once to allow the app they run djlib in under System Settings → Privacy & Security → Accessibility.
+- `APP_SCREEN_LOCKED`: the Mac is locked. `{"event": "unlock_mac"}` on stderr appears at once (in JSON mode djlib gives up after 30 s); tell the user to unlock, then run `next` or retry. `djlib doctor` shows `screen_locked`.
+- `APP_PLAYLIST_NAME_TAKEN`: rekordbox has a different playlist with that name; ask to rename one, or pass `--name`.
+- `APP_SELECTION_TIMEOUT`: nothing was exported; the message and `error.details.last_state` say why. Tell the user, and start again only once they're at rekordbox.
+- `DEVICE_REQUIRED`: no stick, or several; ask them to plug in one, or pass `--device /Volumes/NAME`.
+- `APP_AUTOMATION_UNSUPPORTED`: not a Mac; stop at the crate.
+
+## Working copies for rekordbox or Serato
+
+`djlib set` and `rekordbox push|usb` are the usual path. Use a delivery instead when the user wants separate, tagged working copies (for example with notes or BPM/key written into the tags), uses Serato, or wants a step-by-step record of a native import and a USB export. Delivery tools are in the full MCP profile (`DJLIB_MCP_TOOLS=full`); the CLI group is `djlib delivery`. Serato working copies are supported but untested with real music.
 
 | Workflow | For | Needs |
 | --- | --- | --- |

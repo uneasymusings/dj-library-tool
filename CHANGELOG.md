@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.1.0a16
+
+**New:**
+- **The whole set on screen.** `djlib set 'LINK'` shows every track in set order: its time, how sure djlib is, and whether you own it (✓ owned, ✗ missing, ≈ another mix you own, such as “≈ Radio Edit”, or an ID). The headline adds it up: “14 of 22 owned · 1 in another mix · 7 missing”. In a terminal that shows links, a time opens the set at that moment.
+- **A shopping list for the rest.** The set ends with “Your shopping list (7)”. `djlib requests report` lists each missing song by its time, with Beatport, Bandcamp and Traxsource searches, and saves it as “<set> - to buy.txt”. These are store searches, not purchases: check it's the right mix before you buy.
+- **`djlib set paste`.** Copy a set link or a tracklist (from 1001Tracklists, a message, or spreadsheet cells with their header row), then run `djlib set paste`. No file needed. `djlib set -` reads it from a pipe. `paste` reads the clipboard on a Mac.
+- **Your recent Shazams first.** `djlib shazam status` suggests the last 30 days (`djlib set shazam:2026-09-14`, with the right date) before your whole history, which comes oldest first, 1,000 at a time. The setup steps are rewritten for macOS 26.
+- **Your sets on the review page.** `djlib ui` opens on Sets: each set as a strip of owned, missing, other mix and IDs. A set's page lists every track with its time, how sure djlib is and what you own, with store searches for the missing ones. A crate's page gives the commands that put it in rekordbox and on your USB.
+- **Honest listening.** While djlib listens it shows where it is in the set (“Listening… 15:30 of 42:05 · 5 songs so far”) and says when Shazam is slow (“Shazam is slow, waiting (Ctrl-C is safe)”). There is no countdown any more, because it was wrong. An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. Before a long listen, `djlib set LINK` says why it is listening.
+
+**Upgrading:**
+- **Sets you checked keep their crate and playlist.** Checking a set again that you checked with 0.1.0a15 updates that set when its name and songs are the same, so its crate and rekordbox playlist stay. Four cases still make a new one:
+  - 0.1.0a16 finds more songs you own (Kaytranada's Boiler Room: 14 of 22, was 12). The new crate goes into rekordbox as “Name (2)”, as for any set that gained songs. Delete the older playlist if you don't need it.
+  - A tracklist file, checked without `--source`, with untimed “ID - ID” lines, which 0.1.0a15 left out. It has more lines now, so it becomes a new set, crate and “(2)” playlist, even when you own the same songs.
+  - Shazam sets have new names (“Shazam 26 Sep – 12 Oct”). A Shazam set checked again becomes a new set under the new name, so no “(2)”.
+  - A pasted tracklist is named after the day you paste it, so the same paste on another day is a new set.
+- **Upgrading from 0.1.0a15:** `djlib upgrade` runs 0.1.0a15's own upgrade. When that moves djlib to Python 3.12, it can end with a `ModuleNotFoundError` traceback after 0.1.0a16 is installed. The upgrade worked: run `djlib doctor` to check. From 0.1.0a16 on, the upgrade finishes in the djlib it just installed.
+- **`djlib init FOLDER`** now adds the folder to an existing setup. It used to stop with `ROOTS_NOT_UPDATED`.
+- **For scripts and assistants:** JSON changes are additions (listed in [CONTRACT](docs/CONTRACT.md)), except these values:
+  - Next steps. `djlib identify` and `djlib_job` suggest `djlib set URL --no-rekordbox` first, then `djlib identify URL --tracklist paste`. `SOURCE_BROWSER_ONLY` `details.next` is `djlib set paste` on a Mac (`djlib set FILE` elsewhere). `TRACKLIST_NOT_FOUND` `details.tracklist_next` and `SET_PREVIEW_ONLY` `details.next` are `djlib set paste --source URL`.
+  - Track notes read “Shazam heard it at 05:39 (4×)”, “Shazam heard it once at 01:09” and “MixesDB spells it …”, no longer “Shazam: 11 windows from …”. The notice about failed windows reads “Shazam couldn't answer for 3 of 62 minutes; those parts count as not heard.” and comes only from the run that listened.
+  - `SHAZAM_NOTHING_NEW`'s message and the 1,000-song Shazam warning no longer contain a command: read `details.next` and `result.shazam.next_spec`. `shazam list` and `djlib_shazam_history` list the latest Shazam first.
+  - `djlib_identify_set`'s `tracklist_source` defaults to `file` (it was `1001tracklists`), and repeating a key returns the same summary as `djlib_job`.
+  - `WORKSPACE_REQUIRED` and `SOURCE_NOT_ALLOWED` have new messages; the codes are unchanged. The terminal no longer prints error codes.
+  - An ID line needs only its label; a time or link is optional.
+
+**Details**
+
+*Owned or missing*
+- **A song heard under other credits counts as owned under the tracklist's spelling.** Shazam says “Robert Glasper Experiment”, MixesDB and your file say “Robert Glasper”: that's owned now, in the mix that was heard. Under the table the set says “Owned under another spelling: #2 Robert Glasper”, and `djlib requests get` shows “as Robert Glasper” next to the file. A mix the tracklist names but the audio didn't hear stays another mix you own and never goes in the crate.
+- **“and” matches “&”** in titles (“Me Myself and I”), and a remixer's country tag inside a mix name is ignored (“(Antdot & Maz (BR) Remix)”). This is a fallback only: when you own a file spelled exactly as asked, that file is the match. “VIP”, “Dub” and a “(BR)” at the end still count.
+- **A song you own twice, or on a drive that isn't plugged in, counts as owned** in `djlib set`, `djlib status`, `djlib requests` and the review page. It says what it needs: “! owned, pick a copy” (pick it on the review page with Use this) or “! owned, file unavailable”. Only songs with one readable copy go in the crate.
+- **Another mix you own reads “≈ Radio Edit”** in amber, not a red “missing”. djlib still counts only the exact mix and says so under the table.
+
+*Tracklists you paste or type*
+- `paste` and `-` work for `djlib set`, `djlib identify`, `--tracklist` and `djlib requests create --text`. A copied link is used as the link, also with words around it; anything else is read as a tracklist (up to 1 MB). Off a Mac, pipe it in with `-`.
+- A paste without a heading is named “Pasted 14 Oct · <first song> + N more”, so two pastes never share a name.
+- TextEdit (RTF) tracklists are converted on a Mac. UTF-16 and Windows (cp1252) files read as they are. A missing, empty, binary or folder path says what's wrong, and a link without its https:// says so. Links in quotes, curly quotes included, work.
+- A Shazam CSV given as a file (`djlib set shazamlibrary.csv`) is read as your Shazams. Any other CSV or TSV with Artist and Title columns (a spreadsheet, or a Serato or rekordbox history saved as CSV) is a song list named after the file, and a Mix or Version column keeps the versions exact.
+- Untimed “ID - ID” and “Artist - ID” lines stay in place, so the numbers match your list. A time on a line of its own, as 1001Tracklists copies it, is the next track's time.
+- More than 3 skipped label or heading lines read as one line in the terminal. A list cut short, unreadable lines and lines with a loose dash are still quoted one by one.
+- `djlib set` and `djlib identify` with nothing after them show the ways in.
+- `djlib init FOLDER…` takes folders directly, and the installer takes a folder dragged into Terminal.
+- `djlib --help` now opens with “Every track in a set, checked against your music, into rekordbox and onto USB.” It and the installer's closing lines show the three ways in: `djlib set 'LINK'`, `djlib shazam status` and `djlib set paste`.
+
+*Set links and listening*
+- Track names wrap instead of being cut, and at 80 columns most tracks fit on one line. The table has a Time column when the tracklist times its songs; otherwise an ID keeps its time beside it (“ID @ 06:20”).
+- Above 60 songs (a long Shazam history) the table shows the first 25 songs you don't own, then “… and N more: djlib requests report <set>”.
+- One name for IDs: “ID”, or “ID — maybe <song>” when djlib heard something there. `djlib identify` reads “13 tracks · 8 heard by Shazam · 3 from tracklists only · 2 IDs”, with no percentages, and lists each song heard once, not placed, by its time.
+- After `--no-rekordbox` the next step is “Put it in rekordbox” (`djlib rekordbox push <crate>`) or “Or straight onto your USB”. After `djlib identify`, the first next step checks the set against your music without making a rekordbox playlist.
+- A 1001Tracklists link (also 1001.tl) says what works: copy the tracklist, then `djlib set paste`; better, the set's own YouTube or SoundCloud link with `--tracklist paste`. A Mixcloud link says Mixcloud doesn't allow downloads and what to use instead.
+- MixesDB lookups wait 4 seconds between requests, as its robots.txt asks. Sets looked up at the same time each get their answer.
+
+*Your Shazams*
+- With more than 100 Shazams and none checked yet, `djlib shazam status` suggests the last 30 days first, then your whole history. A list cut at 1,000 says which days it covers, and “The next 520 Shazams” brings the rest; status keeps offering them until they are checked.
+- Without Full Disk Access, status says so (“djlib can't open your Shazam history yet”) and its next step opens the setting, instead of showing the iCloud steps.
+- “Nothing new” is calm (“○ Nothing new since Mon 12 Oct 15:20”) and points to your last Shazam crate.
+- Names say which days a list covers (“Shazam 26 Sep – 12 Oct”) or which file it came from (“Shazam (shazamlibrary.csv)”). Notes keep place names but not bare coordinates, and a Shazam with only a date no longer shows a made-up midnight.
+- `djlib shazam list` shows the latest Shazam first, with a × column for songs you Shazamed more than once.
+
+*Status, sets and crates*
+- `djlib status` lists your sets with their crates, one line each: “Kaytranada … 14 of 22 owned · 7 missing · 1 in another mix · crate 14 · ✓ in rekordbox · ✓ on DJ_USB 1d ago”. Each crate sits on the line of the set it was made from; others go under “Other crates”. On a computer without rekordbox, status doesn't talk about rekordbox for your crates. When nothing is checked yet, it suggests `djlib set paste` and, when this Mac has Shazams, your recent ones.
+- `djlib requests` lists your sets with the same counts as `djlib set`: Owned, Missing, Other mix, IDs.
+- `djlib requests collect` shows “✓ Crate “Name” 12 tracks, in set order”. When owned songs were left out (files missing or unreadable), it says so with the reasons and offers “See what failed” and “Retry failed items” before the push.
+- `djlib crates` shows what djlib did for each crate (“pushed 1d ago  ✓ on DJ_USB 1d ago”). Only `djlib status` says “✓ in rekordbox”, because only it reads rekordbox.
+- `djlib library mirage` searches without `-q`. `djlib crate` alone shows your newest crate, and `djlib requests`, `djlib shazam`, `djlib roots` and `djlib jobs` alone do the obvious thing. “Did you mean” suggests only commands you can see in help.
+- Errors in the terminal have a plain heading, no code, and list every way forward. Rescans say “✓ 22 tracks, 0 new”. Doctor's rows read “Background service” and “YouTube helper”, and until the first `djlib rekordbox sync` it says to run that once. Status says “no BPM yet” instead of “BPM for 0”.
+- `djlib upgrade` says “Installing djlib X…” while it works, finishes in the new djlib and restarts the background service if one was running. `djlib upgrade --check` offers “Add song recognition” when the upgrade can add it.
+- A copy of your djlib folder (a backup or a test copy) starts its own background service and never writes into the original. The same folder typed another way (upper or lower case on a Mac) keeps using its service.
+- Songs `--fetch` downloads say “Web rip from YouTube (stream quality) — buy before playing out · <link>” in rekordbox's Comments column.
+
+*Review page*
+- **Sets · Crates · Library.** Sets lists each set, newest first, with a strip of its tracks, its counts and, where djlib can tell, a YouTube, SoundCloud or Shazam badge. A set's page has the same strip (hover for the track, click to jump to it), then Time, a Sure meter, the track with its notes, and Owned (with “as Robert Glasper” for another spelling), Other mix (“You own Poison (Radio Edit)”), Missing with Beatport and Bandcamp searches, or ID. “Copy 7 missing” copies the missing songs as text; unreleased songs say “Not in stores yet”. Times link to that moment when djlib knows the set's link, which today means a set whose IDs carry it; a fully identified set shows plain times.
+- A crate's page starts with “Put it in rekordbox” and “Or straight onto your USB”, each with its command. It no longer shows `djlib export`.
+- On a phone (390 px wide) nothing scrolls sideways: rows stack, and the library shows BPM and key next to each track.
+- `djlib ui` says when it opened the page in your browser.
+
+*Assistants*
+- `djlib_job` tells assistants to check a listen every 15 seconds (30 while Shazam makes djlib wait) instead of every 2, and `djlib_identify_set` answers a repeated key with the same summary as `djlib_job`.
+- A tracklist given in any form counts as given, so `next` no longer asks for one the assistant already passed.
+- For a 1001Tracklists or Mixcloud link, `djlib_identify_set` and `djlib_source_inspect` name the tool that works instead and never suggest `paste`, which reads the user's clipboard. In the CLI's JSON, `details.next_for_assistants` says the same.
+- Tool descriptions are plain (“Find saved sets (each `djlib set` saves one) by name.”), and every 0.1.0a15 input still works.
+
 ## 0.1.0a15
 
 **Find every song in a set.**
