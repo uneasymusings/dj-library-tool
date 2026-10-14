@@ -720,7 +720,7 @@ def test_errors_suggest_the_real_folder_and_the_first_step(application, tmp_path
     assert f"djlib roots add {terminal.shell_path(outside.resolve())}" in err
     terminal.render_error(sized(200), {"code": "WORKSPACE_REQUIRED", "message": "Not yet."})
     err = capsys.readouterr().err
-    assert "djlib init --allow-root" in err and "PATH" not in err
+    assert "djlib init ~/Music" in err and "djlib scan" in err and "PATH" not in err
 
 
 def test_listening_to_nothing_named_suggests_pasting_a_tracklist():

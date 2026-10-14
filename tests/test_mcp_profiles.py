@@ -141,7 +141,7 @@ async def test_server_without_a_workspace_answers_every_call(tmp_path, monkeypat
                 assert error["code"] == "INPUT_INVALID"
                 continue
             assert error["code"] == "WORKSPACE_REQUIRED", (name, error)
-            assert "djlib init --allow-root ~/Music" in error["message"]
+            assert "djlib init ~/Music" in error["message"]
             assert "--workspace" not in error["message"]
         # Once `djlib init` has run, the same server reaches the coordinator.
         workspace.initialize()
@@ -155,7 +155,7 @@ async def test_missing_custom_workspace_names_it(tmp_path):
     async with Client(mcp_server.build_server(workspace)) as client:
         reply = await client.call_tool("djlib_roots", {})
     message = reply.structured_content["error"]["message"]
-    assert "djlib init --allow-root ~/Music" in message
+    assert "djlib init ~/Music" in message
     assert f"--workspace {workspace.root}" in message
 
 
