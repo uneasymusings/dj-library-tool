@@ -442,7 +442,7 @@ async def test_a_soundcloud_preview_is_refused_in_plain_words(application, setup
     error = job["result"]["error"]
     assert job["state"] == "failed" and error["code"] == "SET_PREVIEW_ONLY"
     assert "00:30 of this 1:00:00 set" in error["message"] and "Go+" in error["message"]
-    assert error["details"]["next"] == f"djlib set FILE --source '{URL}'"
+    assert error["details"]["next"] == f"djlib set paste --source '{URL}'"
     assert setup.listener.heard == [] and not (folder(application) / "audio").exists()
 
 
