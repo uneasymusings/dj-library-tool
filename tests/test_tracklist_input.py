@@ -1,5 +1,5 @@
 """How a tracklist reaches djlib: a file in any common encoding, TextEdit's rich text, what
-the DJ copied (``paste``) or a pipe (``-``); and what djlib says when it can't
+the DJ copied (``paste``), a pipe (``-``) or a Shazam CSV; and what djlib says when it can't
 read one.
 """
 
@@ -269,3 +269,36 @@ def test_1001tracklists_links_point_to_paste(application, monkeypatch):
         "djlib identify 'LINK' --tracklist paste"
     )
 
+
+# -- a Shazam CSV given as the set's file ------------------------------------------------------
+
+
+def test_a_shazam_csv_is_read_as_your_shazams(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    export = tmp_path / "shazamlibrary.csv"
+    export.write_text(
+        "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
+        "1,2026-10-10,Halo,Lumen,https://www.shazam.com/track/1,1\n"
+        "2,2026-10-11,Glue,Bicep,https://www.shazam.com/track/2,2\n",
+        encoding="utf-8",
+    )
+    plain = json.loads(invoke(application, "set", export, "--no-rekordbox").stdout)["result"]
+    spec = json.loads(invoke(application, "set", f"shazam:{export}", "--no-rekordbox").stdout)[
+        "result"
+    ]
+    assert plain["request_id"] == spec["request_id"] and plain["source"]["provider"] == "Shazam"
+    assert (plain["songs"], plain["owned"]) == (2, 1)
+    pretty = invoke(application, "set", export, "--no-rekordbox", pretty=True)
+    assert "Read as a Shazam export." in pretty.stderr
+    # Title and Artist columns without the Shazam line count too; other CSVs are tracklists.
+    columns = tmp_path / "liked.tsv"
+    columns.write_text("Artist\tTitle\nLumen\tHalo\n", encoding="utf-8")
+    liked = json.loads(invoke(application, "set", columns, "--no-rekordbox").stdout)["result"]
+    assert liked["source"]["provider"] == "Shazam" and liked["owned"] == 1
+    listing = tmp_path / "friday.csv"
+    listing.write_text("Lumen - Halo\nBicep - Glue\n", encoding="utf-8")
+    tracklist = json.loads(invoke(application, "set", listing, "--no-rekordbox").stdout)["result"]
+    assert tracklist["name"] == "friday" and tracklist["source"] is None

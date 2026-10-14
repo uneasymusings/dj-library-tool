@@ -524,6 +524,31 @@ def csv_header(table: list[list[str]]) -> tuple[int, dict | None]:
     return 0, None
 
 
+def is_export(path: Path) -> bool:
+    """Whether a .csv or .tsv file is a Shazam export (a "Shazam Library" line above the
+    header, or Title and Artist columns), so `djlib set FILE` reads it as one."""
+    if path.suffix.lower() not in {".csv", ".tsv"}:
+        return False
+    try:
+        if not path.is_file():
+            return False
+        with path.open("rb") as stream:
+            head = stream.read(64_000).decode("utf-8-sig", errors="replace")
+    except OSError:
+        return False
+    lines = head.splitlines()[:20]
+    if lines and header_key(lines[0]) == "shazamlibrary":
+        return True
+    try:
+        dialect = csv.Sniffer().sniff("\n".join(lines), delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    try:
+        return csv_header(list(csv.reader(lines, dialect)))[1] is not None
+    except csv.Error:
+        return False
+
+
 def read_csv(path: Path) -> list[dict]:
     """The old shazam.com export ("Index,TagTime,Title,Artist,URL,TrackKey") or any CSV with
     title and artist columns; a "Shazam Library" line above the header is skipped."""

@@ -674,6 +674,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             text_request,
         )
         from djlib.native import rekordbox_mac as ui
+        from djlib.sources import shazam_history
 
         if tracklist is None:
             raise identify_cli.nothing_given("set")
@@ -703,6 +704,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         if kind := identify_cli.typed(tracklist):
             link, pasted = identify_cli.read_typed(kind)
             tracklist, pasted = (link, None) if link else (kind, pasted)
+        elif not (source or identify or tracklists) and shazam_history.is_export(
+            Path(tracklist).expanduser()
+        ):
+            tracklist = f"shazam:{Path(tracklist).expanduser()}"
+            if not term.json:
+                term.err.print("Read as a Shazam export.", style="muted")
         if pasted is None and shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
