@@ -939,8 +939,9 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
         ),
         capsys=capsys,
     )
-    # rekordbox closed and never pushed by djlib: not there yet, and the push comes next.
-    assert "not readable" not in unread and "not in rekordbox yet" in unread
+    # rekordbox closed and never pushed by djlib: no claim either way, said once below, and the
+    # push comes next.
+    assert "not readable" not in unread and "not in rekordbox yet" not in unread
     assert "(rekordbox is closed, so djlib can't tell which are in it)" in unread
     assert f"djlib rekordbox push {SHORT_COLLECTION}" in unread.split("Next\n", 1)[1]
     pushed = render(
@@ -1338,7 +1339,7 @@ def test_status_lists_each_set_once_with_its_crate(capsys):
     assert "no BPM yet" in out and "BPM for 0" not in out
     line = next(line for line in out.splitlines() if "Kaytranada" in line)
     assert line.strip() == (
-        "○ Kaytranada Boiler Room  12 of 22 owned · 1 in another mix · 7 missing · 2 IDs"
+        "• Kaytranada Boiler Room  12 of 22 owned · 1 in another mix · 7 missing · 2 IDs"
         " · crate 12 · ✓ in rekordbox · ✓ on DJ_USB"
     )
     assert "✓ Warm-up  3 of 3 owned · crate 3" in out

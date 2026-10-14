@@ -580,8 +580,15 @@ def test_status_offers_rekordbox_only_where_it_is_installed(capsys):
     assert "push" not in out and "closed" not in out
     closed = status_with(rekordbox_checked=False, rekordbox_app=True, rekordbox_open=False)
     out = shown("status", closed, 120, capsys)
-    assert "not in rekordbox yet" in out and f"djlib rekordbox push {SHORT_COLLECTION}" in out
+    # It can't tell, so it says so once, not "not in rekordbox yet" on each line.
+    assert "not in rekordbox yet" not in out and f"djlib rekordbox push {SHORT_COLLECTION}" in out
     assert "(rekordbox is closed, so djlib can't tell which are in it)" in out
+    # rekordbox read and the crate isn't there: then it says so.
+    read = status_with(rekordbox_checked=True, rekordbox_app=True)
+    read["recent_collections"] = [
+        {**row, "in_rekordbox": False} for row in read["recent_collections"]
+    ]
+    assert "not in rekordbox yet" in shown("status", read, 120, capsys)
     # Open, but its playlists out of reach: djlib doesn't claim it's closed.
     opened = status_with(rekordbox_checked=False, rekordbox_app=True, rekordbox_open=True)
     out = shown("status", opened, 120, capsys)
