@@ -476,6 +476,10 @@ def needs_ffmpeg(error: dict) -> bool:
     )
 
 
+# The longest label that next steps line their commands up after.
+ALIGNED_LABEL = 36
+
+
 def render_error(term: Terminal, error: dict) -> None:
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
@@ -503,14 +507,15 @@ def render_error(term: Terminal, error: dict) -> None:
         (label, "" if not parts else parts if isinstance(parts, str) else term.command(*parts))
         for label, parts in hints
     ]
-
-    def fits(label_width: int, command: str) -> bool:
-        return label_width + len(command) + 8 <= term.err.width
-
-    # Commands line up after the longest label whose line fits; the rest go under their label.
-    width = max((len(label) for label, command in lines if fits(len(label), command)), default=0)
+    # Commands line up after the labels only when every step fits on one line and no long
+    # label pushes the short ones far right; otherwise each command goes under its label.
+    commands = [(label, command) for label, command in lines if command]
+    width = max((len(label) for label, _ in commands), default=0)
+    aligned = all(width + len(command) + 8 <= term.err.width for _, command in commands) and (
+        len(commands) < 2 or width <= ALIGNED_LABEL
+    )
     for label, command in lines:
-        if command and fits(len(label), command) and fits(width, command):
+        if command and aligned:
             line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
             line.append(" " * (width - len(label) + 2))
             line.append(command, style="cmd")
