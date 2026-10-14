@@ -97,6 +97,56 @@ async def test_a_copied_tracklist_is_not_asked_for_again(application, library_ht
     ]
 
 
+def test_assistants_get_tool_routes_and_the_spellings_a_song_is_owned_under():
+    """Without a shell an assistant checks the set with djlib_create_request: each confirmed
+    track carries the spellings it is owned under (also), as `djlib set` sends them, and
+    `next` names tools instead of the CLI's clipboard command."""
+    from djlib.application.set_identification import build_tracklist
+    from djlib.domain.contracts import ResponseEnvelope
+    from djlib.domain.request_contracts import RequestItem
+    from djlib.interfaces.envelope import envelope
+    from tests.test_set_identification import KAYTRANADA_HEARD, KAYTRANADA_MIXESDB, listing
+
+    mixesdb = listing(
+        "mixesdb",
+        *[
+            f"{n}. [{e['timestamp']}] {e['artist']} - {e['title']}"
+            for n, e in enumerate(KAYTRANADA_MIXESDB["entries"], 1)
+        ],
+        "13. [38:00] ID - ID",
+    )
+    tracklist = build_tracklist(duration=2525, probes=KAYTRANADA_HEARD, listed=[mixesdb])
+    for source in tracklist["sources"]:
+        if source["source"] == "mixesdb":
+            source["page_url"] = "https://www.mixesdb.com/w/Kaytranada"
+    url = "https://soundcloud.com/platform/kaytranada-boiler-room"
+    job = {
+        "job_id": "job_1",
+        "kind": "identify",
+        "state": "completed",
+        "result": {"tracklist": tracklist, "source": {"url": url}, "counts": {}},
+    }
+    reply = mcp_server.identify_view(ResponseEnvelope.model_validate(envelope(job)))
+    result = reply.result["result"]
+    glasper = next(track for track in result["tracks"] if track["title"] == "Move Love")
+    assert glasper["also"] == [
+        {
+            "artist": "Robert Glasper",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "source": "mixesdb",
+        }
+    ]
+    # Sent as an item, it is owned under either spelling.
+    item = RequestItem.model_validate(
+        {key: glasper[key] for key in ("artist", "title", "version", "also")}
+    )
+    assert item.also[0].artist == "Robert Glasper"
+    assert not any("paste" in step for step in result["next"])
+    assert result["next"][-1] == mcp_server.TRACKLIST_ROUTE
+    assert result["next_without_shell"] == mcp_server.NO_SHELL_ROUTE
+
+
 @pytest.mark.parametrize(
     ("url", "site"),
     [

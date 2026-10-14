@@ -52,6 +52,7 @@ from djlib.application.set_identification import (
     listed_tracklist,
     mixesdb_listing,
     segments,
+    track_also,
     track_notes,
     tracklist_text,
 )
@@ -1571,6 +1572,10 @@ def compact_track(track: dict) -> dict:
         "status": track.get("status"),
         "evidence": track_notes(track),
     }
+    if also := track_also(track):
+        # Other spellings of its credits the library check also owns it under: a request item
+        # made from this track carries them (RequestItem.also), as `djlib set` does.
+        compact["also"] = also
     every = track.get("candidates") or []
     # The best three, and up to two listener suggestions after them.
     shown = every[:3] + [c for c in every[3:] if c.get("source") == "comments"][:2]
