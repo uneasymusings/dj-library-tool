@@ -840,6 +840,32 @@ def test_a_set_that_gained_songs_becomes_a_new_playlist_version(
     assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
 
 
+def test_a_tracklist_edited_without_changing_its_songs_keeps_its_playlist(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    from tests.test_headline_workflow import build as build_keyed
+
+    build_keyed(library_http, [audio_factory("e1.wav", frequency=350)], [("Lumen", "Halo")], "e-1")
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Lumen - Halo\nID - ID\nLumen - Rain\n", encoding="utf-8")
+    fake = FakeRekordbox(monkeypatch)
+    workspace = ["--workspace", str(application.workspace.root)]
+
+    def run():
+        reply = CliRunner().invoke(cli_app, [*workspace, "set", str(tracklist)])
+        assert reply.exit_code == 0, reply.output
+        return json.loads(reply.stdout)["result"]
+
+    first = run()
+    # Times added to the same songs: the same list, crate and playlist, now with the times.
+    tracklist.write_text("[00:00] Lumen - Halo\n[03:10] ID - ID\nLumen - Rain\n", encoding="utf-8")
+    timed = run()
+    assert timed["request_id"] == first["request_id"]
+    assert timed["collection_id"] == first["collection_id"]
+    assert timed["rekordbox"]["status"] == "already_in_rekordbox" and len(fake.imported) == 1
+    assert [item["label"] for item in timed["missing"]] == ["ID - ID @ 03:10", "Lumen - Rain"]
+
+
 def test_a_new_version_keeps_its_playlist_name_for_usb_and_later_pushes(
     application, library_http, audio_factory, monkeypatch, tmp_path
 ):

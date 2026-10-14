@@ -306,26 +306,52 @@ def plain_labels(title: str, version: str = "") -> tuple[str, str]:
     return ORIGINAL.sub("", title) or title, version
 
 
-def label_form(artist: str, title: str, version: str = "") -> tuple[str, str]:
+# "(Antdot & Maz (BR) Remix)": a country tag after a remixer's name, inside the mix name. A
+# trailing "(UK)" is left alone, and so are the short mix words of tracklists.VERSION_WORDS.
+INNER_TAG = re.compile(r"\s*\(([A-Z]{2,3})\)(?=\s+\w[^()]*\))")
+VERSION_TAGS = frozenset({"MIX", "DUB", "VIP", "RMX"})
+
+
+def match_words(text: str) -> str:
+    """Title or mix text in matching form: ``normalize`` without a country tag inside a mix
+    name, and with "and" dropped as "&" is ("Me Myself and I" equals "Me, Myself & I").
+
+    Matching only; identity keys and stored IDs keep the text as written.
+    """
+    text = INNER_TAG.sub(lambda m: m[0] if m[1] in VERSION_TAGS else "", text)
+    words = normalize(text)
+    return " ".join(word for word in words.split() if word != "and") or words
+
+
+def label_form(artist: str, title: str, version: str = "", *, fold: bool = True) -> tuple[str, str]:
     """Labels compared as written: "Rain (Extended Mix)" equals "Rain" + "Extended Mix".
 
     Taggers store mix names either inside the title or in a separate version field. This is
     label equivalence for matching only; identity keys and stored IDs are unchanged.
-    "(Original Mix)" is ignored: "The Bells (Original Mix)" equals "The Bells".
+    "(Original Mix)" is ignored: "The Bells (Original Mix)" equals "The Bells". Without
+    ``fold``, "and" and a tag inside a mix name still count (see ``match_words``).
     """
     title, version = plain_labels(title, version)
-    return normalize(artist), normalize(f"{title} {version}" if version.strip() else title)
+    # Bracketed like a mix name in the title, so a tag inside it reads the same either way.
+    text = f"{title} ({version})" if version.strip() else title
+    return normalize(artist), match_words(text) if fold else normalize(text)
+
+
+# A trailing mix name that credits a remixer's country: "Bad Love (Antdot & Maz (BR) Remix)".
+TAGGED_VERSION = re.compile(
+    r"^(?P<title>.*\S)\s*\((?P<version>[^()\[\]]*\([A-Z]{2,3}\)[^()\[\]]*)\)\s*$"
+)
 
 
 def base_title(title: str) -> str:
     """The title without a trailing bracketed mix name."""
-    match = TRAILING_VERSION.match(title)
+    match = TRAILING_VERSION.match(title) or TAGGED_VERSION.match(title)
     return match["title"] if match else title
 
 
 def base_form(artist: str, title: str) -> tuple[str, str]:
     """Same song, any version: artist plus the title without its trailing mix name."""
-    return normalize(artist), normalize(base_title(title))
+    return normalize(artist), match_words(base_title(title))
 
 
 def version_prefixes(artist: str, title: str, version: str = "") -> list[str]:
@@ -395,7 +421,9 @@ def artist_names(artist: str, *featured: str) -> tuple[str, ...]:
     return tuple(sorted(names)) or (normalize(artist),)
 
 
-def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, ...], str]:
+def credit_form(
+    artist: str, title: str, version: str = "", *, fold: bool = True
+) -> tuple[tuple[str, ...], str]:
     """``label_form`` with the artist as a set of names, featured credits moved out of the title.
 
     "Max Dean, Luke Dean, Jamie Jones" equals "Jamie Jones & Max Dean & Luke Dean", and
@@ -403,19 +431,26 @@ def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, 
     """
     title, version = plain_labels(title, version)
     title, featured = split_featured(title)
-    return artist_names(artist, *featured), label_form("", title, version)[1]
+    return artist_names(artist, *featured), label_form("", title, version, fold=fold)[1]
 
 
-def equivalent_labels(first: tuple[str, str, str], second: tuple[str, str, str]) -> bool:
+def equivalent_labels(
+    first: tuple[str, str, str], second: tuple[str, str, str], *, fold: bool = True
+) -> bool:
     """Whether two artist/title/version labels name the same song and version, as request
-    matching compares them: as written (``label_form``) or by credited names (``credit_form``)."""
-    return label_form(*first) == label_form(*second) or credit_form(*first) == credit_form(*second)
+    matching compares them: as written (``label_form``) or by credited names (``credit_form``).
+
+    Without ``fold``, "Me Myself and I" is not "Me, Myself & I": request matching prefers a
+    file spelled that closely when it owns one (``match_words``)."""
+    if label_form(*first, fold=fold) == label_form(*second, fold=fold):
+        return True
+    return credit_form(*first, fold=fold) == credit_form(*second, fold=fold)
 
 
 def credit_base_form(artist: str, title: str) -> tuple[tuple[str, ...], str]:
     """``base_form`` with credited names as a set: same song, same artists, any version."""
     title, featured = split_featured(title)
-    return artist_names(artist, *featured), normalize(base_title(title))
+    return artist_names(artist, *featured), match_words(base_title(title))
 
 
 def title_lookup(artist: str, title: str) -> tuple[list[str], list[str]]:

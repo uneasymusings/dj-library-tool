@@ -73,8 +73,11 @@ def created(local, body) -> dict:
     """POST a request list; when the same list already exists, re-check it against the library.
 
     Rerunning an unchanged tracklist after adding music must report the new songs as owned.
+    The same set with other notes (a newer djlib, or more heard) updates its list in place.
     """
-    reply = local.request("POST", "/requests", data=body.model_dump(mode="json"))
+    reply = local.request(
+        "POST", "/requests", data=body.model_dump(mode="json"), params={"same_list": "true"}
+    )
     result = reply["result"]
     if result.get("reused"):
         reply = local.request(

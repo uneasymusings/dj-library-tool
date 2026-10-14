@@ -18,19 +18,10 @@ from difflib import SequenceMatcher
 from itertools import pairwise
 
 from djlib.application.source_matching import comment_hints, fold
-from djlib.application.tracklists import (
-    FEATURING_LABEL,
-    LIST_LABEL,
-    NUMBER_ONLY,
-    NUMBERING,
-    PLAYED_WITH,
-    TIMESTAMP,
-    TRAILING_TIMESTAMP,
-    VERSION_WORDS,
-    parse_tracklist,
-)
+from djlib.application.tracklists import FEATURING_LABEL, VERSION_WORDS, parse_tracklist
 from djlib.domain.contracts import (
     artist_names,
+    credit_form,
     plain_labels,
     safe_text,
     split_featured,
@@ -493,23 +484,6 @@ def _fold(runs: list[_Run]) -> list[_Run]:
 # Text tracklists
 
 
-def _line_time(raw: str) -> str | None:
-    line = NUMBERING.sub("", PLAYED_WITH.sub("", raw.strip(), count=1), count=1)
-    if match := TIMESTAMP.match(line):
-        return match.group(1)
-    line = NUMBERING.sub("", line, count=1).strip()
-    if (match := TRAILING_TIMESTAMP.search(line)) and match.start() > 0:
-        return next(filter(None, match.groups()))
-    return None
-
-
-def _read_line(raw: str) -> bool:
-    line = PLAYED_WITH.sub("", raw.strip(), count=1)
-    return bool(line) and not (
-        line.startswith(("#", "//")) or NUMBER_ONLY.match(line) or LIST_LABEL.match(line)
-    )
-
-
 def listed_tracklist(source: str, text: str, source_url: str | None = None) -> dict:
     """A ``listed`` tracklist (``{"source", "entries", "skipped"}``) from text, through
     ``parse_tracklist``.
@@ -519,20 +493,15 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     left out (``{"line", "text", "reason"}``).
     """
     text = safe_text(text, lines=True)
-    items, skipped = parse_tracklist(text, source_url)
+    times: list = []
+    items, skipped = parse_tracklist(text, source_url, times)
     entries = [item.model_dump() for item in items]
-    left_out = {number for number, *_ in skipped}
-    lines = [
-        (number, raw)
-        for number, raw in enumerate(text.splitlines(), 1)
-        if number not in left_out and _read_line(raw)
-    ]
-    if len(lines) == len(entries):
-        for entry, (_, raw) in zip(entries, lines, strict=True):
-            entry["timestamp"] = entry["timestamp"] or _line_time(raw)
+    for entry, (_, stamp) in zip(entries, times, strict=True):
+        entry["timestamp"] = entry["timestamp"] or stamp
     left = [{"line": number, "text": raw, "reason": reason} for number, raw, reason in skipped]
     if len(entries) > MAX_LISTED:
-        number, raw = lines[MAX_LISTED] if len(lines) == len(entries) else (0, "")
+        number = times[MAX_LISTED][0]
+        raw = text.splitlines()[number - 1]
         reason = f"more than {MAX_LISTED} tracks; this one and the rest are left out"
         left.append({"line": number, "text": raw, "reason": reason})
         entries = entries[:MAX_LISTED]
@@ -1214,8 +1183,9 @@ def _also_named(slot: _Slot, shown: Song) -> dict | None:
     if not best or not text:
         return None
     if repaired:
-        label = _label(text["artist"], text["title"], text["version"])
-        return {"source": text["source"], "label": label}
+        # The listing's labels too: a DJ's file is often tagged that way (request_items).
+        labels = {key: text[key] for key in ("artist", "title", "version")}
+        return {"source": text["source"], "label": _label(**labels), **labels}
     heard = _song(best["artist"], best["title"], best["version"])
     if heard.names == shown.names and heard.core == shown.core:
         return None
@@ -1536,26 +1506,42 @@ def track_notes(track: dict) -> str:
 def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
     """Request items (``RequestItem`` fields) in set order, with the evidence in ``notes``.
 
-    IDs stay unknown items labelled "ID"; a likely identity goes in the notes only. An ID
-    without a time is left out unless ``source_url`` says where to hear it.
+    IDs stay unknown items labelled "ID", in their place even without a time; a likely
+    identity goes in the notes only. A confirmed song shown under the credits the audio heard
+    also counts as owned under the listing's spelling of them (``also``), in the mix shown.
     """
     items = []
     for track in tracklist.get("tracks") or []:
         stamp = clock(track["start"]) if track.get("start") is not None else None
         notes = _notes(track)
         if track["kind"] == "named":
-            items.append(
-                {
-                    "kind": "named",
-                    "artist": _clean(track["artist"])[:500],
-                    "title": _clean(track["title"])[:1000],
-                    "version": _clean(track.get("version"))[:300],
-                    "timestamp": stamp,
-                    "notes": notes,
-                    "confidence": track["status"],
-                }
-            )
-        elif stamp or source_url:
+            item = {
+                "kind": "named",
+                "artist": _clean(track["artist"])[:500],
+                "title": _clean(track["title"])[:1000],
+                "version": _clean(track.get("version"))[:300],
+                "timestamp": stamp,
+                "notes": notes,
+                "confidence": track["status"],
+            }
+            listed = track.get("also_named") or {}
+            title, version = listed.get("title") or "", listed.get("version") or ""
+            shown = credit_form("", item["title"], item["version"])[1]
+            if credit_form("", title, version)[1] != shown:
+                # The repair is about credits: a mix the listing names but the audio did not
+                # hear ("Kaytranada Edition" for a "Kaytranada Remix") is another recording.
+                title, version = item["title"], item["version"]
+            credit = {
+                "artist": _clean(listed.get("artist"))[:500],
+                "title": _clean(title)[:1000],
+                "version": _clean(version)[:300],
+                "source": _clean(listed.get("source"))[:40],
+            }
+            # Only where the audio's spelling replaced the listing's (``_repairs``).
+            if track["status"] == "confirmed" and credit["artist"] and credit["title"]:
+                item["also"] = [credit]
+            items.append(item)
+        else:
             items.append(
                 {
                     "kind": "unknown",

@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from djlib import __version__
-from djlib.domain.contracts import TRAILING_VERSION
+from djlib.domain.contracts import TRAILING_VERSION, credit_form
 from djlib.interfaces.client import version_key
 from djlib.interfaces.terminal import (
     ACCESSIBILITY_SETTINGS,
@@ -84,7 +84,7 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
     if result is None:
         result = {}
     # Skipped lines and similar notes belong under the headline, not after the next steps.
-    term.pending = [str(warning) for warning in envelope.get("warnings") or []]
+    term.pending = skipped_once([str(warning) for warning in envelope.get("warnings") or []])
     if (
         name in FOLLOW
         and client_factory is not None
@@ -130,6 +130,34 @@ TONE_STYLES = {
     "skip": "muted",
     "mark": "brand",
 }
+
+
+# "line 6 skipped (no “Artist - Title” separator): “SELF RELEASED”", or "MixesDB, line 6 …": a
+# label, heading or note. Lines skipped for another reason (unreadable characters, a list cut
+# short) and lines with a loose dash ("Artist -Title") may be songs, so each still prints.
+SKIPPED_LINE = re.compile(
+    r"^(?:[^,]+, )?line \d+ skipped \((?:no “Artist - Title” separator|looks like a heading)\)"
+    r": (?P<line>.*)$"
+)
+LOOSE_DASH = re.compile(r"\w(?:\s[-–—]|[-–—]\s)\S")
+QUOTED_SKIPS = 3
+
+
+def _label_skip(warning: str) -> bool:
+    match = SKIPPED_LINE.match(warning)
+    return bool(match) and not LOOSE_DASH.search(match["line"])
+
+
+def skipped_once(warnings: list[str]) -> list[str]:
+    """More than three label lines skipped from a tracklist read as one line (JSON keeps each
+    one); any other skipped line is still quoted on its own."""
+    skipped = [warning for warning in warnings if _label_skip(warning)]
+    if len(skipped) <= QUOTED_SKIPS:
+        return warnings
+    summary = f"{len(skipped)} lines without “Artist - Title” skipped (labels, headings, notes)"
+    first = warnings.index(skipped[0])
+    kept = [warning for warning in warnings if not _label_skip(warning)]
+    return [*kept[:first], summary, *kept[first:]]
 
 
 def flush_warnings(term: Terminal) -> None:
@@ -2543,6 +2571,21 @@ def mix_name(track: dict) -> str:
 MATCHING = frozenset(
     {"exact_labels", "equivalent_labels", "file_name_labels", "operator_identified"}
 )
+
+
+def spelled_as(item: dict) -> str:
+    """The other spelling an owned song's file matched (``accepted.matched_as``): the listing's
+    credits ("Robert Glasper") when only they differ, else its whole label; "" when none."""
+    label = (item.get("accepted") or {}).get("matched_as") or ""
+    source = item.get("input") or {}
+    credit = (source.get("also") or [{}])[0]
+    if label and credit.get("artist"):
+        mix = credit_form("", credit.get("title") or "", credit.get("version") or "")[1]
+        if mix == credit_form("", source.get("title") or "", source.get("version") or "")[1]:
+            return credit["artist"]
+    return label
+
+
 REQUEST_STATES = {
     "satisfied": ("ok", "ok", "owned"),
     "missing": ("bad", "bad", "missing"),
@@ -2623,6 +2666,8 @@ def request_view(term: Terminal, result: dict) -> None:
         exact = [c for c in candidates if c.get("identity_match") in MATCHING]
         if accepted.get("path"):
             match = file_tail(accepted["path"])
+            if spelling := spelled_as(item):
+                match.append(f"  as {spelling}", style="muted")
         elif len(exact) > 1:
             match = Text(f"{len(exact)} copies; pick one", style="warn")
         elif others and item.get("state") == "missing":
