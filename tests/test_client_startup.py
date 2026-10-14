@@ -1,5 +1,6 @@
 """Windows MCP must reuse an externally owned coordinator, never spawn into a host job."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -90,7 +91,9 @@ def test_a_copied_workspace_never_uses_the_originals_service(application, monkey
     client, state, calls, _ = coordinator(
         application, monkeypatch, health_version=__version__, version=__version__
     )
-    state["workspace_root"] = str(application.workspace.root.parent / "original")
+    original = application.workspace.root.parent / "original"
+    original.mkdir()
+    state["workspace_root"] = str(original)
     assert client.discover() is None
     assert client.last_discovery_error == "identity_mismatch"
     spawned = []
@@ -114,6 +117,21 @@ def test_a_copied_workspace_never_uses_the_originals_service(application, monkey
     assert client.discover() == state["url"]
     del state["workspace_root"]
     assert client.discover() == state["url"]
+
+
+def test_the_same_folder_spelt_differently_is_still_this_workspace(application, monkeypatch):
+    """macOS folds case and accents in paths, so the service may name its folder another way;
+    treating that as a copy would start a second service that can never get the lock."""
+    client, state, _, _ = coordinator(
+        application, monkeypatch, health_version=__version__, version=__version__
+    )
+    root = application.workspace.root
+    state["workspace_root"] = os.path.join(str(root), "runtime", os.pardir)
+    assert client.discover() == state["url"]
+    swapped = root.parent / root.name.swapcase()
+    if swapped.name != root.name and swapped.is_dir():  # a case-insensitive disk, as on a Mac
+        state["workspace_root"] = str(swapped)
+        assert client.discover() == state["url"]
 
 
 def test_health_names_the_workspace_folder(application):
