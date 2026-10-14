@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from djlib.application import requests
+from djlib.application.set_identification import build_tracklist, request_items
 from djlib.domain.contracts import (
     CollectionRequest,
     StartRequest,
@@ -30,6 +31,7 @@ from djlib.interfaces.rekordbox_cli import set_item
 from djlib.persistence.models import Job
 from djlib.persistence.request_models import RequestLedger
 from tests.conftest import execute
+from tests.test_set_identification import SET_URL, listing, song
 
 
 @pytest.fixture
@@ -734,6 +736,21 @@ async def test_another_spelling_never_loosens_the_mix(ledger_app, audio_factory)
     assert item["state"] == "missing" and item["accepted"] is None
     # The file is another mix of that spelling: shown as one you own, never in the crate.
     assert [c["identity_match"] for c in item["candidates"]] == ["different_version"]
+    assert set_item(item)["you_own"] == ["Kaytranada Edition"]
+
+
+async def test_a_mix_listed_but_not_heard_stays_another_mix_you_own(ledger_app, audio_factory):
+    """Shazam heard the Kaytranada Remix where MixesDB lists the Edition, which the DJ owns:
+    the set's song stays missing, with the Edition as a mix you own."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    heard = song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Remix)")
+    listed = listing("mixesdb", "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)")
+    tracklist = build_tracklist(duration=300, probes=heard, listed=[listed])
+    items = [RequestItem(**item) for item in request_items(tracklist, SET_URL)]
+    item = create(ledger_app, items)["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
     assert set_item(item)["you_own"] == ["Kaytranada Edition"]
 
 
