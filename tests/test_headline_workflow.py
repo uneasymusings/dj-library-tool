@@ -8,6 +8,7 @@ import pytest
 from mcp import Client
 from typer.testing import CliRunner
 
+from djlib.application.set_identification import listed_tracklist
 from djlib.application.tracklists import parse_tracklist
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.mcp_server import build_server
@@ -37,10 +38,14 @@ def test_tracklist_lines_become_requests_without_guessing():
         ("Lumen Drift", "Glasshouse [Dub Version]"),
         ("Ana Belén Ríos", "Corazón Eléctrico"),
     ]
+    # An ID keeps its place in the list, timed or not.
+    assert [i.kind for i in items] == ["named", "named", "unknown", "unknown", "named", "named"]
     unknown = [i for i in items if i.kind == "unknown"]
-    assert [(i.timestamp, i.artist, i.title) for i in unknown] == [("47:12", None, None)]
+    assert [(i.timestamp, i.artist, i.title) for i in unknown] == [
+        ("47:12", None, None),
+        (None, None, None),
+    ]
     assert [(number, reason) for number, _, reason in skipped] == [
-        (5, "unknown ID needs a timestamp or --source"),
         (8, "no “Artist - Title” separator"),
     ]
     headed, skipped = parse_tracklist("Set Zero — Friday\n1. A - One\nB - Two\n2. C - Three")
@@ -118,7 +123,95 @@ def test_first_line_of_an_unnumbered_list_names_the_set():
     first, skipped = parse_tracklist("Lumen - Halo\nNia - Burn")
     assert len(first) == 2 and skipped == []
     unknown, skipped = parse_tracklist("ID\nLumen - Halo")
-    assert skipped == [(1, "ID", "unknown ID needs a timestamp or --source")]
+    assert skipped == [] and (unknown[0].kind, unknown[0].label) == ("unknown", "ID")
+
+
+# A 1001Tracklists page copied as it shows: numbers, times and record labels on lines of their
+# own, and some tracks without a time.
+PASTED_1001 = """Kaytranada @ Boiler Room Montreal
+01
+00:00
+Kaytranada - Roots (Silent Treatment Intro)
+SELF RELEASED
+02
+01:09
+Robert Glasper - Move Love (Kaytranada Edition)
+BLUE NOTE
+03
+[03:08]
+KenLo Croqnote - Facteur Humidex
+HW&W
+04
+Kaytranada - ID
+05
+ID - ID
+06
+06:37
+SebastiAn - Arabest
+ED BANGER
+07
+10:32
+Kaytranada - At All
+XL
+08
+De La Soul - Me Myself and I
+TOMMY BOY
+09
+15:17
+Teedra Moses - Be Your Girl (Kaytranada Edit)
+SELF RELEASED
+10
+19:52
+Indeep - Last Night A DJ Saved My Life
+SOUND OF NEW YORK
+11
+24:10
+Pomo - So Fine
+HW&W
+12
+26:00
+Bell Biv DeVoe - Poison
+MCA
+13
+28:36
+Janet Jackson - If (Kaytranada Remix)
+SELF RELEASED
+"""
+
+
+def test_ids_keep_their_place_and_a_time_alone_is_the_next_tracks():
+    """The DJ's numbers stay right: "5. ID - ID" is item 5 with or without a time, and
+    "Kaytranada - ID" keeps the artist. A time on its own line belongs to the next track."""
+    items, skipped = parse_tracklist(
+        "1. A - One\n2. B - Two\n3. C - Three\n4. A - B\n5. ID - ID\n6. Pomo - So Fine"
+    )
+    assert [(i.kind, i.title or i.label) for i in items[3:]] == [
+        ("named", "B"),
+        ("unknown", "ID - ID"),
+        ("named", "So Fine"),
+    ]
+    assert skipped == []
+    times: list = []
+    items, skipped = parse_tracklist(PASTED_1001, times=times)
+    assert len(items) == 13 and len(skipped) == 12  # the heading and 11 record labels
+    assert skipped[0] == (1, "Kaytranada @ Boiler Room Montreal", "looks like a heading")
+    assert [i.label for i in items if i.kind == "unknown"] == ["Kaytranada - ID", "ID - ID"]
+    assert [stamp for _, stamp in times] == [
+        "00:00", "01:09", "03:08", None, None, "06:37", "10:32", None,
+        "15:17", "19:52", "24:10", "26:00", "28:36",
+    ]  # fmt: skip
+    # Every line keeps its time, named or ID: a pasted list gets a Time column and links.
+    assert [item.timestamp for item in items] == [stamp for _, stamp in times]
+    entries = listed_tracklist("1001tracklists", PASTED_1001)["entries"]
+    assert [entry["timestamp"] for entry in entries] == [stamp for _, stamp in times]
+    alone, _ = parse_tracklist(
+        "01:09\nID - ID\n[02:30]\nSELF RELEASED\nKaytranada - ID\n03:00\nPomo - So Fine"
+    )
+    assert [(i.label or i.title, i.timestamp) for i in alone] == [
+        ("ID - ID", "01:09"),
+        ("Kaytranada - ID", "02:30"),
+        ("So Fine", "03:00"),
+    ]
 
 
 def rekordbox_xml(path: Path, tracks: list[tuple[Path, str, str]]) -> Path:
@@ -289,6 +382,44 @@ async def test_tracklist_to_crate_with_rekordbox_analysis(
     assert peak["selected_count"] == 1
 
 
+def test_status_pairs_each_crate_with_the_set_it_came_from(
+    application, library_http, audio_factory
+):
+    """Every Shazam import is called "Shazam": a new one never claims an old one's crate, and
+    status counts a set the way `djlib requests` does."""
+    sources = [audio_factory(f"shz-{n}.wav", frequency=300 + 100 * n) for n in range(2)]
+    build(library_http, sources, [("Nia Okoro", "Slow Burn"), ("Lumen", "Dub")])
+
+    def saved(key, items):
+        body = {"name": "Shazam", "idempotency_key": key, "items": items}
+        return assert_envelope(library_http.post("/requests", json=body).json())
+
+    old = saved("old", [{"artist": "Nia Okoro", "title": "Slow Burn"}])
+    job = assert_envelope(
+        library_http.post(
+            f"/requests/{old['request_id']}/collection", json={"revision": old["revision"]}
+        ).json()
+    )
+    finish(library_http, job["job_id"])
+    new = saved(
+        "new",
+        [
+            {"artist": "Lumen", "title": "Dub"},
+            {"artist": "Nia Okoro", "title": "Slow Burn", "version": "Extended Mix"},
+            {"artist": "Nobody", "title": "Nothing"},
+            {"kind": "unknown", "label": "ID - ID", "timestamp": "12:00"},
+        ],
+    )
+    summary = assert_envelope(library_http.get("/summary").json())
+    crates = {row["name"]: row for row in summary["recent_collections"]}
+    assert crates["Shazam"]["request_id"] == old["request_id"]
+    assert crates["Owned"]["request_id"] is None  # not collected from a set
+    sets = {row["request_id"]: row for row in summary["recent_requests"]}
+    tally = {"owned": 1, "missing": 1, "other_mix": 1, "ids": 1, "to_check": 0, "maybe": 0}
+    assert sets[new["request_id"]]["counts"] == tally
+    assert sets[new["request_id"]]["owned"] == 1 and sets[new["request_id"]]["songs"] == 4
+
+
 def test_collect_needs_owned_tracks(application, library_http):
     ledger = assert_envelope(
         library_http.post(
@@ -423,3 +554,47 @@ def test_rerunning_a_tracklist_rechecks_it_against_new_music(
     result = json.loads(again.stdout)["result"]
     assert result["request_id"] == json.loads(first.stdout)["result"]["request_id"]
     assert result["counts"]["satisfied"] == 2
+
+
+def test_a_pasted_page_full_of_labels_reads_as_one_warning(application, library_http, tmp_path):
+    """The terminal says it once; JSON keeps every skipped line for assistants."""
+    from tests.test_identify_cli import invoke
+
+    tracklist = tmp_path / "boiler.txt"
+    tracklist.write_text(PASTED_1001, encoding="utf-8")
+    envelope = json.loads(invoke(application, "set", tracklist, "--no-rekordbox").stdout)
+    assert envelope["result"]["songs"] == 13
+    assert envelope["result"]["name"] == "Kaytranada @ Boiler Room Montreal"
+    skipped = [warning for warning in envelope["warnings"] if " skipped (" in warning]
+    assert len(skipped) == 11
+    assert skipped[0] == "line 5 skipped (no “Artist - Title” separator): “SELF RELEASED”"
+    pretty = invoke(application, "set", tracklist, "--no-rekordbox", pretty=True).stdout
+    assert "11 lines without “Artist - Title” skipped (labels, headings, notes)" in pretty
+    assert "SELF RELEASED" not in pretty and "line 5" not in pretty
+
+
+def test_up_to_three_skipped_lines_are_quoted_one_by_one():
+    from djlib.interfaces.views import skipped_once
+
+    lines = [f"line {n} skipped (no “Artist - Title” separator): “LABEL”" for n in range(3)]
+    notice = "MixesDB marks this tracklist incomplete: songs may be missing."
+    assert skipped_once([notice, *lines]) == [notice, *lines]
+    heading = "MixesDB, line 1 skipped (looks like a heading): “- Friday at Fabric”"
+    more = [notice, heading, *lines, "Last"]
+    assert skipped_once(more) == [
+        notice,
+        "4 lines without “Artist - Title” skipped (labels, headings, notes)",
+        "Last",
+    ]
+    # Lines that may be songs are never folded into the summary.
+    songs = [
+        "MixesDB, line 9 skipped (unreadable characters): “Real Artist - Real Song”",
+        "MixesDB, line 900 skipped (more than 400 tracks; this one and the rest are left out): "
+        "“X - Y”",
+        "line 12 skipped (no “Artist - Title” separator): “Kaytranada -Glowed Up”",
+    ]
+    assert skipped_once([notice, heading, *lines, *songs]) == [
+        notice,
+        "4 lines without “Artist - Title” skipped (labels, headings, notes)",
+        *songs,
+    ]

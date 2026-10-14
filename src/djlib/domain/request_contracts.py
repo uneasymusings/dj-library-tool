@@ -4,7 +4,7 @@ import unicodedata
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from djlib.domain.contracts import HIDDEN, Contract
 
@@ -29,6 +29,27 @@ def evidence_url(value: str) -> str:
     return value
 
 
+class AlsoCredit(RequestContract):
+    """The same song and mix under another spelling of its credits, e.g. the listing's
+    "Robert Glasper" for Shazam's "Robert Glasper Experiment". Matched by the same exact rule."""
+
+    artist: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=1000)
+    version: str = Field(default="", max_length=300)
+    # Where this spelling comes from: mixesdb, description, 1001tracklists, file, …
+    source: str = Field(default="", max_length=40)
+
+    @field_validator("artist", "title")
+    @classmethod
+    def labels(cls, value):
+        return clean_text(value)
+
+    @field_validator("version", "source")
+    @classmethod
+    def optional_text(cls, value):
+        return clean_text(value) if value else value
+
+
 class RequestItem(RequestContract):
     kind: Literal["named", "unknown"] = "named"
     artist: str | None = Field(default=None, min_length=1, max_length=500)
@@ -40,6 +61,9 @@ class RequestItem(RequestContract):
     notes: str = Field(default="", max_length=4000)
     # How sure an identification is that the set plays this song (djlib set LINK).
     confidence: Literal["confirmed", "likely", "weak", "conflict", "unidentified"] | None = None
+    # Other spellings of a named song's credits that also count as owning it (MixesDB's and a
+    # pasted tracklist's, say), tried in order.
+    also: list[AlsoCredit] = Field(default_factory=list, max_length=3)
 
     @field_validator("artist", "title", "label", "timestamp")
     @classmethod
@@ -63,27 +87,89 @@ class RequestItem(RequestContract):
                 raise ValueError("Named requests require both artist and title.")
         elif (
             not self.label
-            or not (self.timestamp or self.source_url)
             or self.artist is not None
             or self.title is not None
             or self.version
+            or self.also
         ):
+            # An ID keeps its place in the set even without a time ("5. ID - ID").
             raise ValueError(
-                "Unknown requests require a label and timestamp or source URL; "
-                "do not supply guessed artist/title/version labels."
+                "Unknown requests require a label; do not supply guessed "
+                "artist/title/version labels or other spellings."
             )
         return self
+
+    @model_serializer(mode="wrap")
+    def without_empty_also(self, handler):
+        # Saved lists and their idempotency keys stay as they were before `also` existed.
+        data = handler(self)
+        if not data.get("also"):
+            data.pop("also", None)
+        return data
+
+
+class SetSource(RequestContract):
+    """Where a set came from, shown beside it: its page (YouTube or SoundCloud, or "Shazam")."""
+
+    url: str | None = Field(default=None, max_length=4096)
+    provider: str | None = Field(default=None, max_length=40)
+    title: str | None = Field(default=None, max_length=1000)
+    uploader: str | None = Field(default=None, max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def link(cls, value):
+        return evidence_url(value) if value is not None else value
+
+    @field_validator("provider", "title", "uploader")
+    @classmethod
+    def text(cls, value):
+        return clean_text(value) if value else None
+
+
+class MixesdbCredit(RequestContract):
+    """The MixesDB page whose tracklist a set uses, credited and linked beside it."""
+
+    page_title: str = Field(min_length=1, max_length=1000)
+    page_url: str = Field(min_length=1, max_length=4096)
+    tracklist: Literal["complete", "incomplete", "unknown"] | None = None
+
+    @field_validator("page_title")
+    @classmethod
+    def text(cls, value):
+        return clean_text(value)
+
+    @field_validator("page_url")
+    @classmethod
+    def link(cls, value):
+        return evidence_url(value)
 
 
 class RequestCreate(RequestContract):
     name: str = Field(min_length=1, max_length=300)
     items: list[RequestItem] = Field(min_length=1, max_length=1000)
     idempotency_key: str = Field(min_length=1, max_length=200)
+    # Where the set came from, for people (badge, links into the set, MixesDB credit). Never
+    # part of what makes two lists the same, nor of the key's request.
+    source: SetSource | None = None
+    mixesdb: MixesdbCredit | None = None
+    # Tracks a copied tracklist left out (1001Tracklists' "Save 12 more tracks"), so every
+    # screen can say the list is partial.
+    hidden_tracks: int | None = Field(default=None, ge=1, le=100_000)
 
     @field_validator("name", "idempotency_key")
     @classmethod
     def text(cls, value):
         return clean_text(value)
+
+    @model_serializer(mode="wrap")
+    def without_empty_source(self, handler):
+        # Lists without a source serialize as before these fields existed.
+        data = handler(self)
+        for key in ("source", "mixesdb", "hidden_tracks"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class RequestRefresh(RequestContract):

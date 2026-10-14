@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from djlib.interfaces import cli, guided, terminal, views
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
 from djlib.interfaces.service import create_app
+from djlib.sources import web
 
 
 def sized(width: int, **options) -> terminal.Terminal:
@@ -98,10 +100,33 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     reply = invoke("library", pretty=True, workspace=tmp_path / "missing")
     assert reply.exit_code == 2
     assert reply.stdout == ""
-    assert "djlib isn't set up yet" in reply.stderr
-    assert "(WORKSPACE_REQUIRED)" in reply.stderr
-    assert "init --allow-root PATH" in reply.stderr
+    assert reply.stderr.startswith("✗ djlib isn't set up yet\n")
+    # People read the title; the code is for scripts, in the JSON envelope only.
+    assert "WORKSPACE_REQUIRED" not in reply.stderr
+    # Plain words, then the two first steps; the JSON keeps the message.
+    assert "Tell it where your music is" in reply.stderr
+    assert "no djlib workspace" not in reply.stderr
+    # The command to paste, as doctor gives it: no placeholder to fill in.
+    assert f"init {terminal.shell_path(Path.home() / 'Music')}" in reply.stderr
+    assert "--allow-root" not in reply.stderr and "PATH" not in reply.stderr
+    assert "scan" in reply.stderr
     captured = invoke("library", workspace=tmp_path / "missing")
+    assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
+
+
+def test_set_says_djlib_isnt_set_up_before_reading_the_set(tmp_path, monkeypatch):
+    """No "Reading the set's description…" first: the friendly setup message comes at once."""
+    from djlib.interfaces import set_sources
+
+    def read(*args, **kwargs):
+        raise AssertionError("read the set's page before checking the setup")
+
+    monkeypatch.setattr(set_sources, "tracklist_from_url", read)
+    link = "https://soundcloud.com/platform/kaytranada-boiler-room"
+    reply = invoke("set", link, pretty=True, workspace=tmp_path / "missing")
+    assert reply.exit_code == 2
+    assert reply.stderr.startswith("✗ djlib isn't set up yet\n") and "Reading" not in reply.stderr
+    captured = invoke("set", link, "--no-rekordbox", workspace=tmp_path / "missing")
     assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
 
 
@@ -154,6 +179,23 @@ def test_terminal_scan_defaults_to_the_only_root_and_follows_the_job(local_http,
     assert "done" in jobs.stdout and "Scan" in jobs.stdout
 
 
+def test_a_second_copy_of_a_song_is_no_new_track(local_http, audio_factory):
+    """A scan counts songs as the library does: another copy of a song you have is one more
+    file, not a new track."""
+    audio_factory("night bus.wav", frequency=330, artist="Velvet Static", title="Night Bus")
+    assert "✓ 2 tracks indexed" in invoke("scan", pretty=True, workspace=local_http.root).stdout
+    audio_factory("night bus 2.wav", frequency=331, artist="Velvet Static", title="Night Bus")
+    again = invoke("scan", pretty=True, workspace=local_http.root)
+    assert "✓ 2 tracks, 0 new" in again.stdout
+    jobs = json.loads(invoke("jobs", "list", workspace=local_http.root).stdout)["result"]["jobs"]
+    # The file is new; the song isn't.
+    assert {"new_tracks": 1, "recordings": 2, "new_recordings": 0}.items() <= jobs[0][
+        "result"
+    ].items()
+    status = invoke("status", pretty=True, workspace=local_http.root).stdout
+    assert "Library  2 tracks" in status
+
+
 def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_path, monkeypatch):
     import shutil
 
@@ -176,11 +218,18 @@ def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_pat
     again = json.loads(invoke("scan", "--key", "k", workspace=local_http.root).stdout)
     assert [s["job_id"] for s in again["result"]["scans"]][:2] == [s["job_id"] for s in scans]
     assert len(again["result"]["scans"]) == 3 and again["warnings"] == []
-    unplugged.rmdir()
+    # A song on the drive while it is plugged in...
+    audio_factory("../unplugged/c.wav", frequency=440, artist="Bicep", title="Glue")
+    plugged = invoke("scan", pretty=True, workspace=local_http.root)
+    assert plugged.stdout.startswith("✓ 3 tracks in 3 folders"), plugged.output
+    shutil.rmtree(unplugged)
 
     pretty = invoke("scan", pretty=True, workspace=local_http.root)
     assert pretty.exit_code == 0, pretty.output
-    assert pretty.stdout.count("track indexed") == 2
+    # Scanned again: nothing is new, said once for both folders, with one Next block; the
+    # song on the unplugged drive isn't counted as in them.
+    assert pretty.stdout.startswith("✓ 2 tracks in 2 folders, 0 new\n"), pretty.output
+    assert pretty.stdout.count("✓") == 1 and pretty.stdout.count("Next") == 1
     assert "unplugged drive?" in pretty.stderr
 
 
@@ -400,7 +449,7 @@ def test_status_summarizes_library_requests_and_crates(local_http, audio_factory
     assert summary["tracks"] == 2 and summary["active_jobs"] == 0
     assert summary["rekordbox_checked"] is True
     pretty = invoke("status", pretty=True, workspace=local_http.root)
-    assert "2 tracks" in pretty.stdout and "BPM for 0" in pretty.stdout
+    assert "2 tracks  ·  no BPM yet" in pretty.stdout and "BPM for 0" not in pretty.stdout
 
 
 def test_usb_and_set_views_show_what_came_back_from_the_stick(capsys):
@@ -460,10 +509,10 @@ def indents(text: str) -> list[int]:
         ("SOME_NEW_CODE", "Some new code"),
     ],
 )
-def test_errors_lead_with_a_plain_title_and_keep_the_code_dim(capsys, code, title):
+def test_errors_lead_with_a_plain_title_and_leave_the_code_to_json(capsys, code, title):
     terminal.render_error(sized(120), {"code": code, "message": "Details."})
-    first = capsys.readouterr().err.splitlines()[0]
-    assert title in first and first.endswith(f"({code})")
+    err = capsys.readouterr().err
+    assert err.splitlines()[0] == f"✗ {title}" and code not in err
 
 
 def test_accessibility_error_says_how_to_open_the_setting(capsys):
@@ -576,7 +625,7 @@ def test_paged_screens_keep_a_single_next_block(capsys):
         capsys=capsys,
     )
     assert out.count("Next\n") == 1
-    assert f"more: djlib crate {COLLECTION} --after 1" in out
+    assert f"more: djlib crate {SHORT_COLLECTION} --after 1" in out
     request = {
         "request_id": REQUEST,
         "revision": 2,
@@ -587,7 +636,74 @@ def test_paged_screens_keep_a_single_next_block(capsys):
         "next_offset": 1,
     }
     out = render("requests get", request, width=160, capsys=capsys)
-    assert out.count("Next\n") == 1 and f"requests get {REQUEST} --after 1" in out
+    assert out.count("Next\n") == 1 and f"requests get {SHORT_REQUEST} --after 1" in out
+
+
+def test_a_song_owned_under_the_listings_spelling_says_so(capsys):
+    """Shazam's credits are requested; the file is tagged as MixesDB spells them."""
+    glasper = {
+        "artist": "Robert Glasper Experiment",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+    }
+    also = {**glasper, "artist": "Robert Glasper", "source": "mixesdb"}
+    accepted = {
+        "path": "/music/09 - Move Love.mp3",
+        "matched_as": "Robert Glasper - Move Love (Kaytranada Edition)",
+        "matched_as_source": "mixesdb",
+    }
+    request = {
+        "request_id": REQUEST,
+        "revision": 1,
+        "name": "Kaytranada",
+        "total_items": 3,
+        "counts": {"satisfied": 3},
+        "items": [
+            {
+                "position": 1,
+                "state": "satisfied",
+                "input": {**glasper, "also": [also]},
+                "accepted": accepted,
+            },
+            {
+                "position": 2,
+                "state": "satisfied",
+                "input": {"artist": "Busta Rhymes", "title": "Woo", "also": [also]},
+                "accepted": accepted,
+            },
+            {
+                "position": 3,
+                "state": "satisfied",
+                "input": glasper,
+                "accepted": {"path": "/music/10 - Move Love.mp3"},
+            },
+        ],
+    }
+    out = render("requests get", request, width=200, capsys=capsys)
+    lines = out.splitlines()
+    header = next(line for line in lines if line.lstrip().startswith("#"))
+    assert header.split() == ["#", "Own", "Track", "Your", "file"]
+    assert "labels only" not in out and "audio identification" not in out
+    rows = [index for index, line in enumerate(lines) if "music/" in line]
+    # The other spelling goes under the file, so a narrow terminal never cuts it.
+    assert lines[rows[0]].rstrip().endswith("music/09 - Move Love.mp3")
+    assert lines[rows[0] + 1].rstrip().endswith("as Robert Glasper")
+    # When more than the names differ, the whole label the file matched.
+    assert (
+        lines[rows[1] + 1].rstrip().endswith("as Robert Glasper - Move Love (Kaytranada Edition)")
+    )
+    assert " as " not in "".join(lines[rows[2] :])
+    narrow = render("requests get", request, width=80, capsys=capsys)
+    assert "as Robert Glasper" in narrow and "as Rob…" not in narrow
+    # A real file's path is cut; the whole other spelling never is, at any width.
+    long = "/Users/dj/Music/Kaytranada/Kaytranada Remixes/09 - Move Love (Kaytranada Edition).mp3"
+    request["items"][1]["accepted"] = {**accepted, "path": long}
+    for width in (80, 100):
+        out = render("requests get", request, width=width, capsys=capsys)
+        assert max(len(line) for line in out.splitlines()) <= width
+        words = " ".join(out.split())
+        assert "as Robert Glasper - Move Love (Kaytranada Edition)" in words, out
+        assert "Edition)…" not in words
 
 
 def test_request_lists_lead_with_building_the_crate(capsys):
@@ -749,7 +865,7 @@ def test_set_with_a_failed_usb_check_leads_with_it(capsys):
     }
     out = render("set", result, width=160, capsys=capsys)
     assert out.startswith("✗ USB check failed: 1 of 8 missing on RICARDO_AM")
-    assert "Friday  8 of 9 songs owned" in out and "Âme - Rej (Original Mix)" in out
+    assert "Friday  8 of 9 owned" in out and "Âme - Rej (Original Mix)" in out
     assert f"Export it to the stick again  djlib rekordbox usb {SHORT_COLLECTION}" in out
 
 
@@ -764,6 +880,18 @@ def test_set_and_push_views_print_markup_like_titles_literally(capsys):
         "playlist": title,
         "rekordbox": {"status": "imported"},
         "missing": [{"position": 2, "label": title, "state": "missing", "you_own": [title]}],
+        "tracks": [
+            {
+                "position": 2,
+                "label": f"{title} - x",
+                "artist": title,
+                "title": "x",
+                "version": "",
+                "state": "missing",
+                "own": "other_mix",
+                "you_own": [title],
+            }
+        ],
         "fetched": {"needs_your_pick": [{"label": title, "options": []}]},
         "id_hints": [{"position": 2, "timestamp": "1:00", "hints": [{"label": title}]}],
     }
@@ -801,15 +929,34 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
     }
     out = render("status", status_result(recent_collections=[crate]), width=160, capsys=capsys)
     assert "Service" not in out and "running" not in out
-    assert "djlib set TRACKLIST.txt" in out.split("Next\n", 1)[1]
+    assert web.copied() in out.split("Next\n", 1)[1]  # djlib set paste on a Mac
     unread = render(
         "status",
         status_result(
-            rekordbox_checked=False, recent_collections=[{**crate, "in_rekordbox": None}]
+            rekordbox_checked=False,
+            rekordbox_app=True,
+            rekordbox_open=False,
+            recent_collections=[{**crate, "in_rekordbox": None}],
         ),
         capsys=capsys,
     )
-    assert "rekordbox: not readable right now" in unread
+    # rekordbox closed and never pushed by djlib: no claim either way, said once below, and the
+    # push comes next.
+    assert "not readable" not in unread and "not in rekordbox yet" not in unread
+    assert "(rekordbox is closed, so djlib can't tell which are in it)" in unread
+    assert f"djlib rekordbox push {SHORT_COLLECTION}" in unread.split("Next\n", 1)[1]
+    pushed = render(
+        "status",
+        status_result(
+            rekordbox_checked=False,
+            rekordbox_app=True,
+            recent_collections=[
+                {**crate, "in_rekordbox": None, "pushed_at": "2026-10-06T10:00:00+00:00"}
+            ],
+        ),
+        capsys=capsys,
+    )
+    assert "pushed to rekordbox" in pushed and "rekordbox push" not in pushed
 
 
 def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
@@ -834,6 +981,147 @@ def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
     assert f"djlib requests collect {SHORT_REQUEST}" in steps
     assert "rekordbox push" not in steps  # the outdated crate is not pushed
     assert "21 of 24 owned" in out
+
+
+def test_big_counts_on_status_and_the_shopping_list_read_with_separators(capsys):
+    crate = {"collection_id": COLLECTION, "name": "Shazam", "tracks": 1200}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Shazam",
+        "songs": 1500,
+        "owned": 1200,
+        "in_crate": 1200,
+        "missing": 300,
+        "unresolved": 300,
+        "counts": {"owned": 1200, "missing": 300, "other_mix": 0, "ids": 0, "to_check": 0},
+    }
+    status = render(
+        "status",
+        status_result(
+            tracks=2500,
+            with_bpm=2400,
+            with_key=2300,
+            recent_collections=[crate],
+            recent_requests=[request],
+        ),
+        width=160,
+        capsys=capsys,
+    )
+    assert "BPM for 2,400" in status and "key for 2,300" in status
+    assert "1,200 of 1,500 owned" in status and "crate 1,200" in status
+    song = {"label": "Artist - Song", "position": 1, "shop": {}}
+    report = render(
+        "requests report",
+        {
+            "name": "Shazam",
+            "request_id": REQUEST,
+            "to_buy": [song] * 1200,
+            "maybe_yours": [{**song, "maybe_owned": "A - B"}] * 1001,
+            "other_mixes": [{**song, "title": "Song", "you_own": []}] * 1002,
+            "shopping_list": "/music/djlib/Shazam - to buy.txt",
+        },
+        width=160,
+        capsys=capsys,
+    )
+    assert "Shazam — 1,200 to buy" in report and "and 1,175 more in" in report
+    assert "check before you buy (1,001)" in report and "another mix (1,002)" in report
+
+
+def test_a_song_listed_twice_never_outdates_its_crate(capsys):
+    """The set lists one song twice; its crate holds the file once. Status says nothing is
+    outdated, so its Rebuild step can't loop."""
+    crate = {"collection_id": COLLECTION, "name": "Reprise night", "tracks": 2}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Reprise night",
+        "songs": 3,
+        "owned": 3,
+        "in_crate": 2,
+        "missing": 0,
+        "unresolved": 0,
+        "counts": {"owned": 3, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0},
+    }
+    out = render(
+        "status",
+        status_result(recent_collections=[crate], recent_requests=[request]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "outdated" not in out and "Rebuild" not in out
+    assert "3 of 3 owned" in out and "crate 2" in out
+
+
+def test_status_points_to_the_songs_that_may_be_yours(capsys):
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Shazam (shazamlibrary.csv)",
+        "songs": 3,
+        "owned": 2,
+        "missing": 1,
+        "unresolved": 1,
+        "counts": {"owned": 2, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0, "maybe": 1},
+    }
+    out = render("status", status_result(recent_requests=[request]), width=160, capsys=capsys)
+    assert "2 of 3 owned · 1 maybe yours" in out
+    steps = out.split("Next\n", 1)[1]
+    assert re.search(
+        r"→ Check the songs that may be yours in “Shazam \(shazamlibrary.csv\)” +djlib ui", steps
+    )
+
+
+def test_every_screen_counts_a_song_owned_twice_the_same_way(capsys):
+    """Two copies of one owned song: `djlib set` says "1 to check"; status, `djlib requests`
+    and `djlib requests get` say the same, and point to picking a copy, not a re-check."""
+    counts = {"owned": 2, "missing": 1, "other_mix": 1, "ids": 0, "to_check": 1}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "t2",
+        "songs": 4,
+        "owned": 1,
+        "to_pick": 1,
+        "needs_check": 1,
+        "missing": 1,
+        "unresolved": 3,
+        "counts": counts,
+    }
+    status = render("status", status_result(recent_requests=[request]), width=160, capsys=capsys)
+    assert "1 of 4 owned · 1 to check · 1 in another mix · 1 missing" in status
+    steps = status.split("Next\n", 1)[1]
+    assert re.search(r"→ Pick which copy to use in “t2” +djlib ui", steps)
+    assert "Re-check" not in steps
+    listed = render(
+        "requests list",
+        {"requests": [{**request, "updated_at": "2026-10-06T10:00:00+00:00"}], "total": 1},
+        width=160,
+        capsys=capsys,
+    )
+    assert "1 of 4" in listed and "To check" in listed and "2 of 4" not in listed
+    items = [
+        {"position": 1, "state": "satisfied", "input": {"artist": "A", "title": "B"}},
+        {"position": 2, "state": "ambiguous", "input": {"artist": "C", "title": "D"}},
+        {"position": 3, "state": "missing", "input": {"artist": "E", "title": "F"}},
+    ]
+    got = render(
+        "requests get",
+        {
+            "request_id": REQUEST,
+            "revision": 2,
+            "name": "t2",
+            "total_items": 3,
+            "counts": {"satisfied": 1, "ambiguous": 1, "missing": 1},
+            "items": items,
+            "unresolved_items": 2,
+        },
+        width=160,
+        capsys=capsys,
+    )
+    assert "1 owned  ·  1 to check  ·  1 missing" in got
+    assert "pick a copy" in got and "ambiguous" not in got
+    assert re.search(r"→ Pick which copy to use +djlib ui\n", got)
 
 
 def test_small_screens_say_only_what_is_true(capsys):
@@ -882,7 +1170,7 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
         "ffmpeg": None,
         "ffprobe": None,
         "fixes": {
-            "workspace": "djlib init --allow-root ~/Music",
+            "workspace": "djlib init ~/Music",
             "ffmpeg": "brew install ffmpeg",
             "ffprobe": "brew install ffmpeg",
             "javascript_runtime": "brew install deno",
@@ -891,9 +1179,10 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
     }
     out = render("doctor", result, width=100, capsys=capsys)
     lines = out.splitlines()
-    workspace = next(i for i, line in enumerate(lines) if "Workspace" in line)
-    assert "○ Workspace" in lines[workspace] and "not set up yet" in lines[workspace]
-    assert lines[workspace + 1].strip() == "→ djlib init --allow-root ~/Music"
+    workspace = next(i for i, line in enumerate(lines) if "Music folders" in line)
+    assert "○ Music folders" in lines[workspace] and "not set up yet" in lines[workspace]
+    assert lines[workspace + 1].strip() == "→ djlib init ~/Music"
+    assert "Workspace" not in out
     ffmpeg = next(i for i, line in enumerate(lines) if "FFmpeg " in line)
     assert "✗ FFmpeg" in lines[ffmpeg] and lines[ffmpeg + 1].strip() == "→ brew install ffmpeg"
     assert "→ brew install deno" in out
@@ -902,19 +1191,26 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
     assert "Fix the items marked ✗" in out
     ready = render(
         "doctor",
-        {**result, "workspace_initialized": True, "ffmpeg": "/usr/bin/ffmpeg"},
+        {
+            **result,
+            "workspace_initialized": True,
+            "ffmpeg": "/usr/bin/ffmpeg",
+            "music_folders": ["/Users/dj/Music", "/Volumes/DJ_DRIVE"],
+        },
         width=100,
         capsys=capsys,
     )
-    assert "init --allow-root" not in ready and "brew install ffmpeg" in ready  # ffprobe
+    assert "djlib init" not in ready and "brew install ffmpeg" in ready  # ffprobe
+    assert re.search(r"✓ Music folders +/Users/dj/Music and 1 more", ready)
+    assert re.search(r"✓ djlib's folder +/somewhere/djlib", ready)
 
 
-def test_set_notes_fit_in_two_short_lines():
-    lines = views.set_notes(downloaded=True, hints=True, usb=True)
-    assert len(lines) == 2 and all(len(line) <= 78 for line in lines)
-    assert views.set_notes(downloaded=False, hints=False, usb=False) == [
-        "Exact artist/title/version matches only."
-    ]
+def test_set_notes_say_only_what_applies_in_short_lines():
+    lines = views.set_notes(downloaded=True, hints=True, usb=True, unsure=True, other_mix=2)
+    assert all(len(line) <= 78 for line in lines)
+    assert lines[0] == "Likely and weak lines are worth a listen before you play them."
+    assert lines[1] == "You own another mix of 2 songs; djlib only counts the exact mix."
+    assert views.set_notes(downloaded=False, hints=False, usb=False) == []
 
 
 def test_sixteen_color_terminals_get_a_yellow_accent():
@@ -959,26 +1255,27 @@ def identified(n: int, title: str, status: str, evidence: str, kind: str = "name
     }
 
 
-def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(capsys):
-    """At 80 columns the track name used to be cut to fit a fragment of the Why column; the
-    name now gets the room, and the lines worth a listen say why under the table."""
+def test_identify_tables_keep_track_names_whole_and_say_why_under_the_table(capsys):
+    """Names wrap instead of losing their mix; why a line is worth a listen goes under the
+    table at every width, and confirmed lines need no reason."""
     tracks = [
-        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam: 6 windows from 34:39"),
+        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam heard it at 34:39"),
         identified(2, "Love & Pain (Kaytranada Remix)", "likely", "From MixesDB"),
         identified(3, "", "unidentified", "Not identified from 03:00 to 06:00", kind="unknown"),
     ]
+    tracks[1]["artist"] = "Azealia Banks & An Extremely Long List Of Featured Collaborators"
     result = {"source": {"url": "https://soundcloud.com/a/b"}, "tracks": tracks, "counts": {}}
-    views.identify_view(sized(80), result)
-    out = capsys.readouterr().out
-    assert "Azealia Banks - ATM Jam (Kaytranada Edition)" in out
-    assert "Azealia Banks - Love & Pain (Kaytranada Remix)" in out
-    assert "Why" not in out
-    assert "#2 From MixesDB" in out and "#3 Not identified from 03:00 to 06:00" in out
-    assert "Shazam: 6 windows" not in out  # confirmed lines need no reason under the table
-    # Wide enough, the Why column is back and nothing is repeated under the table.
-    views.identify_view(sized(200), result)
-    wide = capsys.readouterr().out
-    assert "Why" in wide and "Shazam: 6 windows from 34:39" in wide and "#2 From" not in wide
+    for width in (60, 80, 140):
+        views.identify_view(sized(width), result)
+        out = capsys.readouterr().out
+        assert "…" not in out and "Why" not in out
+        # Wrapped onto a second line where the terminal is narrow, never cut short.
+        assert "Collaborators" in out and "Remix)" in out and "Edition)" in out
+        if width >= 140:
+            assert "Azealia Banks - ATM Jam (Kaytranada Edition)" in out
+        assert "#2 From MixesDB" in out and "#3 Not identified from 03:00 to 06:00" in out
+        assert "Shazam heard it at 34:39" not in out
+        assert "○ ID" in out and "unidentified" not in out
 
 
 def test_lines_with_the_same_reason_share_one_line_under_the_table(capsys):
@@ -1003,3 +1300,532 @@ def test_an_optional_column_with_nothing_in_it_takes_no_room():
     grid.add_row("Lumen - Halo", "")
     Console(width=80, file=io.StringIO(), theme=terminal.THEME).print(grid)
     assert grid.shown == ["Name"]
+
+
+# -- sets, crates and where they are --------------------------------------------------------
+
+
+def test_status_lists_each_set_once_with_its_crate(capsys):
+    sets = [
+        {
+            "request_id": REQUEST,
+            "name": "Kaytranada Boiler Room",
+            "songs": 22,
+            "owned": 12,
+            "missing": 10,
+            "unresolved": 10,
+            # Newer services count other mixes and IDs apart from the missing songs.
+            "counts": {"owned": 12, "missing": 7, "other_mix": 1, "ids": 2},
+        },
+        {"request_id": "request_" + "1" * 32, "name": "Warm-up", "songs": 3, "owned": 3},
+    ]
+    crates = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Kaytranada Boiler Room",
+            "tracks": 12,
+            "in_rekordbox": True,
+            "usb": {"device": "DJ_USB", "found": 12, "expected": 12, "in_order": True},
+        },
+        {"collection_id": "collection_" + "2" * 32, "name": "Warm-up", "tracks": 3},
+        {"collection_id": "collection_" + "3" * 32, "name": "Old crate", "tracks": 5},
+    ]
+    out = render(
+        "status",
+        status_result(with_bpm=0, with_key=0, recent_requests=sets, recent_collections=crates),
+        width=160,
+        capsys=capsys,
+    )
+    assert "Request lists" not in out and out.count("Sets\n") == 1
+    assert "no BPM yet" in out and "BPM for 0" not in out
+    line = next(line for line in out.splitlines() if "Kaytranada" in line)
+    assert line.strip() == (
+        "• Kaytranada Boiler Room  12 of 22 owned · 1 in another mix · 7 missing · 2 IDs"
+        " · crate 12 · ✓ in rekordbox · ✓ on DJ_USB"
+    )
+    assert "✓ Warm-up  3 of 3 owned · crate 3" in out
+    # A crate without a set of its name is listed once, after the sets.
+    others = out.split("Other crates\n", 1)[1].split("\nNext", 1)[0]
+    assert "Old crate  5 tracks" in others and "Warm-up" not in others
+
+
+def test_status_gives_a_crate_only_to_the_set_it_came_from(capsys):
+    """Every Shazam import is called "Shazam"; the old one's crate isn't the new one's."""
+    new, old = REQUEST, "request_" + "1" * 32
+    sets = [
+        {"request_id": new, "name": "Shazam", "songs": 40, "owned": 2, "missing": 38},
+        {"request_id": old, "name": "Shazam", "songs": 3, "owned": 2, "unresolved": 1},
+    ]
+    crate = {
+        "collection_id": COLLECTION,
+        "name": "Shazam",
+        "tracks": 2,
+        "request_id": old,
+        "in_rekordbox": True,
+    }
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[crate]),
+        width=160,
+        capsys=capsys,
+    )
+    line = next(line for line in out.splitlines() if "of 40 owned" in line)
+    assert "crate" not in line and "rekordbox" not in line
+    assert "Other crates" in out and "Shazam  2 tracks  ✓ in rekordbox" in out
+    steps = out.split("Next\n", 1)[1]
+    assert f"Make a crate from “Shazam”  djlib requests collect {SHORT_REQUEST}" in steps
+    assert "rekordbox usb" not in steps  # the old crate isn't this set's
+    # Collected from the new set: on its line, and no second crate below.
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[{**crate, "request_id": new}]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "2 of 40 owned · 38 missing · crate 2 · ✓ in rekordbox" in out
+    assert "crates" not in out.lower().replace("djlib crates", "")
+    assert "Make a crate" not in out
+    # Services before 0.1.0a16 don't say; a crate goes with the set of its name.
+    del crate["request_id"]
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=[crate]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "crate 2" in out
+
+
+def test_status_suggests_pushing_the_set_at_the_top_of_its_list(capsys):
+    """A set checked again comes first and is `last`, while its crate is older than another
+    set's: the next step pushes its crate, not the newer one below it."""
+    paste = "request_" + "1" * 32
+    sets = [
+        {"request_id": REQUEST, "name": "Kaytranada Boiler Room", "songs": 22, "owned": 14},
+        {"request_id": paste, "name": "Kaytranada @ Boiler Room 2013", "songs": 7, "owned": 3},
+    ]
+    crates = [  # newest first, as made
+        {"collection_id": "collection_" + "2" * 32, "name": sets[1]["name"], "tracks": 3},
+        {"collection_id": COLLECTION, "name": sets[0]["name"], "tracks": 14},
+    ]
+    crates[0]["request_id"], crates[1]["request_id"] = paste, REQUEST
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=crates, rekordbox_app=True),
+        width=160,
+        capsys=capsys,
+    )
+    steps = out.split("Next\n", 1)[1]
+    assert (
+        f"Put “Kaytranada Boiler Room” in rekordbox  djlib rekordbox push {SHORT_COLLECTION}"
+        in steps
+    )
+
+
+def test_status_lists_crates_without_sets_as_crates(capsys):
+    crates = [{"collection_id": COLLECTION, "name": "Friday", "tracks": 8, "in_rekordbox": True}]
+    out = render("status", status_result(recent_collections=crates), width=120, capsys=capsys)
+    assert "Crates\n" in out and "Other crates" not in out and "Sets" not in out
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+def test_status_set_lines_wrap_between_counts(width, capsys):
+    sets = [
+        {
+            "request_id": REQUEST,
+            "name": "Kaytranada @ Boiler Room Montreal (1001TL paste)",
+            "songs": 22,
+            "owned": 12,
+            "unresolved": 10,
+            "counts": {"owned": 12, "missing": 7, "other_mix": 1, "ids": 2},
+        }
+    ]
+    crates = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Kaytranada @ Boiler Room Montreal (1001TL paste)",
+            "tracks": 12,
+            "request_id": REQUEST,
+            "in_rekordbox": False,
+        }
+    ]
+    out = render(
+        "status",
+        status_result(recent_requests=sets, recent_collections=crates),
+        width=width,
+        capsys=capsys,
+    )
+    for part in ("12 of 22 owned", "7 missing", "1 in another mix", "2 IDs", "crate 12"):
+        assert part in out, (part, out)
+    assert "not in rekordbox yet" in out
+    assert all(len(line) <= width for line in out.splitlines())
+
+
+def test_upgrade_check_offers_song_recognition_when_upgrade_can_add_it(capsys):
+    result = {
+        "current": "0.1.0a16",
+        "latest": "0.1.0a16",
+        "update_available": False,
+        "updated": False,
+        "recognition_installed": False,
+    }
+    out = render("upgrade", {**result, "repair_available": True}, width=100, capsys=capsys)
+    assert "Add song recognition  djlib upgrade" in out
+    # Not installed with uv: `djlib upgrade` can't add it, so it isn't offered.
+    assert "Next" not in render("upgrade", result, width=100, capsys=capsys)
+
+
+def test_request_lists_show_owned_and_missing(capsys):
+    rows = [
+        {
+            "request_id": REQUEST,
+            "name": "Friday",
+            "total_items": 22,
+            "updated_at": "",
+            "counts": {"owned": 12, "missing": 10, "other_mix": 0, "ids": 0},
+        }
+    ]
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    header = out.splitlines()[0].split()
+    assert header[:3] == ["Name", "Owned", "Missing"] and "Songs" not in header
+    assert "12 of 22" in out and "Other mix" not in out and "1 set" in out
+    # The columns read in the order of `djlib set`'s headline.
+    rows[0]["counts"].update(missing=7, other_mix=1, ids=2)
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    header = out.splitlines()[0].split()
+    assert header[:6] == ["Name", "Owned", "Other", "mix", "Missing", "IDs"]
+    # Older services list only the number of songs.
+    del rows[0]["counts"]
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    assert "Songs" in out and "Owned" not in out and "22" in out
+    empty = render("requests list", {"requests": []}, capsys=capsys)
+    assert "No sets checked yet" in empty and web.copied() in empty
+
+
+@pytest.mark.parametrize("width", [60, 80, 100])
+def test_the_sets_list_keeps_every_count_and_tells_like_names_apart(capsys, width):
+    """Counts add up at any width, names keep their room before the code does, and two sets
+    of one name say when each was checked."""
+
+    def row(code, name, **counts):
+        counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0, "maybe": 0, **counts}
+        return {
+            "request_id": f"request_{code * 32}",
+            "name": name,
+            "total_items": sum(counts.values()),
+            "updated_at": "2026-10-06T10:00:00+00:00",
+            "counts": counts,
+        }
+
+    paste = "Kaytranada @ Boiler Room Montreal 2013-09-27"
+    rows = [
+        row("a", "Antdot- Keinemusik Radio Show 2026-01-30", owned=7, missing=4, ids=2),
+        row("b", paste, owned=3, maybe=1, missing=2, ids=1),
+        row("c", paste, owned=5, other_mix=1, missing=1, ids=1),
+    ]
+    out = render("requests list", {"requests": rows, "total": 3}, width=width, capsys=capsys)
+    lines = out.splitlines()
+    assert max(len(line) for line in lines) <= width
+    header = lines[0].split()
+    assert header[1:7] == ["Owned", "Maybe", "Other", "mix", "Missing", "IDs"], out
+    assert "ID" not in header  # the code column isn't called ID beside the IDs
+    if width >= 80:
+        assert "Antdot- Keinemusik Radio Show 2026-01" in out
+    if width >= 100:
+        assert "Code" in header and "aaaaaaaa" in out
+    else:
+        assert "Open one: djlib requests get last, or its name in quotes" in out
+    # The same name twice: each says when it was checked, and its code, never cut.
+    words = " ".join(out.split())
+    assert re.search(r"checked \w+ ago · bbbbbbbb", words), out
+    assert re.search(r"checked \w+ ago · cccccccc", words), out
+    assert "· aaaaaaaa" not in words
+
+
+@pytest.mark.parametrize("width", [50, 60])
+def test_a_narrow_sets_list_leaves_out_counts_before_cutting_names_or_owned(capsys, width):
+    """In a narrow window, IDs, Maybe and To check go (a note names them) before the set's
+    name gets under 12 cells or Rich cuts “800 of 1,007”."""
+    from rich.cells import cell_len
+
+    rows = [
+        {
+            "request_id": f"request_{code * 32}",
+            "name": name,
+            "total_items": total,
+            "updated_at": "2026-10-06T10:00:00+00:00",
+            "counts": counts,
+        }
+        for code, name, total, counts in (
+            (
+                "a",
+                "Shazam 12 Sep – 12 Oct",
+                1007,
+                {"owned": 812, "to_check": 12, "maybe": 31, "other_mix": 44, "missing": 120},
+            ),
+            (
+                "b",
+                "Kaytranada @ Boiler Room Montreal 2013-09-27",
+                25,
+                {"owned": 14, "to_check": 1, "maybe": 1, "other_mix": 1, "missing": 7, "ids": 2},
+            ),
+        )
+    ]
+    out = render("requests list", {"requests": rows, "total": 2}, width=width, capsys=capsys)
+    lines = out.splitlines()
+    assert max(cell_len(line) for line in lines) <= width
+    header = lines[0].split()
+    assert header[0] == "Name" and "Owned" in header and "Missing" in header
+    assert "800 of 1,007" in out and "13 of 25" in out
+    assert "Shazam 12 Sep" in out and "Kaytranada @ " in out  # 12 cells or more of each name
+    hidden = "the To check, Maybe and IDs columns" if width == 50 else "the Maybe and IDs columns"
+    assert f"No room for {hidden}; a wider window shows them." in " ".join(out.split())
+
+
+def test_a_finished_collect_reads_like_a_crate_not_a_job(capsys):
+    job = {
+        "job_id": JOB,
+        "kind": "organize",
+        "state": "completed",
+        "outcome": "complete",
+        "idempotency_key": "request-collection:x",
+        "counts": {"succeeded": 12},
+        "result": {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "selected_count": 12,
+            "app_state": "not_tracked_here",
+        },
+    }
+    out = render("requests collect", job, width=120, capsys=capsys)
+    assert out.startswith("✓ Crate “Friday”  12 tracks, in set order")
+    assert "Idempotency" not in out and "not_tracked_here" not in out
+    assert f"djlib crate {SHORT_COLLECTION}" in out
+    running = render("requests collect", {**job, "state": "failed", "result": {}}, capsys=capsys)
+    assert "failed" in running  # anything else is still a job card
+
+
+def test_a_collect_that_left_owned_songs_out_says_why_before_the_push(capsys):
+    job = {
+        "job_id": JOB,
+        "kind": "organize",
+        "state": "completed",
+        "outcome": "completed_with_gaps",
+        "counts": {"succeeded": 10, "failed": 2},
+        "result": {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "selected_count": 10,
+            "excluded_count": 2,
+            "exclusion_counts": {"file_missing": 2},
+        },
+    }
+    out = render("requests collect", job, width=120, capsys=capsys)
+    assert out.startswith("! Crate “Friday”  10 tracks, in set order")
+    assert "Failed    2 tracks" in out and "Excluded  2  2 file missing" in out
+    steps = out.split("Next", 1)[1]
+    assert steps.index("See what failed") < steps.index("Retry failed items")
+    assert steps.index("Retry failed items") < steps.index("Put it in rekordbox")
+    assert f"djlib jobs items {JOB} --state failed" in steps
+    # Only excluded files, nothing failed: still said.
+    excluded = {**job, "outcome": "complete", "counts": {"succeeded": 10}}
+    out = render("requests collect", excluded, width=120, capsys=capsys)
+    assert out.startswith("! Crate") and "2 file missing" in out
+
+
+def test_request_view_offers_the_crate_it_already_has(capsys):
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Friday",
+        "total_items": 2,
+        "counts": {"satisfied": 2},
+        "items": [{"position": 1, "state": "satisfied", "input": {"artist": "A", "title": "B"}}],
+        "crate": {"collection_id": COLLECTION, "tracks": 2},
+    }
+    out = render("requests get", request, width=160, capsys=capsys)
+    steps = [" ".join(line.split()) for line in out.split("Next\n", 1)[1].splitlines()]
+    # Where the crate goes next, as `djlib set` says it.
+    assert steps == [
+        f"→ See the crate djlib crate {SHORT_COLLECTION}",
+        f"→ Put it in rekordbox djlib rekordbox push {SHORT_COLLECTION}",
+        f"→ Or straight onto your USB djlib rekordbox usb {SHORT_COLLECTION}",
+    ]
+    assert "Build the crate" not in out and "Revision" not in out and REQUEST not in out
+    # A crate made before more songs were found is built again.
+    stale = render(
+        "requests get", {**request, "crate": {**request["crate"], "tracks": 1}}, capsys=capsys
+    )
+    assert "Build the crate from the 2 songs you own" in stale
+
+
+def test_request_view_gives_an_id_its_guess_as_set_does(capsys):
+    notes = (
+        "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I Got "
+        "(Chris Fortier 20yr Dub) (Shazam heard it once at 50:09); possibly BR1S4 - THIS IS "
+        "BRAZIL (Shazam heard it at 51:09 and 56:39)"
+    )
+    unknown = {"kind": "unknown", "label": "ID", "timestamp": "48:30"}
+    items = [
+        {"position": 11, "state": "unknown", "input": {**unknown, "notes": notes}},
+        {"position": 12, "state": "unknown", "input": {**unknown, "notes": "Listed as an ID"}},
+        {
+            "position": 13,
+            "state": "unknown",
+            "input": {**unknown, "notes": "ID (likely Antdot - Mirage): Shazam heard it at 05:39"},
+        },
+    ]
+    request = {"request_id": REQUEST, "name": "Keinemusik", "total_items": 3, "items": items}
+    out = " ".join(render("requests get", request, width=200, capsys=capsys).split())
+    guess = "maybe Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)"
+    assert f"ID — {guess} @ 48:30" in out
+    assert "12 ○ ID ID @ 48:30" in out
+    assert "ID — likely Antdot - Mirage @ 48:30" in out
+
+
+def test_crates_say_where_each_one_went(capsys):
+    rows = [
+        {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "track_count": 8,
+            "rekordbox": {
+                "playlist": "Friday",
+                "pushed_at": "2026-10-06T10:00:00+00:00",
+                "usb": {"device": "DJ_USB", "found": 8, "expected": 8, "in_order": True},
+            },
+        },
+        {"collection_id": "collection_" + "2" * 32, "name": "Sunday", "track_count": 3},
+    ]
+    out = render("crates", {"collections": rows, "total": 2}, width=120, capsys=capsys)
+    assert "rekordbox / USB" in out
+    friday = next(line for line in out.splitlines() if "Friday" in line)
+    # rekordbox isn't read here: a push is history (the playlist may be gone), never "✓ in".
+    assert re.search(r"pushed \S+ ago  ✓ on DJ_USB", friday) and "in rekordbox" not in friday
+    plain = [{**row, "rekordbox": {}} for row in rows]
+    out = render("crates", {"collections": plain, "total": 2}, width=120, capsys=capsys)
+    assert "rekordbox / USB" not in out  # nothing to say, no column
+
+
+def test_crate_and_library_tables_keep_titles_over_file_names(capsys):
+    tracks = [
+        {
+            "artist": "Antdot",
+            "title": "Mirage",
+            "path": "/music/Antdot/01 - Mirage.mp3",
+            "properties": {"duration_seconds": 300, "codec": "mp3", "bitrate_bps": 320000},
+        }
+    ]
+    assert "File" not in render("library", {"tracks": tracks, "total": 1}, width=100, capsys=capsys)
+    assert "File" in render("library", {"tracks": tracks, "total": 1}, width=140, capsys=capsys)
+    crate = {"collection_id": COLLECTION, "name": "Friday", "track_count": 1, "tracks": tracks}
+    out = render("crate", crate, width=120, capsys=capsys)
+    assert COLLECTION not in out and "Crate " not in out  # no long-ID footer
+
+
+def test_doctor_speaks_plainly_about_the_service_and_helpers(capsys):
+    result = {
+        "workspace": "/music/djlib",
+        "workspace_initialized": True,
+        "required_checks_passed": True,
+        "coordinator_url": "http://127.0.0.1:62623",
+        "ffmpeg": "/usr/bin/ffmpeg",
+        "ffprobe": "/usr/bin/ffprobe",
+        "javascript_runtimes": {
+            "selected": "node",
+            "node": {"version": "22.15.0"},
+            "youtube_runtime_ready": True,
+        },
+        "rekordbox": {"version": "7.2.3"},
+        "rekordbox_automation_allowed": True,
+        "rekordbox_analysis_folder": "/Users/dj/Library/Pioneer/rekordbox/share",
+        "rekordbox_analysis_synced": False,
+        "fixes": {},
+    }
+    out = render("doctor", result, width=160, capsys=capsys)
+    assert "127.0.0.1" not in out
+    assert next(line for line in out.splitlines() if "Background service" in line).split()[-1] == (
+        "running"
+    )
+    assert "YouTube helper      node 22" in out and "JS runtime" not in out
+    assert "run djlib rekordbox sync once; after that it stays current in the background" in out
+    synced = render(
+        "doctor", {**result, "rekordbox_analysis_synced": True}, width=160, capsys=capsys
+    )
+    assert "rekordbox sync once" not in synced and "stay current in the background" in synced
+
+
+@pytest.mark.parametrize(
+    ("result", "headline"),
+    [
+        (
+            {
+                "current": "0.1.0a15",
+                "latest": "0.1.0a16",
+                "update_available": True,
+                "updated": False,
+            },
+            "○ djlib 0.1.0a16 is out  you have 0.1.0a15",
+        ),
+        (
+            {
+                "current": "0.1.0a16",
+                "latest": "0.1.0a16",
+                "update_available": False,
+                "updated": False,
+            },
+            "✓ djlib 0.1.0a16 is the newest release",
+        ),
+        (
+            {
+                "current": "0.1.0a15",
+                "latest": "0.1.0a16",
+                "update_available": True,
+                "updated": True,
+            },
+            "✓ djlib 0.1.0a16 installed  from 0.1.0a15",
+        ),
+    ],
+)
+def test_upgrade_says_from_and_to(capsys, result, headline):
+    out = render("upgrade", {**result, "notes": "https://e/notes"}, width=100, capsys=capsys)
+    assert out.splitlines()[0] == headline
+    assert ("Release notes  https://e/notes" in out) is (result["latest"] != result["current"])
+    assert ("djlib upgrade" in out) is (result["update_available"] and not result["updated"])
+
+
+def test_progress_and_notices_speak_dj_words(monkeypatch):
+    """ "Reading your music" while a scan runs, the Ctrl-C hint only while there's something to
+    leave running, and no environment variables in the Shazam notice."""
+    from djlib.application import identification
+
+    class Recorder:
+        def __init__(self):
+            self.details: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def add_task(self, label, total=None, detail=""):
+            self.label = label
+            return 1
+
+        def update(self, task, total=None, completed=None, detail=""):
+            self.details.append(detail)
+
+    class Client:
+        def request(self, method, path):
+            return {"result": {"job_id": "job_1", "kind": "scan", "state": "completed"}}
+
+    shown = Recorder()
+    monkeypatch.setattr(terminal, "progress_bar", lambda term: shown)
+    monkeypatch.setattr(terminal.time, "sleep", lambda seconds: None)
+    running = {"job_id": "job_1", "kind": "scan", "state": "queued", "counts": {}}
+    terminal.follow(sized(80), Client(), running)
+    assert shown.label == "Reading your music"
+    assert shown.details == ["waiting its turn · ctrl-c: keep going in the background", ""]
+    assert "DJLIB_RECOGNIZER" not in identification.UNOFFICIAL_SHAZAM
+    assert identification.UNOFFICIAL_SHAZAM.endswith("djlib doctor shows how.")

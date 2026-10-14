@@ -18,19 +18,10 @@ from difflib import SequenceMatcher
 from itertools import pairwise
 
 from djlib.application.source_matching import comment_hints, fold
-from djlib.application.tracklists import (
-    FEATURING_LABEL,
-    LIST_LABEL,
-    NUMBER_ONLY,
-    NUMBERING,
-    PLAYED_WITH,
-    TIMESTAMP,
-    TRAILING_TIMESTAMP,
-    VERSION_WORDS,
-    parse_tracklist,
-)
+from djlib.application.tracklists import FEATURING_LABEL, VERSION_WORDS, parse_tracklist
 from djlib.domain.contracts import (
     artist_names,
+    credit_form,
     plain_labels,
     safe_text,
     split_featured,
@@ -51,6 +42,10 @@ SONG_SECONDS = 180.0
 ID_REACH = 180.0
 WEAK_REACH = 60.0
 HINTS = 3
+# Other spellings of a heard song's credits kept for the library check (RequestItem.also).
+SPELLINGS = 3
+# One song two listings name, unheard, this close in time is one play (``_unify``).
+UNIFY_SECONDS = 60.0
 # Tracks read from one listing: a six-hour set has about 150. Merging is quadratic in them.
 MAX_LISTED = 400
 # How surely two labels name the same song in any version: 1 same credits and title, 0.9
@@ -69,7 +64,7 @@ SOURCE_NAMES = {
     "chapters": "the chapters",
     "1001tracklists": "1001Tracklists",
     "mixesdb": "MixesDB",
-    "file": "the tracklist file",
+    "file": "your tracklist",
     "comments": "a listener's tracklist",
 }
 PROVIDER_NAMES = {"shazam": "Shazam", "acrcloud": "ACRCloud", "audd": "AudD"}
@@ -493,23 +488,6 @@ def _fold(runs: list[_Run]) -> list[_Run]:
 # Text tracklists
 
 
-def _line_time(raw: str) -> str | None:
-    line = NUMBERING.sub("", PLAYED_WITH.sub("", raw.strip(), count=1), count=1)
-    if match := TIMESTAMP.match(line):
-        return match.group(1)
-    line = NUMBERING.sub("", line, count=1).strip()
-    if (match := TRAILING_TIMESTAMP.search(line)) and match.start() > 0:
-        return next(filter(None, match.groups()))
-    return None
-
-
-def _read_line(raw: str) -> bool:
-    line = PLAYED_WITH.sub("", raw.strip(), count=1)
-    return bool(line) and not (
-        line.startswith(("#", "//")) or NUMBER_ONLY.match(line) or LIST_LABEL.match(line)
-    )
-
-
 def listed_tracklist(source: str, text: str, source_url: str | None = None) -> dict:
     """A ``listed`` tracklist (``{"source", "entries", "skipped"}``) from text, through
     ``parse_tracklist``.
@@ -519,20 +497,15 @@ def listed_tracklist(source: str, text: str, source_url: str | None = None) -> d
     left out (``{"line", "text", "reason"}``).
     """
     text = safe_text(text, lines=True)
-    items, skipped = parse_tracklist(text, source_url)
+    times: list = []
+    items, skipped = parse_tracklist(text, source_url, times)
     entries = [item.model_dump() for item in items]
-    left_out = {number for number, *_ in skipped}
-    lines = [
-        (number, raw)
-        for number, raw in enumerate(text.splitlines(), 1)
-        if number not in left_out and _read_line(raw)
-    ]
-    if len(lines) == len(entries):
-        for entry, (_, raw) in zip(entries, lines, strict=True):
-            entry["timestamp"] = entry["timestamp"] or _line_time(raw)
+    for entry, (_, stamp) in zip(entries, times, strict=True):
+        entry["timestamp"] = entry["timestamp"] or stamp
     left = [{"line": number, "text": raw, "reason": reason} for number, raw, reason in skipped]
     if len(entries) > MAX_LISTED:
-        number, raw = lines[MAX_LISTED] if len(lines) == len(entries) else (0, "")
+        number = times[MAX_LISTED][0]
+        raw = text.splitlines()[number - 1]
         reason = f"more than {MAX_LISTED} tracks; this one and the rest are left out"
         left.append({"line": number, "text": raw, "reason": reason})
         entries = entries[:MAX_LISTED]
@@ -994,6 +967,56 @@ def _rejoin(seq: list[_Slot]) -> list[_Slot]:
     return kept
 
 
+def _twin(seq: list[_Slot], first: _Slot, second: _Slot) -> _Slot | None:
+    """Of two slots nobody heard (``first`` earlier), the one to keep when they are one song
+    two listings place apart, else None.
+
+    They are when they name the same song, no listing names both, and they sit at about the
+    same listed time, or (a listing without times) where one of them can move to the other
+    without passing a song its own listing names: that listing doesn't say which side of
+    those songs it plays.
+    """
+    if first.kind != "named" or second.kind != "named" or first.clusters or second.clusters:
+        return None
+    mine, theirs = ({t["source"] for t in slot.texts} for slot in (first, second))
+    if mine & theirs:
+        return None
+    if not any(_likeness(one, other) >= SAME for one in first.songs() for other in second.songs()):
+        return None
+    timed = not first.approx and not second.approx
+    if timed and first.time is not None and second.time is not None:
+        return first if abs(first.time - second.time) <= UNIFY_SECONDS else None
+    between = seq[seq.index(first) + 1 : seq.index(second)]
+    if not any(_listed_by(slot, theirs) for slot in between):
+        return first
+    if not any(_listed_by(slot, mine) for slot in between):
+        return second
+    return None
+
+
+def _unify(seq: list[_Slot], order: list[str]) -> list[_Slot]:
+    """One unheard song in two listings is one track. A listing aligns to the songs heard, so
+    a partial tracklist (five songs pasted from 1001Tracklists) can place a song nobody heard
+    on the other side of a heard one than MixesDB does: "Poison" twice at 26:00. The track
+    keeps a listed time over a guessed one, and the first listing's label."""
+    rank = {name: index for index, name in enumerate(order)}
+    unheard = [slot for slot in seq if slot.kind == "named" and slot.texts and not slot.clusters]
+    gone: set[int] = set()
+    for at, later in enumerate(unheard):
+        for earlier in unheard[:at]:
+            if id(earlier) in gone or id(later) in gone:
+                continue
+            keep = _twin(seq, earlier, later)
+            if keep is None:
+                continue
+            other = later if keep is earlier else earlier
+            if keep.approx and not other.approx and other.time is not None:
+                keep.time, keep.approx = other.time, False
+            keep.texts = sorted(keep.texts + other.texts, key=lambda t: rank.get(t["source"], 0))
+            gone.add(id(other))
+    return [slot for slot in seq if id(slot) not in gone]
+
+
 def _merge(
     clusters: list[dict], lists: list[tuple[str, list[dict]]], total, unplaced
 ) -> list[_Slot]:
@@ -1002,6 +1025,7 @@ def _merge(
         seq = _place(seq, name, entries)
     seq = _rejoin(seq)
     _interpolate(seq, total)
+    seq = _unify(seq, [name for name, _ in lists])
     seq = _drop_echoes(seq)
     _fill_ids(seq)
     anchors = [i for i, slot in enumerate(seq) if slot.clusters and slot.texts]
@@ -1206,22 +1230,32 @@ def _hints(
     return found
 
 
-def _also_named(slot: _Slot, shown: Song) -> dict | None:
-    """The other spelling of a track heard and listed under different names: the listing's,
-    when the audio's label is shown (``_repairs``), else the audio's when it credits other
-    names or another title."""
-    best, text, repaired = _named_from(slot)
+def _also_named(slot: _Slot, shown: Song) -> list[dict]:
+    """The other spellings of a track heard and listed under different names.
+
+    When the label shown credits the names the audio heard (the audio's own, or a listing that
+    agrees with it), every listing that spells those credits another way (``_repairs``): a
+    pasted tracklist may agree with Shazam while MixesDB writes "Robert Glasper", and a DJ's
+    file is often tagged as a listing spells it (request_items). Otherwise the audio's label,
+    when it credits other names or another title. At most ``SPELLINGS``, first listing first.
+    """
+    best, text, _ = _named_from(slot)
     if not best or not text:
-        return None
-    if repaired:
-        label = _label(text["artist"], text["title"], text["version"])
-        return {"source": text["source"], "label": label}
+        return []
     heard = _song(best["artist"], best["title"], best["version"])
-    if heard.names == shown.names and heard.core == shown.core:
-        return None
-    main = max(best["providers"], key=lambda provider: provider["hits"])
-    label = _label(best["artist"], best["title"], best["version"])
-    return {"source": "audio", "provider": main["provider"], "label": label}
+    if heard.names != shown.names or heard.core != shown.core:
+        main = max(best["providers"], key=lambda provider: provider["hits"])
+        label = _label(best["artist"], best["title"], best["version"])
+        return [{"source": "audio", "provider": main["provider"], "label": label}]
+    spellings: list[dict] = []
+    for other in slot.texts:
+        if other["kind"] != "named" or not _repairs(other, best):
+            continue
+        labels = {key: other[key] for key in ("artist", "title", "version")}
+        label = _label(**labels)
+        if all(fold(label) != fold(known["label"]) for known in spellings):
+            spellings.append({"source": other["source"], "label": label, **labels})
+    return spellings[:SPELLINGS]
 
 
 def _pace(ordered: list[_Slot], total: float | None) -> float | None:
@@ -1282,7 +1316,9 @@ def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> li
             "candidates": slot.candidates,
         }
         if slot.kind == "named" and (also := _also_named(slot, _song(artist, title, version))):
-            track["also_named"] = also
+            track["also_named"] = also[0]
+            if len(also) > 1:
+                track["also_spellings"] = also
         # A long stretch nobody heard or listed likely holds several songs.
         stretch = slot.kind == "unknown" and not slot.texts and pace and start is not None
         if stretch and end and (songs := round((end - start) / pace)) >= 2:
@@ -1431,6 +1467,7 @@ def build_tracklist(
     else:
         slots = _recognized(clusters, total, unplaced, comments)
     tracks = _tracks(slots, total, comments)
+    unplaced = _heard_elsewhere(tracks, unplaced)
     return {
         "tracks": tracks,
         "coverage": _coverage(tracks, total),
@@ -1439,11 +1476,87 @@ def build_tracklist(
     }
 
 
+def _heard_key(entry: dict) -> tuple[str, str]:
+    """One song as a recognizer named it, whatever the spacing or capitals."""
+    label = (
+        f"{entry.get('artist') or ''} - {entry.get('title') or ''} ({entry.get('version') or ''})"
+    )
+    return str(entry.get("provider") or ""), " ".join(label.casefold().split())
+
+
+def _heard_elsewhere(tracks: list[dict], unplaced: list[dict]) -> list[dict]:
+    """A song heard in one window here and another there was heard more than once, so no line
+    says "once" for it: an ID's candidate lists every other time it was heard
+    (``also_heard``: ``{at, hits}``), and ``unplaced`` keeps a song only when nothing else in
+    the set names it, once, with its other times in ``also_heard``."""
+    heard: dict[tuple, dict[float, dict]] = defaultdict(dict)
+    named = set()
+    candidates = []
+    for track in tracks:
+        found = [e for e in track["evidence"] if e["source"] == "audio"]
+        mine = [c for c in track["candidates"] if c["source"] == "audio"]
+        candidates += mine
+        for entry in found + mine:
+            named.add(_heard_key(entry))
+            heard[_heard_key(entry)].setdefault(round(entry["at"], 3), entry)
+    for song in unplaced:
+        heard[_heard_key(song)].setdefault(round(song["at"], 3), song)
+
+    def others(entry: dict) -> list[dict]:
+        times = heard[_heard_key(entry)]
+        return [
+            {"at": other["at"], "hits": other["hits"]}
+            for at, other in sorted(times.items())
+            if at != round(entry["at"], 3)
+        ]
+
+    for candidate in candidates:
+        if again := others(candidate):
+            candidate["also_heard"] = again
+    kept: dict[tuple, dict] = {}
+    for song in unplaced:
+        key = _heard_key(song)
+        if key in named or key in kept:
+            continue
+        if again := others(song):
+            song["also_heard"] = again
+        kept[key] = song
+    return list(kept.values())
+
+
 # Output
 
 
-def _windows(hits: int, at: float) -> str:
-    return f"{hits} windows from {clock(at)}" if hits != 1 else f"1 window at {clock(at)}"
+def _heard_at(provider: str, hits: int, at: float, what: str = "it") -> str:
+    """ "Shazam heard it at 05:39 (4×)", or "… once at 01:09": where to listen, in set time."""
+    return _heard_by([{"provider": provider, "hits": hits, "at": at}], what)[0]
+
+
+def _heard_all(candidate: dict, what: str = "it") -> str:
+    """Where the audio heard an ID's candidate, every time in the set (see
+    ``_heard_elsewhere``): "Shazam heard it at 51:09 and 56:39", not "once at 51:09"."""
+    moments = [candidate, *(candidate.get("also_heard") or [])]
+    provider = candidate["provider"]
+    entries = [{"provider": provider, "hits": m["hits"], "at": m["at"]} for m in moments]
+    return _heard_by(sorted(entries, key=lambda entry: entry["at"]), what)[0]
+
+
+def _heard_by(heard: list[dict], what: str = "it") -> list[str]:
+    """One phrase per recognizer: "Shazam heard it at 02:00 (4×) and 05:30 (3×)"."""
+    moments: dict[str, list[dict]] = {}
+    for entry in heard:
+        moments.setdefault(entry["provider"], []).append(entry)
+    phrases = []
+    for provider, entries in moments.items():
+        if len(entries) == 1 and entries[0]["hits"] == 1:
+            when = f"once at {clock(entries[0]['at'])}"
+        else:
+            times = [
+                clock(e["at"]) + (f" ({e['hits']}×)" if e["hits"] != 1 else "") for e in entries
+            ]
+            when = "at " + " and ".join([", ".join(times[:-1]), times[-1]] if times[1:] else times)
+        phrases.append(f"{_provider(provider)} heard {what} {when}")
+    return phrases
 
 
 def _provider(name: str) -> str:
@@ -1466,28 +1579,21 @@ def _places(track: dict, kind: str) -> str:
 def _notes(track: dict) -> str:
     heard = [e for e in track["evidence"] if e["source"] == "audio"]
     places, ids = _places(track, "named"), _places(track, "unknown")
-    parts = [f"{_provider(e['provider'])}: {_windows(e['hits'], e['at'])}" for e in heard]
+    parts = _heard_by(heard)
     if track["kind"] == "unknown":
         audio = [c for c in track["candidates"] if c["source"] == "audio"]
         fans = [c for c in track["candidates"] if c["source"] == "comments"]
         parts = []
         if audio and audio[0]["strength"] != "weak":
             top, audio = audio[0], audio[1:]
-            parts.append(
-                f"ID (likely {_candidate_label(top)}): {_provider(top['provider'])} heard it "
-                f"in {_windows(top['hits'], top['at'])}"
-            )
+            parts.append(f"ID (likely {_candidate_label(top)}): " + _heard_all(top))
         if ids:
             parts.append(f"listed as an ID in {ids}")
         elif track["start"] is not None and track["end"] is not None:
             parts.append(f"not identified from {clock(track['start'])} to {clock(track['end'])}")
             if track.get("songs_estimate"):
                 parts[-1] += f", about {track['songs_estimate']} songs at this set's pace"
-        parts += [
-            f"possibly {_candidate_label(c)} ({_provider(c['provider'])}, "
-            f"{_windows(c['hits'], c['at'])})"
-            for c in audio
-        ]
+        parts += [f"possibly {_candidate_label(c)} ({_heard_all(c)})" for c in audio]
         if fans:
             parts.append("listeners named " + "; ".join(_candidate_label(c) for c in fans))
     else:
@@ -1497,27 +1603,26 @@ def _notes(track: dict) -> str:
             verb = "list" if " and " in places else "lists"
             parts = [
                 f"{places[:1].upper()}{places[1:]} {verb} it",
-                *(
-                    f"{_provider(e['provider'])} heard {also['label']} here "
-                    f"({_windows(e['hits'], e['at'])})"
-                    for e in heard
-                ),
+                *_heard_by(heard, also["label"]),
             ]
         elif places:
             parts.append(f"also in {places}" if heard else f"from {places}")
         if also.get("source") == "audio" and track["status"] != "likely":
             parts.append(f"{_provider(also['provider'])} named it {also['label']}")
         elif also and also.get("source") != "audio":
-            where = SOURCE_NAMES.get(also["source"], also["source"])
-            parts.append(f"listed in {where} as {also['label']}")
+            for spelling in _spellings(track):
+                where = SOURCE_NAMES.get(spelling["source"], spelling["source"])
+                parts.append(f"{where} spells it {spelling['label']}")
         if ids:
             parts.append(f"an ID in {ids}")
         if track["status"] == "conflict":
             for other in track["candidates"]:
                 if other["source"] == "audio":
                     parts.append(
-                        f"but {_provider(other['provider'])} heard {_candidate_label(other)} "
-                        f"here ({_windows(other['hits'], other['at'])})"
+                        "but "
+                        + _heard_at(
+                            other["provider"], other["hits"], other["at"], _candidate_label(other)
+                        )
                     )
                 else:
                     where = SOURCE_NAMES.get(other["source"], other["source"])
@@ -1533,29 +1638,78 @@ def track_notes(track: dict) -> str:
     return _notes(track)
 
 
+def _spellings(track: dict) -> list[dict]:
+    """A track's listing spellings of its credits (``also_spellings``, else ``also_named``)."""
+    spellings = track.get("also_spellings") or [track.get("also_named") or {}]
+    return [spelling for spelling in spellings if spelling and spelling.get("source") != "audio"]
+
+
+def _credits(track: dict, item: dict) -> list[dict]:
+    """``also`` for a named request item: each listing spelling of the credits, in the mix
+    shown. The repair is about credits: a mix the listing names but the audio did not hear
+    ("Kaytranada Edition" for a "Kaytranada Remix") is another recording."""
+    shown = credit_form("", item["title"], item["version"])[1]
+    own = credit_form(item["artist"], item["title"], item["version"])
+    credits: list[dict] = []
+    for listed in _spellings(track):
+        title, version = listed.get("title") or "", listed.get("version") or ""
+        if credit_form("", title, version)[1] != shown:
+            title, version = item["title"], item["version"]
+        credit = {
+            "artist": _clean(listed.get("artist"))[:500],
+            "title": _clean(title)[:1000],
+            "version": _clean(version)[:300],
+            "source": _clean(listed.get("source"))[:40],
+        }
+        if not credit["artist"] or not credit["title"]:
+            continue
+        form = credit_form(credit["artist"], credit["title"], credit["version"])
+        if form != own and all(
+            form != credit_form(c["artist"], c["title"], c["version"]) for c in credits
+        ):
+            credits.append(credit)
+    return credits[:SPELLINGS]
+
+
+def track_also(track: dict) -> list[dict]:
+    """The ``also`` a request item for this track carries (``request_items``): each listing's
+    spelling of a confirmed song's credits, in the mix shown; [] for anything else."""
+    if track.get("kind") != "named" or track.get("status") != "confirmed":
+        return []
+    item = {
+        "artist": _clean(track.get("artist"))[:500],
+        "title": _clean(track.get("title"))[:1000],
+        "version": _clean(track.get("version"))[:300],
+    }
+    return _credits(track, item) if item["artist"] and item["title"] else []
+
+
 def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
     """Request items (``RequestItem`` fields) in set order, with the evidence in ``notes``.
 
-    IDs stay unknown items labelled "ID"; a likely identity goes in the notes only. An ID
-    without a time is left out unless ``source_url`` says where to hear it.
+    IDs stay unknown items labelled "ID", in their place even without a time; a likely
+    identity goes in the notes only. A confirmed song shown under the credits the audio heard
+    also counts as owned under each listing's spelling of them (``also``), in the mix shown.
     """
     items = []
     for track in tracklist.get("tracks") or []:
         stamp = clock(track["start"]) if track.get("start") is not None else None
         notes = _notes(track)
         if track["kind"] == "named":
-            items.append(
-                {
-                    "kind": "named",
-                    "artist": _clean(track["artist"])[:500],
-                    "title": _clean(track["title"])[:1000],
-                    "version": _clean(track.get("version"))[:300],
-                    "timestamp": stamp,
-                    "notes": notes,
-                    "confidence": track["status"],
-                }
-            )
-        elif stamp or source_url:
+            item = {
+                "kind": "named",
+                "artist": _clean(track["artist"])[:500],
+                "title": _clean(track["title"])[:1000],
+                "version": _clean(track.get("version"))[:300],
+                "timestamp": stamp,
+                "notes": notes,
+                "confidence": track["status"],
+            }
+            # Only where the audio confirms the credits a listing spells another way.
+            if credits := track_also(track):
+                item["also"] = credits
+            items.append(item)
+        else:
             items.append(
                 {
                     "kind": "unknown",

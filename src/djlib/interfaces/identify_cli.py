@@ -5,16 +5,23 @@ got and then the tracklist. `djlib set LINK` uses the same identification when a
 tracklist is missing or has IDs.
 """
 
+import codecs
 import contextlib
+import os
+import re
 import shlex
+import shutil
+import subprocess
+import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 import typer
+from rich.text import Text
 
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
@@ -25,13 +32,15 @@ PHASES = {
     "queued": "Starting",
     "reading_page": "Reading the set's page and comments",
     "downloading": "Downloading the set's audio",
-    "listening": "Listening to the set",
-    "checking_gaps": "Listening again where songs change",
+    "listening": "Listening",
+    "checking_gaps": "Checking the transitions",
     "merging": "Putting the tracklist together",
 }
 EVENT_SECONDS = 15
 POLL_SECONDS = 0.5
 TRACKLIST_BYTES = 1_000_000
+# How long a listen takes, said once before `djlib set LINK` starts one.
+LISTEN_TIME = "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy"
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
 
@@ -59,27 +68,368 @@ def tracklist_source(path: Path, text: str) -> str:
     return "file"
 
 
-def read_text_file(path: Path, limit: int = TRACKLIST_BYTES) -> str:
-    """A tracklist file's text: a regular file of at most ``limit`` bytes."""
-    try:
-        if not path.is_file():
-            raise AppError("INPUT_INVALID", f"{path} is not a text file.")
-        if path.stat().st_size > limit:
-            raise AppError(
-                "INPUT_INVALID", f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller."
+CANT_READ = "Can't read that tracklist"
+# TextEdit saves rich text by default; its control words would read as tracklist lines.
+RICH_TEXT = b"{\\rtf"
+# "soundcloud.com/…" typed without https://.
+BARE_LINK = re.compile(
+    r"^(?:www\.|m\.)?(?:youtube\.com|youtu\.be|soundcloud\.com|on\.soundcloud\.com)/", re.I
+)
+# Words that stand for text instead of a file: what was copied, or what is piped in.
+PASTE, STDIN = "paste", "-"
+# A link inside copied words ("check this set https://youtu.be/…!").
+LINK = re.compile(r"https?://[^\s<>\"'‘’“”]+")
+# cmd.exe passes quotes through, and Notes or Messages curl them: 'LINK', “LINK”, ‘LINK’.
+QUOTES = {"'": "'", '"': '"', "‘": "’", "’": "’", "“": "”", "”": "”"}
+
+
+def copied(command: str = "set") -> str:
+    """``djlib set paste`` on a Mac, else ``djlib set -`` (see web.copied)."""
+    from djlib.sources import web
+
+    return web.copied(command)
+
+
+def unreadable(message: str) -> AppError:
+    return AppError("INPUT_INVALID", message, details={"title": CANT_READ})
+
+
+def unquoted(value: str) -> str:
+    """The argument without one pair of quotes around it, unless a file has that very name; a
+    link also loses the backslashes zsh puts before its ? and = when it is pasted."""
+    from djlib.sources.web import unescaped
+
+    text = value.strip()
+    if len(text) > 2 and QUOTES.get(text[0]) == text[-1] and not Path(value).exists():
+        return unescaped(text[1:-1].strip())
+    return unescaped(value)
+
+
+def with_https(value: str) -> str:
+    """A YouTube or SoundCloud link typed without https:// (and no file of that name) with it,
+    saying so in a terminal; anything else as given."""
+    text = value.strip()
+    if not BARE_LINK.match(text) or Path(text).exists():
+        return value
+    link = f"https://{text}"
+    term = terminal.current()
+    if not term.json:
+        term.err.print(Text(f"Reading it as {link}", style="muted"), soft_wrap=True)
+    return link
+
+
+def from_rich_text(data: bytes, name: str) -> bytes:
+    """Plain text from rich text, by macOS's own converter."""
+    if sys.platform == "darwin":
+        command = ["textutil", "-convert", "txt", "-format", "rtf", "-encoding", "UTF-8"]
+        try:
+            done = subprocess.run(
+                [*command, "-stdin", "-stdout"],
+                input=data,
+                capture_output=True,
+                timeout=10,
+                check=True,
             )
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AppError("INPUT_INVALID", f"Could not read {path} as a UTF-8 text file.") from exc
+            return done.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+    raise unreadable(
+        f"{name} is a rich-text file (TextEdit's default). In TextEdit choose Format → Make "
+        f"Plain Text, save, and run this again — or copy the tracklist and run {copied()}."
+    )
+
+
+def plain_text(data: bytes, name: str) -> str:
+    """A tracklist's text in the encodings editors save: UTF-8 (with or without a BOM),
+    UTF-16 with a BOM, else Windows' cp1252; rich text goes through macOS's converter."""
+    if data.lstrip().startswith(RICH_TEXT):
+        data = from_rich_text(data, name)
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        with contextlib.suppress(UnicodeDecodeError):
+            return data.decode("utf-16")
+    elif b"\x00" not in data:  # a zero byte means a document or audio file, not text
+        for encoding in ("utf-8-sig", "cp1252"):
+            with contextlib.suppress(UnicodeDecodeError):
+                return data.decode(encoding)
+    raise unreadable(
+        f"djlib can't read {name} as text. Save it as plain text "
+        "(TextEdit: Format → Make Plain Text)."
+    )
+
+
+def bare_link(given: str, command: str = "set") -> AppError | None:
+    """ "soundcloud.com/…" typed without https://: the whole link back, quoted for zsh."""
+    if not BARE_LINK.match(given):
+        return None
+    link = f"https://{given}"
+    quoted = f"'{link}'" if "'" not in link else shlex.quote(link)
+    return AppError(
+        "INPUT_INVALID",
+        f"{given} looks like a set link without https:// in front.",
+        details={
+            "title": "That link needs its https://",
+            "next": f"djlib {command} {quoted}",
+            "next_label": "The whole link, in single quotes",
+        },
+    )
+
+
+def not_found(path: Path, instead: str, given: str | None = None) -> AppError:
+    """Why a named tracklist file isn't there, and the way forward. ``given`` is the
+    argument as typed (a Path would turn https:// into https:/, and Windows its / into \\)."""
+    if (error := bare_link(given or path.as_posix())) is not None:
+        return error
+    given = given or str(path)
+    where = "" if path.is_absolute() else f" in {terminal.short_path(str(Path.cwd()))}"
+    return unreadable(
+        f"Can't find {given}{where}. Drag the file into this window to paste its full path, "
+        f"or copy the tracklist and run {instead}."
+    )
+
+
+def read_text_file(
+    path: Path,
+    limit: int = TRACKLIST_BYTES,
+    instead: str | None = None,
+    given: str | None = None,
+) -> str:
+    """A tracklist file's text: a regular file of at most ``limit`` bytes. ``instead`` is the
+    command that takes a copied tracklist where the file can't be found (``djlib set paste``,
+    or ``-`` off a Mac); ``given`` is the file as the DJ typed it."""
+    instead = instead or copied()
+    try:
+        if path.is_dir():
+            raise unreadable(f"{path} is a folder; give the tracklist file inside it.")
+        if not path.exists():
+            raise not_found(path, instead, given)
+        if not path.is_file():
+            raise unreadable(f"{path} is not a text file.")
+        with path.open("rb") as stream:
+            data = stream.read(limit + 1)
+    except OSError as exc:
+        reason = (exc.strerror or "it can't be read").lower()
+        raise unreadable(f"djlib can't open {path}: {reason}.") from exc
+    if len(data) > limit:
+        raise unreadable(f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller.")
+    text = plain_text(data, path.name)
+    if not text.strip():
+        raise unreadable(
+            f"{path.name} is empty; paste the set's tracklist into it, or copy it and run "
+            f"{instead}."
+        )
+    return text
+
+
+def typed(value: str | Path) -> str | None:
+    """``paste`` (what was copied) or ``-`` (what is piped in), else None. A file named paste
+    in this folder is still that file."""
+    text = unquoted(str(value)).strip()
+    if text == STDIN:
+        return STDIN
+    if text.lower() == PASTE and not Path(text).exists():
+        return PASTE
+    return None
+
+
+def clipboard() -> bytes:
+    """What was last copied, through macOS's pbpaste."""
+    if sys.platform != "darwin" or shutil.which("pbpaste") is None:
+        raise AppError(
+            "INPUT_INVALID",
+            "djlib set paste reads the clipboard on a Mac; here pipe it in: … | djlib set -",
+        )
+    try:
+        done = subprocess.run(
+            ["pbpaste"],
+            capture_output=True,
+            timeout=10,
+            check=True,
+            env={**os.environ, "LANG": "en_US.UTF-8"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AppError(
+            "INPUT_INVALID", "djlib couldn't read the clipboard. Copy it again, then retry."
+        ) from exc
+    return done.stdout
+
+
+def links_in(text: str) -> list[str]:
+    """The http(s) links in copied text, each once, without the punctuation after them."""
+    return list(dict.fromkeys(found.rstrip(".,;:!?)]}>") for found in LINK.findall(text)))
+
+
+def songs_in(text: str) -> list:
+    """The songs a copied text names: its “Artist - Title” lines, links aside."""
+    from djlib.application.tracklists import parse_tracklist
+
+    items, _ = parse_tracklist(text)
+    return [item for item in items if not LINK.search(f"{item.artist or ''} {item.title or ''}")]
+
+
+def read_typed(kind: str, limit: int = TRACKLIST_BYTES) -> tuple[str | None, str]:
+    """(link, text) for ``paste`` or ``-``: a single http(s) link is used as if typed (link
+    set), as is the one link in words that name no song; anything else is tracklist text
+    with a file's limits. The caller that uses the link says so (``say_link``)."""
+    from djlib.interfaces.set_sources import is_url
+
+    if kind == STDIN:
+        stream = getattr(sys.stdin, "buffer", None)
+        term = terminal.current()
+        if stream is not None and sys.stdin.isatty() and not term.json:
+            # Nothing is piped in: the DJ types or pastes it here.
+            # Windows consoles end typed input with Ctrl-Z, then Enter; Ctrl-D only types ^D.
+            eof = "Ctrl-Z, then Enter" if os.name == "nt" else "Ctrl-D on an empty line"
+            term.err.print(f"Paste the tracklist, then press {eof}.", style="muted")
+        data = stream.read(limit + 1) if stream is not None else b""
+        where = "The text piped in"
+    else:
+        data, where = clipboard(), "The clipboard"
+    if len(data) > limit:
+        raise unreadable(f"{where} is over {limit // 1_000_000} MB; a tracklist is smaller.")
+    text = plain_text(data, where.lower())
+    if not text.strip():
+        if kind == STDIN:
+            raise AppError("INPUT_INVALID", "Nothing was piped in: … | djlib set -")
+        raise AppError(
+            "INPUT_INVALID",
+            "Copy the set's link or its tracklist, then run this again.",
+            details={"title": "The clipboard is empty"},
+        )
+    word = text.strip()
+    if is_url(word) and not any(char.isspace() for char in word):
+        return word, text
+    links = links_in(text)
+    if len(links) == 1 and not songs_in(text):
+        return links[0], text
+    return None, text
+
+
+def say_link(kind: str, link: str) -> None:
+    """Show which link djlib took from what was copied."""
+    term = terminal.current()
+    if kind == PASTE and not term.json:
+        term.err.print(Text(f"Using the link you copied: {link}", style="muted"), soft_wrap=True)
+
+
+def tracklist_wanted(kind: str) -> AppError:
+    """--tracklist paste (or --text paste) while the set's link is still what was copied."""
+    if kind == STDIN:
+        return AppError(
+            "INPUT_INVALID",
+            "The text piped in is a link; pipe in the set's tracklist instead.",
+            details={"title": "That's the set's link"},
+        )
+    return AppError(
+        "INPUT_INVALID",
+        "The clipboard still holds the set's link. Copy the tracklist on the page, then run "
+        "the same command again.",
+        details={"title": "Copy the tracklist too"},
+    )
+
+
+def nothing_in(kind: str, text: str, command: str = "set") -> AppError:
+    """What was copied (or piped in) holds neither a usable link nor a tracklist."""
+    place = "the clipboard" if kind == PASTE else "the text piped in"
+    if command == "identify" and songs_in(text):
+        return AppError(
+            "INPUT_INVALID",
+            f"{place[:1].upper()}{place[1:]} holds a tracklist, not a set link.",
+            details=ways(
+                [
+                    ("Check it against your music", f"djlib set {kind}"),
+                    (
+                        "Or listen to the set too, with its link in place of LINK",
+                        f"djlib identify 'LINK' --tracklist {kind}",
+                    ),
+                ],
+                "That's a tracklist",
+            ),
+        )
+    if len(links := links_in(text)) > 1:
+        return AppError(
+            "INPUT_INVALID",
+            f"There are {len(links)} links in {place}; djlib checks one set at a time. Copy "
+            "just the set's link, then run this again.",
+            details={"title": "Copy just the set's link"},
+        )
+    if command == "identify":
+        return AppError(
+            "INPUT_INVALID",
+            f"There's no set link in {place}. Copy the set's YouTube or SoundCloud link, then "
+            "run this again.",
+            details={"title": f"No set link in {place}"},
+        )
+    message = (
+        f"There's no set link and no “Artist - Title” line in {place}. Copy the set's link or "
+        "its tracklist, then run this again."
+    )
+    if "\t" in text:
+        message += " From a spreadsheet? Copy its Artist and Title header row too."
+    return AppError("INPUT_INVALID", message, details={"title": f"No set or tracklist in {place}"})
+
+
+def pasted_name(text: str) -> str:
+    """ "Pasted 13 Oct · Lumen - Halo + 11 more": a copied tracklist without a heading, named
+    by the day, its first song and how many follow. Another paste gets its own name, so
+    rekordbox never takes it for a newer version of a different set (DJs reuse openers); the
+    same paste keeps its name and its list."""
+    today = date.today()
+    name = f"Pasted {today.day} {today:%b}"
+    songs = [item for item in songs_in(text) if item.kind == "named"]
+    if not songs:
+        return name
+    song = " ".join(f"{songs[0].artist} - {songs[0].title}".split())
+    name += f" · {song if len(song) <= 48 else song[:47] + '…'}"
+    return name + (f" + {len(songs) - 1} more" if len(songs) > 1 else "")
+
+
+def nothing_given(command: str) -> AppError:
+    """`djlib set` or `djlib identify` with nothing to check: the ways in."""
+    link = "'https://soundcloud.com/…'"
+    if command == "identify":
+        steps = [
+            ("A set link (in single quotes)", f"djlib identify {link}"),
+            # Off a Mac, `-` asks for what was copied to be pasted into the terminal.
+            ("A link you copied", copied("identify")),
+        ]
+        title = "Which set should djlib identify?"
+        message = "Give it the link of a YouTube or SoundCloud set."
+    else:
+        since = (date.today() - timedelta(days=30)).isoformat()
+        steps = [
+            ("A set link (in single quotes)", f"djlib set {link}"),
+            ("A tracklist or link you copied", copied()),
+            ("Your recent Shazams", f"djlib set shazam:{since}"),
+        ]
+        title = "What should djlib check?"
+        message = (
+            "Give it a set link, a tracklist or your Shazams. For a tracklist file: type "
+            "djlib set, a space, then drag the file in."
+        )
+    return AppError("INPUT_INVALID", message, details=ways(steps, title))
+
+
+def ways(steps: list[tuple[str, str]], title: str | None = None) -> dict:
+    """An error's details with more than one way forward: ``next`` stays the first command,
+    and ``next_steps`` lists them all (a terminal shows each on its own line)."""
+    label, command = steps[0]
+    details = {"next": command, "next_label": label}
+    details["next_steps"] = [{"label": label, "command": command} for label, command in steps]
+    return {"title": title, **details} if title else details
 
 
 def read_tracklists(paths: list[Path] | None) -> list[dict]:
     found = []
     for path in paths or []:
-        path = path.expanduser()
-        text = read_text_file(path)
-        if not text.strip():
-            raise AppError("INPUT_INVALID", f"{path} is empty; paste the set's tracklist into it.")
+        if kind := typed(path):
+            link, text = read_typed(kind)
+            if link is not None:
+                raise tracklist_wanted(kind)
+            found.append({"source": tracklist_source(Path(kind), text), "text": text})
+            continue
+        given = unquoted(str(path))
+        path = Path(given).expanduser()
+        text = read_text_file(path, instead="the same command with --tracklist paste", given=given)
         found.append({"source": tracklist_source(path, text), "text": text})
     return found
 
@@ -108,52 +458,77 @@ def submit(
     return local.request("POST", "/identifications", data=body)["result"]
 
 
-def _minutes(seconds) -> str:
-    if not isinstance(seconds, int | float):
-        return ""
-    if seconds < 90:
-        return "under 2 min left" if seconds >= 45 else "less than a minute left"
-    return f"about {round(seconds / 60)} min left"
-
-
 def waiting_text(waiting: dict) -> str:
-    """ "Shazam asked djlib to slow down; trying again in 20 s (gives up after 14 min)"."""
+    """ "Shazam is slow, waiting (Ctrl-C is safe)": no countdown, since the wait has no known
+    end, and stopping keeps what was heard."""
     service = waiting.get("service") or "Song recognition"
-    seconds = max(int(waiting.get("retry_in") or 0), 1)
-    if waiting.get("reason") == "rate_limited":
-        text = f"{service} asked djlib to slow down; trying again in {seconds} s"
-        if isinstance(left := waiting.get("gives_up_in"), int | float):
-            text += f" (gives up after {max(round(left / 60), 1)} min more)"
-        return text
-    return f"{service} didn't answer; trying again in {seconds} s"
+    slow = "is slow" if waiting.get("reason") == "rate_limited" else "isn't answering"
+    return f"{service} {slow}, waiting (Ctrl-C is safe)"
 
 
-def progress_line(job: dict) -> str:
-    """ "Listening to the set… 34 of 124 windows · 6 songs so far · about 2 min left"."""
+def _where(phase: str | None, progress: dict) -> str:
+    """How far the phase got: set time while listening ("15:30 of 42:05"), else a count."""
+    from djlib.interfaces.set_sources import clock
+
+    done, total = progress.get("windows_done") or 0, progress.get("windows_total")
+    if phase == "listening":
+        at, length = progress.get("position_seconds"), progress.get("duration_seconds")
+        if isinstance(at, int | float) and isinstance(length, int | float) and length > 0:
+            return f"{clock(at)} of {clock(length)}"
+        return f"{done} of {total} parts" if total else ""
+    if phase == "checking_gaps" and total:
+        return f"{done} of {total}"
+    if phase == "downloading" and progress.get("downloaded_bytes"):
+        return f"{progress['downloaded_bytes'] / 1_000_000:.0f} MB"
+    return ""
+
+
+def progress_line(job: dict, width: int = 78) -> str:
+    """ "Listening… 15:30 of 42:05 · 5 songs so far", in at most ``width`` columns.
+
+    Progress is the set's own time, never a countdown: Shazam's waits make any guess of the
+    time left wrong. While Shazam makes djlib wait, the line says so instead.
+    """
+    from rich.cells import cell_len
+
     progress = (job.get("result") or {}).get("progress") or {}
     phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
-    text = PHASES.get(phase or "", "Identifying the set") + "…"
     if phase == "queued" and progress.get("ahead"):
-        text = "Waiting for the set before it to finish…"
-    parts = []
-    if phase in {"listening", "checking_gaps"} and progress.get("windows_total"):
-        parts.append(f"{progress.get('windows_done') or 0} of {progress['windows_total']} windows")
-    if phase == "downloading" and progress.get("downloaded_bytes"):
-        parts.append(f"{progress['downloaded_bytes'] / 1_000_000:.0f} MB")
+        return "Waiting for the set before it to finish…"
+    text = PHASES.get(phase or "", "Identifying the set") + "…"
+    where = _where(phase, progress)
+    songs = ""
     if phase in {"listening", "checking_gaps", "merging"} and progress.get("songs_heard"):
-        parts.append(f"{plural(int(progress['songs_heard']), 'song')} so far")
-    if phase in {"listening", "checking_gaps"} and isinstance(progress.get("waiting"), dict):
-        parts.append(waiting_text(progress["waiting"]))
-    elif phase in {"listening", "checking_gaps"} and (eta := _minutes(progress.get("eta_seconds"))):
-        parts.append(eta)
-    return f"{text} {' · '.join(parts)}" if parts else text
+        songs = plural(int(progress["songs_heard"]), "song")
+    waiting = progress.get("waiting") if phase in {"listening", "checking_gaps"} else None
+    if isinstance(waiting, dict):
+        calm = waiting_text(waiting)
+        # Fullest first, the first that fits; that Ctrl-C is safe matters more than the count.
+        choices = [
+            [where, songs, calm],
+            [where, calm],
+            [where, calm.removesuffix(" (Ctrl-C is safe)")],
+        ]
+    else:
+        choices = [[where, f"{songs} so far" if songs else ""], [where, songs], [where]]
+    for parts in choices:
+        line = f"{text} {' · '.join(part for part in parts if part)}".rstrip()
+        if cell_len(line) <= width:
+            return line
+    return line
 
 
-def follow(local, job: dict, url: str | None = None) -> dict:
+def fit(term) -> int:
+    """The progress line's room: the terminal's width less the spinner, so it never wraps."""
+    return max(term.err.width - 2, 20)
+
+
+def follow(local, job: dict, url: str | None = None, reason: str | None = None) -> dict:
     """Wait for an identification, showing progress; Ctrl-C cancels it.
 
     A terminal gets a live status line; scripts and assistants get a JSON event on stderr
-    when the job starts, at each phase and at most every 15 seconds in between.
+    when the job starts (with ``identify_reason`` when `djlib set` chose to listen), at each
+    phase and at most every 15 seconds in between.
     """
     from djlib.interfaces.rekordbox_cli import event
 
@@ -162,9 +537,10 @@ def follow(local, job: dict, url: str | None = None) -> dict:
     live = None
     status = None
     if term.json:
-        event("identify_started", job_id=job_id, url=url)
+        why = {"identify_reason": reason} if reason else {}
+        event("identify_started", job_id=job_id, url=url, **why)
     else:
-        status = term.err.status(f"[bold]{progress_line(job)}", spinner_style="accent")
+        status = term.err.status(f"[bold]{progress_line(job, fit(term))}", spinner_style="accent")
         live = status.__enter__()
     last_phase, last_event = None, 0.0
     try:
@@ -172,7 +548,7 @@ def follow(local, job: dict, url: str | None = None) -> dict:
             progress = (job.get("result") or {}).get("progress") or {}
             phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
             if live is not None:
-                live.update(f"[bold]{progress_line(job)}")
+                live.update(f"[bold]{progress_line(job, fit(term))}")
             elif phase != last_phase or time.monotonic() - last_event >= EVENT_SECONDS:
                 event(
                     "identify_progress",
@@ -280,26 +656,82 @@ def listen_fix(error: AppError) -> str | None:
     return INSTALLER
 
 
-def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
-    """Whether `djlib set LINK` listens to the set: when asked to, or by default when its
-    published tracklist is missing, has IDs or is not ``complete`` (as MixesDB marks some),
-    or it was identified before (that costs nothing)."""
+def listen_reason(
+    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True
+) -> str | None:
+    """Why `djlib set LINK` listens to the set, or None when it doesn't: "asked" (--identify),
+    or by default "no_tracklist", "incomplete" (MixesDB marks some tracklists so), "ids" when
+    the tracklist has IDs, or "identified_before" (that costs nothing)."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
     if choice is not None:
-        return choice
-    if not text.strip() or not complete:
-        return True
+        return "asked" if choice else None
+    if not text.strip():
+        return "no_tracklist"
+    if not complete:
+        return "incomplete"
     items, _ = parse_tracklist(text, url)
     if any(item.kind == "unknown" for item in items):
-        return True
-    return finished(workspace, url) is not None
+        return "ids"
+    return "identified_before" if finished(workspace, url) is not None else None
 
 
-def listen(local, url: str, tracklists: list[dict] | None = None, name: str | None = None):
-    """Identify a set and wait for it: ``{"job_id", "result"}`` (raises why it stopped)."""
-    job = follow(local, submit(local, url, tracklists=tracklists, name=name), url)
+def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
+    """Whether `djlib set LINK` listens to the set (see ``listen_reason``)."""
+    return listen_reason(choice, text, url, workspace, complete=complete) is not None
+
+
+def listening_notice(reason: str | None, text: str, url: str, workspace) -> str | None:
+    """What `djlib set LINK` says before it listens: why, and how long that takes. None when
+    there is nothing new to hear (a set identified before shows at once)."""
+    from djlib.application.identification import finished
+    from djlib.application.tracklists import parse_tracklist
+
+    if reason in {None, "identified_before"} or finished(workspace, url) is not None:
+        return None
+    # Without a tracklist, skipping the listen leaves nothing to check.
+    carry_on = "Ctrl-C stops it, and the same command carries on"
+    if reason == "no_tracklist":
+        why = "The page has no tracklist, so djlib is listening to the set to find the songs."
+        return f"{why} {LISTEN_TIME}; {carry_on}."
+    if reason == "ids":
+        ids = sum(item.kind == "unknown" for item in parse_tracklist(text, url)[0])
+        them = "it" if ids == 1 else "them"
+        why = (
+            f"The tracklist has {plural(ids, 'ID')}, so djlib is listening to the set to name "
+            f"{them}."
+        )
+    elif reason == "incomplete":
+        why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
+    else:
+        return f"djlib is listening to the set. {LISTEN_TIME}; {carry_on}."
+    return f"{why} {LISTEN_TIME}; --no-identify skips it."
+
+
+def listen(
+    local,
+    url: str,
+    tracklists: list[dict] | None = None,
+    name: str | None = None,
+    *,
+    reason: str | None = None,
+    notice: str | None = None,
+):
+    """Identify a set and wait for it: ``{"job_id", "result"}`` (raises why it stopped).
+    A terminal first gets ``notice`` (``listening_notice``), once the listen is queued."""
+    job = submit(local, url, tracklists=tracklists, name=name)
+    term = terminal.current()
+    if notice and not term.json:
+        from rich.text import Text
+
+        # Why on the first line, how long on the next.
+        why, _, how_long = notice.partition(". ")
+        said = Text(f"{why}.") if how_long else Text(why)
+        if how_long:
+            said.append(f"\n{how_long}", style="muted")
+        terminal.hanging(term.err, Text(term.glyph("run"), style="accent"), said)
+    job = follow(local, job, url, reason)
     return {"job_id": job["job_id"], "result": outcome(job)}
 
 
@@ -319,7 +751,7 @@ def identified_request(result: dict, name: str):
             "TRACKLIST_NOT_FOUND",
             "djlib listened to the set but could not name any of its songs, and nothing lists "
             "them.",
-            details={"next": f"djlib set {shlex.quote(url or 'LINK')} --tracklist FILE"},
+            details={"next": f"djlib set {shlex.quote(url or 'LINK')} --tracklist paste"},
         )
     from djlib.domain.contracts import safe_text
 
@@ -344,6 +776,8 @@ def identified_summary(job_id: str, result: dict) -> dict:
         "tracklist_file": found["tracklist_file"],
         "job_id": job_id,
         "reused": found["reused"],
+        "recognizer": found["recognizer"],
+        "listened_at": found["listened_at"],
     }
 
 
@@ -360,12 +794,19 @@ def register_identify(app, client, emit, handled, panel=None):
     @handled
     def identify(
         ctx: typer.Context,
-        url: Annotated[str, typer.Argument(help="The set's YouTube or SoundCloud link.")],
+        url: Annotated[
+            str | None,
+            typer.Argument(
+                metavar="LINK",
+                help="The set's YouTube or SoundCloud link, in single quotes; or paste for the "
+                "link you copied.",
+            ),
+        ] = None,
         tracklist: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="A tracklist for the set, e.g. copied from 1001Tracklists; repeatable. "
-            "Remembered for the set.",
+            help="A tracklist for the set, e.g. from 1001Tracklists: a text file, or paste for "
+            "the one you copied; repeatable. Remembered for the set.",
         ),
         again: bool = typer.Option(
             False, "--again", help="Listen again even if djlib identified this set before."
@@ -386,10 +827,24 @@ def register_identify(app, client, emit, handled, panel=None):
 
         Each track says how sure djlib is and why; IDs list likely candidates.
 
-        A tracklist from 1001Tracklists (--tracklist FILE) fills the gaps.
+        A tracklist from 1001Tracklists (--tracklist paste, or a file) fills the gaps.
 
         Ctrl-C stops listening; running it again continues where it stopped.
         """
+        from djlib.interfaces.set_sources import browser_only
+
+        if url is None:
+            raise nothing_given("identify")
+        url = with_https(unquoted(url))
+        if kind := typed(url):
+            link, text = read_typed(kind)
+            if link is None:
+                raise nothing_in(kind, text, "identify")
+            say_link(kind, link)
+            url = link
+        if (error := bare_link(url, "identify")) is not None:
+            raise error
+        browser_only(url, "identify")
         local = client(ctx)
         job = submit(
             local,

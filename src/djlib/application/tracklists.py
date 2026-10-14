@@ -6,11 +6,12 @@ Accepted line shapes, one track per line::
     03. Artist – Title [Label]
     [47:12] Artist - Title
     Artist - Title @ 41:20   /   Artist - Title (41:20)   /   Artist - Title [41:20]
-    ID - ID   /   ??? - ???   (kept as an unknown with its timestamp or source)
+    ID - ID   /   ??? - ???   /   Artist - ID   (kept as an ID, in its place)
 
-Numbering, bullets and timestamps are stripped. Lines without an "Artist - Title" separator
-are reported back instead of being turned into a guessed request, except a first line such
-as "Friday at Fabric", which names the set.
+Numbering, bullets and timestamps are stripped; a time on a line of its own ("01:09", as
+1001Tracklists copies have it) is the next track's. Lines without an "Artist - Title"
+separator are reported back instead of being turned into a guessed request, except a first
+line such as "Friday at Fabric", which names the set.
 """
 
 import itertools
@@ -48,6 +49,21 @@ LEADING_DIGITS = re.compile(r"^\s*#?(\d{1,3})")
 
 
 HEADING = "looks like a heading"
+RICH_TEXT = "rich-text formatting"
+# What 1001Tracklists shows in place of the tracks it hides from people not logged in:
+# "Save 12 more tracks", "Show 12 more".
+CUT_OFF = re.compile(
+    r"^\s*(?:save|show|load|view|see|unlock)\s+(\d{1,4})\s+more(?:\s+tracks?)?\b", re.IGNORECASE
+)
+
+
+def hidden_tracks(line: str) -> int | None:
+    """How many tracks a copied 1001Tracklists page left out ("Save 12 more tracks"), else
+    None."""
+    found = CUT_OFF.match(line)
+    return int(found.group(1)) if found else None
+
+
 LIST_LABEL = re.compile(r"^(?:full\s+)?(?:track\s*list|set\s*list|tracks)\s*:?$", re.IGNORECASE)
 LEADING_NUMBER = re.compile(r"^\s*\d{1,3}(?:\s*[-.)_]\s*|\s+)(?=\S)")
 
@@ -63,12 +79,17 @@ def file_name_labels(stem: str) -> tuple[str, str]:
     return parts[0].strip()[:500], parts[1].strip()[:1000]
 
 
-def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[RequestItem], list]:
+def parse_tracklist(
+    text: str, source_url: str | None = None, times: list | None = None
+) -> tuple[list[RequestItem], list]:
     """Return request items plus ``(line_number, text, reason)`` for lines left out.
 
     When most lines are numbered or timestamped, unmarked lines above the first numbered
     one are headings (a set name, a date) rather than tracks. In an unnumbered list, a
     first line without an "Artist - Title" separator is the heading.
+
+    ``times``, when given, gets ``(line_number, timestamp)`` for each item: the time written
+    for it, which named items leave out.
     """
     parsed = []
     for number, raw in enumerate(text.splitlines(), 1):
@@ -112,8 +133,12 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
     items: list[RequestItem] = []
     skipped: list[tuple[int, str, str]] = []
     started = False
+    pending = None
     for index, (number, raw, line, timestamp, marked, *_) in enumerate(parsed):
         started = started or marked
+        if not line and timestamp:
+            pending = timestamp  # "01:09" alone: when the next track starts
+            continue
         if numbered_list and not started:
             skipped.append((number, raw, HEADING))
             continue
@@ -128,6 +153,7 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
             else:
                 skipped.append((number, raw, "no “Artist - Title” separator"))
                 continue
+        timestamp, pending = timestamp or pending, None
         artist = parts[0].strip()
         title = parts[1].strip()
         label = TRAILING_LABEL.search(title)
@@ -138,24 +164,24 @@ def parse_tracklist(text: str, source_url: str | None = None) -> tuple[list[Requ
             and not FEATURING_LABEL.match(label.group(1))
         ):
             title = title[: label.start()].strip() or title
-        if UNKNOWN.match(artist) or UNKNOWN.match(title):
-            if not (timestamp or source_url):
-                skipped.append((number, raw, "unknown ID needs a timestamp or --source"))
-                continue
-            try:
-                items.append(
-                    RequestItem(
-                        kind="unknown",
-                        label=line[:1000],
-                        timestamp=timestamp,
-                        source_url=source_url,
-                    )
-                )
-            except ValueError:
-                skipped.append((number, raw, "unreadable characters"))
-            continue
         try:
-            items.append(RequestItem(artist=artist[:500], title=title[:1000]))
+            if UNKNOWN.match(artist) or UNKNOWN.match(title):
+                # "ID - ID" or "Kaytranada - ID" keeps its place in the set, timed or not.
+                item = RequestItem(
+                    kind="unknown", label=line[:1000], timestamp=timestamp, source_url=source_url
+                )
+            else:
+                # A pasted 1001Tracklists list times its songs too: the time is evidence.
+                item = RequestItem(artist=artist[:500], title=title[:1000], timestamp=timestamp)
         except ValueError:
             skipped.append((number, raw, "unreadable characters"))
+            continue
+        items.append(item)
+        if times is not None:
+            times.append((number, timestamp))
+    # Rich text read as plain ("{\rtf1\ansi…") is formatting, never the set's name.
+    skipped = [
+        (number, raw, RICH_TEXT if reason == HEADING and raw.startswith("{\\") else reason)
+        for number, raw, reason in skipped
+    ]
     return items, skipped

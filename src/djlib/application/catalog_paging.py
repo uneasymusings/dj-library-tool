@@ -238,6 +238,8 @@ def saved(app, kind, query="", limit=20, after=None):
             model.revision,
             model.updated_at,
             func.json_array_length(model.items).label("total_items"),
+            model.items.label("items"),
+            model.request["hidden_tracks"].as_integer().label("hidden_tracks"),
         ]
     elif kind == "deliveries":
         columns += [
@@ -265,16 +267,24 @@ def saved(app, kind, query="", limit=20, after=None):
         statement = statement.where(
             or_(*(column.contains(term, autoescape=True) for column in searchable))
         )
+    # Sets come newest first by when they were last checked: checking one again (which reuses
+    # its saved list) brings it back to the top. The rest are newest first as made.
+    newest = model.updated_at if kind == "requests" else model.created_at
     with app.db.transaction() as session:
         total = session.scalar(select(func.count()).select_from(statement.subquery()))
         if context["key"]:
-            statement = statement.where(tuple_(model.created_at, model.id) < tuple(context["key"]))
+            statement = statement.where(tuple_(newest, model.id) < tuple(context["key"]))
         rows = [
             dict(row)
             for row in session.execute(
-                statement.order_by(model.created_at.desc(), model.id.desc()).limit(limit + 1)
+                statement.order_by(newest.desc(), model.id.desc()).limit(limit + 1)
             ).mappings()
         ]
+        made_from = (
+            _made_from(session, [row["collection_id"] for row in rows])
+            if kind == "collections"
+            else {}
+        )
     for row in rows:
         if kind == "deliveries":
             row["fresh_verification_performed"] = False
@@ -283,7 +293,126 @@ def saved(app, kind, query="", limit=20, after=None):
             )
         if kind == "collections":
             row.update(app_state="not_tracked_here", device_state="not_tracked_here")
-    return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
+            row["request_id"] = made_from.get(row["collection_id"])
+        if kind == "requests":
+            row["counts"] = request_counts(row.pop("items"))
+            if row.get("hidden_tracks") is None:  # a list copied whole, as most are
+                row.pop("hidden_tracks", None)
+    when = "updated_at" if kind == "requests" else "created_at"
+    return _result(kind, rows, total, limit, context, lambda r: [r[when], r[identifier]])
+
+
+def _made_from(session, collection_ids: list[str]) -> dict[str, str | None]:
+    """The set each crate was collected from, by the collect job's key (None for a crate made
+    another way): every Shazam import is called "Shazam", so a name alone can pair a new set
+    with an old set's crate."""
+    from djlib.persistence.models import Submission
+
+    made_from: dict[str, str | None] = dict.fromkeys(collection_ids, None)
+    if not made_from:
+        return made_from
+    for key, collection_id in session.execute(
+        select(Submission.key, Job.result["collection_id"].as_string())
+        .join(Job, Job.id == Submission.job_id)
+        .where(
+            Submission.key.startswith("request-collection:", autoescape=True),
+            Job.result["collection_id"].as_string().in_(list(made_from)),
+        )
+        .order_by(Job.created_at)
+    ):
+        made_from[collection_id] = key.split(":")[1]
+    return made_from
+
+
+def crate_of(session, request_id: str) -> dict | None:
+    """The newest crate collected from a set: ``{collection_id, name, created_at, tracks}``."""
+    from djlib.persistence.models import Submission
+
+    row = session.execute(
+        select(Collection.id, Collection.name, Collection.created_at)
+        .join(Job, Job.result["collection_id"].as_string() == Collection.id)
+        .join(Submission, Submission.job_id == Job.id)
+        .where(Submission.key.startswith(f"request-collection:{request_id}:", autoescape=True))
+        .order_by(Collection.created_at.desc(), Collection.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    tracks = session.scalar(
+        select(func.count()).select_from(Membership).where(Membership.collection_id == row.id)
+    )
+    return {
+        "collection_id": row.id,
+        "name": row.name,
+        "created_at": row.created_at,
+        "tracks": tracks or 0,
+    }
+
+
+def latest(app) -> dict:
+    """What ``last`` names: the set checked most recently (a set checked again counts as new),
+    and the crate made or used last, which is that set's crate when nothing newer was made."""
+    with app.db.transaction() as session:
+        newest_set = session.execute(
+            select(RequestLedger.id, RequestLedger.updated_at)
+            .order_by(RequestLedger.updated_at.desc(), RequestLedger.id.desc())
+            .limit(1)
+        ).first()
+        newest_crate = session.execute(
+            select(Collection.id, Collection.created_at)
+            .order_by(Collection.created_at.desc(), Collection.id.desc())
+            .limit(1)
+        ).first()
+        crate = newest_crate.id if newest_crate else None
+        mine = crate_of(session, newest_set.id) if newest_set is not None else None
+        # The set was checked after the newest crate was made: its own crate is the last one.
+        if mine and (newest_crate is None or newest_set.updated_at >= newest_crate.created_at):
+            crate = mine["collection_id"]
+    return {"request_id": newest_set.id if newest_set else None, "collection_id": crate}
+
+
+# The library holds the exact mix: one verified copy, several to pick from, or a copy djlib
+# can't read just now. Same as `djlib set` (rekordbox_cli.OWNED_STATES).
+OWNED_STATES = frozenset({"satisfied", "ambiguous", "unavailable"})
+
+
+def request_counts(items: list[dict] | None) -> dict:
+    """A saved set's tally in DJ words, the same as `djlib set`'s own column: owned (the exact
+    mix), ids, other_mix (only another mix of it), maybe (a file under other credits the DJ can
+    confirm) and missing. Only satisfied songs go into the crate; an owned song with two copies
+    or an unreadable file waits until that is sorted, and ``to_check`` counts those (they are
+    in ``owned`` too)."""
+    counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0, "maybe": 0}
+    for item in items or []:
+        matches = {candidate.get("identity_match") for candidate in item.get("candidates") or []}
+        if item.get("state") in OWNED_STATES:
+            counts["owned"] += 1
+            counts["to_check"] += item.get("state") != "satisfied"
+        elif (item.get("input") or {}).get("kind") == "unknown":
+            counts["ids"] += 1
+        elif "similar_credits" in matches:
+            # A file with the same title and mix under a shorter or longer artist credit.
+            counts["maybe"] += 1
+        elif any(
+            candidate.get("identity_match") == "different_version"
+            for candidate in item.get("candidates") or []
+        ):
+            counts["other_mix"] += 1
+        else:
+            counts["missing"] += 1
+    return counts
+
+
+def in_crate(items: list[dict] | None) -> int:
+    """How many files a crate from these items holds: one per owned file, however often the
+    set lists the song."""
+    return len(
+        {
+            (item.get("accepted") or {}).get("asset_revision_id") or item.get("item_id")
+            for item in items or []
+            if item.get("state") == "satisfied"
+        }
+    )
 
 
 def summary(app, recent: int = 5) -> dict:
@@ -309,6 +438,9 @@ def summary(app, recent: int = 5) -> dict:
                 .limit(recent)
             )
         ]
+        made_from = _made_from(session, [row["collection_id"] for row in collections])
+        for row in collections:
+            row["request_id"] = made_from[row["collection_id"]]
         requests = []
         for ledger in session.scalars(
             select(RequestLedger).order_by(RequestLedger.updated_at.desc()).limit(recent)
@@ -321,11 +453,31 @@ def summary(app, recent: int = 5) -> dict:
                     "name": ledger.name,
                     "songs": len(states),
                     "needs_check": sum(1 for s in states if s in {"unavailable", "ambiguous"}),
+                    # Two copies of one owned song: the DJ picks one (djlib ui).
+                    "to_pick": states.count("ambiguous"),
                     "owned": states.count("satisfied"),
+                    # What a crate holds: a song listed twice is one file in it.
+                    "in_crate": in_crate(ledger.items),
                     "missing": states.count("missing"),
                     "unresolved": sum(1 for s in states if s not in {"satisfied"}),
+                    # The tally `djlib requests` shows, so both screens agree.
+                    "counts": request_counts(ledger.items),
+                    # A copied tracklist cut short: the songs it hid were never checked.
+                    **(
+                        {"hidden_tracks": hidden}
+                        if (hidden := (ledger.request or {}).get("hidden_tracks"))
+                        else {}
+                    ),
                 }
             )
+        # A set checked again comes back to the top while its crate may be older than the
+        # newest five: its line still shows that crate, rather than asking for a new one.
+        listed = {row["collection_id"] for row in collections}
+        for row in requests:
+            crate = crate_of(session, row["request_id"])
+            if crate is not None and crate["collection_id"] not in listed:
+                listed.add(crate["collection_id"])
+                collections.append({**crate, "request_id": row["request_id"]})
         counts = {
             "collections": session.scalar(select(func.count()).select_from(Collection)) or 0,
             "request_lists": session.scalar(select(func.count()).select_from(RequestLedger)) or 0,
@@ -350,4 +502,5 @@ def summary(app, recent: int = 5) -> dict:
         **counts,
         "recent_collections": collections,
         "recent_requests": requests,
+        "last": latest(app),
     }

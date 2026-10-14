@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from djlib.application import requests
+from djlib.application.set_identification import build_tracklist, request_items
 from djlib.domain.contracts import (
     CollectionRequest,
     StartRequest,
@@ -26,10 +27,12 @@ from djlib.domain.request_contracts import (
     RequestRefresh,
     RequestResolution,
 )
-from djlib.interfaces.rekordbox_cli import set_item
+from djlib.interfaces.rekordbox_cli import set_item, set_track
+from djlib.interfaces.views import spelled_as
 from djlib.persistence.models import Job
 from djlib.persistence.request_models import RequestLedger
 from tests.conftest import execute
+from tests.test_set_identification import SET_URL, listing, song
 
 
 @pytest.fixture
@@ -276,9 +279,10 @@ async def test_same_credits_in_any_order_or_separator_are_owned(
 @pytest.mark.parametrize(
     ("catalog", "requested", "hints"),
     [
-        (("A, B", "Original Tone"), ("A", "Original Tone"), []),
-        (("A feat. B", "Original Tone"), ("A", "Original Tone"), []),
-        (("A", "Original Tone"), ("A & B", "Original Tone"), []),
+        # Not owned: offered as maybe yours, for the DJ to confirm.
+        (("A, B", "Original Tone"), ("A", "Original Tone"), ["similar_credits"]),
+        (("A feat. B", "Original Tone"), ("A", "Original Tone"), ["similar_credits"]),
+        (("A", "Original Tone"), ("A & B", "Original Tone"), ["similar_credits"]),
         # Already shown as another version before credits were compared; still not owned.
         (("A", "Original Tone (feat. B)"), ("A", "Original Tone"), ["different_version"]),
     ],
@@ -604,14 +608,36 @@ def test_report_refuses_escape_through_existing_exports_symlink(ledger_app, tmp_
         {"artist": "Artist", "title": "Title", "download": True},
         {"artist": "Artist", "title": "Title", "version": 5},
         {"artist": " ", "title": "Title"},
-        {"kind": "unknown", "label": "ID"},
+        {"kind": "unknown"},
         {"kind": "unknown", "label": "ID", "timestamp": "1:02", "artist": "Guess"},
         {"kind": "unknown", "label": "ID", "source_url": "file:///private/music"},
+        # An ID has no spelling to own it under; a named song has at most three more.
+        {"kind": "unknown", "label": "ID", "also": [{"artist": "Guess", "title": "Song"}]},
+        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T"}] * 4},
+        {"artist": "A", "title": "T", "also": [{"artist": "B"}]},
+        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T", "source": "x" * 41}]},
     ],
 )
 def test_request_items_are_strict_and_unknown_evidence_is_required(value):
     with pytest.raises(ValidationError):
         RequestItem.model_validate(value)
+
+
+def test_an_id_keeps_its_place_without_a_time():
+    """ "5. ID - ID" in a pasted list is an ID at number 5, even with no time or link."""
+    item = RequestItem.model_validate({"kind": "unknown", "label": "ID"})
+    assert (item.label, item.timestamp, item.source_url) == ("ID", None, None)
+
+
+def test_other_spellings_leave_saved_lists_and_their_keys_as_they_were():
+    """Items without ``also`` serialize as before it existed, so lists saved by 0.1.0a15 and
+    the keys made from them still match; one with ``also`` carries it."""
+    plain = named().model_dump(mode="json")
+    assert "also" not in plain and "also" not in named().model_dump()
+    credit = {"artist": "B", "title": "T", "version": "", "source": "mixesdb"}
+    assert named(also=[credit]).model_dump(mode="json")["also"] == [credit]
+    body = RequestCreate(name="n", items=[named()], idempotency_key="k")
+    assert body.model_dump(mode="json")["items"] == [plain]
 
 
 def test_resolution_and_revision_contracts_are_strict():
@@ -661,6 +687,540 @@ async def test_original_mix_means_no_special_version(ledger_app, audio_factory):
     assert states == ["satisfied", "satisfied", "satisfied", "missing"]
     lumen = result["items"][3]["candidates"]
     assert [c["identity_match"] for c in lumen] == ["different_version"]
+
+
+GLASPER = {
+    "artist": "Robert Glasper Experiment",
+    "title": "Move Love",
+    "version": "Kaytranada Edition",
+}
+
+
+GLASPER_LABELS = ("Robert Glasper Experiment", "Move Love", "Kaytranada Edition")
+
+
+def listed_as(**changes):
+    """MixesDB's spelling of the song Shazam heard as GLASPER."""
+    return {
+        "artist": "Robert Glasper",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+        "source": "mixesdb",
+        **changes,
+    }
+
+
+async def test_a_song_is_owned_under_the_listings_spelling_too(ledger_app, audio_factory):
+    """Shazam credits "Robert Glasper Experiment"; the DJ's file, like MixesDB, says "Robert
+    Glasper". Each spelling is matched exactly; the crate takes the file."""
+    track = await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    result = create(ledger_app, [named(**GLASPER, also=[listed_as()]), named(**GLASPER)])
+    item, plain = result["items"]
+    assert item["state"] == "satisfied"
+    accepted = item["accepted"]
+    assert accepted["recording_id"] == track["recording_id"]
+    assert accepted["basis"] == "exact_catalog_labels"
+    assert accepted["identity_match"] == "equivalent_labels"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert accepted["matched_as_source"] == "mixesdb"
+    # Without the listing's spelling, the same song stays missing: names are never loosened.
+    assert plain["state"] == "missing" and plain["accepted"] is None
+    collection = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+    assert collection["state"] == "queued"
+
+
+async def test_each_listings_spelling_is_tried_in_turn(ledger_app, audio_factory):
+    """A pasted tracklist spells the song one way and MixesDB another: the file is found under
+    whichever spelling it is tagged with, and says which."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    pasted = listed_as(artist="Robert Glasper Exp.", source="file")
+    item = create(ledger_app, [named(**GLASPER, also=[pasted, listed_as()])])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert item["accepted"]["matched_as_source"] == "mixesdb"
+    assert spelled_as(item) == "Robert Glasper"
+
+
+async def test_a_shazam_song_filed_under_a_shorter_credit_is_maybe_yours(ledger_app, audio_factory):
+    """A Shazam list has no listing to spell "Robert Glasper": the file with the same title and
+    mix is offered as maybe yours, kept off the shopping list, and owned once the DJ says so."""
+    from djlib.application.catalog_paging import request_counts
+
+    track = await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    result = create(ledger_app, [named(**GLASPER)])
+    item = result["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    maybe = [c for c in item["candidates"] if c["identity_match"] == "similar_credits"]
+    assert [c["recording_id"] for c in maybe] == [track["recording_id"]]
+    shown = set_track(item)
+    assert shown["own"] == "maybe"
+    assert shown["maybe_owned"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert request_counts(result["items"])["maybe"] == 1
+    assert request_counts(result["items"])["missing"] == 0
+    # The DJ confirms it (Use this on the review page): owned, and says under which name.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=track["recording_id"],
+        asset_revision_id=track["asset_revision_id"],
+        notes="The DJ says it is the same song",
+    )
+    accepted = chosen["items"][0]["accepted"]
+    assert chosen["items"][0]["state"] == "satisfied"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert accepted["matched_as_source"] == "you"
+
+
+@pytest.mark.parametrize(
+    ("file", "requested", "maybe"),
+    [
+        (("Kaytranada", "Lite Spots", ""), ("Kaytranada feat. Syd", "Lite Spots", ""), True),
+        (("Robert Glasper", "Move Love", "Kaytranada Edition"), GLASPER_LABELS, True),
+        # Another mix, or another artist, is never maybe the song.
+        (("Robert Glasper", "Move Love", "Radio Edit"), GLASPER_LABELS, False),
+        (("Common", "Full Moon", ""), ("Armand Van Helden", "Full Moon", ""), False),
+        (("The Martinez", "Rain", ""), ("The Martinez Brothers", "Rain", ""), True),
+        (("The", "Rain", ""), ("The Martinez Brothers", "Rain", ""), False),
+    ],
+)
+def test_maybe_yours_needs_the_same_title_and_mix_and_overlapping_artists(file, requested, maybe):
+    labels = dict(zip(("artist", "title", "version"), requested, strict=True))
+    assert requests.similar_credits(file, labels) is maybe
+
+
+async def test_another_spelling_never_loosens_the_mix(ledger_app, audio_factory):
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    item = create(ledger_app, [named(**GLASPER, also=[listed_as(version="Kaytranada Remix")])])[
+        "items"
+    ][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    # The file is another mix of that spelling: shown as one you own, never in the crate.
+    assert [c["identity_match"] for c in item["candidates"]] == ["different_version"]
+    assert set_item(item)["you_own"] == ["Kaytranada Edition"]
+
+
+async def test_a_mix_listed_but_not_heard_stays_another_mix_you_own(ledger_app, audio_factory):
+    """Shazam heard the Kaytranada Remix where MixesDB lists the Edition, which the DJ owns:
+    the set's song stays missing, with the Edition as a mix you own."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    heard = song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Remix)")
+    listed = listing("mixesdb", "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)")
+    tracklist = build_tracklist(duration=300, probes=heard, listed=[listed])
+    items = [RequestItem(**item) for item in request_items(tracklist, SET_URL)]
+    item = create(ledger_app, items)["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    assert set_item(item)["you_own"] == ["Kaytranada Edition"]
+
+
+async def test_two_files_under_the_other_spelling_need_a_choice(ledger_app, audio_factory):
+    labels = {"artist": "Robert Glasper", "title": "Move Love (Kaytranada Edition)"}
+    await owned(ledger_app, audio_factory, name="first", frequency=220, **labels)
+    second = await owned(ledger_app, audio_factory, name="second", frequency=330, **labels)
+    result = create(ledger_app, [named(**GLASPER, also=[listed_as()])])
+    assert result["items"][0]["state"] == "ambiguous"
+    # Either file may be chosen: it matches the item's other spelling.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=second["recording_id"],
+        asset_revision_id=second["asset_revision_id"],
+        notes="The DJ picked the second copy",
+    )
+    accepted = chosen["items"][0]["accepted"]
+    assert accepted["asset_revision_id"] == second["asset_revision_id"]
+    assert accepted["basis"] == "operator_selection"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested"),
+    [
+        (("De La Soul", "Me, Myself & I"), ("De La Soul", "Me Myself and I")),
+        (("De La Soul", "Me Myself and I"), ("De La Soul", "Me, Myself & I")),
+        (
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+            ("Fahlberg", "Bad Love (Antdot & Maz Remix)"),
+        ),
+        (
+            ("Fahlberg", "Bad Love (Antdot & Maz Remix)"),
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+        ),
+    ],
+)
+async def test_and_for_ampersand_and_a_remixers_country_tag_still_match(
+    ledger_app, audio_factory, catalog, requested
+):
+    track = await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["recording_id"] == track["recording_id"]
+    assert item["accepted"]["identity_match"] == "equivalent_labels"
+
+
+async def test_an_and_title_is_found_among_many_songs_by_its_artist(
+    ledger_app, audio_factory, monkeypatch
+):
+    """The other spelling is looked up by the words before "&", not by the artist alone, so
+    an artist with many songs in the library can't hide it past the row limit."""
+    monkeypatch.setattr(requests, "MAX_TITLE_ROWS", 2)
+    for n in range(3):
+        await owned(
+            ledger_app,
+            audio_factory,
+            name=f"filler{n}",
+            frequency=200 + 50 * n,
+            artist="De La Soul",
+            title=f"Filler {n}",
+        )
+    track = await owned(
+        ledger_app,
+        audio_factory,
+        name="target",
+        frequency=900,
+        artist="De La Soul",
+        title="Me, Myself & I",
+    )
+    item = create(ledger_app, [named(artist="De La Soul", title="Me Myself and I")])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["recording_id"] == track["recording_id"]
+
+
+@pytest.mark.parametrize(
+    ("artist", "spellings"),
+    [
+        ("De La Soul", ("Me, Myself & I", "Me Myself and I")),
+        ("Fahlberg", ("Bad Love (Antdot & Maz Remix)", "Bad Love (Antdot & Maz (BR) Remix)")),
+    ],
+)
+async def test_a_file_spelled_as_asked_wins_over_a_folded_spelling(
+    ledger_app, audio_factory, artist, spellings
+):
+    """A DJ with both a Beatport and a Bandcamp copy keeps the song in the crate: the copy
+    spelled as asked is the match, as before "and" and country tags were folded."""
+    tracks = [
+        await owned(
+            ledger_app,
+            audio_factory,
+            name=f"copy{n}",
+            frequency=300 + 200 * n,
+            artist=artist,
+            title=title,
+        )
+        for n, title in enumerate(spellings)
+    ]
+    result = create(ledger_app, [named(artist=artist, title=title) for title in spellings])
+    for item, track, other in zip(result["items"], tracks, reversed(tracks), strict=True):
+        assert item["state"] == "satisfied"
+        assert item["accepted"]["recording_id"] == track["recording_id"]
+        assert item["accepted"]["identity_match"] == "exact_labels"
+        # The other spelling is still listed, but not checked or counted as a second copy.
+        (folded,) = [c for c in item["candidates"] if c["recording_id"] == other["recording_id"]]
+        assert folded["identity_match"] == "equivalent_labels"
+        assert folded["availability"] == "not_checked"
+    # The DJ may still pick the other copy.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=tracks[1]["recording_id"],
+        asset_revision_id=tracks[1]["asset_revision_id"],
+        notes="The DJ prefers this copy",
+    )["items"][0]
+    assert chosen["state"] == "satisfied"
+    assert chosen["accepted"]["asset_revision_id"] == tracks[1]["asset_revision_id"]
+
+
+@pytest.mark.parametrize(
+    ("catalog", "requested", "you_own"),
+    [
+        (("Lumen", "Rain"), ("Lumen", "Rain (VIP)"), ["Rain"]),
+        (("Lumen", "Salt and Pepper (Extended Mix)"), ("Lumen", "Salt & Pepper (Dub)"), None),
+    ],
+)
+async def test_folded_titles_are_still_exact_about_the_mix(
+    ledger_app, audio_factory, catalog, requested, you_own
+):
+    await owned(ledger_app, audio_factory, artist=catalog[0], title=catalog[1])
+    item = create(ledger_app, [named(artist=requested[0], title=requested[1])])["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    assert [c["identity_match"] for c in item["candidates"]] == ["different_version"]
+    assert set_item(item)["you_own"] == (you_own or ["Extended Mix"])
+
+
+def test_matching_folds_leave_identity_keys_as_they_were():
+    from djlib.domain.contracts import recording_key
+
+    assert [
+        recording_key(*labels)
+        for labels in (
+            ("De La Soul", "Me, Myself & I"),
+            ("De La Soul", "Me Myself and I"),
+            ("Fahlberg", "Bad Love (Antdot & Maz (BR) Remix)"),
+            ("Antdot & Maz (BR) & Flip", "Deixa Passar"),
+            ("Lumen", "Rain", "VIP"),
+        )
+    ] == [
+        "de la soul|me myself i|",
+        "de la soul|me myself and i|",
+        "fahlberg|bad love antdot maz br remix|",
+        "antdot maz br flip|deixa passar|",
+        "lumen|rain|vip",
+    ]
+
+
+def same_list(app, items, key):
+    return requests.create_request(
+        app, RequestCreate(name="Friday Set", items=items, idempotency_key=key), same_list=True
+    )
+
+
+@pytest.fixture
+def ticking_clock(monkeypatch):
+    """The catalog's clock moves on at every reading, as it does here: Windows' clock on Python
+    3.12 moves every 15.6 ms, so two checks a moment apart could share one time."""
+    from datetime import UTC, datetime, timedelta
+
+    from djlib.persistence import models
+
+    last = [datetime.now(UTC)]
+
+    class Ticking(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            last[0] = max(datetime.now(UTC), last[0] + timedelta(milliseconds=1))
+            return last[0].astimezone(tz) if tz else last[0].astimezone().replace(tzinfo=None)
+
+    monkeypatch.setattr(models, "datetime", Ticking)
+
+
+async def test_the_same_set_checked_again_updates_its_list_in_place(ledger_app, audio_factory):
+    """A set run again, by a newer djlib with other notes or after more listening, keeps its
+    list (and so its crate and rekordbox playlist) instead of making "Friday Set (2)"."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    first = same_list(
+        ledger_app,
+        [named(**GLASPER, notes="Shazam: 3 windows"), RequestItem(kind="unknown", label="ID")],
+        "identified:a15",
+    )
+    assert first["items"][0]["state"] == "missing"
+    resolve(
+        ledger_app,
+        {**first, "items": first["items"][1:]},
+        action="select_source",
+        source_url="https://soundcloud.com/a/id",
+        notes="Operator pick",
+    )
+    again = [
+        named(**GLASPER, notes="Shazam heard it at 00:00 (3×)", also=[listed_as()]),
+        RequestItem(kind="unknown", label="ID - ID", timestamp="03:00"),
+    ]
+    revised = same_list(ledger_app, again, "identified:a16")
+    assert revised["request_id"] == first["request_id"] and revised.pop("reused") is True
+    assert revised["revision"] == 3
+    assert [item["item_id"] for item in revised["items"]] == [
+        item["item_id"] for item in first["items"]
+    ]
+    assert revised["items"][0]["input"] == again[0].model_dump(mode="json")
+    assert revised["items"][1]["input"]["timestamp"] == "03:00"
+    assert revised["items"][1]["source_selection"]["notes"] == "Operator pick"
+    # The re-check that callers run on a reused list finds the song under its other spelling.
+    checked = requests.refresh_request(
+        ledger_app, revised["request_id"], RequestRefresh(revision=3)
+    )
+    assert checked["items"][0]["state"] == "satisfied" and checked["revision"] == 4
+    # The new key names the list now; the same run again changes nothing.
+    assert same_list(ledger_app, again, "identified:a16")["revision"] == 4
+    with ledger_app.db.transaction() as session:
+        assert session.scalar(select(func.count()).select_from(RequestLedger)) == 1
+
+
+def test_a_set_checked_again_with_a_pasted_tracklist_keeps_its_list(ledger_app):
+    """1001Tracklists writes "ft." and other capitals where MixesDB writes "Feat.": the same
+    songs, so the same set (and crate), not a second one under the same name."""
+    first = same_list(
+        ledger_app,
+        [named(artist="Full Crate Feat. Papa Ghana", title="L'afrique"), named()],
+        "identified:mixesdb",
+    )
+    again = same_list(
+        ledger_app,
+        [named(artist="Full Crate ft. Papa Ghana", title="L'Afrique"), named()],
+        "identified:pasted",
+    )
+    assert again["request_id"] == first["request_id"] and again["reused"] is True
+    assert again["items"][0]["input"]["artist"] == "Full Crate ft. Papa Ghana"
+
+
+async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, audio_factory):
+    """Check set A, then set B, then A again: `last` is A and A's crate, not B (the newest
+    one added), so "djlib rekordbox push last" pushes the set the DJ just checked."""
+    from djlib.application.catalog_paging import latest, saved
+
+    await owned(ledger_app, audio_factory)
+
+    async def crate(result):
+        job = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+        done = await execute(ledger_app, job["job_id"])
+        return done["result"]["collection_id"]
+
+    first = same_list(ledger_app, [named()], "a")
+    first_crate = await crate(first)
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    second_crate = await crate(second)
+    assert latest(ledger_app) == {
+        "request_id": second["request_id"],
+        "collection_id": second_crate,
+    }
+    again = same_list(ledger_app, [named(notes="checked again")], "a-again")
+    assert again["request_id"] == first["request_id"]
+    requests.refresh_request(
+        ledger_app, again["request_id"], RequestRefresh(revision=again["revision"])
+    )
+    assert latest(ledger_app) == {"request_id": first["request_id"], "collection_id": first_crate}
+    made_from = {
+        row["collection_id"]: row["request_id"]
+        for row in saved(ledger_app, "collections")["collections"]
+    }
+    assert made_from[first_crate] == first["request_id"]
+    assert made_from[second_crate] == second["request_id"]
+
+
+async def test_a_set_checked_again_keeps_its_older_crate_on_the_home_screen(
+    ledger_app, audio_factory, ticking_clock
+):
+    """Status lists the newest crates; a set checked again comes first while its crate is older
+    than those. Its crate still comes with it, so status doesn't ask for a new one."""
+    from djlib.application.catalog_paging import summary
+
+    await owned(ledger_app, audio_factory)
+
+    async def crate(result):
+        job = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+        return (await execute(ledger_app, job["job_id"]))["result"]["collection_id"]
+
+    first = same_list(ledger_app, [named()], "a")
+    first_crate = await crate(first)
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    await crate(second)
+    same_list(ledger_app, [named()], "a")  # Friday checked again
+    home = summary(ledger_app, recent=1)
+    assert [row["request_id"] for row in home["recent_requests"]] == [first["request_id"]]
+    shown = {row["collection_id"]: row["request_id"] for row in home["recent_collections"]}
+    assert shown[first_crate] == first["request_id"] and len(shown) == 2
+
+
+def test_a_set_checked_again_with_nothing_new_still_comes_first(ledger_app, ticking_clock):
+    """The usual re-check finds nothing new: set A still comes first and is `last`, and keeps
+    its revision, so the commands printed for it still work."""
+    from djlib.application.catalog_paging import latest, saved
+
+    first = same_list(ledger_app, [named()], "a")
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    assert latest(ledger_app)["request_id"] == second["request_id"]
+    again = same_list(ledger_app, [named()], "a")  # `djlib set` on the same tracklist
+    assert again["request_id"] == first["request_id"] and again["revision"] == first["revision"]
+    assert latest(ledger_app)["request_id"] == first["request_id"]
+    listed = saved(ledger_app, "requests")["requests"]
+    assert [row["name"] for row in listed] == ["Friday Set", "Tuesday"]
+    # `djlib requests refresh` counts as checking it too.
+    checked = requests.refresh_request(
+        ledger_app, second["request_id"], RequestRefresh(revision=second["revision"])
+    )
+    assert checked["revision"] == second["revision"]
+    assert checked["updated_at"] > again["updated_at"]
+    assert latest(ledger_app)["request_id"] == second["request_id"]
+
+
+async def test_a_set_keeps_where_it_came_from_and_its_crate(ledger_app, audio_factory):
+    """The review page shows a set's badge, links its times and credits MixesDB from the set
+    itself (a fully identified set has no ID to carry the link), and opens its crate. Where
+    a set came from never makes it another set, nor conflicts with its key."""
+    await owned(ledger_app, audio_factory)
+    page = {
+        "source": {
+            "url": "https://soundcloud.com/platform/kaytranada-boiler-room",
+            "provider": "SoundCloud",
+            "title": "Kaytranada Boiler Room Montreal DJ Set",
+            "uploader": "Boiler Room",
+        },
+        "mixesdb": {
+            "page_title": "2013-09-27 - Kaytranada @ Boiler Room Montreal 002",
+            "page_url": "https://www.mixesdb.com/w/Kaytranada",
+            "tracklist": "complete",
+        },
+    }
+    plain = same_list(ledger_app, [named()], "identified:k")
+    assert plain["source"] is None and plain["mixesdb"] is None and plain["crate"] is None
+    # The same key with the set's page: the same request, not IDEMPOTENCY_CONFLICT.
+    body = RequestCreate(name="Friday Set", items=[named()], idempotency_key="identified:k", **page)
+    again = requests.create_request(ledger_app, body, same_list=True)
+    assert again["request_id"] == plain["request_id"]
+    # A newer djlib checking it again records the page; the songs and revision stay.
+    other = RequestCreate(name="Friday Set", items=[named()], idempotency_key="other", **page)
+    learnt = requests.create_request(ledger_app, other, same_list=True)
+    assert learnt["request_id"] == plain["request_id"] and learnt["revision"] == plain["revision"]
+    got = requests.get_request(ledger_app, plain["request_id"])
+    assert got["source"] == page["source"] and got["mixesdb"] == page["mixesdb"]
+    job = requests.collect_request(ledger_app, got["request_id"], got["revision"])
+    done = await execute(ledger_app, job["job_id"])
+    crate = requests.get_request(ledger_app, plain["request_id"])["crate"]
+    assert crate["collection_id"] == done["result"]["collection_id"] and crate["tracks"] == 1
+    # Lists without a page serialize as before, so their keys still match.
+    assert (
+        "source" not in RequestCreate(name="n", items=[named()], idempotency_key="k").model_dump()
+    )
+    with pytest.raises(ValidationError):
+        RequestCreate(name="n", items=[named()], idempotency_key="k", source={"url": "http://x"})
+
+
+def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):
+    first = same_list(ledger_app, [named(), named(title="Second")], "one")
+    for number, (name, items) in enumerate(
+        (
+            ("Friday Set", [named(title="Second"), named()]),  # another order
+            ("Friday Set", [named(), named(title="Second", version="Dub")]),  # another mix
+            ("Friday Set", [named(), named(title="Second"), named(title="Third")]),
+            ("Saturday Set", [named(), named(title="Second")]),
+            # Two sets of IDs alone under one title can't be told apart: never merged.
+            ("IDs", [RequestItem(kind="unknown", label="ID", timestamp="01:00")]),
+            ("IDs", [RequestItem(kind="unknown", label="ID", timestamp="09:00")]),
+        )
+    ):
+        made = requests.create_request(
+            ledger_app,
+            RequestCreate(name=name, items=items, idempotency_key=f"other-{number}"),
+            same_list=True,
+        )
+        assert made["request_id"] != first["request_id"] and "reused" not in made
+    # Without same_list (assistants, `djlib requests create --file`), a new key is a new list.
+    plain = create(ledger_app, [named(), named(title="Second")], key="assistant")
+    assert plain["request_id"] != first["request_id"]
 
 
 def test_tracklist_lines_with_control_characters_or_hidden_marks_still_read():

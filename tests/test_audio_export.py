@@ -97,3 +97,23 @@ def test_preflight_missing_device(tmp_path):
     with pytest.raises(AppError) as error:
         device_preflight(str(tmp_path / "missing"))
     assert error.value.code == "DEVICE_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("url", "site"),
+    [
+        ("https://www.youtube.com/watch?v=abc", "YouTube"),
+        ("https://music.youtube.com/watch?v=abc", "YouTube"),
+        ("https://youtu.be/abc", "YouTube"),
+        ("https://soundcloud.com/a/b", "SoundCloud"),
+        ("https://m.soundcloud.com/a/b", "SoundCloud"),
+        ("https://artist.bandcamp.com/track/b", "Bandcamp"),
+        ("https://example.org/b", "example.org"),
+    ],
+)
+def test_downloaded_copies_say_they_are_web_rips(url, site):
+    from djlib.audio.preparation import rip_comment
+
+    assert rip_comment(url) == (
+        f"Web rip from {site} (stream quality) — buy before playing out · {url}"
+    )

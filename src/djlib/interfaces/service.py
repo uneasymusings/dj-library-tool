@@ -192,6 +192,9 @@ def create_app(
                 "protocol_version": "1",
                 "pid": os.getpid(),
                 "application_version": __version__,
+                # A copied workspace keeps the original's runtime record and ID; its own
+                # folder tells clients whether this service is theirs.
+                "workspace_root": str(workspace.root),
             }
         )
 
@@ -236,15 +239,43 @@ def create_app(
 
     @app.post("/sources/inspect")
     async def source(body: SourceRequest):
-        from djlib.application.identification import mixesdb_tracklist, remember_page
+        from djlib.application.identification import (
+            PAGE_PASSING,
+            mixesdb_tracklist,
+            page_failed,
+            remember_page,
+            saved_page,
+        )
         from djlib.interfaces.set_sources import comment_list, page_tracklist
 
-        result = await inspect_source(body.url, body.comments)
+        try:
+            result = await inspect_source(body.url, body.comments)
+        except AppError as error:
+            # A set djlib heard before still comes back while its site doesn't answer.
+            saved = (
+                saved_page(workspace, body.url, body.comments)
+                if error.code in PAGE_PASSING
+                else None
+            )
+            if saved is None:
+                raise
+            # The identification `djlib set` starts next doesn't try the site again.
+            page_failed(saved["url"], error.code)
+            result = saved
         if body.mixesdb:
+            from djlib.sources import mixesdb
+
             listed = await asyncio.to_thread(page_tracklist, result)
-            result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
-        # `djlib set` reads the page first; an identification it starts then reuses it.
-        remember_page(result, body.comments)
+            if result.get("from_saved_page"):
+                result["mixesdb"] = None if listed else result.get("mixesdb")
+            else:
+                result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
+            # Whether this service asks MixesDB at all: it read DJLIB_MIXESDB when it started.
+            result["mixesdb_enabled"] = mixesdb.enabled()
+        # `djlib set` reads the page first; an identification it starts then reuses it (a
+        # saved page isn't a fresh read, so it isn't kept as one).
+        if not result.get("from_saved_page"):
+            remember_page(result, body.comments)
         if body.comments:
             # What listeners named, in set order: the useful part of hundreds of comments.
             comments = result.get("comments") or []

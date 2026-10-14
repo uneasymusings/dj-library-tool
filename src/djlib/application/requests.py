@@ -7,6 +7,7 @@ Saved matches are observations at refresh time, not acoustic or playback verific
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 import unicodedata
@@ -20,12 +21,15 @@ from djlib.application.service import new_id, require
 from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.contracts import (
     base_form,
+    base_title,
     credit_base_form,
     credit_form,
     equivalent_labels,
     label_form,
     normalize,
+    recording_key,
     related_prefixes,
+    split_featured,
     title_lookup,
     version_prefixes,
 )
@@ -44,6 +48,17 @@ MAX_LOCATIONS = 10
 MAX_VERIFY_BYTES = 1024**3
 MAX_VERIFY_SECONDS = 30
 STATES = ("satisfied", "missing", "ambiguous", "unknown", "unavailable", "source_selected")
+# Titles whose matching form is not their key's: "Me, Myself & I" is filed as "me myself i"
+# and "Me Myself and I" as "me myself and i". (A tag inside a mix name, "(Antdot & Maz (BR)
+# Remix)", comes after the base title, which the title lookup already finds.)
+AND = re.compile(r"&|\band\b", re.IGNORECASE)
+
+
+def _before_and(title: str) -> str | None:
+    """The key form of a base title's words before its first "&" or "and" ("me myself"),
+    which both spellings' identity keys start with; None when it has neither."""
+    parts = AND.split(base_title(split_featured(title)[0]), maxsplit=1)
+    return recording_key("", parts[0]).split("|")[1] if len(parts) == 2 else None
 
 
 class _Verification:
@@ -112,10 +127,10 @@ def _identity(artist, title, version=""):
     )
 
 
-def _equivalent(labels, requested):
+def _equivalent(labels, requested, fold=True):
     """Same song and version: labels as written, or the same credited names in any order."""
     return equivalent_labels(
-        labels, (requested["artist"], requested["title"], requested["version"])
+        labels, (requested["artist"], requested["title"], requested["version"]), fold=fold
     )
 
 
@@ -136,7 +151,7 @@ def _load(app, request_id):
 def _revision(ledger, revision):
     if ledger["revision"] != revision:
         raise AppError(
-            "REQUEST_STALE", "Read the current request revision before changing it.", 409
+            "REQUEST_STALE", "The set changed in the meantime; read it again, then retry.", 409
         )
 
 
@@ -151,7 +166,7 @@ def _save(app, ledger):
             .values(items=ledger["items"], revision=ledger["revision"] + 1, updated_at=timestamp())
         )
         if result.rowcount != 1:
-            raise AppError("REQUEST_STALE", "Another update changed the request evidence.", 409)
+            raise AppError("REQUEST_STALE", "Another change to the set came first; try again.", 409)
 
 
 def _catalog_candidates(app, item, verification, recording_id=None, asset_revision_id=None):
@@ -244,11 +259,29 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
                 .order_by(Recording.id, AssetRevision.id)
                 .limit(MAX_TITLE_ROWS)
             ).all()
+            if names and (head := _before_and(requested["title"])) is not None:
+                # Its key may spell the title another way: look the song up by the words they
+                # share (by its artists alone when the title starts with "&" or "and").
+                shared = [f"|{head} "] if head else []
+                titled += session.execute(
+                    select(Recording, AssetRevision)
+                    .join(Asset, Asset.recording_id == Recording.id)
+                    .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                    .where(
+                        *(
+                            Recording.identity_key.contains(fragment, autoescape=True)
+                            for fragment in [*shared, *names]
+                        )
+                    )
+                    .order_by(Recording.id, AssetRevision.id)
+                    .limit(MAX_TITLE_ROWS)
+                ).all()
             matching = []
             for row in titled:
                 labels = row[0].artist, row[0].title, row[0].version
                 if row[1].id in seen:
                     continue
+                seen.add(row[1].id)
                 if _equivalent(labels, requested):
                     matching.append(row)
                 elif credit_base_form(row[0].artist, row[0].title) == credits[0]:
@@ -313,6 +346,110 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
     return result
 
 
+# Files that may be the song under a shorter or longer artist credit, offered for the DJ to
+# confirm ("maybe yours"); never owned on their own.
+MAX_MAYBE = 3
+
+
+def _starts(short: str, long: str) -> bool:
+    """One credited name spelled out further: "robert glasper" starts "robert glasper
+    experiment" (two words or more, so "the" never starts "the martinez brothers")."""
+    first, second = sorted((short.split(), long.split()), key=len)
+    return first == second or (len(first) >= 2 and second[: len(first)] == first)
+
+
+def similar_credits(labels: tuple[str, str, str], requested: dict) -> bool:
+    """The same title and mix credited to overlapping artists: one name the start of the
+    other ("Robert Glasper" for "Robert Glasper Experiment"), or some of the names
+    ("Kaytranada" for "Kaytranada feat. Syd"). Never the same credits, which match outright,
+    and never another mix."""
+    mine = credit_form(*labels)
+    theirs = credit_form(requested["artist"], requested["title"], requested["version"])
+    if mine[1] != theirs[1] or mine[0] == theirs[0] or not mine[0] or not theirs[0]:
+        return False
+    fewer, more = sorted((mine[0], theirs[0]), key=len)
+    return all(any(_starts(name, other) for other in more) for name in fewer)
+
+
+def _maybe(app, requested: dict, verification) -> list[dict]:
+    """Catalog files that may be a missing song under other credits (``similar_credits``), as
+    candidates with ``identity_match`` similar_credits; not hash-checked, never accepted."""
+    key = ("maybe", requested["artist"], requested["title"], requested["version"])
+    if key in verification.catalog_cache:
+        return deepcopy(verification.catalog_cache[key])
+    fragments, names = title_lookup(requested["artist"], requested["title"])
+    # The first two words of each name: "robert glasper" finds "Robert Glasper Experiment".
+    stems = {" ".join(name.split()[:2]) for name in names}
+    found = []
+    if stems:
+        with app.db.transaction() as session:
+            rows = session.execute(
+                select(Recording, AssetRevision)
+                .join(Asset, Asset.recording_id == Recording.id)
+                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                .where(
+                    or_(
+                        *(
+                            Recording.identity_key.contains(fragment, autoescape=True)
+                            for fragment in fragments
+                        )
+                    ),
+                    or_(
+                        *(Recording.identity_key.contains(stem, autoescape=True) for stem in stems)
+                    ),
+                )
+                .order_by(Recording.id, AssetRevision.id)
+                .limit(MAX_TITLE_ROWS)
+            ).all()
+            for recording, revision in rows:
+                labels = recording.artist, recording.title, recording.version
+                if not similar_credits(labels, requested):
+                    continue
+                location = session.scalar(
+                    select(FileLocation.path)
+                    .where(FileLocation.revision_id == revision.id)
+                    .order_by(FileLocation.managed.desc(), FileLocation.path)
+                    .limit(1)
+                )
+                found.append(
+                    {
+                        "recording_id": recording.id,
+                        "asset_revision_id": revision.id,
+                        "artist": recording.artist,
+                        "title": recording.title,
+                        "version": recording.version,
+                        "sha256": revision.sha256,
+                        "identity_match": "similar_credits",
+                        "availability": "not_checked",
+                        "path": location,
+                    }
+                )
+                if len(found) == MAX_MAYBE:
+                    break
+    verification.catalog_cache[key] = deepcopy(found)
+    return found
+
+
+def _also(requested: dict) -> list[dict]:
+    """A named item's other spellings (``also``) as request labels, in order."""
+    credits = requested.get("also") or [] if requested["kind"] == "named" else []
+    return [
+        {
+            "kind": "named",
+            "artist": credit["artist"],
+            "title": credit["title"],
+            "version": credit.get("version") or "",
+            "source": credit.get("source") or "",
+        }
+        for credit in credits
+    ]
+
+
+def _label(labels: dict) -> str:
+    text = f"{labels['artist']} - {labels['title']}"
+    return f"{text} ({labels['version']})" if labels["version"] else text
+
+
 def _refresh_item(app, item, verification):
     item = deepcopy(item)
     requested, resolution = item["input"], item.get("resolution")
@@ -321,13 +458,87 @@ def _refresh_item(app, item, verification):
     if requested["kind"] == "unknown" and not selected:
         item["state"] = "source_selected" if item.get("source_selection") else "unknown"
         return item
-    candidates, truncated = _catalog_candidates(
-        app,
-        item,
-        verification,
-        selected["recording_id"] if selected else None,
-        selected.get("asset_revision_id") if selected else None,
-    )
+    recording_id = selected["recording_id"] if selected else None
+    revision_id = selected.get("asset_revision_id") if selected else None
+    candidates, truncated = _catalog_candidates(app, item, verification, recording_id, revision_id)
+    exact = _matches(candidates, requested, verification)
+    matched_as = None
+    for credit in [] if exact else _also(requested):
+        # A song shown under Shazam's credits ("Robert Glasper Experiment") may be filed under
+        # a listing's ("Robert Glasper"): the same exact rule, for each spelling in turn.
+        found, more = _catalog_candidates(
+            app, {"input": credit}, verification, recording_id, revision_id
+        )
+        exact = _matches(found, credit, verification)
+        hits = {candidate["asset_revision_id"] for candidate in exact}
+        candidates = [c for c in candidates if c["asset_revision_id"] not in hits]
+        seen = {candidate["asset_revision_id"] for candidate in candidates}
+        candidates += [c for c in found if c["asset_revision_id"] not in seen]
+        truncated = truncated or more
+        if exact:
+            matched_as = credit
+            break
+    if not exact and selected and candidates and requested["kind"] == "named":
+        # The DJ confirmed a file credited a little differently ("maybe yours"): owned under
+        # that file's own spelling, which is the same title and mix (similar_credits).
+        chosen = candidates[0]
+        labels = chosen["artist"], chosen["title"], chosen["version"]
+        if similar_credits(labels, requested):
+            credit = {
+                "kind": "named",
+                "artist": labels[0],
+                "title": labels[1],
+                "version": labels[2] or "",
+                "source": "you",
+            }
+            found, more = _catalog_candidates(
+                app, {"input": credit}, verification, recording_id, revision_id
+            )
+            exact = _matches(found, credit, verification)
+            candidates, truncated = found, truncated or more
+            matched_as = credit if exact else None
+    item["candidates"], item["candidates_truncated"] = candidates, truncated
+    eligible = [c for c in exact if c["availability"] == "verified"]
+    if selected and selected.get("asset_revision_id"):
+        eligible = [c for c in eligible if c["asset_revision_id"] == selected["asset_revision_id"]]
+    # Do not choose among alternate byte revisions automatically, including unavailable ones.
+    unambiguous = selected and selected.get("asset_revision_id") or len(exact) == 1
+    if len(eligible) == 1 and unambiguous and not truncated:
+        item["accepted"] = {
+            **eligible[0],
+            "basis": "operator_selection" if selected else "exact_catalog_labels",
+            "verified_at": item["refreshed_at"],
+            "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification",
+        }
+        if matched_as:
+            item["accepted"]["matched_as"] = _label(matched_as)
+            item["accepted"]["matched_as_source"] = matched_as["source"]
+        item["state"] = "satisfied"
+    elif truncated or (len(exact) > 1 and not selected) or len(eligible) > 1:
+        item["state"] = "ambiguous"
+    elif exact:
+        item["state"] = "unavailable"
+    else:
+        item["state"] = "missing" if requested["kind"] == "named" else "unknown"
+        if requested["kind"] == "named" and not selected:
+            seen = {candidate["asset_revision_id"] for candidate in candidates}
+            maybe = [
+                c
+                for c in _maybe(app, requested, verification)
+                if c["asset_revision_id"] not in seen
+            ]
+            item["candidates"] = candidates + maybe
+    if item.get("source_selection") and item["state"] not in {"satisfied", "ambiguous"}:
+        item["state"] = "source_selected"
+    return item
+
+
+def _matches(candidates: list[dict], requested: dict, verification) -> list[dict]:
+    """Mark how each candidate's labels compare with ``requested`` (``identity_match``) and
+    hash-check the ones naming the same song and version, which are returned.
+
+    A file spelled as asked ("Me, Myself & I") is the match even beside a copy spelled "Me
+    Myself and I"; that one counts only when no closer spelling is owned (``match_words``)."""
     wanted = (
         _identity(requested["artist"], requested["title"], requested["version"])
         if requested["kind"] == "named"
@@ -336,7 +547,7 @@ def _refresh_item(app, item, verification):
     wanted_base = (
         credit_base_form(requested["artist"], requested["title"]) if wanted is not None else None
     )
-    exact = []
+    matched = []
     for candidate in candidates:
         labels = candidate["artist"], candidate["title"], candidate["version"]
         identical = wanted is not None and _identity(*labels) == wanted
@@ -362,45 +573,29 @@ def _refresh_item(app, item, verification):
         locations = candidate.pop("locations")
         candidate.update(availability="not_checked", path=None)
         if matches:
-            statuses = []
-            for location in locations:
-                availability = verification.location(location, candidate["sha256"])
-                statuses.append(availability)
-                if availability == "verified":
-                    candidate.update(availability=availability, path=location)
-                    break
-            else:
-                candidate["availability"] = (
-                    "verification_limit"
-                    if "verification_limit" in statuses
-                    else "changed"
-                    if "changed" in statuses
-                    else "unavailable"
-                )
-            exact.append(candidate)
-    item["candidates"], item["candidates_truncated"] = candidates, truncated
-    eligible = [c for c in exact if c["availability"] == "verified"]
-    if selected and selected.get("asset_revision_id"):
-        eligible = [c for c in eligible if c["asset_revision_id"] == selected["asset_revision_id"]]
-    # Do not choose among alternate byte revisions automatically, including unavailable ones.
-    unambiguous = selected and selected.get("asset_revision_id") or len(exact) == 1
-    if len(eligible) == 1 and unambiguous and not truncated:
-        item["accepted"] = {
-            **eligible[0],
-            "basis": "operator_selection" if selected else "exact_catalog_labels",
-            "verified_at": item["refreshed_at"],
-            "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification",
-        }
-        item["state"] = "satisfied"
-    elif truncated or (len(exact) > 1 and not selected) or len(eligible) > 1:
-        item["state"] = "ambiguous"
-    elif exact:
-        item["state"] = "unavailable"
-    else:
-        item["state"] = "missing" if requested["kind"] == "named" else "unknown"
-    if item.get("source_selection") and item["state"] not in {"satisfied", "ambiguous"}:
-        item["state"] = "source_selected"
-    return item
+            close = not equivalent or _equivalent(labels, requested, fold=False)
+            matched.append((close, candidate, locations))
+    if any(close for close, _, _ in matched):
+        matched = [entry for entry in matched if entry[0]]
+    exact = []
+    for _, candidate, locations in matched:
+        statuses = []
+        for location in locations:
+            availability = verification.location(location, candidate["sha256"])
+            statuses.append(availability)
+            if availability == "verified":
+                candidate.update(availability=availability, path=location)
+                break
+        else:
+            candidate["availability"] = (
+                "verification_limit"
+                if "verification_limit" in statuses
+                else "changed"
+                if "changed" in statuses
+                else "unavailable"
+            )
+        exact.append(candidate)
+    return exact
 
 
 def _summary(ledger):
@@ -435,10 +630,21 @@ def get_request(app, request_id: str, offset: int = 0, limit: int = 100) -> dict
     """Read a bounded stored report. This never refreshes filesystem evidence implicitly."""
     if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 100:
         raise AppError("REQUEST_PAGE_INVALID", "Use offset >= 0 and a limit from 1 to 100.")
+    from djlib.application.catalog_paging import crate_of
+
     ledger = _load(app, request_id)
     page = ledger["items"][offset : offset + limit]
+    with app.db.transaction() as session:
+        crate = crate_of(session, request_id)
     return {
         **_summary(ledger),
+        # Where the set came from (its page, the MixesDB tracklist it uses), when known.
+        "source": ledger["request"].get("source"),
+        "mixesdb": ledger["request"].get("mixesdb"),
+        # Tracks the copied tracklist left out: the list is partial.
+        "hidden_tracks": ledger["request"].get("hidden_tracks"),
+        # The newest crate made from it: {collection_id, name, created_at, tracks}.
+        "crate": crate,
         "items": page,
         "offset": offset,
         "limit": limit,
@@ -446,9 +652,16 @@ def get_request(app, request_id: str, offset: int = 0, limit: int = 100) -> dict
     }
 
 
-def create_request(app, request: RequestCreate) -> dict:
+def create_request(app, request: RequestCreate, same_list: bool = False) -> dict:
+    """Save a request list and check it against the catalog.
+
+    With ``same_list``, a list saved under the same name with the same songs in the same order
+    (a set checked again, perhaps by an older djlib that wrote other notes) gets this list's
+    notes and evidence in place, under a new revision, and is returned as reused instead of a
+    second list (and crate, and playlist) beside it.
+    """
     payload = request.model_dump(mode="json", exclude={"idempotency_key"})
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    digest = _request_hash(payload)
     with app.db.transaction() as session:
         previous = session.get(RequestSubmission, request.idempotency_key)
         if previous:
@@ -459,6 +672,8 @@ def create_request(app, request: RequestCreate) -> dict:
             existing = previous.ledger_id
         else:
             existing = None
+    if same_list:
+        existing = _same_list(app, payload, request.idempotency_key, digest, existing) or existing
     if existing:
         # The same list again: the stored report, marked so callers can re-check it.
         return {**get_request(app, existing), "reused": True}
@@ -504,6 +719,87 @@ def create_request(app, request: RequestCreate) -> dict:
     return get_request(app, request_id)
 
 
+# Where a set came from (and what its copied tracklist left out): shown with it, never part
+# of what its key names.
+SET_PAGE = ("source", "mixesdb", "hidden_tracks")
+
+
+def _request_hash(payload: dict) -> str:
+    """The digest a key's request is held to: the name and items, not the set's page."""
+    kept = {key: value for key, value in payload.items() if key not in SET_PAGE}
+    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode()).hexdigest()
+
+
+def _songs(items: list[dict]) -> list:
+    """What makes two lists the same set: each song's credited names, title and version as
+    request matching compares them (case, "feat." or "ft." and the order of names aside), and
+    where its IDs are. Notes, times, links, other spellings and how sure djlib is are evidence:
+    a set checked again with a tracklist pasted from 1001Tracklists ("Full Crate ft. Papa
+    Ghana - L'Afrique" for MixesDB's "Feat. … L'afrique") is the same set."""
+    return [
+        credit_form(item["artist"], item["title"], item["version"])
+        if item["kind"] == "named"
+        else None
+        for item in items
+    ]
+
+
+def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None) -> str | None:
+    """The saved list ``payload`` repeats (``ledger_id``, else the newest one with its name and
+    songs), with each item's input updated to ``payload``'s; ``key`` then names it.
+
+    Item IDs, operator choices and selected sources stay; a refresh re-checks the evidence. A
+    list of IDs alone names no song, so two sets with one title can't be told apart: only its
+    key finds it.
+    """
+    songs = _songs(payload["items"])
+    with app.db.transaction() as session:
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        previous = session.get(RequestSubmission, key)
+        if previous:
+            if previous.request_hash != digest:
+                raise AppError(
+                    "IDEMPOTENCY_CONFLICT", "This key belongs to a different song request.", 409
+                )
+            ledger_id = previous.ledger_id
+        named = (
+            filter(None, [session.get(RequestLedger, ledger_id)])
+            if ledger_id
+            else session.scalars(
+                select(RequestLedger)
+                .where(RequestLedger.name == payload["name"])
+                .order_by(RequestLedger.updated_at.desc(), RequestLedger.id.desc())
+            )
+            if any(songs)
+            else []
+        )
+        ledger = next(
+            (each for each in named if _songs([item["input"] for item in each.items]) == songs),
+            None,
+        )
+        if ledger is None:
+            return None
+        if not previous:
+            session.add(RequestSubmission(key=key, request_hash=digest, ledger_id=ledger.id))
+        items, changed = deepcopy(ledger.items), False
+        for item, value in zip(items, payload["items"], strict=True):
+            if item["input"] != value:
+                item["input"], changed = value, True
+        # Checked again: it comes first among the sets and is what `last` names, even when
+        # nothing changed (the revision moves only with its items, so printed commands hold).
+        ledger.updated_at = timestamp()
+        if changed:
+            ledger.items, ledger.request = items, payload
+            ledger.revision += 1
+        elif any(ledger.request.get(key) != payload.get(key) for key in SET_PAGE):
+            # Where the set came from, learnt by a newer djlib: the songs are as they were.
+            ledger.request = {
+                **ledger.request,
+                **{key: payload[key] for key in SET_PAGE if key in payload},
+            }
+        return ledger.id
+
+
 def refresh_request(app, request_id: str, request: RequestRefresh) -> dict:
     ledger = _load(app, request_id)
     _revision(ledger, request.revision)
@@ -518,9 +814,17 @@ def refresh_request(app, request_id: str, request: RequestRefresh) -> dict:
         else item
         for item in ledger["items"]
     ]
-    # A re-check that changed nothing keeps the revision, so printed commands stay valid.
+    # A re-check that changed nothing keeps the revision, so printed commands stay valid; it
+    # still counts as the set's latest check.
     if _evidence(ledger["items"]) != before:
         _save(app, ledger)
+    else:
+        with app.db.transaction() as session:
+            session.execute(
+                update(RequestLedger)
+                .where(RequestLedger.id == request_id)
+                .values(updated_at=timestamp())
+            )
     return get_request(app, request_id)
 
 
@@ -562,8 +866,11 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
         with app.db.transaction() as session:
             recording = require(session, Recording, request.recording_id)
             value = item["input"]
-            if value["kind"] == "named" and not _equivalent(
-                (recording.artist, recording.title, recording.version), value
+            labels = recording.artist, recording.title, recording.version
+            if (
+                value["kind"] == "named"
+                and not any(_equivalent(labels, spelling) for spelling in (value, *_also(value)))
+                and not similar_credits(labels, value)
             ):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",
@@ -575,7 +882,8 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
     if request.action == "satisfy" and refreshed["state"] != "satisfied":
         raise AppError(
             "REQUEST_RECORDING_UNAVAILABLE",
-            "Choose one current, hash-verified catalog revision; refresh to inspect candidates.",
+            "That file can't be used: it changed or isn't there any more. Check the set "
+            "again, then pick again.",
             409,
         )
     ledger["items"][item["position"] - 1] = refreshed
@@ -638,7 +946,7 @@ def collect_request(app, request_id: str, revision: int, name: str | None = None
     if not references:
         raise AppError(
             "COLLECTION_EMPTY",
-            "None of these songs are owned yet. Add music, then refresh the request list.",
+            "None of these songs are owned yet. Add music, then check the set again.",
         )
     title = (name or ledger["name"]).strip()
     # Keyed by name and owned tracks, not revision: re-checking an unchanged list reuses its

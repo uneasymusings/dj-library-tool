@@ -30,7 +30,7 @@ PANELS = {
 HIDDEN = [
     *("plan", "start", "export", "import-rekordbox", "usb-preflight", "delivery", "organize"),
     *("reconcile", "download", "source-inspect", "schemas", "capabilities", "version"),
-    *("collections", "collection", "demo", "completion"),
+    *("collections", "collection", "demo", "completion", "sets"),
 ]
 
 
@@ -84,11 +84,15 @@ def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     assert "--install-completion" not in reply.output
     assert "--version" in reply.output
     epilog = " ".join(reply.output.split())
-    assert "New here? djlib init --allow-root ~/Music → djlib scan → djlib set tracklist.txt" in (
-        epilog
-    )
-    assert "Advanced commands (delivery, organize, plan, export…) still work" in epilog
-    assert "docs/ADVANCED.md" in epilog
+    # The headline jobs first: a set link, your Shazams, a tracklist you copied.
+    # djlib set paste on a Mac; elsewhere djlib set -, which asks for what was copied.
+    assert f"New here? djlib set 'LINK' · djlib shazam status · {cli.COPIED}" in epilog
+    assert f"More commands: {cli.ADVANCED_URL}" in epilog
+    assert cli.ADVANCED_URL.startswith("https://github.com/")
+    tagline = "Every track in a set, checked against your music, into rekordbox and onto USB."
+    lines = [line.strip() for line in reply.output.splitlines()]
+    # Windows runners draw Rich one column narrower (no VT console), so it may wrap there.
+    assert "⣠⣴⣿⣦⣄ djlib" in lines and tagline in epilog
     assert max(len(line) for line in reply.output.splitlines()) <= 80
 
 
@@ -97,6 +101,19 @@ def test_hidden_commands_still_work(command):
     reply = run(command, "--help")
     assert reply.exit_code == 0, reply.output
     assert "Usage:" in reply.output
+
+
+def test_sets_is_another_name_for_requests(tmp_path):
+    """Every screen calls them sets; `djlib sets` lists them as `djlib requests` does."""
+    workspace = tmp_path / "w"
+    assert run("init", workspace=workspace).exit_code == 0
+    listed = json.loads(run("sets", workspace=workspace).stdout)["result"]
+    same = json.loads(run("requests", "list", workspace=workspace).stdout)["result"]
+    assert {**listed, "snapshot_at": None} == {**same, "snapshot_at": None}
+    pretty = run("sets", pretty=True, workspace=workspace).stdout
+    assert pretty == run("requests", pretty=True, workspace=workspace).stdout
+    assert "No sets checked yet" in pretty
+    assert run("sets", "get", "--help").exit_code == 0
 
 
 def test_advanced_doc_lists_every_hidden_command():
@@ -173,12 +190,16 @@ def test_json_and_workspace_options_work_after_the_subcommand(tmp_path, monkeypa
 
 
 class FakeLists:
-    """The saved-list endpoints, newest first, paged two at a time."""
+    """The saved-list endpoints, newest first, paged two at a time, and ``/latest`` (the newest
+    one unless ``latest`` names another: a set checked again)."""
 
-    def __init__(self, kind, rows):
-        self.kind, self.rows, self.calls = kind, rows, []
+    def __init__(self, kind, rows, latest=None):
+        self.kind, self.rows, self.calls, self.latest = kind, rows, [], latest
 
     def request(self, method, path, *, params=None, data=None):
+        if path == "/latest":
+            newest = self.latest or (self.rows[0][f"{self.kind}_id"] if self.rows else None)
+            return {"result": {f"{self.kind}_id": newest}}
         self.calls.append(params)
         terms = (params or {}).get("query", "").casefold().split()
         field = f"{self.kind}_id"
@@ -223,6 +244,9 @@ def test_handles_accept_ids_last_names_and_prefixes():
     assert handles.resolve(lists, "collection", " Friday late ") == full("bbb333")
     assert handles.resolve(lists, "collection", "bbb333") == full("bbb333")
     assert handles.resolve(lists, "collection", "collection_BBB222") == full("bbb222")
+    # `last` is what /latest names: the crate of the set checked again, not the newest made.
+    lists.latest = full("aaa111")
+    assert handles.resolve(lists, "collection", "last") == full("aaa111")
 
 
 def test_handles_report_unknown_and_ambiguous_values():
@@ -230,7 +254,9 @@ def test_handles_report_unknown_and_ambiguous_values():
     with pytest.raises(AppError) as error:
         handles.resolve(lists, "collection", "Friday")
     assert error.value.code == "AMBIGUOUS"
-    assert "collection_abc123" in error.value.message and "collection_abc124" in error.value.message
+    # The IDs as the terminal prints them, not the long ones.
+    assert "Friday (abc12300); Friday (abc12400)" in error.value.message
+    assert "collection_" not in error.value.message and "2 crates" in error.value.message
     with pytest.raises(AppError) as error:
         handles.resolve(lists, "collection", "abc12")
     assert error.value.code == "NOT_FOUND"  # five characters is too short to be a prefix
@@ -243,7 +269,21 @@ def test_handles_report_unknown_and_ambiguous_values():
     assert error.value.code == "NOT_FOUND"
     with pytest.raises(AppError) as error:
         handles.resolve(requests, "request", "Tonight")
-    assert "djlib requests list" in error.value.message
+    assert error.value.message.startswith(
+        "No set matches “Tonight”. List them with: djlib requests."
+    )
+    assert "request list" not in error.value.message
+    # IDs alike in their first 8 characters show as many as tell them apart.
+    alike = FakeLists(
+        "request",
+        [
+            {"request_id": f"request_{hexa:0<32}", "name": "Shazam"}
+            for hexa in ("5bd95c9b1", "5bd95c9b2")
+        ],
+    )
+    with pytest.raises(AppError) as error:
+        handles.resolve(alike, "request", "Shazam")
+    assert "matches 2 sets: Shazam (5bd95c9b1000); Shazam (5bd95c9b2000)" in error.value.message
 
 
 def test_crates_and_crate_render_like_collections(application, library_http, audio_factory):
@@ -318,6 +358,133 @@ def test_request_commands_take_handles_and_default_to_the_current_revision(
     assert json.loads(stale.stdout)["error"]["code"] == "REQUEST_STALE"
 
 
+# -- everyday lookups and group commands ------------------------------------------------------
+
+
+def test_lookups_and_groups_do_the_obvious_thing(application, library_http, audio_factory):
+    built = build(
+        library_http, [audio_factory("mirage.wav", frequency=520)], [("Antdot", "Mirage")]
+    )
+    root = application.workspace.root
+    # `library QUERY` searches like --query, and the hidden `search` is the same command.
+    for arguments in (
+        ("library", "mirage"),
+        ("search", "Antdot", "mirage"),
+        ("library", "-q", "mirage"),
+    ):
+        reply = run(*arguments, workspace=root)
+        assert reply.exit_code == 0, (arguments, reply.output)
+        assert [t["title"] for t in json.loads(reply.stdout)["result"]["tracks"]] == ["Mirage"]
+    nothing = run("library", "daft", "punk", pretty=True, workspace=root)
+    assert nothing.exit_code == 0 and 'No tracks match  "daft punk"' in nothing.stdout
+    assert all("search" not in names for names in visible_panels().values())
+    # `djlib crate` is the newest crate.
+    crate = run("crate", workspace=root)
+    assert crate.exit_code == 0, crate.output
+    assert json.loads(crate.stdout)["result"]["collection_id"] == built["result"]["collection_id"]
+    # A group on its own runs its everyday command; --help still lists the others.
+    for group, command in (("requests", "list"), ("roots", "list"), ("jobs", "list")):
+        alone, explicit = run(group, workspace=root), run(group, command, workspace=root)
+        assert alone.exit_code == 0, (group, alone.output)
+        assert (
+            json.loads(alone.stdout)["result"].keys()
+            == json.loads(explicit.stdout)["result"].keys()
+        )
+    assert "list" in run("requests", "--help").output
+
+
+def test_crate_before_any_crate_is_the_crates_empty_state(application, library_http):
+    root = application.workspace.root
+    reply = run("crate", pretty=True, workspace=root)
+    assert reply.exit_code == 0, reply.output
+    assert "No crates yet" in reply.stdout and "Not found" not in reply.output
+    # Scripts still get the error they branch on.
+    reply = run("crate", workspace=root)
+    assert reply.exit_code == 2 and json.loads(reply.stdout)["error"]["code"] == "NOT_FOUND"
+
+
+def test_set_commands_speak_of_sets_not_request_lists():
+    assert "tracks, sets and crates" in run("--help", columns=200).output
+    for command in ("get", "refresh", "report", "collect", "create", "resolve"):
+        text = run("requests", command, "--help", columns=200).output
+        assert "request list" not in text.lower() and "LIST" not in text, command
+
+
+def test_shazam_alone_shows_where_your_shazams_are(tmp_path):
+    reply = run("shazam", workspace=tmp_path / "w")
+    assert reply.exit_code == 0, reply.output
+    assert "sources" in json.loads(reply.stdout)["result"]
+    assert "Shazam" in run("shazam", pretty=True, workspace=tmp_path / "w").stdout
+
+
+def test_typos_suggest_only_commands_that_help_lists():
+    reply = run("stauts")
+    assert reply.exit_code == 2
+    assert "Did you mean 'status'?" in reply.output and "'start'" not in reply.output
+    hidden_only = run("dmeo")  # close to the hidden `demo` only
+    assert (
+        "No such command 'dmeo'." in hidden_only.output and "Did you mean" not in hidden_only.output
+    )
+    assert "Did you mean 'list'?" in run("requests", "lsit").output
+
+
+def test_help_opens_on_the_journey_not_on_global_options():
+    text = run("--help", columns=100).output
+    assert "--workspace" not in text and "--json" not in text.split("New here?")[0]
+    assert text.index("Options") < text.index("Start here")
+    # Still accepted everywhere.
+    assert run("--json", "--workspace", "x", "version").exit_code == 0
+
+
+# -- sets and their crates --------------------------------------------------------------------
+
+
+def test_a_set_points_at_its_crate_once_it_is_built(
+    application, library_http, audio_factory, tmp_path
+):
+    build(
+        library_http,
+        [audio_factory("a.wav", frequency=410), audio_factory("b.wav", frequency=420)],
+        [("Antdot", "Mirage"), ("Antdot", "Stay")],
+    )
+    root = application.workspace.root
+    tracklist = tmp_path / "Friday.txt"
+    tracklist.write_text("Antdot - Mirage\nAntdot - Stay\nSomeone - Not Owned\n", encoding="utf-8")
+    assert run("requests", "create", "--text", tracklist, workspace=root).exit_code == 0
+    before = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 2 songs you own" in before and "See the crate" not in before
+    assert "Revision" not in before and "request_" not in before  # short IDs only
+
+    # Followed while it builds, then found again when asked twice: the same crate card.
+    for _ in range(2):
+        built = run("requests", "collect", "last", pretty=True, workspace=root, columns=160)
+        assert built.exit_code == 0, built.output
+        assert built.stdout.startswith("✓ Crate “Friday”  2 tracks, in set order")
+        assert "Idempotency" not in built.stdout and "not_tracked_here" not in built.stdout
+    collection = json.loads(run("crate", workspace=root).stdout)["result"]["collection_id"]
+    steps = built.stdout.split("Next\n", 1)[1]
+    short = collection.removeprefix("collection_")[:8]
+    assert f"rekordbox push {short}" in steps and f" crate {short}" in steps
+
+    after = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "See the crate" in after and f" crate {short}" in after
+    assert "Build the crate" not in after
+    # JSON readers get the set's crate too (additive since 0.1.0a16).
+    listed = json.loads(run("requests", "get", "last", workspace=root).stdout)["result"]
+    assert listed["crate"]["collection_id"] == collection and listed["crate"]["tracks"] == 2
+
+    # Another set with the same name (every Shazam import is "Shazam") has no crate yet.
+    other = tmp_path / "other" / "Friday.txt"
+    other.parent.mkdir()
+    other.write_text("Antdot - Mirage\nNobody - Else\n", encoding="utf-8")
+    assert run("requests", "create", "--text", other, workspace=root).exit_code == 0
+    newest = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
+    assert "Build the crate from the 1 song you own" in newest and "See the crate" not in newest
+
+    listed = run("requests", pretty=True, workspace=root, columns=120).stdout
+    assert "Friday" in listed and "2 sets" in listed
+
+
 # -- doctor -----------------------------------------------------------------------------------
 
 
@@ -347,11 +514,11 @@ def test_doctor_works_before_init_and_says_how_to_start(tmp_path, monkeypatch, n
     assert result["required_checks_passed"] is True
     # conftest: song recognition is not installed, so its row says how to install it.
     assert result["fixes"] == {
-        "workspace": "djlib init --allow-root ~/Music",
+        "workspace": "djlib init ~/Music",
         "song_recognition": identification.INSTALLER,
     }
     assert envelope["warnings"] == []  # the view renders the row; JSON readers get the fields
-    assert envelope["result"]["fixes"]["workspace"] == "djlib init --allow-root ~/Music"
+    assert envelope["result"]["fixes"]["workspace"] == "djlib init ~/Music"
     pretty = run("doctor", pretty=True, workspace=tmp_path / "nothing-yet")
     # The doctor view shows a "not set up yet" row with the init command under it.
     assert "not set up yet" in pretty.stdout and "djlib init" in pretty.stdout

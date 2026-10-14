@@ -110,6 +110,149 @@ def resolve_link(url: str, transport: httpx.BaseTransport | None = None) -> str:
     return validate_url(f"https://soundcloud.com{target.path}")
 
 
+# zsh (oh-my-zsh's url-quote-magic) writes \? \= \& into a pasted link; quoted after that, the
+# backslashes reach djlib. No set link has a backslash of its own.
+SHELL_ESCAPED = re.compile(r"\\+(?=[?=&#%!*\[\]~;])")
+
+
+def unescaped(value: str) -> str:
+    """A link without the backslashes a shell put in front of ? = & #; anything else as given."""
+    text = str(value)
+    if not text.lstrip().lower().startswith(("http://", "https://")):
+        return value
+    return SHELL_ESCAPED.sub("", text)
+
+
+# Sites djlib can't take a set from: 1001Tracklists (its short links too) and Mixcloud.
+TRACKLISTS_HOSTS = ("1001tracklists.com", "1001.tl")
+MIXCLOUD_HOSTS = ("mixcloud.com",)
+BROWSER_ONLY = "1001Tracklists only shows tracklists to people in a browser; djlib can't read it."
+MIXCLOUD = "Mixcloud doesn't allow downloads, so djlib can't listen to it."
+
+
+def set_site(url: str) -> str | None:
+    """Which of those sites a link is on ("1001tracklists" or "mixcloud"), else None."""
+    try:
+        host = (urlsplit(str(url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return None
+    for site, names in (("1001tracklists", TRACKLISTS_HOSTS), ("mixcloud", MIXCLOUD_HOSTS)):
+        if any(host == name or host.endswith("." + name) for name in names):
+            return site
+    return None
+
+
+def clipboard() -> bool:
+    """Whether `paste` reads a copied tracklist here: it takes the macOS clipboard."""
+    return sys.platform == "darwin"
+
+
+def copied(command: str = "set") -> str:
+    """The command that takes what the DJ copied: ``paste`` reads the Mac's clipboard;
+    elsewhere ``-`` reads what they paste into the terminal (or pipe in)."""
+    return f"djlib {command} {'paste' if clipboard() else '-'}"
+
+
+def mixcloud_message() -> str:
+    """Why a Mixcloud link can't be used, and what works instead."""
+    copy = (
+        "copy its tracklist and run djlib set paste"
+        if clipboard()
+        else "save its tracklist as a text file and run djlib set FILE"
+    )
+    return (
+        f"{MIXCLOUD} If the set is also on YouTube or SoundCloud, use that link; otherwise {copy}."
+    )
+
+
+def mixcloud_details() -> dict:
+    """What an assistant in a shell does instead of a Mixcloud link: the message's
+    `djlib set paste` reads whatever the user copied last."""
+    return {
+        "next_for_assistants": (
+            "Don't run paste (it reads the user's clipboard): use the set's YouTube or "
+            "SoundCloud link if it has one, else pipe the set's tracklist text into djlib set -."
+        )
+    }
+
+
+SET_LINK = "the set's YouTube or SoundCloud link (under the player)"
+
+
+def browser_only_steps(command: str) -> list[dict]:
+    """What works instead of a 1001Tracklists link for `djlib set` or `djlib identify`
+    (``command``), first way first: the tracklist copied (saved as a file where there is no
+    `paste`), best with the set's own link, which djlib listens to. Labels fit before their
+    command on an 80-column line; a note goes under the command."""
+    if clipboard():
+        listen = {
+            "command": f"djlib {command} 'LINK' --tracklist paste",
+            # Copying the link would replace a copied tracklist, so the link goes in first.
+            "note": "Put the link in place of LINK, then copy the tracklist and press Enter.",
+        }
+        if command == "set":
+            return [
+                {"label": "Copy the tracklist on the page, then", "command": "djlib set paste"},
+                {"label": f"Better: add {SET_LINK}", **listen},
+            ]
+        return [
+            {"label": f"With {SET_LINK}", **listen},
+            {
+                "label": "Or check the copied tracklist against your music",
+                "command": "djlib set paste",
+            },
+        ]
+    listen = {"command": f"djlib {command} 'LINK' --tracklist FILE"}
+    if command == "set":
+        return [
+            {
+                "label": "Save the tracklist on the page as a text file, then",
+                "command": "djlib set FILE",
+            },
+            {"label": f"Better: add {SET_LINK}", **listen},
+        ]
+    return [
+        {
+            "label": f"With {SET_LINK}",
+            **listen,
+            "note": "FILE: the tracklist on the page, saved as a text file.",
+        },
+        {"label": "Or check that file against your music", "command": "djlib set FILE"},
+    ]
+
+
+def browser_only_details(command: str) -> dict:
+    """``browser_only_steps`` as error details: the first one as ``next``, and what an
+    assistant runs instead (`paste` reads whatever the user copied last)."""
+    steps = browser_only_steps(command)
+    alone = ", or into djlib set - without it" if command == "set" else ""
+    return {
+        "next": steps[0]["command"],
+        "next_label": steps[0]["label"],
+        "next_steps": steps,
+        "next_for_assistants": (
+            "Don't run paste (it reads the user's clipboard): pipe the tracklist text into "
+            f"djlib {command} 'LINK' --tracklist - with the set's YouTube or SoundCloud "
+            f"link{alone}."
+        ),
+    }
+
+
+def check_set_site(url: str) -> None:
+    """1001Tracklists and Mixcloud links refused with what works instead, as `djlib set`
+    refuses them (an assistant meets these through djlib_source_inspect, which says what an
+    assistant can do instead)."""
+    site = set_site(url)
+    if site == "1001tracklists":
+        raise AppError(
+            "SOURCE_UNSUPPORTED",
+            f"{BROWSER_ONLY} An assistant that can browse can copy it for you.",
+            details=browser_only_details("set"),
+        )
+    if site == "mixcloud":
+        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message(), details=mixcloud_details())
+
+
 async def resolved(url: str) -> str:
     """``resolve_link`` without blocking, then checked (``validate_url``)."""
     return validate_url(await asyncio.to_thread(resolve_link, url))
@@ -171,26 +314,29 @@ def provider_error(stderr: bytes) -> AppError:
     if any(marker in text for marker in ("sign in", "login required", "private video", "cookies")):
         return AppError(
             "SOURCE_AUTH_REQUIRED",
-            "The provider requires authentication; cookies are unsupported.",
+            "That page needs a login, and djlib doesn't sign in to it.",
             502,
         )
     if "429" in text or "too many requests" in text:
         return AppError(
-            "SOURCE_RATE_LIMITED", "The provider rate limited retrieval; retry later.", 502, True
+            "SOURCE_RATE_LIMITED",
+            "The site is turning djlib away for now; try again later.",
+            502,
+            True,
         )
     if re.search(r"http error 5\d\d", text):
         return AppError(
-            "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
+            "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
         )
     if any(marker in text for marker in UNAVAILABLE):
         # Removed, region-locked and DRM-protected uploads stay that way; retrying cannot help.
         return AppError(
             "SOURCE_UNAVAILABLE",
-            "The public recording is unavailable here (removed, region-locked or DRM-protected).",
+            "That recording isn't available here (removed, region-locked or DRM-protected).",
             502,
         )
     return AppError(
-        "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
+        "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
     )
 
 
@@ -319,12 +465,16 @@ def _folder_bytes(folder: Path) -> int:
     return total
 
 
+PAGE_EVIDENCE = "publisher metadata; untrusted text; no audio recognition"
+
+
 async def inspect_source(url: str, comments: int = 0) -> dict:
     """A set's published description and chapters, plus up to ``comments`` listener comments.
 
     SoundCloud comments carry their position in the set (``start_time``); YouTube comments
     often write timestamps in their text. Both are untrusted evidence, not identification.
     """
+    check_set_site(url)
     url = await resolved(url)
     extra = []
     if comments:
@@ -368,7 +518,7 @@ async def inspect_source(url: str, comments: int = 0) -> dict:
             }
             for c in chapters[:500]
         ],
-        "identity_evidence": "publisher metadata; untrusted text; no audio recognition",
+        "identity_evidence": PAGE_EVIDENCE,
         "description_truncated": len(str(data.get("description") or "")) > 30000,
         "comments": _comments(data, comments) if comments else [],
     }

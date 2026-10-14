@@ -17,7 +17,7 @@ from djlib.interfaces import mcp_server
 from djlib.sources import mixesdb
 from tests.test_headline_workflow import build
 from tests.test_identification import URL, Setup, folder, run, submit
-from tests.test_identify_cli import fakes, invoke
+from tests.test_identify_cli import events, fakes, invoke
 from tests.test_mixesdb import Wiki, reply
 from tests.test_rekordbox_push import FakeRekordbox
 
@@ -35,6 +35,16 @@ LONDON = "2022-06-29 - Fred Again.. @ Boiler Room, London"
 @pytest.fixture
 def setup(monkeypatch):
     return fakes(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def no_crawl_delay(monkeypatch):
+    """Recorded replies need no Crawl-delay (tests/test_mixesdb.py checks it)."""
+
+    async def at_once(seconds):
+        return None
+
+    monkeypatch.setattr(mixesdb, "SPACING", mixesdb.Spacing(sleep=at_once))
 
 
 @pytest.fixture
@@ -122,7 +132,7 @@ async def test_an_identification_merges_the_sets_mixesdb_tracklist(application, 
         "confirmed",
     )
     # MixesDB times every song, so the windows went every minute; checking gaps found 00:54.
-    assert tracks[2]["evidence"] == "Shazam: 2 windows from 00:54; also in MixesDB"
+    assert tracks[2]["evidence"] == "Shazam heard it at 00:54 (2×); also in MixesDB"
     assert (tracks[5]["artist"], tracks[5]["evidence"]) == ("SebastiAn", "From MixesDB")
     assert len(tracks) == 22
     page = json.loads((folder(application, KAYTRANADA) / "page.json").read_text())
@@ -211,8 +221,10 @@ def test_set_listens_to_a_set_whose_mixesdb_tracklist_is_incomplete(
 ):
     fred_again(setup, wiki)
     FakeRekordbox(monkeypatch)
-    result = json.loads(invoke(application, "set", FRED).stdout)["result"]
+    reply = invoke(application, "set", FRED)
+    result = json.loads(reply.stdout)["result"]
     assert result["identified"]["counts"]["tracks"] >= 25 and setup.fetched == [FRED]
+    assert events(reply)[0]["identify_reason"] == "incomplete"
     assert result["mixesdb"]["page_title"] == LONDON
     assert result["mixesdb"]["tracklist"] == "incomplete"
     # The identification reused what `djlib set` looked up a moment before.
@@ -282,3 +294,55 @@ async def test_mcp_tools_name_the_mixesdb_page(application, library_http, setup,
             await asyncio.sleep(0.05)
     assert job["state"] == "completed"
     assert job["result"]["mixesdb"] == MONTREAL
+
+
+@pytest.mark.parametrize("off", ["off", "0", "false", "no", " OFF "])
+async def test_the_owner_can_turn_mixesdb_lookups_off(off, monkeypatch, wiki):
+    """DJLIB_MIXESDB=off: djlib never asks MixesDB, and keeps no answer, so turning the
+    lookups back on asks again."""
+    monkeypatch.setenv("DJLIB_MIXESDB", off)
+    page = {"url": KAYTRANADA, "title": "Kaytranada | Boiler Room: Montreal"}
+    assert await identification.mixesdb_answer(page) == (None, False) and wiki.asked == []
+    monkeypatch.setenv("DJLIB_MIXESDB", "on")
+    wiki.answer = lambda query: reply("kaytranada-montreal.json")
+    found, answered = await identification.mixesdb_answer(page)
+    assert answered and found["page_title"] == MONTREAL["page_title"] and wiki.asked
+
+
+def test_with_mixesdb_off_set_and_the_mcp_tools_never_ask_it(
+    application, library_http, setup, wiki, monkeypatch
+):
+    kaytranada(setup, wiki)
+    monkeypatch.setenv("DJLIB_MIXESDB", "off")
+    FakeRekordbox(monkeypatch)
+    error = json.loads(invoke(application, "set", KAYTRANADA, "--no-identify").stdout)["error"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND" and "MixesDB lookups are off" in error["message"]
+    # What djlib_source_inspect asks for.
+    body = {"url": KAYTRANADA, "comments": identification.COMMENTS, "mixesdb": True}
+    page = library_http.post("/sources/inspect", json=body)
+    assert page.json()["result"]["mixesdb"] is None
+    assert page.json()["result"]["mixesdb_enabled"] is False
+    assert wiki.asked == []
+
+
+def test_mixesdb_off_is_said_as_the_service_has_it(
+    application, library_http, setup, wiki, monkeypatch
+):
+    """The background service asks MixesDB with the setting it started with: a terminal with
+    DJLIB_MIXESDB=off, talking to a service started without it, says MixesDB had none."""
+    from djlib.interfaces.client import LocalClient
+
+    kaytranada(setup, wiki)
+    asked = LocalClient.request
+
+    def started_with_lookups_on(self, method, path, **kwargs):
+        reply = asked(self, method, path, **kwargs)
+        if path == "/sources/inspect":
+            reply["result"]["mixesdb_enabled"] = True
+        return reply
+
+    monkeypatch.setattr(LocalClient, "request", started_with_lookups_on)
+    monkeypatch.setenv("DJLIB_MIXESDB", "off")
+    FakeRekordbox(monkeypatch)
+    error = json.loads(invoke(application, "set", KAYTRANADA, "--no-identify").stdout)["error"]
+    assert error["code"] == "TRACKLIST_NOT_FOUND" and "none on MixesDB" in error["message"]

@@ -86,6 +86,9 @@ _GLYPHS = {
     "run": ("◐", "*"),
     "pause": ("‖", "="),
     "skip": ("–", "-"),
+    "other": ("≈", "~"),  # you own another mix of the song
+    "maybe": ("?", "?"),  # maybe yours: the same mix under other artist credits
+    "item": ("•", "*"),  # a set with songs still to find (○ is an ID's mark)
     "arrow": ("→", ">"),
     "dot": ("·", "|"),
     "mark": ("⣠⣴⣿⣦⣄", "::"),
@@ -97,14 +100,14 @@ ACTIVE_STATES = frozenset({"queued", "running"})
 DONE_ITEM_STATES = frozenset({"succeeded", "failed", "skipped", "cancelled"})
 
 JOB_LABELS = {
-    "scan": "Indexing music",
-    "collection": "Building collection",
+    "scan": "Reading your music",
+    "collection": "Building the crate",
     "download": "Downloading recordings",
     "export": "Writing export files",
     "delivery": "Preparing working copies",
     "delivery_check": "Checking delivery files",
-    "organize": "Organizing collection",
-    "organization": "Organizing collection",
+    "organize": "Making the crate",
+    "organization": "Making the crate",
     "reconcile": "Reconciling changed files",
     "identify": "Identifying a set",
 }
@@ -158,7 +161,16 @@ class Terminal:
         )
 
     def print_json(self, value: dict) -> None:
-        typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
+        # Indented for a person at a terminal; one line for scripts and assistants, whose
+        # tools cap how much output they read (a 30-song set is 20 KB indented).
+        try:
+            person = sys.stdout.isatty()
+        except (AttributeError, ValueError):
+            person = False
+        if person:
+            typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
+        else:
+            typer.echo(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
 # Typer may vendor its own Click, so commands bind their context explicitly.
@@ -327,8 +339,13 @@ def size(value) -> str:
     return ""
 
 
+def number(count) -> str:
+    """``1,000``: counts read with thousands separators, as on every DJ screen."""
+    return f"{count:,}" if isinstance(count, int) and not isinstance(count, bool) else str(count)
+
+
 def plural(count: int, word: str, many: str | None = None) -> str:
-    return f"{count} {word if count == 1 else many or word + 's'}"
+    return f"{number(count)} {word if count == 1 else many or word + 's'}"
 
 
 # -- errors ------------------------------------------------------------------------------------
@@ -415,10 +432,12 @@ ACCESSIBILITY_SETTINGS = (
 )
 # (label, command): a tuple is a djlib command, a string a plain shell command.
 ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
-    "WORKSPACE_REQUIRED": ("Create a workspace first", ("init", "--allow-root", "PATH")),
+    # The command comes from cli.FIRST_STEP (first_step), as doctor gives it.
+    "WORKSPACE_REQUIRED": ("Tell djlib where your music is", None),
     "WORKSPACE_NOT_EMPTY": ("Pick a new, empty folder for --workspace", None),
-    "ROOTS_NOT_UPDATED": ("Add folders to an existing workspace", ("roots", "add", "PATH")),
-    "SOURCE_NOT_ALLOWED": ("Allow the folder first", ("roots", "add", "PATH")),
+    "ROOTS_NOT_UPDATED": ("Add music folders to your setup", ("roots", "add", "PATH")),
+    # The folder comes from the error's details.path.
+    "SOURCE_NOT_ALLOWED": ("Allow the folder with djlib roots add", None),
     "SOURCE_ROOT_INVALID": ("Check that the folder exists and is a directory", None),
     "COORDINATOR_VERSION_MISMATCH": ("When it's done, stop the old service", ("service", "stop")),
     "CLIENT_OUTDATED": ("Install the newer djlib", ("upgrade",)),
@@ -428,7 +447,7 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     "TOKEN_MISSING": ("Check your setup", ("doctor",)),
     "DELIVERY_STALE": ("Read the current revision, then retry with it", None),
     "REVIEW_STALE": ("List open reviews for their current revision", ("reviews", "list")),
-    "REQUEST_STALE": ("Read the current revision, then retry with it", None),
+    "REQUEST_STALE": ("The set just changed; run the same command again", None),
     "PLAN_STALE": ("Plan the collection again", None),
     "APP_PLAYLIST_NAME_TAKEN": (
         "Rename the old playlist in rekordbox, or rerun djlib set with --name",
@@ -448,12 +467,9 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
         None,
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
-    "SOURCE_BROWSER_ONLY": ("Copy the tracklist into a text file, then", ("set", "FILE")),
-    "SET_PREVIEW_ONLY": ("Paste the set's tracklist into a text file, then", None),
-    "TRACKLIST_NOT_FOUND": (
-        "Paste the set's tracklist (e.g. from 1001Tracklists) into a file",
-        None,
-    ),
+    "SOURCE_BROWSER_ONLY": ("Copy the tracklist on the page, then", ("set", "paste")),
+    "SET_PREVIEW_ONLY": ("Copy the set's tracklist, then", None),
+    "TRACKLIST_NOT_FOUND": ("Copy the set's tracklist (e.g. from 1001Tracklists), then", None),
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
     "RECOGNITION_FAILING": ("Run the same command later; it continues", None),
@@ -465,6 +481,15 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     ),
     "SHAZAM_HISTORY_NOT_FOUND": ("See how to turn on Shazam sync", ("shazam", "status")),
 }
+
+
+def first_step() -> tuple:
+    """The parts of ``djlib init …`` for a first workspace (cli.FIRST_STEP), ``~/…`` kept as a
+    path so it is printed unquoted and still expands."""
+    from djlib.interfaces.cli import FIRST_STEP
+
+    words = shlex.split(FIRST_STEP)[1:]
+    return tuple(Path.home() / word[2:] if word.startswith("~/") else word for word in words)
 
 
 def ffmpeg_install() -> str | None:
@@ -479,33 +504,112 @@ def needs_ffmpeg(error: dict) -> bool:
     )
 
 
+# The longest label that next steps line their commands up after.
+ALIGNED_LABEL = 36
+
+
 def render_error(term: Terminal, error: dict) -> None:
+    if error.get("code") in CALM_ERRORS:
+        return render_calm(term, error)
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
-    title = Text.assemble((ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
-    title.append(f"  ({code})", style="muted")
-    hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
-    term.err.print(indented(Text(message)))
-    hint = ERROR_HINTS.get(code)
     details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    # An error may name its own title ("Can't read that tracklist") within its code. The code
+    # stays in the JSON envelope; people read the title.
+    heading = details.get("title") if isinstance(details.get("title"), str) else None
+    title = Text.assemble((heading or ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
+    hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
+    if code == "WORKSPACE_REQUIRED":
+        # The first run: where the music is, then reading it. JSON keeps the message.
+        message = "Tell it where your music is, then let it read your music."
+        details = {
+            **details,
+            "next_steps": [
+                {"label": "Your music folder", "command": term.command(*first_step())},
+                {"label": "Then read it", "command": term.command("scan")},
+            ],
+        }
+    term.err.print(indented(Text(message)))
+    numbered_steps(term, error)
+    hint = ERROR_HINTS.get(code)
+    if code == "SOURCE_NOT_ALLOWED" and isinstance(details.get("path"), str) and details["path"]:
+        hint = ("Allow the folder first", ("roots", "add", Path(details["path"])))
     if isinstance(details.get("next"), str) and details["next"]:
         # The exact command for this error, unbroken under its label.
         label = details.get("next_label") or (hint[0] if hint else "Next")
         hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
-    if hint:
-        label, parts = hint
-        line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), (label, ""))
-        if parts:
-            command = parts if isinstance(parts, str) else term.command(*parts)
-            line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
+    # More than one way forward: each on its own line, commands lined up; a note (what to put
+    # in place of LINK) goes under its command.
+    hints = [
+        (str(step.get("label") or "Next"), str(step["command"]), str(step.get("note") or ""))
+        for step in details.get("next_steps") or []
+        if isinstance(step, dict) and step.get("command")
+    ] or ([(*hint, "")] if hint else [])
+    lines = [
+        (
+            label,
+            "" if not parts else parts if isinstance(parts, str) else term.command(*parts),
+            note,
+        )
+        for label, parts, note in hints
+    ]
+    # Commands line up after the labels only when every step fits on one line and no long
+    # label pushes the short ones far right; otherwise each command goes under its label.
+    commands = [(label, command) for label, command, _ in lines if command]
+    width = max((len(label) for label, _ in commands), default=0)
+    aligned = all(width + len(command) + 8 <= term.err.width for _, command in commands) and (
+        len(commands) < 2 or width <= ALIGNED_LABEL
+    )
+    for label, command, note in lines:
+        if command and aligned:
+            line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
+            line.append(" " * (width - len(label) + 2))
             line.append(command, style="cmd")
-        term.err.print(line, soft_wrap=True)
-    elif error.get("retryable"):
+            term.err.print(line, soft_wrap=True)
+        else:
+            # A long label wraps under itself; the command stays in one piece for copying.
+            hanging(term.err, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
+            if command:
+                term.err.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+        if note:
+            term.err.print(indented(Text(note, style="muted"), 4))
+    if not hints and error.get("retryable"):
         term.err.print(
             Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")
         )
+
+
+# A normal state that ends a command, not a failure: no red, no code. The exit code and the
+# JSON stay those of an error, so scripts branch the same way.
+CALM_ERRORS = frozenset({"SHAZAM_NOTHING_NEW"})
+
+
+def render_calm(term: Terminal, error: dict) -> None:
+    """ "○ Nothing new since Sat 10 Oct 22:44", what to do, then the next command."""
+    code = str(error.get("code") or "")
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    title = str(details.get("headline") or ERROR_TITLES.get(code) or humanize(code.lower()))
+    message = str(error.get("message") or "").removeprefix(f"{title}. ")
+    hanging(term.err, Text(term.glyph("todo"), style="muted"), Text(title, style="bold"))
+    if message:
+        term.err.print(indented(Text(message)))
+    if isinstance(details.get("next"), str) and details["next"]:
+        label, command = str(details.get("next_label") or "Next"), details["next"]
+        line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
+        line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
+        term.err.print(line.append(command, style="cmd"), soft_wrap=True)
+
+
+def numbered_steps(term: Terminal, error: dict) -> None:
+    """``details.setup`` (how to turn something on) as numbered steps under the message."""
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    steps = details.get("setup")
+    if not isinstance(steps, list):
+        return
+    for index, step in enumerate(steps, 1):
+        hanging(term.err, Text(f"{index}.", style="muted"), Text(str(step)), indent=2)
 
 
 # -- live job progress -------------------------------------------------------------------------
@@ -565,9 +669,12 @@ def follow(term: Terminal, client, job: dict, timeout: float | None = None) -> F
             while True:
                 done, total = job_progress(job.get("counts") or {})
                 failed = int((job.get("counts") or {}).get("failed", 0))
-                detail = "ctrl-c to detach"
+                # Ctrl-C leaves a running job to finish by itself; a finished one needs no hint.
+                active = job.get("state") in ACTIVE_STATES
+                detail = "ctrl-c: keep going in the background" if active else ""
                 if job.get("state") == "queued" and not total:
-                    detail = "queued · " + detail if term.unicode else "queued, " + detail
+                    wait = "waiting its turn"
+                    detail = f"{wait} · {detail}" if term.unicode else f"{wait}, {detail}"
                 if failed:
                     detail = f"{failed} failed"
                 steps = (job.get("result") or {}).get("progress") or {}

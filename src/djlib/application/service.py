@@ -41,7 +41,9 @@ def new_id(prefix: str) -> str:
 ENTITY_NAMES = {
     "AssetRevision": "Asset revision",
     "JobItem": "Job item",
-    "RequestLedger": "Request list",
+    # What a DJ calls them: NOT_FOUND reaches the terminal and the review page.
+    "Collection": "That crate",
+    "RequestLedger": "That set",
 }
 
 
@@ -56,6 +58,23 @@ def require(session, model, entity_id: str):
 def add_event(session, job: Job, kind: str, data: dict | None = None) -> None:
     job.updated_at = timestamp()
     session.add(Event(job_id=job.id, kind=kind, data=data or {}))
+
+
+# Phases of a set's identification that last minutes, not seconds.
+LONG_PHASES = frozenset({"reading_page", "downloading", "listening", "checking_gaps"})
+
+
+def poll_after(job: Job) -> int | None:
+    """Seconds before reading a job again; None once it has ended. Listening to a set takes
+    minutes (half an hour when Shazam is busy), so reading it every 2 seconds is just noise."""
+    if job.state not in {"queued", "running"}:
+        return None
+    progress = (job.result or {}).get("progress") if isinstance(job.result, dict) else None
+    if job.kind != "identify" or not isinstance(progress, dict):
+        return 2
+    if job.state == "running" and progress.get("phase") in LONG_PHASES:
+        return 30 if progress.get("waiting") else 15
+    return 15 if progress.get("ahead") else 2  # queued behind another set's listen
 
 
 class Application:
@@ -344,7 +363,7 @@ class Application:
                 "idempotency_key": submission.key if submission else None,
                 "created_at": value.created_at,
                 "updated_at": value.updated_at,
-                "next_poll_after_seconds": 2 if value.state in {"queued", "running"} else None,
+                "next_poll_after_seconds": poll_after(value),
             }
 
     def jobs(self, limit: int = 20, query: str = "", after: str | None = None) -> dict:

@@ -1,5 +1,6 @@
 """Windows MCP must reuse an externally owned coordinator, never spawn into a host job."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -83,6 +84,66 @@ def test_default_client_still_starts_one_coordinator(application, monkeypatch):
     assert client.ensure() == "http://127.0.0.1:8181"
     assert len(spawned) == 1
     assert "djlib.interfaces.service" in spawned[0][0][0]
+
+
+def test_a_copied_workspace_never_uses_the_originals_service(application, monkeypatch):
+    """A copy keeps the original's runtime record, ID and token; only the folder differs."""
+    client, state, calls, _ = coordinator(
+        application, monkeypatch, health_version=__version__, version=__version__
+    )
+    original = application.workspace.root.parent / "original"
+    original.mkdir()
+    state["workspace_root"] = str(original)
+    assert client.discover() is None
+    assert client.last_discovery_error == "identity_mismatch"
+    spawned = []
+
+    def spawn(command, **kwargs):
+        spawned.append(command)
+        return SimpleNamespace(poll=lambda: 1)
+
+    monkeypatch.setattr(client_module.subprocess, "Popen", spawn)
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(
+        client_module, "time", SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda s: 0)
+    )
+    with pytest.raises(AppError) as error:
+        client.ensure()  # this fake never comes up; what matters is that its own was started
+    assert error.value.code == "SERVICE_START_FAILED"
+    assert len(spawned) == 1 and "djlib.interfaces.service" in spawned[0]
+    assert ("POST", "/requests") not in [call[:2] for call in calls]
+    # Its own folder, or a service too old to say, is this workspace's.
+    state["workspace_root"] = str(application.workspace.root)
+    assert client.discover() == state["url"]
+    del state["workspace_root"]
+    assert client.discover() == state["url"]
+
+
+def test_the_same_folder_spelt_differently_is_still_this_workspace(application, monkeypatch):
+    """macOS folds case and accents in paths, so the service may name its folder another way;
+    treating that as a copy would start a second service that can never get the lock."""
+    client, state, _, _ = coordinator(
+        application, monkeypatch, health_version=__version__, version=__version__
+    )
+    root = application.workspace.root
+    state["workspace_root"] = os.path.join(str(root), "runtime", os.pardir)
+    assert client.discover() == state["url"]
+    swapped = root.parent / root.name.swapcase()
+    if swapped.name != root.name and swapped.is_dir():  # a case-insensitive disk, as on a Mac
+        state["workspace_root"] = str(swapped)
+        assert client.discover() == state["url"]
+
+
+def test_health_names_the_workspace_folder(application):
+    from fastapi.testclient import TestClient
+
+    from djlib.interfaces.service import create_app
+
+    app = create_app(application.workspace, "root-test", run_worker=False)
+    with TestClient(app, base_url="http://127.0.0.1") as http:
+        token = application.workspace.token()
+        health = http.get("/health", headers={"Authorization": f"Bearer {token}"}).json()
+    assert health["result"]["workspace_root"] == str(application.workspace.root)
 
 
 def simulated_startup(application, monkeypatch, *, ready_at=None, exit_code=None):
