@@ -762,7 +762,7 @@ JUNK_TITLE = re.compile(r"(?i)^(?:intro|outro|start|end|chapter\s*\d+|untitled|b
 # A publisher's line about the set, not a track in it: "Mura Masa – live from Boiler Room x
 # Cupra at Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza".
 PERFORMED = re.compile(
-    r"(?i)^(?:(?:recorded|filmed|streamed|broadcast)\b"
+    r"(?i)^(?:(?:recorded|filmed|streamed|broadcast)\s+(?:live\b|at\b|in\b|from\b|on\b|for\b|@)"
     r"|(?:(?:dj|live|hybrid|vinyl|b2b|closing|opening|full)\s*-?\s*)+set\b)"
 )
 # "Live at the Barbeque" is a song: "live at" names the set only with an event beside it.
