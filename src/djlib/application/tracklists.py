@@ -157,7 +157,8 @@ def parse_tracklist(
                     kind="unknown", label=line[:1000], timestamp=timestamp, source_url=source_url
                 )
             else:
-                item = RequestItem(artist=artist[:500], title=title[:1000])
+                # A pasted 1001Tracklists list times its songs too: the time is evidence.
+                item = RequestItem(artist=artist[:500], title=title[:1000], timestamp=timestamp)
         except ValueError:
             skipped.append((number, raw, "unreadable characters"))
             continue

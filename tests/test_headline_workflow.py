@@ -200,13 +200,17 @@ def test_ids_keep_their_place_and_a_time_alone_is_the_next_tracks():
         "00:00", "01:09", "03:08", None, None, "06:37", "10:32", None,
         "15:17", "19:52", "24:10", "26:00", "28:36",
     ]  # fmt: skip
-    # Named songs keep their times in a listing for djlib identify; an ID keeps its own.
+    # Every line keeps its time, named or ID: a pasted list gets a Time column and links.
+    assert [item.timestamp for item in items] == [stamp for _, stamp in times]
     entries = listed_tracklist("1001tracklists", PASTED_1001)["entries"]
     assert [entry["timestamp"] for entry in entries] == [stamp for _, stamp in times]
-    alone, _ = parse_tracklist("01:09\nID - ID\n[02:30]\nSELF RELEASED\nKaytranada - ID")
-    assert [(i.label, i.timestamp) for i in alone] == [
+    alone, _ = parse_tracklist(
+        "01:09\nID - ID\n[02:30]\nSELF RELEASED\nKaytranada - ID\n03:00\nPomo - So Fine"
+    )
+    assert [(i.label or i.title, i.timestamp) for i in alone] == [
         ("ID - ID", "01:09"),
         ("Kaytranada - ID", "02:30"),
+        ("So Fine", "03:00"),
     ]
 
 
