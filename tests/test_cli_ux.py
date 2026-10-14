@@ -318,6 +318,59 @@ def test_request_commands_take_handles_and_default_to_the_current_revision(
     assert json.loads(stale.stdout)["error"]["code"] == "REQUEST_STALE"
 
 
+# -- everyday lookups and group commands ------------------------------------------------------
+
+
+def test_lookups_and_groups_do_the_obvious_thing(application, library_http, audio_factory):
+    built = build(
+        library_http, [audio_factory("mirage.wav", frequency=520)], [("Antdot", "Mirage")]
+    )
+    root = application.workspace.root
+    # `library QUERY` searches like --query, and the hidden `search` is the same command.
+    for arguments in (
+        ("library", "mirage"),
+        ("search", "Antdot", "mirage"),
+        ("library", "-q", "mirage"),
+    ):
+        reply = run(*arguments, workspace=root)
+        assert reply.exit_code == 0, (arguments, reply.output)
+        assert [t["title"] for t in json.loads(reply.stdout)["result"]["tracks"]] == ["Mirage"]
+    nothing = run("library", "daft", "punk", pretty=True, workspace=root)
+    assert nothing.exit_code == 0 and 'No tracks match  "daft punk"' in nothing.stdout
+    assert "search" not in run("--help").output.split("Your library", 1)[1].split("─╯", 1)[0]
+    # `djlib crate` is the newest crate.
+    crate = run("crate", workspace=root)
+    assert crate.exit_code == 0, crate.output
+    assert json.loads(crate.stdout)["result"]["collection_id"] == built["result"]["collection_id"]
+    # A group on its own runs its everyday command; --help still lists the others.
+    for group, command in (("requests", "list"), ("roots", "list"), ("jobs", "list")):
+        alone, explicit = run(group, workspace=root), run(group, command, workspace=root)
+        assert alone.exit_code == 0, (group, alone.output)
+        assert (
+            json.loads(alone.stdout)["result"].keys()
+            == json.loads(explicit.stdout)["result"].keys()
+        )
+    assert "list" in run("requests", "--help").output
+
+
+def test_shazam_alone_shows_where_your_shazams_are(tmp_path):
+    reply = run("shazam", workspace=tmp_path / "w")
+    assert reply.exit_code == 0, reply.output
+    assert "sources" in json.loads(reply.stdout)["result"]
+    assert "Shazam" in run("shazam", pretty=True, workspace=tmp_path / "w").stdout
+
+
+def test_typos_suggest_only_commands_that_help_lists():
+    reply = run("stauts")
+    assert reply.exit_code == 2
+    assert "Did you mean 'status'?" in reply.output and "'start'" not in reply.output
+    hidden_only = run("dmeo")  # close to the hidden `demo` only
+    assert (
+        "No such command 'dmeo'." in hidden_only.output and "Did you mean" not in hidden_only.output
+    )
+    assert "Did you mean 'list'?" in run("requests", "lsit").output
+
+
 # -- doctor -----------------------------------------------------------------------------------
 
 
