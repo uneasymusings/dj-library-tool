@@ -319,6 +319,8 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     timeless = {"tracks": [{**keinemusik["tracks"][0], "start": None}]}
     (untimed,) = valid_request(request_items(timeless)).items
     assert (untimed.kind, untimed.label, untimed.timestamp) == ("unknown", "ID", None)
+    # Listing and audio agree on every confirmed song here: no other spelling to own it by.
+    assert not any("also" in item for item in items + heard_only)
 
 
 @pytest.mark.parametrize("which", ["keinemusik", "keinemusik_heard_only"])
@@ -1148,6 +1150,48 @@ def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
         listed=[listing("mixesdb", "1. [00:00] Common - Full Moon")],
     )
     assert rows(other)[0][:2] == ("Common", "Full Moon")
+
+
+def test_a_corrected_song_is_also_owned_under_the_listings_spelling():
+    """The DJ's file is often tagged as the listing spells it ("Robert Glasper"), so the
+    request carries that spelling too, but only for confirmed songs whose listed label was
+    replaced by the heard one, and never for what the audio alone named."""
+    probes = [
+        *song(0, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Edition)"),
+        *song(360, 2, "Armand Van Helden", "Full Moon (feat. Common)"),
+        *song(480, 3, "Azealia Banks", "Atm Jam (Kaytranada Alternate Mix)"),
+    ]
+    listed = listing(
+        "mixesdb",
+        "1. [00:00] Robert Glasper - Move Love (Kaytranada Edition)",
+        "2. [06:00] Armand Val Helden Feat. Common - Full Moon",
+        "3. [08:00] Azealia Banks Feat. Pharrell Williams - ATM Jam (Kaytranada Edition)",
+    )
+    result = build_tracklist(duration=660, probes=probes, listed=[listed])
+    glasper, full_moon, atm = result["tracks"]
+    assert glasper["also_named"] == {
+        "source": "mixesdb",
+        "label": "Robert Glasper - Move Love (Kaytranada Edition)",
+        "artist": "Robert Glasper",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+    }
+    assert atm["also_named"]["source"] == "audio" and "artist" not in atm["also_named"]
+    items = request_items(result, SET_URL)
+    valid_request(items)
+    assert items[0]["also"] == [
+        {
+            "artist": "Robert Glasper",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "source": "mixesdb",
+        }
+    ]
+    assert items[1]["also"][0]["artist"] == "Armand Val Helden Feat. Common"
+    assert "also" not in items[2]  # Shazam's own name for a song listed as shown
+    for status in ("likely", "weak", "conflict"):
+        unsure = {"tracks": [{**glasper, "status": status}]}
+        assert "also" not in request_items(unsure, SET_URL)[0]
 
 
 def test_heard_and_listed_under_other_names_says_what_each_side_has():
