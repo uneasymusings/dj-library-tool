@@ -391,3 +391,22 @@ def test_set_listens_when_the_description_names_too_few_songs(
     )
     started = events(invoke(application, "set", "https://youtu.be/otherset98"))[0]
     assert started["identify_reason"] == "sparse"
+
+
+def test_a_title_first_description_agrees_with_what_djlib_hears(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Avalon Emerson's description writes "Title - Artist": the songs djlib hears are those
+    lines, shown artist first and found in the library, not conflicts."""
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    setup.page["description"] = "Halo - Lumen\nID - Avalon Emerson\nSlow Burn - Nia Okoro\n"
+    result = json.loads(invoke(application, "set", URL, "--no-rekordbox").stdout)["result"]
+    assert [track["label"] for track in result["tracks"]] == [
+        "Lumen - Halo",
+        "ID",
+        "Nia Okoro - Slow Burn",
+    ]
+    assert result["identified"]["counts"]["conflict"] == 0
+    assert result["owned"] == 1  # Lumen - Halo, as the library tags it
+    assert "the description lists it title first" in result["tracks"][0]["notes"]
