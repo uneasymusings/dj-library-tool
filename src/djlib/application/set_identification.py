@@ -1442,8 +1442,11 @@ def build_tracklist(
 # Output
 
 
-def _windows(hits: int, at: float) -> str:
-    return f"{hits} windows from {clock(at)}" if hits != 1 else f"1 window at {clock(at)}"
+def _times(hits: int, at: float) -> str:
+    """How often a song was heard and from when: "once at 05:00", "4 times from 02:00"."""
+    if hits == 1:
+        return f"once at {clock(at)}"
+    return f"{'twice' if hits == 2 else f'{hits} times'} from {clock(at)}"
 
 
 def _provider(name: str) -> str:
@@ -1466,7 +1469,7 @@ def _places(track: dict, kind: str) -> str:
 def _notes(track: dict) -> str:
     heard = [e for e in track["evidence"] if e["source"] == "audio"]
     places, ids = _places(track, "named"), _places(track, "unknown")
-    parts = [f"{_provider(e['provider'])}: {_windows(e['hits'], e['at'])}" for e in heard]
+    parts = [f"{_provider(e['provider'])} heard it {_times(e['hits'], e['at'])}" for e in heard]
     if track["kind"] == "unknown":
         audio = [c for c in track["candidates"] if c["source"] == "audio"]
         fans = [c for c in track["candidates"] if c["source"] == "comments"]
@@ -1475,7 +1478,7 @@ def _notes(track: dict) -> str:
             top, audio = audio[0], audio[1:]
             parts.append(
                 f"ID (likely {_candidate_label(top)}): {_provider(top['provider'])} heard it "
-                f"in {_windows(top['hits'], top['at'])}"
+                f"{_times(top['hits'], top['at'])}"
             )
         if ids:
             parts.append(f"listed as an ID in {ids}")
@@ -1484,8 +1487,8 @@ def _notes(track: dict) -> str:
             if track.get("songs_estimate"):
                 parts[-1] += f", about {track['songs_estimate']} songs at this set's pace"
         parts += [
-            f"possibly {_candidate_label(c)} ({_provider(c['provider'])}, "
-            f"{_windows(c['hits'], c['at'])})"
+            f"possibly {_candidate_label(c)} ({_provider(c['provider'])} heard it "
+            f"{_times(c['hits'], c['at'])})"
             for c in audio
         ]
         if fans:
@@ -1499,7 +1502,7 @@ def _notes(track: dict) -> str:
                 f"{places[:1].upper()}{places[1:]} {verb} it",
                 *(
                     f"{_provider(e['provider'])} heard {also['label']} here "
-                    f"({_windows(e['hits'], e['at'])})"
+                    f"({_times(e['hits'], e['at'])})"
                     for e in heard
                 ),
             ]
@@ -1517,7 +1520,7 @@ def _notes(track: dict) -> str:
                 if other["source"] == "audio":
                     parts.append(
                         f"but {_provider(other['provider'])} heard {_candidate_label(other)} "
-                        f"here ({_windows(other['hits'], other['at'])})"
+                        f"here ({_times(other['hits'], other['at'])})"
                     )
                 else:
                     where = SOURCE_NAMES.get(other["source"], other["source"])

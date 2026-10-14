@@ -440,7 +440,7 @@ async def test_a_rate_limit_keeps_what_was_heard_and_a_retry_resumes(application
     assert failed["state"] == "failed"
     error = failed["result"]["error"]
     assert error["code"] == "RECOGNITION_RATE_LIMITED" and error["retryable"] is True
-    assert "(2 listening windows) is saved" in error["message"]
+    assert "What djlib heard so far is saved" in error["message"]
     assert error["details"] == {"windows_heard": 2, "resumes": True}
     assert failed["result"]["progress"]["phase"] == "listening"
     assert (folder(application) / "audio").exists()  # no second download for the retry
@@ -571,7 +571,7 @@ async def test_the_keinemusik_set_end_to_end(application, setup, monkeypatch):
         "confirmed",
     )
     # Checking gaps listened between windows; those listens never count as windows.
-    assert mirage["evidence"] == "Shazam: 11 windows from 06:00; also in the description"
+    assert mirage["evidence"] == "Shazam heard it 11 times from 06:00; also in the description"
     assert len([p for p in probes(application) if p["pass"] == "refine"]) > 10
     late_id = tracks["48:30"]
     assert (late_id["kind"], late_id["artist"], late_id["status"]) == ("unknown", None, "likely")
@@ -735,7 +735,7 @@ async def test_recognition_failing_on_most_windows_is_no_tracklist(application, 
     error = failed["result"]["error"]
     assert failed["state"] == "failed" and error["code"] == "RECOGNITION_FAILING"
     assert error["retryable"] and error["details"]["resumes"] is True
-    assert "failed on 4 of 10 listening windows" in error["message"]
+    assert "couldn't hear 4 of 10 parts of the set" in error["message"]
     assert identification.finished(application.workspace, URL) is None
     assert (folder(application) / "audio").exists()  # kept for the retry
     # Trying again asks only the windows that failed.
@@ -751,7 +751,7 @@ async def test_recognition_failing_on_most_windows_is_no_tracklist(application, 
 async def test_a_few_failed_windows_are_reported(application, setup):
     setup.listener.failures[99.0] = AppError("RECOGNITION_FAILED", "Shazam could not read.", 502)
     result = (await run(application, submit(application)))["result"]
-    assert any("Shazam failed on 1 of " in n for n in result["notices"])
+    assert any("Shazam couldn't hear 1 of " in n for n in result["notices"])
 
 
 async def test_retryable_download_errors_keep_the_partial_download(application, setup):
