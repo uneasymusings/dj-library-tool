@@ -298,14 +298,18 @@ class Grid:
     under its readable width. A ``wrap`` column wraps its words instead of cutting them
     short, and a ``shrinks_first`` one (a short label beside a name) narrows to its readable
     width before the others do. Rich alone would hide whole columns instead. A ``gutter`` of 2
-    instead of 3 gives a wide table's names one more cell per column. After rendering,
-    ``shown`` names the columns that were printed.
+    instead of 3 gives a wide table's names one more cell per column. A ``drop_late`` column
+    (a count) goes, lowest number first, only once every ``drop`` column has gone and flexible
+    text would get narrower than READABLE_FLEX. After rendering, ``shown`` names the columns
+    that were printed, and ``left_out`` the ``drop_late`` ones with something in them that
+    didn't fit.
     """
 
     def __init__(self, *columns: str | tuple[str, dict], gutter: int = GUTTER):
         self.columns = [column if isinstance(column, tuple) else (column, {}) for column in columns]
         self.rows: list[list] = []
         self.shown: list[str] = []
+        self.left_out: list[str] = []
         self.gutter = gutter
 
     @property
@@ -338,8 +342,8 @@ class Grid:
             )
 
         # An optional column with nothing in it ("You own" when nothing is owned) takes no room;
-        # a ``hide_blank`` one goes only then, never for want of room (a count column, so the
-        # counts still add up).
+        # a ``hide_blank`` one goes only then, or (``drop_late``) when even short names don't
+        # fit beside it, and the view says so (a count column, so the counts still add up).
         active = [
             index
             for index, (_, spec) in enumerate(self.columns)
@@ -368,6 +372,23 @@ class Grid:
         )
         while needed(active) > options.max_width and droppable:
             active.remove(droppable.pop(0)[1])
+        tight = [
+            min(natural[i], READABLE_FLEX) if flexible[i] else natural[i]
+            for i in range(len(self.columns))
+        ]
+        late = sorted(
+            (spec["drop_late"], index)
+            for index, (_, spec) in enumerate(self.columns)
+            if "drop_late" in spec and index in active
+        )
+        self.left_out = []
+        while (
+            sum(tight[i] for i in active) + self.gutter * (len(active) - 1) > options.max_width
+            and late
+        ):
+            index = late.pop(0)[1]
+            active.remove(index)
+            self.left_out.append(self.columns[index][0])
         widths = {i: natural[i] for i in active}
         room = options.max_width - self.gutter * (len(active) - 1)
         room -= sum(widths[i] for i in active if not flexible[i])
@@ -3423,17 +3444,19 @@ def requests_list(term: Terminal, result: dict) -> None:
     counted = any(isinstance(row.get("counts"), dict) for row in rows)
     # A count column shows whenever a set has that count, so each row's counts add up; one
     # nobody has goes. The name keeps its room before when it was checked and its code do.
+    # Below about 70 columns, IDs, Maybe and To check go before the name gets too short to
+    # read (and a note says so); Owned, Other mix and Missing stay.
     count = {"justify": "right", "hide_blank": True}
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": NAME_WIDTH}),
         *(
             [
                 ("Owned", {"justify": "right"}),
-                ("To check", {**count, "style": "warn"}),
-                ("Maybe", {**count, "style": "warn"}),
+                ("To check", {**count, "style": "warn", "drop_late": 3}),
+                ("Maybe", {**count, "style": "warn", "drop_late": 2}),
                 ("Other mix", {**count, "style": "warn"}),
                 ("Missing", {**count, "style": "warn"}),
-                ("IDs", {**count, "style": "muted"}),
+                ("IDs", {**count, "style": "muted", "drop_late": 1}),
             ]
             if counted
             else [("Songs", {"justify": "right"})]
@@ -3470,6 +3493,11 @@ def requests_list(term: Terminal, result: dict) -> None:
             name = Group(name, when)
         grid.add_row(name, *cells, checked, code)
     term.out.print(grid)
+    if grid.left_out:
+        hidden = [name for name, _ in grid.columns if name in grid.left_out]
+        listed = ", ".join(hidden[:-1]) + " and " + hidden[-1] if len(hidden) > 1 else hidden[0]
+        columns = "columns" if len(hidden) > 1 else "column"
+        note(term, f"No room for the {listed} {columns}; a wider window shows them.")
     if counted and "Code" not in grid.shown:
         note(term, "Open one: djlib requests get last, or its name in quotes")
     page_hint(term, result, "set", len(rows))
