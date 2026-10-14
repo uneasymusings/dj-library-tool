@@ -77,12 +77,12 @@ Reading the songs you Shazamed (`djlib shazam status`) needs none of this. If ma
 
 `djlib upgrade` updates djlib and the Claude Code plugin, and restarts the background service. `djlib upgrade --check` only says whether a newer djlib exists. Rerunning the one-line installer does the same, Codex plugin included. Restart your assistant afterwards.
 
-- **Coming from 0.1.0a15?** The upgrade still runs 0.1.0a15's own code one last time, so it may print an error after “Installing”. The upgrade worked: run `djlib doctor` to confirm.
+- **Coming from 0.1.0a15?** Its upgrade runs one last time: a quiet wait, and it can end with a Python error (`ModuleNotFoundError`). The upgrade worked: run `djlib doctor` to confirm.
 - **Coming from 0.1.0a14?** Run `djlib upgrade` twice. The second run adds song recognition.
 
-**Your sets after upgrading to 0.1.0a16.** Checking a set again updates its saved list. If 0.1.0a16 finds more songs you own (it now also matches a tracklist's spelling of a song Shazam heard under other credits), it builds a new crate, and pushing it gives a “Name (2)” playlist in rekordbox next to the old one: delete the older one. A tracklist file whose untimed ID lines 0.1.0a15 skipped also becomes a new set. Shazam sets are now named after their days (“Shazam 26 Sep – 12 Oct”), so an older Shazam set checked again becomes a new set under the new name.
+**Your sets after upgrading to 0.1.0a16.** Checking a set again updates its saved list. If 0.1.0a16 finds more songs you own (it now also matches a tracklist's spelling of a song Shazam heard under other credits), it builds a new crate, and pushing it gives a “Name (2)” playlist in rekordbox next to the old one: delete the older one. A tracklist file whose untimed ID lines 0.1.0a15 skipped also becomes a new set. A set you check again with a tracklist pasted from 1001Tracklists stays the same set (its spellings, such as “ft.” for “Feat.”, don't count). Shazam sets are now named after their days (“Shazam 26 Sep – 12 Oct”), so an older Shazam set checked again becomes a new set under the new name.
 
-By hand: stop the background service, then install the newer release over the old one. Your setup, catalog and music stay as they are.
+By hand: stop the background service, then install the newer release over the old one. Your setup, djlib's folder (its sets and crates) and your music stay as they are.
 
 ```bash
 djlib service stop
@@ -98,6 +98,6 @@ djlib service stop
 uv tool uninstall dj-library-tool
 ```
 
-This removes djlib only. To remove its catalog too, delete the folder `djlib init` created (by default `~/.local/share/djlib/default`; Windows `%USERPROFILE%\.local\share\djlib\default`) and the settings folder (`~/.config/djlib`; Windows `%APPDATA%\djlib`). Your music is never moved or changed. On a Mac, you can also turn the app off again under Accessibility.
+This removes djlib only. To remove its sets, crates and index of your music too, delete the folder `djlib init` created (by default `~/.local/share/djlib/default`; Windows `%USERPROFILE%\.local\share\djlib\default`) and the settings folder (`~/.config/djlib`; Windows `%APPDATA%\djlib`). Your music is never moved or changed. On a Mac, you can also turn the app off again under Accessibility.
 
 Problems with PATH, the background service, Windows or upgrades: [troubleshooting](TROUBLESHOOTING.md).

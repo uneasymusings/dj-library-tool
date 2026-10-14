@@ -24,7 +24,7 @@ Not verified yet:
 - **The 0.1.0a15 → 0.1.0a16 upgrade on a real install**, including the traceback 0.1.0a15's upgrade may print after it installs.
 - **rekordbox and USB with this build**: no push or USB export was run. Playback on a CDJ/XDJ is still not verified by djlib at all.
 - **Linux and Windows** (the release CI matrix hasn't run on this branch), AudD and ACRCloud against their real services, and a set longer than two hours.
-- **Review page time links** appear only when djlib knows the set's link, which today means a set whose IDs carry it; a fully identified set shows plain times.
+- **Review page time links** appear when djlib knows the set's link. Sets checked with an earlier 0.1.0a16 build, or saved through `djlib_create_request` without `source`, link only the times of IDs that carry it until `djlib set` checks them again.
 
 ## 0.1.0a15
 
@@ -175,7 +175,7 @@ The persisted request ledger accepts named artist/title/version requests and unk
 
 ## Explicit DJ organization
 
-Hash-checked metadata reads expose embedded BPM/key/genre/comments without inferring them. Byte-bound, revision-checked annotations store supplied notes, categories, role, energy and BPM/key provenance; embedded values and new BPM/key annotations default to unverified. Ordered collections use explicit recording/revision references, filters with unknown policies, deterministic sorting and per-item exclusion reasons. Original tags stay unchanged and recordings may appear in several collections. Delivery plans freeze annotations and apply supplied BPM/key/genre and descriptive comments to separate app working copies, retaining provenance in the manifest. MP4 fractional tempo stays exact in a freeform tag/manifest, with a native-display warning. This does not read native analysis databases, establish musical accuracy, translate harmonic key systems or set cues. See the [quickstart examples](QUICKSTART.md#keep-notes-and-sort-explicit-selections).
+Hash-checked metadata reads expose embedded BPM/key/genre/comments without inferring them. Byte-bound, revision-checked annotations store supplied notes, categories, role, energy and BPM/key provenance; embedded values and new BPM/key annotations default to unverified. Ordered collections use explicit recording/revision references, filters with unknown policies, deterministic sorting and per-item exclusion reasons. Original tags stay unchanged and recordings may appear in several collections. Delivery plans freeze annotations and apply supplied BPM/key/genre and descriptive comments to separate app working copies, retaining provenance in the manifest. MP4 fractional tempo stays exact in a freeform tag/manifest, with a native-display warning. This does not read native analysis databases, establish musical accuracy, translate harmonic key systems or set cues. See the [examples](ADVANCED.md#keep-notes-and-sort-explicit-selections).
 
 ## Evidence and precise limits
 

@@ -1,6 +1,6 @@
 {
   "name": "dj-library-tool",
-  "description": "djlib for Claude Code and Codex: tracklist to owned/missing songs, crate, rekordbox playlist and verified USB.",
+  "description": "djlib for Claude Code and Codex: a set link or your Shazams to every track, owned and missing songs, a crate, a rekordbox playlist and a checked USB stick.",
   "owner": {
     "name": "uneasymusings",
     "url": "https://github.com/uneasymusings"
