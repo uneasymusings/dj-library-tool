@@ -972,6 +972,51 @@ def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
     assert "21 of 24 owned" in out
 
 
+def test_big_counts_on_status_and_the_shopping_list_read_with_separators(capsys):
+    crate = {"collection_id": COLLECTION, "name": "Shazam", "tracks": 1200}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Shazam",
+        "songs": 1500,
+        "owned": 1200,
+        "in_crate": 1200,
+        "missing": 300,
+        "unresolved": 300,
+        "counts": {"owned": 1200, "missing": 300, "other_mix": 0, "ids": 0, "to_check": 0},
+    }
+    status = render(
+        "status",
+        status_result(
+            tracks=2500,
+            with_bpm=2400,
+            with_key=2300,
+            recent_collections=[crate],
+            recent_requests=[request],
+        ),
+        width=160,
+        capsys=capsys,
+    )
+    assert "BPM for 2,400" in status and "key for 2,300" in status
+    assert "1,200 of 1,500 owned" in status and "crate 1,200" in status
+    song = {"label": "Artist - Song", "position": 1, "shop": {}}
+    report = render(
+        "requests report",
+        {
+            "name": "Shazam",
+            "request_id": REQUEST,
+            "to_buy": [song] * 1200,
+            "maybe_yours": [{**song, "maybe_owned": "A - B"}] * 1001,
+            "other_mixes": [{**song, "title": "Song", "you_own": []}] * 1002,
+            "shopping_list": "/music/djlib/Shazam - to buy.txt",
+        },
+        width=160,
+        capsys=capsys,
+    )
+    assert "Shazam — 1,200 to buy" in report and "and 1,175 more in" in report
+    assert "check before you buy (1,001)" in report and "another mix (1,002)" in report
+
+
 def test_a_song_listed_twice_never_outdates_its_crate(capsys):
     """The set lists one song twice; its crate holds the file once. Status says nothing is
     outdated, so its Rebuild step can't loop."""

@@ -1162,7 +1162,7 @@ def status_view(term: Terminal, result: dict) -> None:
                 "Library",
                 Text.assemble(
                     (plural(tracks, "track"), "heading"),
-                    f"  {dot}  BPM for {bpm}  {dot}  key for {key}"
+                    f"  {dot}  BPM for {number(bpm)}  {dot}  key for {number(key)}"
                     if bpm or key
                     else (f"  {dot}  no BPM yet" if tracks else ""),
                 ),
@@ -1315,7 +1315,7 @@ def set_line(
     )
     parts = status_tally(term, counts)
     if crate:
-        parts.append(Text(f"crate {int(crate.get('tracks') or 0)}"))
+        parts.append(Text(f"crate {number(int(crate.get('tracks') or 0))}"))
         if outdated:
             parts.append(Text(f"{term.glyph('warn')} outdated", style="warn"))
         parts += place_parts(term, crate, app=app)
@@ -2958,7 +2958,7 @@ def request_report(term: Terminal, result: dict) -> None:
     maybe = result.get("maybe_yours") or []
     dash = "—" if term.unicode else "-"
     if to_buy:
-        status_line(term, "ok", f"{result.get('name') or 'Set'} {dash} {len(to_buy)} to buy")
+        status_line(term, "ok", f"{result.get('name') or 'Set'} {dash} {number(len(to_buy))} to buy")
     else:
         status_line(term, "ok", result.get("name") or "Set", "nothing to buy")
     width = max((cell_len(song_moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
@@ -2976,12 +2976,12 @@ def request_report(term: Terminal, result: dict) -> None:
     if len(to_buy) > BIG_ROWS:
         more = len(to_buy) - BIG_ROWS
         # One unbroken line, so the path can be copied whole.
-        line = Text(f"  {'…' if term.unicode else '...'} and {more} more in ", style="muted")
+        line = Text(f"  {'…' if term.unicode else '...'} and {number(more)} more in ", style="muted")
         line.append(short_path(result.get("shopping_list")) or "the report", style="path")
         term.out.print(line, soft_wrap=True)
     if maybe:
         term.out.print()
-        heading = f"Maybe yours already: check before you buy ({len(maybe)})"
+        heading = f"Maybe yours already: check before you buy ({number(len(maybe))})"
         term.out.print(Text(heading, style="heading"))
         for song in maybe:
             body = Text(str(song.get("label") or ""))
@@ -2990,7 +2990,7 @@ def request_report(term: Terminal, result: dict) -> None:
             hanging(term.out, lead, body, indent=2)
     if others:
         term.out.print()
-        term.out.print(Text(f"You own another mix ({len(others)})", style="heading"))
+        term.out.print(Text(f"You own another mix ({number(len(others))})", style="heading"))
         for song in others:
             body = Text(str(song.get("label") or ""))
             mixes = owned_mixes(song.get("you_own") or [], song.get("title"))

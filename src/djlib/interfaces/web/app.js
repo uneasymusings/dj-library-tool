@@ -723,7 +723,7 @@ async function library() {
           h("p", { class: "hint" }, "No BPM or key yet. To read them from rekordbox's analysis, run:"),
           copyable(commandText("rekordbox", "sync"))) : null,
         tracks.length ? libraryTable(tracks) : none,
-        tracks.length ? h("p", { class: "muted more" }, `${tracks.length} of ${plural(total, "track")}`) : null,
+        tracks.length ? h("p", { class: "muted more" }, `${number(tracks.length)} of ${plural(total, "track")}`) : null,
         after ? h("button", { type: "button", class: "more", onclick: () => page().catch(show) }, "Load more") : null,
       ].filter(Boolean));
     }
