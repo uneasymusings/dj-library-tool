@@ -918,6 +918,49 @@ def test_text_and_strong_audio_disagreeing_keeps_both():
     ]
 
 
+def test_a_title_first_listing_agrees_with_the_songs_heard():
+    """Avalon Emerson's YouTube description writes "Title - Artist". A line the audio heard the
+    other way round is that song, not a conflict; a line nobody heard stays as written."""
+    probes = [
+        *song(0, 4, "Tibi Dabo", "Desert Hike"),
+        *song(120, 4, "Avalon Emerson", "Treat Mode"),
+        *song(240, 4, "Jex Opolis", "Geiger Counter"),
+    ]
+    listed = listing(
+        "description",
+        "Desert Hike - Tibi Dabo",
+        "Treat Mode - Avalon Emerson",
+        "Song for Bertie - Running Hot",
+        "Geiger Counter - Jex Opolis",
+    )
+    result = build_tracklist(duration=420, probes=probes, listed=[listed])
+    tracks = result["tracks"]
+    assert [(t["artist"], t["title"], t["status"]) for t in tracks] == [
+        ("Tibi Dabo", "Desert Hike", "confirmed"),
+        ("Avalon Emerson", "Treat Mode", "confirmed"),
+        ("Song for Bertie", "Running Hot", "likely"),
+        ("Jex Opolis", "Geiger Counter", "confirmed"),
+    ]
+    assert tracks[0]["evidence"][1] == {
+        "source": "description",
+        "kind": "named",
+        "position": 1,
+        "label": "Desert Hike - Tibi Dabo",
+        "timestamp": None,
+        "turned": True,
+    }
+    assert track_notes(tracks[0]) == (
+        "Shazam heard it at 00:00 (4×); the description lists it title first"
+    )
+    assert track_notes(tracks[2]) == "From the description; the time is approximate"
+    assert valid_request(request_items(result)).items[0].artist == "Tibi Dabo"
+    # A line heard as written is never read the other way round.
+    straight = listing("description", "Tibi Dabo - Desert Hike", "Jex Opolis - Geiger Counter")
+    tracks = build_tracklist(duration=420, probes=probes, listed=[straight])["tracks"]
+    assert all("turned" not in e for t in tracks for e in t["evidence"])
+    assert [t["title"] for t in tracks] == ["Desert Hike", "Treat Mode", "Geiger Counter"]
+
+
 def test_text_out_of_order_follows_the_audio():
     probes = [
         *song(0, 4, "Lumen", "Halo"),
