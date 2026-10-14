@@ -100,7 +100,8 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     assert reply.stdout == ""
     assert "djlib isn't set up yet" in reply.stderr
     assert "(WORKSPACE_REQUIRED)" in reply.stderr
-    assert "init --allow-root PATH" in reply.stderr
+    # The command to paste, as doctor gives it: no placeholder to fill in.
+    assert "init --allow-root" in reply.stderr and "PATH" not in reply.stderr
     captured = invoke("library", workspace=tmp_path / "missing")
     assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
 
@@ -797,7 +798,7 @@ def test_set_with_a_failed_usb_check_leads_with_it(capsys):
     }
     out = render("set", result, width=160, capsys=capsys)
     assert out.startswith("✗ USB check failed: 1 of 8 missing on RICARDO_AM")
-    assert "Friday  8 of 9 songs owned" in out and "Âme - Rej (Original Mix)" in out
+    assert "Friday  8 of 9 owned" in out and "Âme - Rej (Original Mix)" in out
     assert f"Export it to the stick again  djlib rekordbox usb {SHORT_COLLECTION}" in out
 
 
@@ -812,6 +813,18 @@ def test_set_and_push_views_print_markup_like_titles_literally(capsys):
         "playlist": title,
         "rekordbox": {"status": "imported"},
         "missing": [{"position": 2, "label": title, "state": "missing", "you_own": [title]}],
+        "tracks": [
+            {
+                "position": 2,
+                "label": f"{title} - x",
+                "artist": title,
+                "title": "x",
+                "version": "",
+                "state": "missing",
+                "own": "other_mix",
+                "you_own": [title],
+            }
+        ],
         "fetched": {"needs_your_pick": [{"label": title, "options": []}]},
         "id_hints": [{"position": 2, "timestamp": "1:00", "hints": [{"label": title}]}],
     }
@@ -849,15 +862,33 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
     }
     out = render("status", status_result(recent_collections=[crate]), width=160, capsys=capsys)
     assert "Service" not in out and "running" not in out
-    assert "djlib set TRACKLIST.txt" in out.split("Next\n", 1)[1]
+    assert "djlib set paste" in out.split("Next\n", 1)[1]
     unread = render(
         "status",
         status_result(
-            rekordbox_checked=False, recent_collections=[{**crate, "in_rekordbox": None}]
+            rekordbox_checked=False,
+            rekordbox_app=True,
+            rekordbox_open=False,
+            recent_collections=[{**crate, "in_rekordbox": None}],
         ),
         capsys=capsys,
     )
-    assert "rekordbox: not readable right now" in unread
+    # rekordbox closed and never pushed by djlib: not there yet, and the push comes next.
+    assert "not readable" not in unread and "not in rekordbox yet" in unread
+    assert "(rekordbox is closed, so djlib can't tell which are in it)" in unread
+    assert f"djlib rekordbox push {SHORT_COLLECTION}" in unread.split("Next\n", 1)[1]
+    pushed = render(
+        "status",
+        status_result(
+            rekordbox_checked=False,
+            rekordbox_app=True,
+            recent_collections=[
+                {**crate, "in_rekordbox": None, "pushed_at": "2026-10-06T10:00:00+00:00"}
+            ],
+        ),
+        capsys=capsys,
+    )
+    assert "pushed to rekordbox" in pushed and "rekordbox push" not in pushed
 
 
 def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
@@ -957,12 +988,12 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
     assert "init --allow-root" not in ready and "brew install ffmpeg" in ready  # ffprobe
 
 
-def test_set_notes_fit_in_two_short_lines():
-    lines = views.set_notes(downloaded=True, hints=True, usb=True)
-    assert len(lines) == 2 and all(len(line) <= 78 for line in lines)
-    assert views.set_notes(downloaded=False, hints=False, usb=False) == [
-        "Exact artist/title/version matches only."
-    ]
+def test_set_notes_say_only_what_applies_in_short_lines():
+    lines = views.set_notes(downloaded=True, hints=True, usb=True, unsure=True, other_mix=2)
+    assert all(len(line) <= 78 for line in lines)
+    assert lines[0] == "Likely and weak lines are worth a listen before you play them."
+    assert lines[1] == "You own another mix of 2 songs; djlib only counts the exact mix."
+    assert views.set_notes(downloaded=False, hints=False, usb=False) == []
 
 
 def test_sixteen_color_terminals_get_a_yellow_accent():
@@ -1007,26 +1038,27 @@ def identified(n: int, title: str, status: str, evidence: str, kind: str = "name
     }
 
 
-def test_a_narrow_identify_table_keeps_track_names_whole_and_still_says_why(capsys):
-    """At 80 columns the track name used to be cut to fit a fragment of the Why column; the
-    name now gets the room, and the lines worth a listen say why under the table."""
+def test_identify_tables_keep_track_names_whole_and_say_why_under_the_table(capsys):
+    """Names wrap instead of losing their mix; why a line is worth a listen goes under the
+    table at every width, and confirmed lines need no reason."""
     tracks = [
-        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam: 6 windows from 34:39"),
+        identified(1, "ATM Jam (Kaytranada Edition)", "confirmed", "Shazam heard it at 34:39"),
         identified(2, "Love & Pain (Kaytranada Remix)", "likely", "From MixesDB"),
         identified(3, "", "unidentified", "Not identified from 03:00 to 06:00", kind="unknown"),
     ]
+    tracks[1]["artist"] = "Azealia Banks & An Extremely Long List Of Featured Collaborators"
     result = {"source": {"url": "https://soundcloud.com/a/b"}, "tracks": tracks, "counts": {}}
-    views.identify_view(sized(80), result)
-    out = capsys.readouterr().out
-    assert "Azealia Banks - ATM Jam (Kaytranada Edition)" in out
-    assert "Azealia Banks - Love & Pain (Kaytranada Remix)" in out
-    assert "Why" not in out
-    assert "#2 From MixesDB" in out and "#3 Not identified from 03:00 to 06:00" in out
-    assert "Shazam: 6 windows" not in out  # confirmed lines need no reason under the table
-    # Wide enough, the Why column is back and nothing is repeated under the table.
-    views.identify_view(sized(200), result)
-    wide = capsys.readouterr().out
-    assert "Why" in wide and "Shazam: 6 windows from 34:39" in wide and "#2 From" not in wide
+    for width in (60, 80, 140):
+        views.identify_view(sized(width), result)
+        out = capsys.readouterr().out
+        assert "…" not in out and "Why" not in out
+        # Wrapped onto a second line where the terminal is narrow, never cut short.
+        assert "Collaborators" in out and "Remix)" in out and "Edition)" in out
+        if width >= 140:
+            assert "Azealia Banks - ATM Jam (Kaytranada Edition)" in out
+        assert "#2 From MixesDB" in out and "#3 Not identified from 03:00 to 06:00" in out
+        assert "Shazam heard it at 34:39" not in out
+        assert "○ ID" in out and "unidentified" not in out
 
 
 def test_lines_with_the_same_reason_share_one_line_under_the_table(capsys):

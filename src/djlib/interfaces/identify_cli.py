@@ -319,7 +319,7 @@ def identified_request(result: dict, name: str):
             "TRACKLIST_NOT_FOUND",
             "djlib listened to the set but could not name any of its songs, and nothing lists "
             "them.",
-            details={"next": f"djlib set {shlex.quote(url or 'LINK')} --tracklist FILE"},
+            details={"next": f"djlib set {shlex.quote(url or 'LINK')} --tracklist paste"},
         )
     from djlib.domain.contracts import safe_text
 
@@ -344,6 +344,8 @@ def identified_summary(job_id: str, result: dict) -> dict:
         "tracklist_file": found["tracklist_file"],
         "job_id": job_id,
         "reused": found["reused"],
+        "recognizer": found["recognizer"],
+        "listened_at": found["listened_at"],
     }
 
 

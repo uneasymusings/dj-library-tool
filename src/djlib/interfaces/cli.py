@@ -310,6 +310,8 @@ def status(ctx: typer.Context) -> None:
 
     from djlib.exporting.rekordbox_anlz import default_root
     from djlib.interfaces.rekordbox_cli import playlist_file_name, rekordbox_playlists, remembered
+    from djlib.native import rekordbox_mac as ui
+    from djlib.sources.shazam_history import exists, mac_history
 
     local = client(ctx)
     # Reading rekordbox's menu takes about half a second; do it while the summary loads.
@@ -328,6 +330,13 @@ def status(ctx: typer.Context) -> None:
         row["usb"] = done.get("usb")
     summary["rekordbox_checked"] = playlists is not None
     summary["rekordbox_installed"] = default_root() is not None
+    # djlib puts a crate in rekordbox through the app's menus: macOS, with the app installed.
+    summary["rekordbox_app"] = ui.installed() is not None
+    if summary["rekordbox_app"] and playlists is None:
+        # Closed, or open with its playlists out of reach (no track selected, no permission).
+        summary["rekordbox_open"] = ui.process_running()
+    # Whether there are Shazams to check, without opening them (one stat).
+    summary["shazam_history_found"] = exists(mac_history()) is True
     summary["service_url"] = local.discover()
     emit(envelope(summary))
 

@@ -1203,7 +1203,7 @@ class IdentifyRunner:
             details={
                 "heard_seconds": round(seconds, 1),
                 "set_seconds": float(expected),
-                "next": f"djlib set FILE --source {shlex.quote(str(page.get('url') or ''))}",
+                "next": f"djlib set paste --source {shlex.quote(str(page.get('url') or ''))}",
             },
         )
 
@@ -1277,11 +1277,15 @@ class IdentifyRunner:
                 f"{shlex.quote(url)} --again --recognizer {wanted}"
             )
         audio = next((s for s in tracklist["sources"] if s["source"] == "audio"), None)
-        if audio and audio.get("errors"):
+        if audio and audio.get("errors") and not reused:
+            # Said once, by the listen it happened in; a saved result doesn't repeat it.
+            stride = _stride(probes)
+            missed = max(1, round(audio["errors"] * stride / 60))
+            length = duration if isinstance(duration, int | float) and duration > 0 else None
+            minutes = max(missed, round((length or audio["windows"] * stride) / 60))
             notices.append(
-                f"{_label(listener.get('name') or '') or 'Song recognition'} failed on "
-                f"{audio['errors']} of {audio['windows']} listening windows; those parts count "
-                "as not heard."
+                f"{_label(listener.get('name') or '') or 'Song recognition'} couldn't answer "
+                f"for {missed} of {minutes} minutes; those parts count as not heard."
             )
         if page.get("comments_skipped"):
             notices.append("Reading the listener comments took too long, so they were skipped.")
@@ -1301,6 +1305,7 @@ class IdentifyRunner:
             "notices": notices,
             "skipped_lines": skipped,
             "identified_at": created,
+            "listened_at": _listened_at(folder) or created,
         }
 
     def first_shazam(self) -> bool:
@@ -1384,6 +1389,16 @@ def _failed_windows(probes: list[dict], starts: list[float]) -> tuple[int, str |
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _listened_at(folder: Path) -> str | None:
+    """When djlib last heard the set: a saved result is merged again on every reuse, but its
+    windows file only changes while djlib listens."""
+    try:
+        heard = (folder / "probes.jsonl").stat().st_mtime
+    except OSError:
+        return None
+    return datetime.fromtimestamp(heard, UTC).isoformat(timespec="seconds")
 
 
 def _label(name: str) -> str:
@@ -1555,9 +1570,19 @@ def summary(result: dict) -> dict:
         for entry in tracklist.get("sources") or []
         if entry.get("source") not in {"audio", "comments"}
     ]
+    from djlib.interfaces.set_sources import listen_url
+
+    link, tracks = source.get("url"), tracklist.get("tracks") or []
+    named = [track for track in tracks if track.get("kind") != "unknown"]
+    heard_tracks = sum(
+        1
+        for track in named
+        if any(entry.get("source") == "audio" for entry in track.get("evidence") or [])
+    )
     return {
         "source": source,
         "recognizer": result.get("recognizer"),
+        "listened_at": result.get("listened_at"),
         "duration": _clock(duration),
         "coverage": {
             "duration_seconds": duration,
@@ -1570,13 +1595,24 @@ def summary(result: dict) -> dict:
                 for gap in coverage.get("gaps") or []
             ],
         },
-        "counts": {"tracks": len(tracklist.get("tracks") or []), **(result.get("counts") or {})},
-        "tracks": [compact_track(track) for track in tracklist.get("tracks") or []],
+        "counts": {
+            "tracks": len(tracks),
+            **(result.get("counts") or {}),
+            # Songs as a DJ counts them: heard in the set, only on a tracklist, or IDs.
+            "heard": heard_tracks,
+            "listed_only": len(named) - heard_tracks,
+            "ids": len(tracks) - len(named),
+        },
+        "tracks": [
+            {**compact_track(track), "listen_url": listen_url(link, track.get("start"))}
+            for track in tracks
+        ],
         "unplaced": [
             {
                 "label": _candidate(song)["label"],
                 "heard_by": _label(str(song.get("provider") or "")),
                 "at": _clock(song.get("at")),
+                "listen_url": listen_url(link, song.get("at")),
             }
             for song in (tracklist.get("unplaced") or [])[:20]
         ],
@@ -1598,9 +1634,9 @@ LOW_COVERAGE = 70
 def next_steps(found: dict) -> list[str]:
     """What to run after an identification (``summary``): check it against the music, and
     add a 1001Tracklists tracklist while IDs, weak or conflicting tracks are left or little of
-    the set is named, unless one was given."""
+    the set is named, unless one was given. Checking it makes no rekordbox playlist."""
     url = shlex.quote((found.get("source") or {}).get("url") or "LINK")
-    steps = [f"djlib set {url}"]
+    steps = [f"djlib set {url} --no-rekordbox"]
     tracks = found.get("tracks") or []
     unresolved = any(
         t.get("kind") == "unknown" or t.get("status") in {"weak", "conflict"} for t in tracks
@@ -1608,7 +1644,7 @@ def next_steps(found: dict) -> list[str]:
     given = any(s.get("source") == "1001tracklists" for s in found.get("sources") or [])
     percent = (found.get("coverage") or {}).get("percent")
     if not given and (unresolved or percent is None or percent < LOW_COVERAGE):
-        steps.append(f"djlib identify {url} --tracklist FILE")
+        steps.append(f"djlib identify {url} --tracklist paste")
     return steps
 
 
