@@ -177,9 +177,7 @@ def test_the_whole_set_reads_in_set_order_at_any_width(width, capsys):
     assert "…" not in out and "Why" not in out and "(Kaytranada" in out
     assert out.count("✓ owned") == 12 and out.count("✗ missing") == 9
     poison = next(line for line in rows if "Poison" in line)
-    assert "≈ other mix:" in poison and "missing" not in poison and "Radio Edit" in out
-    if width >= 140:
-        assert "≈ other mix: Radio Edit" in poison
+    assert "≈ Radio Edit" in poison and "missing" not in poison
     # Why the likely lines are there, under the table, grouped.
     assert "From MixesDB: #3, #5, #8, #9, #10, #11, #13, #15, #16, #17, #18, #21, #22" in out
     assert "Likely and weak lines are worth a listen before you play them." in out
@@ -241,7 +239,10 @@ def test_a_song_owned_under_another_credit_says_which(capsys):
     track = set_track(item, SOUNDCLOUD)
     assert track["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
     out = shown("set", {"name": "Set", "songs": 1, "owned": 1, "tracks": [track]}, 120, capsys)
-    assert "✓ owned as Robert Glasper" in out
+    row = next(line for line in out.splitlines() if "Move Love" in line)
+    # The column stays narrow; the spelling the file matched goes under the table.
+    assert row.rstrip().endswith("✓ owned")
+    assert "Owned under another spelling: #2 Robert Glasper" in out
 
 
 def test_a_shazam_history_lists_only_what_you_dont_own(capsys):
@@ -324,7 +325,7 @@ def test_another_mix_with_no_mix_name_says_so(capsys):
     assert track["own"] == "other_mix" and track["you_own"] == ["Poison"]  # the JSON as read
     result = set_result([], tracks=[track], songs=1, owned=0, other_mix=1, collection_id=None)
     out = shown("set", result, 120, capsys)
-    assert "≈ other mix: no mix name" in out and "other mix: Poison" not in out
+    assert "≈ no mix name" in out and "≈ Poison" not in out
     # The headline counts it in another mix; the crate row agrees.
     assert "0 of 1 owned · 1 in another mix" in out
     assert "no exact mixes in your library yet" in out and "none of these songs" not in out

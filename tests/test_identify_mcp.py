@@ -65,7 +65,10 @@ async def test_identify_set_replies_like_djlib_job_even_on_a_replay(
     assert result["job_id"] == job_id and result["state"] == "completed"
     assert "tracklist" not in result["result"]
     assert result["result"]["coverage"]["percent"] == 97  # no ID: nearly all of it named
-    assert result["result"]["next"][0] == "djlib set 'https://www.youtube.com/watch?v=fridayset1'"
+    assert (
+        result["result"]["next"][0]
+        == "djlib set 'https://www.youtube.com/watch?v=fridayset1' --no-rekordbox"
+    )
     assert result["result"] == read.structured_content["result"]["result"]
 
 
@@ -89,7 +92,9 @@ async def test_a_copied_tracklist_is_not_asked_for_again(application, library_ht
     result = job["result"]["result"]
     assert [source["source"] for source in result["sources"]] == ["audio", "file"]
     assert any(track["kind"] == "unknown" for track in result["tracks"])
-    assert result["next"] == ["djlib set 'https://www.youtube.com/watch?v=fridayset1'"]
+    assert result["next"] == [
+        "djlib set 'https://www.youtube.com/watch?v=fridayset1' --no-rekordbox"
+    ]
 
 
 @pytest.mark.parametrize(
