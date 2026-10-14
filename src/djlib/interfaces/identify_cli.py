@@ -75,10 +75,22 @@ BARE_LINK = re.compile(
 )
 # Words that stand for text instead of a file: what was copied, or what is piped in.
 PASTE, STDIN = "paste", "-"
+# A link inside copied words ("check this set https://youtu.be/…!").
+LINK = re.compile(r"https?://[^\s<>\"'‘’“”]+")
+# cmd.exe passes quotes through, and Notes or Messages curl them: 'LINK', “LINK”, ‘LINK’.
+QUOTES = {"'": "'", '"': '"', "‘": "’", "’": "’", "“": "”", "”": "”"}
 
 
 def unreadable(message: str) -> AppError:
     return AppError("INPUT_INVALID", message, details={"title": CANT_READ})
+
+
+def unquoted(value: str) -> str:
+    """The argument without one pair of quotes around it, unless a file has that very name."""
+    text = value.strip()
+    if len(text) > 2 and QUOTES.get(text[0]) == text[-1] and not Path(value).exists():
+        return text[1:-1].strip()
+    return value
 
 
 def from_rich_text(data: bytes, name: str) -> bytes:
@@ -120,21 +132,29 @@ def plain_text(data: bytes, name: str) -> str:
     )
 
 
-def not_found(path: Path, instead: str) -> AppError:
-    """Why a named tracklist file isn't there, and the way forward."""
-    given = str(path)
-    if BARE_LINK.match(given):
-        link = f"https://{given}"
-        quoted = f"'{link}'" if "'" not in link else shlex.quote(link)
-        return AppError(
-            "INPUT_INVALID",
-            f"{given} looks like a set link without https:// in front.",
-            details={
-                "title": "That link needs its https://",
-                "next": f"djlib set {quoted}",
-                "next_label": "The whole link, in single quotes",
-            },
-        )
+def bare_link(given: str, command: str = "set") -> AppError | None:
+    """ "soundcloud.com/…" typed without https://: the whole link back, quoted for zsh."""
+    if not BARE_LINK.match(given):
+        return None
+    link = f"https://{given}"
+    quoted = f"'{link}'" if "'" not in link else shlex.quote(link)
+    return AppError(
+        "INPUT_INVALID",
+        f"{given} looks like a set link without https:// in front.",
+        details={
+            "title": "That link needs its https://",
+            "next": f"djlib {command} {quoted}",
+            "next_label": "The whole link, in single quotes",
+        },
+    )
+
+
+def not_found(path: Path, instead: str, given: str | None = None) -> AppError:
+    """Why a named tracklist file isn't there, and the way forward. ``given`` is the
+    argument as typed (a Path would turn https:// into https:/)."""
+    given = given or str(path)
+    if (error := bare_link(given)) is not None:
+        return error
     where = "" if path.is_absolute() else f" in {terminal.short_path(str(Path.cwd()))}"
     return unreadable(
         f"Can't find {given}{where}. Drag the file into this window to paste its full path, "
@@ -143,15 +163,19 @@ def not_found(path: Path, instead: str) -> AppError:
 
 
 def read_text_file(
-    path: Path, limit: int = TRACKLIST_BYTES, instead: str = "djlib set paste"
+    path: Path,
+    limit: int = TRACKLIST_BYTES,
+    instead: str = "djlib set paste",
+    given: str | None = None,
 ) -> str:
     """A tracklist file's text: a regular file of at most ``limit`` bytes. ``instead`` is the
-    command that takes a copied tracklist where the file can't be found."""
+    command that takes a copied tracklist where the file can't be found; ``given`` is the
+    file as the DJ typed it."""
     try:
         if path.is_dir():
             raise unreadable(f"{path} is a folder; give the tracklist file inside it.")
         if not path.exists():
-            raise not_found(path, instead)
+            raise not_found(path, instead, given)
         if not path.is_file():
             raise unreadable(f"{path} is not a text file.")
         with path.open("rb") as stream:
@@ -161,13 +185,19 @@ def read_text_file(
         raise unreadable(f"djlib can't open {path}: {reason}.") from exc
     if len(data) > limit:
         raise unreadable(f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller.")
-    return plain_text(data, path.name)
+    text = plain_text(data, path.name)
+    if not text.strip():
+        raise unreadable(
+            f"{path.name} is empty; paste the set's tracklist into it, or copy it and run "
+            f"{instead}."
+        )
+    return text
 
 
 def typed(value: str | Path) -> str | None:
     """``paste`` (what was copied) or ``-`` (what is piped in), else None. A file named paste
     in this folder is still that file."""
-    text = str(value).strip()
+    text = unquoted(str(value)).strip()
     if text == STDIN:
         return STDIN
     if text.lower() == PASTE and not Path(text).exists():
@@ -197,9 +227,23 @@ def clipboard() -> bytes:
     return done.stdout
 
 
+def links_in(text: str) -> list[str]:
+    """The http(s) links in copied text, each once, without the punctuation after them."""
+    return list(dict.fromkeys(found.rstrip(".,;:!?)]}>") for found in LINK.findall(text)))
+
+
+def songs_in(text: str) -> list:
+    """The songs a copied text names: its “Artist - Title” lines, links aside."""
+    from djlib.application.tracklists import parse_tracklist
+
+    items, _ = parse_tracklist(text)
+    return [item for item in items if not LINK.search(f"{item.artist or ''} {item.title or ''}")]
+
+
 def read_typed(kind: str, limit: int = TRACKLIST_BYTES) -> tuple[str | None, str]:
     """(link, text) for ``paste`` or ``-``: a single http(s) link is used as if typed (link
-    set), anything else is tracklist text with a file's limits."""
+    set), as is the one link in words that name no song; anything else is tracklist text
+    with a file's limits. The caller that uses the link says so (``say_link``)."""
     from djlib.interfaces.set_sources import is_url
 
     if kind == STDIN:
@@ -227,18 +271,90 @@ def read_typed(kind: str, limit: int = TRACKLIST_BYTES) -> tuple[str | None, str
         )
     word = text.strip()
     if is_url(word) and not any(char.isspace() for char in word):
-        if kind == PASTE and not terminal.current().json:
-            terminal.current().err.print(
-                Text(f"Using the link you copied: {word}", style="muted"), soft_wrap=True
-            )
         return word, text
+    links = links_in(text)
+    if len(links) == 1 and not songs_in(text):
+        return links[0], text
     return None, text
 
 
-def pasted_name() -> str:
-    """ "Pasted tracklist 13 Oct": the name of a copied tracklist without a heading."""
+def say_link(kind: str, link: str) -> None:
+    """Show which link djlib took from what was copied."""
+    term = terminal.current()
+    if kind == PASTE and not term.json:
+        term.err.print(Text(f"Using the link you copied: {link}", style="muted"), soft_wrap=True)
+
+
+def tracklist_wanted(kind: str) -> AppError:
+    """--tracklist paste (or --text paste) while the set's link is still what was copied."""
+    if kind == STDIN:
+        return AppError(
+            "INPUT_INVALID",
+            "The text piped in is a link; pipe in the set's tracklist instead.",
+            details={"title": "That's the set's link"},
+        )
+    return AppError(
+        "INPUT_INVALID",
+        "The clipboard still holds the set's link. Copy the tracklist on the page, then run "
+        "the same command again.",
+        details={"title": "Copy the tracklist too"},
+    )
+
+
+def nothing_in(kind: str, text: str, command: str = "set") -> AppError:
+    """What was copied (or piped in) holds neither a usable link nor a tracklist."""
+    place = "the clipboard" if kind == PASTE else "the text piped in"
+    if command == "identify" and songs_in(text):
+        return AppError(
+            "INPUT_INVALID",
+            f"{place[:1].upper()}{place[1:]} holds a tracklist, not a set link.",
+            details=ways(
+                [
+                    ("Check it against your music", f"djlib set {kind}"),
+                    (
+                        "Or listen to the set too, with its link in place of LINK",
+                        f"djlib identify 'LINK' --tracklist {kind}",
+                    ),
+                ],
+                "That's a tracklist",
+            ),
+        )
+    if len(links := links_in(text)) > 1:
+        return AppError(
+            "INPUT_INVALID",
+            f"There are {len(links)} links in {place}; djlib checks one set at a time. Copy "
+            "just the set's link, then run this again.",
+            details={"title": "Copy just the set's link"},
+        )
+    if command == "identify":
+        return AppError(
+            "INPUT_INVALID",
+            f"There's no set link in {place}. Copy the set's YouTube or SoundCloud link, then "
+            "run this again.",
+            details={"title": f"No set link in {place}"},
+        )
+    message = (
+        f"There's no set link and no “Artist - Title” line in {place}. Copy the set's link or "
+        "its tracklist, then run this again."
+    )
+    if "\t" in text:
+        message += " From a spreadsheet? Copy its Artist and Title header row too."
+    return AppError("INPUT_INVALID", message, details={"title": f"No set or tracklist in {place}"})
+
+
+def pasted_name(text: str) -> str:
+    """ "Pasted 13 Oct · Lumen - Halo + 11 more": a copied tracklist without a heading, named
+    by the day, its first song and how many follow. Another paste gets its own name, so
+    rekordbox never takes it for a newer version of a different set (DJs reuse openers); the
+    same paste keeps its name and its list."""
     today = date.today()
-    return f"Pasted tracklist {today.day} {today:%b}"
+    name = f"Pasted {today.day} {today:%b}"
+    songs = [item for item in songs_in(text) if item.kind == "named"]
+    if not songs:
+        return name
+    song = " ".join(f"{songs[0].artist} - {songs[0].title}".split())
+    name += f" · {song if len(song) <= 48 else song[:47] + '…'}"
+    return name + (f" + {len(songs) - 1} more" if len(songs) > 1 else "")
 
 
 def nothing_given(command: str) -> AppError:
@@ -281,17 +397,12 @@ def read_tracklists(paths: list[Path] | None) -> list[dict]:
         if kind := typed(path):
             link, text = read_typed(kind)
             if link is not None:
-                raise AppError(
-                    "INPUT_INVALID",
-                    "--tracklist takes the set's tracklist, but that's a link. Copy the "
-                    "tracklist itself, then run this again.",
-                )
+                raise tracklist_wanted(kind)
             found.append({"source": tracklist_source(Path(kind), text), "text": text})
             continue
-        path = path.expanduser()
-        text = read_text_file(path, instead="--tracklist paste")
-        if not text.strip():
-            raise AppError("INPUT_INVALID", f"{path} is empty; paste the set's tracklist into it.")
+        given = unquoted(str(path))
+        path = Path(given).expanduser()
+        text = read_text_file(path, instead="the same command with --tracklist paste", given=given)
         found.append({"source": tracklist_source(path, text), "text": text})
     return found
 
@@ -613,25 +724,15 @@ def register_identify(app, client, emit, handled, panel=None):
 
         if url is None:
             raise nothing_given("identify")
+        url = unquoted(url)
         if kind := typed(url):
-            link, _ = read_typed(kind)
+            link, text = read_typed(kind)
             if link is None:
-                where = "The clipboard" if kind == PASTE else "The text piped in"
-                raise AppError(
-                    "INPUT_INVALID",
-                    f"{where} holds a tracklist, not a set link.",
-                    details=ways(
-                        [
-                            ("Check it against your music", f"djlib set {kind}"),
-                            (
-                                "Or listen to the set too, with its link in place of LINK",
-                                f"djlib identify 'LINK' --tracklist {kind}",
-                            ),
-                        ],
-                        "That's a tracklist",
-                    ),
-                )
+                raise nothing_in(kind, text, "identify")
+            say_link(kind, link)
             url = link
+        if (error := bare_link(url, "identify")) is not None:
+            raise error
         browser_only(url, "identify")
         local = client(ctx)
         job = submit(

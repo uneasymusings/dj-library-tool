@@ -671,6 +671,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             all_items,
             created,
             finish_checks,
+            song_lines,
+            song_list_request,
             text_request,
         )
         from djlib.native import rekordbox_mac as ui
@@ -699,17 +701,22 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
         page = shazam = identified = listing = listen_fix = None
+        tracklist = identify_cli.unquoted(tracklist)
         # paste or -: a link in it is used as typed, anything else is the tracklist's text.
-        pasted = None
+        pasted = columns = None
         if kind := identify_cli.typed(tracklist):
             link, pasted = identify_cli.read_typed(kind)
+            if link:
+                identify_cli.say_link(kind, link)
             tracklist, pasted = (link, None) if link else (kind, pasted)
-        elif not (source or identify or tracklists) and shazam_history.is_export(
-            Path(tracklist).expanduser()
-        ):
-            tracklist = f"shazam:{Path(tracklist).expanduser()}"
-            if not term.json:
-                term.err.print("Read as a Shazam export.", style="muted")
+        else:
+            # A .csv or .tsv: Shazam's export reads as your Shazams; any other file with
+            # Artist and Title columns (a DJ's spreadsheet) is a song list named after it.
+            columns = shazam_history.csv_kind(Path(tracklist).expanduser())
+            if columns == "shazam" and not (source or identify or tracklists):
+                tracklist = f"shazam:{Path(tracklist).expanduser()}"
+                if not term.json:
+                    term.err.print("Read as a Shazam export.", style="muted")
         if pasted is None and shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
@@ -785,21 +792,28 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     "--source LINK.",
                 )
             if pasted is None:
-                content, fallback = identify_cli.read_text_file(path), path.stem
+                content = identify_cli.read_text_file(path, given=tracklist)
             else:
-                content, fallback = pasted, identify_cli.pasted_name()
+                content = pasted
+            # Rows under an Artist and Title header: a spreadsheet saved as CSV, or its cells
+            # copied (they paste with tabs between them).
+            rows = None
+            if columns == "songs" or (pasted is not None and "\t" in content):
+                rows = shazam_history.song_rows(content)
+            if rows is not None:
+                if not term.json:
+                    term.err.print("Read as a song list (Artist and Title columns).", style="muted")
+                content = song_lines(rows)
+            fallback = path.stem if pasted is None else identify_cli.pasted_name(content)
             try:
-                body, warnings = text_request(content, name, fallback, source)
+                if rows is None:
+                    body, warnings = text_request(content, name, fallback, source)
+                else:
+                    body, warnings = song_list_request(rows, name, fallback)
             except AppError as error:
                 if pasted is None or error.code != "INPUT_INVALID":
                     raise
-                where = "the clipboard" if kind == identify_cli.PASTE else "the text piped in"
-                raise AppError(
-                    "INPUT_INVALID",
-                    f"There's no set link and no “Artist - Title” line in {where}. Copy the "
-                    "set's link or its tracklist, then run this again.",
-                    details={"title": f"No set or tracklist in {where}"},
-                ) from error
+                raise identify_cli.nothing_in(kind, pasted) from error
             # A set identified before costs nothing: its file merges with what djlib heard.
             free = identify is None and source and identification.finished(workspace, source)
             if identify or tracklists or free:
