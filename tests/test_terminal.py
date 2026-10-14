@@ -1100,6 +1100,34 @@ def test_a_finished_collect_reads_like_a_crate_not_a_job(capsys):
     assert "failed" in running  # anything else is still a job card
 
 
+def test_a_collect_that_left_owned_songs_out_says_why_before_the_push(capsys):
+    job = {
+        "job_id": JOB,
+        "kind": "organize",
+        "state": "completed",
+        "outcome": "completed_with_gaps",
+        "counts": {"succeeded": 10, "failed": 2},
+        "result": {
+            "collection_id": COLLECTION,
+            "name": "Friday",
+            "selected_count": 10,
+            "excluded_count": 2,
+            "exclusion_counts": {"file_missing": 2},
+        },
+    }
+    out = render("requests collect", job, width=120, capsys=capsys)
+    assert out.startswith("! Crate “Friday”  10 tracks, in set order")
+    assert "Failed    2 tracks" in out and "Excluded  2  2 file missing" in out
+    steps = out.split("Next", 1)[1]
+    assert steps.index("See what failed") < steps.index("Retry failed items")
+    assert steps.index("Retry failed items") < steps.index("Put it in rekordbox")
+    assert f"djlib jobs items {JOB} --state failed" in steps
+    # Only excluded files, nothing failed: still said.
+    excluded = {**job, "outcome": "complete", "counts": {"succeeded": 10}}
+    out = render("requests collect", excluded, width=120, capsys=capsys)
+    assert out.startswith("! Crate") and "2 file missing" in out
+
+
 def test_request_view_offers_the_crate_it_already_has(capsys):
     request = {
         "request_id": REQUEST,
