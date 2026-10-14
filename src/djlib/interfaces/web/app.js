@@ -581,6 +581,12 @@ function sureWord(confidence) {
 
 const UNSURE = new Set(["likely", "weak", "conflict"]);
 
+// How sure djlib is of a line, for the Sure column: an ID line says "ID" in its Own column
+// instead (the terminal's "○ ID"), however sure djlib is of its guess.
+function sureOf(item) {
+  return ownKind(item) === "id" ? null : item.input?.confidence;
+}
+
 // A copied tracklist cut short (1001Tracklists' "Save 12 more tracks"): the songs it hid
 // were never checked, so the set's page says so.
 function partialNote(ledger) {
@@ -960,7 +966,7 @@ async function requestDetail(requestId) {
   const tableSlot = h("div");
   const filterBar = h("div", { class: "filters", role: "group", "aria-label": "Show" });
   const moreSlot = h("div");
-  const sure = items.some((item) => UNSURE.has(item.input?.confidence));
+  const sure = items.some((item) => UNSURE.has(sureOf(item)));
   const shazam = source?.kind === "shazam";
   const order = shazam ? newestFirst(items) : items;
   const long = items.length > LONG_SET;
@@ -1135,7 +1141,7 @@ async function requestDetail(requestId) {
     tableSlot.replaceChildren(table(
       [
         { label: timed ? "Time" : "#", class: "c-time", cell: moment },
-        { label: "Sure", class: "c-sure", cell: (item) => sureWord(item.input?.confidence), optional: (item) => UNSURE.has(item.input?.confidence) },
+        { label: "Sure", class: "c-sure", cell: (item) => sureWord(sureOf(item)), optional: (item) => UNSURE.has(sureOf(item)) },
         { label: "Track", class: "c-track", cell: (item) => trackCell(item, { timed, at: stamped }) },
         { label: "Own", class: "c-own", cell: own },
       ],
