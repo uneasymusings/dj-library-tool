@@ -801,19 +801,63 @@ async def test_requests_keep_mixesdb_s_crawl_delay(clock):
     assert len(asked_at) > first
     gaps = [later - earlier for earlier, later in zip(asked_at, asked_at[1:], strict=False)]
     assert min(gaps) >= mixesdb.CRAWL_DELAY == 4
-    # The waits between four requests take 12 of a lookup's 30 seconds.
-    assert (3 * mixesdb.CRAWL_DELAY, mixesdb.DEADLINE) == (12, 30)
+    # Waits for a turn come on top of a lookup's 20 seconds of asking.
+    assert mixesdb.DEADLINE == 20
 
 
-async def test_spacing_waits_only_what_is_left_of_the_delay():
+async def test_sets_looked_up_at_once_each_get_their_answer(monkeypatch):
+    """Four `djlib set` runs at once: the last in line still gets MixesDB's page, because
+    waiting for a turn doesn't count against its deadline (time scaled down 1:40)."""
+    spacing = mixesdb.Spacing(delay=0.1)
+    monkeypatch.setattr(mixesdb, "SPACING", spacing)
+    monkeypatch.setattr(mixesdb, "DEADLINE", 0.5)  # shorter than the queue of turns
+    turns = []
+
+    def reserve():
+        wait = mixesdb.Spacing.reserve(spacing)
+        turns.append(spacing.next_at - spacing.delay)
+        return wait
+
+    monkeypatch.setattr(spacing, "reserve", reserve)
+
+    def answer(query):
+        return reply("kaytranada-montreal.json") if "kaytranada-boiler-room" in query else EMPTY
+
+    async def one(**wanted):
+        return await lookup(Wiki(answer), strict=True, **wanted)  # strict: a timeout raises
+
+    elsewhere = [
+        {
+            "title": f"DJ {n} | Room {n}",
+            "uploader": "x",
+            "duration": 3600,
+            "url": f"https://youtu.be/{n * 11}",
+        }
+        for n in ("a", "b", "c")
+    ]
+    *others, kaytranada = await asyncio.gather(
+        *(one(**wanted) for wanted in elsewhere),
+        one(
+            title="Kaytranada | Boiler Room: Montreal",
+            duration=2526,
+            url="https://soundcloud.com/platform/kaytranada-boiler-room",
+        ),
+    )
+    assert others == [None, None, None] and kaytranada["page_url"] == MONTREAL
+    # One request per turn, each turn a delay after the last; the queue outlasted a deadline.
+    gaps = [later - earlier for earlier, later in zip(turns, turns[1:], strict=False)]
+    assert min(gaps) == pytest.approx(0.1) and turns[-1] - turns[0] > mixesdb.DEADLINE
+
+
+def test_spacing_waits_only_what_is_left_of_the_delay():
     clock = Clock()
-    spacing = mixesdb.Spacing(clock=clock.now, sleep=clock.sleep)
-    await spacing.wait()
+    spacing = mixesdb.Spacing(clock=clock.now)
+    assert spacing.reserve() == 0
     clock.at += 1.5  # the answer took a second and a half
-    await spacing.wait()
-    clock.at += 10.0  # nothing asked for a while
-    await spacing.wait()
-    assert clock.slept == [2.5]
+    assert spacing.reserve() == 2.5
+    assert spacing.reserve() == 6.5  # another set's request, right after: the turn after that
+    clock.at += 20.0  # nothing asked for a while
+    assert spacing.reserve() == 0
 
 
 async def test_a_set_looked_up_moments_ago_asks_mixesdb_nothing(monkeypatch):
