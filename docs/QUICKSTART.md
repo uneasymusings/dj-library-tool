@@ -65,9 +65,7 @@ Checked a set already? `djlib rekordbox push last` or `djlib rekordbox usb last`
 
 ## 6. Missing songs
 
-`djlib requests report last` is your shopping list: each missing song with Beatport, Bandcamp and Traxsource searches, saved as “Set name - to buy.txt” in the “Shopping lists” folder of djlib's folder. Check it's the mix you want before you buy. After buying, run `djlib scan`, then `djlib requests refresh last`.
-
-`djlib set 'LINK' --fetch` downloads clear matches from YouTube and SoundCloud as MP3 after you confirm, official uploads first. That's stream-quality audio, marked “buy before playing out” in rekordbox's Comments: buy the real file for the club.
+`djlib requests report last` is your shopping list: each missing song with Beatport, Bandcamp and Traxsource searches, saved as “Set name - to buy.txt” in the “Shopping lists” folder of djlib's folder. Check it's the mix you want before you buy. After buying, run `djlib scan`, then `djlib requests refresh last`. `djlib set 'LINK' --fetch` downloads clear matches from YouTube and SoundCloud as MP3 after you confirm, official uploads first. That's stream-quality audio, marked “buy before playing out” in rekordbox's Comments: buy the real file for the club.
 
 ## Limits
 
