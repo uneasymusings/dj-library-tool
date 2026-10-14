@@ -5,16 +5,23 @@ got and then the tracklist. `djlib set LINK` uses the same identification when a
 tracklist is missing or has IDs.
 """
 
+import codecs
 import contextlib
+import os
+import re
 import shlex
+import shutil
+import subprocess
+import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 import typer
+from rich.text import Text
 
 from djlib.domain.errors import AppError
 from djlib.interfaces import terminal
@@ -59,25 +66,230 @@ def tracklist_source(path: Path, text: str) -> str:
     return "file"
 
 
-def read_text_file(path: Path, limit: int = TRACKLIST_BYTES) -> str:
-    """A tracklist file's text: a regular file of at most ``limit`` bytes."""
-    try:
-        if not path.is_file():
-            raise AppError("INPUT_INVALID", f"{path} is not a text file.")
-        if path.stat().st_size > limit:
-            raise AppError(
-                "INPUT_INVALID", f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller."
+CANT_READ = "Can't read that tracklist"
+# TextEdit saves rich text by default; its control words would read as tracklist lines.
+RICH_TEXT = b"{\\rtf"
+# "soundcloud.com/…" typed without https://.
+BARE_LINK = re.compile(
+    r"^(?:www\.|m\.)?(?:youtube\.com|youtu\.be|soundcloud\.com|on\.soundcloud\.com)/", re.I
+)
+# Words that stand for text instead of a file: what was copied, or what is piped in.
+PASTE, STDIN = "paste", "-"
+
+
+def unreadable(message: str) -> AppError:
+    return AppError("INPUT_INVALID", message, details={"title": CANT_READ})
+
+
+def from_rich_text(data: bytes, name: str) -> bytes:
+    """Plain text from rich text, by macOS's own converter."""
+    if sys.platform == "darwin":
+        command = ["textutil", "-convert", "txt", "-format", "rtf", "-encoding", "UTF-8"]
+        try:
+            done = subprocess.run(
+                [*command, "-stdin", "-stdout"],
+                input=data,
+                capture_output=True,
+                timeout=10,
+                check=True,
             )
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AppError("INPUT_INVALID", f"Could not read {path} as a UTF-8 text file.") from exc
+            return done.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
+    raise unreadable(
+        f"{name} is a rich-text file (TextEdit's default). In TextEdit choose Format → Make "
+        "Plain Text, save, and run this again — or copy the tracklist and run djlib set paste."
+    )
+
+
+def plain_text(data: bytes, name: str) -> str:
+    """A tracklist's text in the encodings editors save: UTF-8 (with or without a BOM),
+    UTF-16 with a BOM, else Windows' cp1252; rich text goes through macOS's converter."""
+    if data.lstrip().startswith(RICH_TEXT):
+        data = from_rich_text(data, name)
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        with contextlib.suppress(UnicodeDecodeError):
+            return data.decode("utf-16")
+    elif b"\x00" not in data:  # a zero byte means a document or audio file, not text
+        for encoding in ("utf-8-sig", "cp1252"):
+            with contextlib.suppress(UnicodeDecodeError):
+                return data.decode(encoding)
+    raise unreadable(
+        f"djlib can't read {name} as text. Save it as plain text "
+        "(TextEdit: Format → Make Plain Text)."
+    )
+
+
+def not_found(path: Path, instead: str) -> AppError:
+    """Why a named tracklist file isn't there, and the way forward."""
+    given = str(path)
+    if BARE_LINK.match(given):
+        link = f"https://{given}"
+        quoted = f"'{link}'" if "'" not in link else shlex.quote(link)
+        return AppError(
+            "INPUT_INVALID",
+            f"{given} looks like a set link without https:// in front.",
+            details={
+                "title": "That link needs its https://",
+                "next": f"djlib set {quoted}",
+                "next_label": "The whole link, in single quotes",
+            },
+        )
+    where = "" if path.is_absolute() else f" in {terminal.short_path(str(Path.cwd()))}"
+    return unreadable(
+        f"Can't find {given}{where}. Drag the file into this window to paste its full path, "
+        f"or copy the tracklist and run {instead}."
+    )
+
+
+def read_text_file(
+    path: Path, limit: int = TRACKLIST_BYTES, instead: str = "djlib set paste"
+) -> str:
+    """A tracklist file's text: a regular file of at most ``limit`` bytes. ``instead`` is the
+    command that takes a copied tracklist where the file can't be found."""
+    try:
+        if path.is_dir():
+            raise unreadable(f"{path} is a folder; give the tracklist file inside it.")
+        if not path.exists():
+            raise not_found(path, instead)
+        if not path.is_file():
+            raise unreadable(f"{path} is not a text file.")
+        with path.open("rb") as stream:
+            data = stream.read(limit + 1)
+    except OSError as exc:
+        reason = (exc.strerror or "it can't be read").lower()
+        raise unreadable(f"djlib can't open {path}: {reason}.") from exc
+    if len(data) > limit:
+        raise unreadable(f"{path} is over {limit // 1_000_000} MB; a tracklist is smaller.")
+    return plain_text(data, path.name)
+
+
+def typed(value: str | Path) -> str | None:
+    """``paste`` (what was copied) or ``-`` (what is piped in), else None. A file named paste
+    in this folder is still that file."""
+    text = str(value).strip()
+    if text == STDIN:
+        return STDIN
+    if text.lower() == PASTE and not Path(text).exists():
+        return PASTE
+    return None
+
+
+def clipboard() -> bytes:
+    """What was last copied, through macOS's pbpaste."""
+    if sys.platform != "darwin" or shutil.which("pbpaste") is None:
+        raise AppError(
+            "INPUT_INVALID",
+            "djlib set paste reads the clipboard on a Mac; here pipe it in: … | djlib set -",
+        )
+    try:
+        done = subprocess.run(
+            ["pbpaste"],
+            capture_output=True,
+            timeout=10,
+            check=True,
+            env={**os.environ, "LANG": "en_US.UTF-8"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AppError(
+            "INPUT_INVALID", "djlib couldn't read the clipboard. Copy it again, then retry."
+        ) from exc
+    return done.stdout
+
+
+def read_typed(kind: str, limit: int = TRACKLIST_BYTES) -> tuple[str | None, str]:
+    """(link, text) for ``paste`` or ``-``: a single http(s) link is used as if typed (link
+    set), anything else is tracklist text with a file's limits."""
+    from djlib.interfaces.set_sources import is_url
+
+    if kind == STDIN:
+        stream = getattr(sys.stdin, "buffer", None)
+        term = terminal.current()
+        if stream is not None and sys.stdin.isatty() and not term.json:
+            # Nothing is piped in: the DJ types or pastes it here.
+            term.err.print(
+                "Paste the tracklist, then press Ctrl-D on an empty line.", style="muted"
+            )
+        data = stream.read(limit + 1) if stream is not None else b""
+        where = "The text piped in"
+    else:
+        data, where = clipboard(), "The clipboard"
+    if len(data) > limit:
+        raise unreadable(f"{where} is over {limit // 1_000_000} MB; a tracklist is smaller.")
+    text = plain_text(data, where.lower())
+    if not text.strip():
+        if kind == STDIN:
+            raise AppError("INPUT_INVALID", "Nothing was piped in: … | djlib set -")
+        raise AppError(
+            "INPUT_INVALID",
+            "Copy the set's link or its tracklist, then run this again.",
+            details={"title": "The clipboard is empty"},
+        )
+    word = text.strip()
+    if is_url(word) and not any(char.isspace() for char in word):
+        if kind == PASTE and not terminal.current().json:
+            terminal.current().err.print(
+                Text(f"Using the link you copied: {word}", style="muted"), soft_wrap=True
+            )
+        return word, text
+    return None, text
+
+
+def pasted_name() -> str:
+    """ "Pasted tracklist 13 Oct": the name of a copied tracklist without a heading."""
+    today = date.today()
+    return f"Pasted tracklist {today.day} {today:%b}"
+
+
+def nothing_given(command: str) -> AppError:
+    """`djlib set` or `djlib identify` with nothing to check: the ways in."""
+    link = "'https://soundcloud.com/…'"
+    if command == "identify":
+        steps = [
+            ("A set link (in single quotes)", f"djlib identify {link}"),
+            ("A link you copied", "djlib identify paste"),
+        ]
+        title = "Which set should djlib identify?"
+        message = "Give it the link of a YouTube or SoundCloud set."
+    else:
+        since = (date.today() - timedelta(days=30)).isoformat()
+        steps = [
+            ("A set link (in single quotes)", f"djlib set {link}"),
+            ("A tracklist or link you copied", "djlib set paste"),
+            ("Your recent Shazams", f"djlib set shazam:{since}"),
+        ]
+        title = "What should djlib check?"
+        message = (
+            "Give it a set link, a tracklist or your Shazams. For a tracklist file: type "
+            "djlib set, a space, then drag the file in."
+        )
+    return AppError("INPUT_INVALID", message, details=ways(steps, title))
+
+
+def ways(steps: list[tuple[str, str]], title: str | None = None) -> dict:
+    """An error's details with more than one way forward: ``next`` stays the first command,
+    and ``next_steps`` lists them all (a terminal shows each on its own line)."""
+    label, command = steps[0]
+    details = {"next": command, "next_label": label}
+    details["next_steps"] = [{"label": label, "command": command} for label, command in steps]
+    return {"title": title, **details} if title else details
 
 
 def read_tracklists(paths: list[Path] | None) -> list[dict]:
     found = []
     for path in paths or []:
+        if kind := typed(path):
+            link, text = read_typed(kind)
+            if link is not None:
+                raise AppError(
+                    "INPUT_INVALID",
+                    "--tracklist takes the set's tracklist, but that's a link. Copy the "
+                    "tracklist itself, then run this again.",
+                )
+            found.append({"source": tracklist_source(Path(kind), text), "text": text})
+            continue
         path = path.expanduser()
-        text = read_text_file(path)
+        text = read_text_file(path, instead="--tracklist paste")
         if not text.strip():
             raise AppError("INPUT_INVALID", f"{path} is empty; paste the set's tracklist into it.")
         found.append({"source": tracklist_source(path, text), "text": text})
@@ -360,12 +572,19 @@ def register_identify(app, client, emit, handled, panel=None):
     @handled
     def identify(
         ctx: typer.Context,
-        url: Annotated[str, typer.Argument(help="The set's YouTube or SoundCloud link.")],
+        url: Annotated[
+            str | None,
+            typer.Argument(
+                metavar="LINK",
+                help="The set's YouTube or SoundCloud link, in single quotes; or paste for the "
+                "link you copied.",
+            ),
+        ] = None,
         tracklist: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="A tracklist for the set, e.g. copied from 1001Tracklists; repeatable. "
-            "Remembered for the set.",
+            help="A tracklist for the set, e.g. from 1001Tracklists: a text file, or paste for "
+            "the one you copied; repeatable. Remembered for the set.",
         ),
         again: bool = typer.Option(
             False, "--again", help="Listen again even if djlib identified this set before."
@@ -386,10 +605,34 @@ def register_identify(app, client, emit, handled, panel=None):
 
         Each track says how sure djlib is and why; IDs list likely candidates.
 
-        A tracklist from 1001Tracklists (--tracklist FILE) fills the gaps.
+        A tracklist from 1001Tracklists (--tracklist paste, or a file) fills the gaps.
 
         Ctrl-C stops listening; running it again continues where it stopped.
         """
+        from djlib.interfaces.set_sources import browser_only
+
+        if url is None:
+            raise nothing_given("identify")
+        if kind := typed(url):
+            link, _ = read_typed(kind)
+            if link is None:
+                where = "The clipboard" if kind == PASTE else "The text piped in"
+                raise AppError(
+                    "INPUT_INVALID",
+                    f"{where} holds a tracklist, not a set link.",
+                    details=ways(
+                        [
+                            ("Check it against your music", f"djlib set {kind}"),
+                            (
+                                "Or listen to the set too, with its link in place of LINK",
+                                f"djlib identify 'LINK' --tracklist {kind}",
+                            ),
+                        ],
+                        "That's a tracklist",
+                    ),
+                )
+            url = link
+        browser_only(url, "identify")
         local = client(ctx)
         job = submit(
             local,

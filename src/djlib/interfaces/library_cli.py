@@ -35,9 +35,15 @@ def all_items(local, result: dict) -> list[dict]:
 def tracklist_request(
     text: Path, name: str | None, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
-    """A request list from a plain tracklist file, plus warnings for skipped lines."""
-    from djlib.interfaces.identify_cli import read_text_file
+    """A request list from a plain tracklist file (or paste, or - for stdin), plus warnings
+    for skipped lines."""
+    from djlib.interfaces.identify_cli import pasted_name, read_text_file, read_typed, typed
 
+    if kind := typed(text):
+        link, content = read_typed(kind)
+        if link is not None:
+            raise AppError("INPUT_INVALID", "That's a link; copy the tracklist itself.")
+        return text_request(content, name, pasted_name(), source)
     return text_request(read_text_file(text), name, text.stem, source)
 
 

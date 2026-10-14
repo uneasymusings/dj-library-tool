@@ -27,15 +27,32 @@ def host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower().removeprefix("www.").removeprefix("m.")
 
 
-def check_set_url(url: str) -> None:
+def browser_only(url: str, command: str = "set") -> None:
+    """1001Tracklists: SOURCE_BROWSER_ONLY, with the ways to hand djlib its tracklist."""
+    from djlib.interfaces.identify_cli import ways
+
     name = host(url)
     if any(name == blocked or name.endswith("." + blocked) for blocked in BROWSER_ONLY):
         raise AppError(
             "SOURCE_BROWSER_ONLY",
             "1001Tracklists only shows tracklists to people in a browser; djlib can't read it. "
             "An assistant that can browse can copy it for you.",
-            details={"next": "djlib set FILE"},
+            details=ways(
+                [
+                    ("Copy the tracklist on the page, then", "djlib set paste"),
+                    (
+                        "Better: the set's own YouTube or SoundCloud link (under the player) "
+                        "plus that copy",
+                        f"djlib {command} 'LINK' --tracklist paste",
+                    ),
+                ]
+            ),
         )
+
+
+def check_set_url(url: str) -> None:
+    browser_only(url)
+    name = host(url)
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")
 
