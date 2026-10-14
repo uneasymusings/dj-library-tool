@@ -3125,12 +3125,19 @@ MATCHING = frozenset(
 )
 
 
+def _credit_label(credit: dict) -> str:
+    text = f"{credit.get('artist') or ''} - {credit.get('title') or ''}"
+    return f"{text} ({credit['version']})" if credit.get("version") else text
+
+
 def spelled_as(item: dict) -> str:
     """The other spelling an owned song's file matched (``accepted.matched_as``): the listing's
     credits ("Robert Glasper") when only they differ, else its whole label; "" when none."""
     label = (item.get("accepted") or {}).get("matched_as") or ""
     source = item.get("input") or {}
-    credit = (source.get("also") or [{}])[0]
+    credits = [credit for credit in source.get("also") or [] if isinstance(credit, dict)]
+    # The spelling the file matched: the credit with that label, else the first.
+    credit = next((c for c in credits if _credit_label(c) == label), credits[0] if credits else {})
     if label and credit.get("artist"):
         mix = credit_form("", credit.get("title") or "", credit.get("version") or "")[1]
         if mix == credit_form("", source.get("title") or "", source.get("version") or "")[1]:

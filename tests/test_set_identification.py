@@ -1237,6 +1237,141 @@ def test_the_listings_spelling_never_brings_another_mix():
     )
 
 
+KAYTRANADA_HEARD = [
+    *song(0, 2, "Kaytranada", "Roots (Silent Treatment Intro)"),
+    *song(69, 3, "Robert Glasper Experiment", "Move Love (Kaytranada Edition)"),
+    *song(235, 3, "Flume", "Holdin On (Kaytranada Edit)"),
+    *song(510, 3, "Full Crate Feat. Papa Ghana", "L'afrique"),
+    *song(632, 3, "Kaytranada", "At All"),
+    *song(1993, 3, "Armand Van Helden", "Full Moon (feat. Common)"),
+]
+KAYTRANADA_MIXESDB = listing(
+    "mixesdb",
+    "1. [00:00] Kaytranada - Roots [Silent Treatment Intro]",
+    "2. [00:45] Robert Glasper - Move Love (Kaytranada Edition)",
+    "3. [03:08] KenLo Croqnote - Facteur Humidex",
+    "4. [03:55] Flume - Holdin On (Kaytranada Edit)",
+    "5. [06:37] SebastiAn - Arabest",
+    "6. [08:30] Full Crate Feat. Papa Ghana - L'afrique",
+    "7. [10:32] Kaytranada - At All",
+    "8. [12:46] De La Soul - Me, Myself & I",
+    "9. [24:10] Pomo - So Fine",
+    "10. [26:00] Bell Biv DeVoe - Poison",
+    "11. [28:36] Janet Jackson - If (Kaytranada Remix)",
+    "12. [33:25] Armand Val Helden Feat. Common - Full Moon",
+)
+
+
+def test_a_pasted_tracklist_that_agrees_with_shazam_keeps_mixesdbs_spelling():
+    """1001Tracklists spells it as Shazam heard it ("Robert Glasper Experiment"); MixesDB and
+    the DJ's file say "Robert Glasper". Pasting the list must not lose the song you own."""
+    pasted = listing(
+        "1001tracklists",
+        "01:09 Robert Glasper Experiment - Move Love (Kaytranada Edition)",
+        "33:25 Armand Van Helden Feat. Common - Full Moon",
+    )
+    result = build_tracklist(
+        duration=2525, probes=KAYTRANADA_HEARD, listed=[pasted, KAYTRANADA_MIXESDB]
+    )
+    tracks = {track["title"]: track for track in result["tracks"]}
+    glasper, full_moon = tracks["Move Love"], tracks["Full Moon"]
+    assert glasper["artist"] == "Robert Glasper Experiment"
+    assert glasper["also_named"]["label"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert full_moon["also_named"]["artist"] == "Armand Val Helden Feat. Common"
+    items = {item.get("title"): item for item in request_items(result, SET_URL)}
+    valid_request(list(items.values()))
+    assert items["Move Love"]["also"] == [
+        {
+            "artist": "Robert Glasper",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "source": "mixesdb",
+        }
+    ]
+    assert items["Full Moon"]["also"][0]["artist"] == "Armand Val Helden Feat. Common"
+    assert items["Move Love"]["notes"].endswith(
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+
+
+def test_every_listings_spelling_is_kept_for_the_library_check():
+    """Two listings, two other spellings of what Shazam heard: the file may carry either."""
+    pasted = listing("file", "[01:09] Robert Glaspar Experiment - Move Love (Kaytranada Edition)")
+    result = build_tracklist(
+        duration=2525, probes=KAYTRANADA_HEARD, listed=[pasted, KAYTRANADA_MIXESDB]
+    )
+    (glasper,) = [track for track in result["tracks"] if track["title"] == "Move Love"]
+    assert glasper["artist"] == "Robert Glasper Experiment"
+    assert [spelling["source"] for spelling in glasper["also_spellings"]] == ["file", "mixesdb"]
+    item = request_items({"tracks": [glasper]}, SET_URL)[0]
+    valid_request([item])
+    assert [credit["artist"] for credit in item["also"]] == [
+        "Robert Glaspar Experiment",
+        "Robert Glasper",
+    ]
+    assert item["notes"].endswith(
+        "your tracklist spells it Robert Glaspar Experiment - Move Love (Kaytranada Edition); "
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        # Timed, as 1001Tracklists copies some of a set
+        (
+            "[00:00] Kaytranada - Roots (Silent Treatment Intro)",
+            "[01:09] Robert Glasper - Move Love (Kaytranada Remix)",
+            "[06:37] SebastiAn - Arabest",
+            "[10:32] Kaytranada - At All",
+            "[26:00] Bell Biv DeVoe - Poison",
+        ),
+        # Without times
+        (
+            "Kaytranada - Roots (Silent Treatment Intro)",
+            "Robert Glasper - Move Love (Kaytranada Remix)",
+            "SebastiAn - Arabest",
+            "Kaytranada - At All",
+            "Bell Biv DeVoe - Poison",
+        ),
+        # Every other song
+        (
+            "[03:08] KenLo Croqnote - Facteur Humidex",
+            "[06:37] SebastiAn - Arabest",
+            "[12:46] De La Soul - Me, Myself & I",
+            "[26:00] Bell Biv DeVoe - Poison",
+        ),
+    ],
+)
+def test_a_partial_pasted_tracklist_never_doubles_a_song_nobody_heard(pasted):
+    """A paste aligns to the songs Shazam heard on its own, so a song nobody heard could land
+    on the other side of a heard one than in MixesDB: "Poison" twice at 26:00."""
+    result = build_tracklist(
+        duration=2525,
+        probes=KAYTRANADA_HEARD,
+        listed=[listing("file", *pasted), KAYTRANADA_MIXESDB],
+    )
+    titles = [track["title"] for track in result["tracks"]]
+    assert len(titles) == 12 and len(set(titles)) == 12
+    poison = result["tracks"][titles.index("Poison")]
+    assert (clock(poison["start"]), poison["approx"], poison["status"]) == (
+        "26:00",
+        False,
+        "likely",
+    )
+    assert track_notes(poison) == "From your tracklist and MixesDB"
+
+
+def test_a_song_listed_twice_far_apart_stays_two_plays():
+    """The same song early in one listing and late in another, both timed: two plays."""
+    result = build_tracklist(
+        duration=2525,
+        probes=KAYTRANADA_HEARD,
+        listed=[listing("file", "[02:00] Pomo - So Fine"), KAYTRANADA_MIXESDB],
+    )
+    assert [track["title"] for track in result["tracks"]].count("So Fine") == 2
+
+
 def test_heard_and_listed_under_other_names_says_what_each_side_has():
     """A remix heard as its sample: likely, and the notes don't read as agreement."""
     probes = song(0, 3, "Kerri Chandler", "Rain")

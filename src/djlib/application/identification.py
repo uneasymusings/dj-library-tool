@@ -1255,9 +1255,12 @@ class IdentifyRunner:
     ) -> dict:
         url = attempt.request["url"]
         listed, found = _listed(page, listings, url)
+        # A tracklist given before is used again quietly: its skipped lines were said then.
+        given = bool(attempt.request.get("tracklists"))
         skipped = [
             {"source": source["source"], **line}
-            for source in listed
+            for index, source in enumerate(listed)
+            if given or index >= len(listings)
             for line in source["skipped"]
             if line["reason"] != HEADING  # the set's name above its tracklist
         ][:50]

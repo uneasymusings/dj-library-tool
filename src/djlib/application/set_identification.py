@@ -42,6 +42,10 @@ SONG_SECONDS = 180.0
 ID_REACH = 180.0
 WEAK_REACH = 60.0
 HINTS = 3
+# Other spellings of a heard song's credits kept for the library check (RequestItem.also).
+SPELLINGS = 3
+# One song two listings name, unheard, this close in time is one play (``_unify``).
+UNIFY_SECONDS = 60.0
 # Tracks read from one listing: a six-hour set has about 150. Merging is quadratic in them.
 MAX_LISTED = 400
 # How surely two labels name the same song in any version: 1 same credits and title, 0.9
@@ -60,7 +64,7 @@ SOURCE_NAMES = {
     "chapters": "the chapters",
     "1001tracklists": "1001Tracklists",
     "mixesdb": "MixesDB",
-    "file": "the tracklist file",
+    "file": "your tracklist",
     "comments": "a listener's tracklist",
 }
 PROVIDER_NAMES = {"shazam": "Shazam", "acrcloud": "ACRCloud", "audd": "AudD"}
@@ -963,6 +967,56 @@ def _rejoin(seq: list[_Slot]) -> list[_Slot]:
     return kept
 
 
+def _twin(seq: list[_Slot], first: _Slot, second: _Slot) -> _Slot | None:
+    """Of two slots nobody heard (``first`` earlier), the one to keep when they are one song
+    two listings place apart, else None.
+
+    They are when they name the same song, no listing names both, and they sit at about the
+    same listed time, or (a listing without times) where one of them can move to the other
+    without passing a song its own listing names: that listing doesn't say which side of
+    those songs it plays.
+    """
+    if first.kind != "named" or second.kind != "named" or first.clusters or second.clusters:
+        return None
+    mine, theirs = ({t["source"] for t in slot.texts} for slot in (first, second))
+    if mine & theirs:
+        return None
+    if not any(_likeness(one, other) >= SAME for one in first.songs() for other in second.songs()):
+        return None
+    timed = not first.approx and not second.approx
+    if timed and first.time is not None and second.time is not None:
+        return first if abs(first.time - second.time) <= UNIFY_SECONDS else None
+    between = seq[seq.index(first) + 1 : seq.index(second)]
+    if not any(_listed_by(slot, theirs) for slot in between):
+        return first
+    if not any(_listed_by(slot, mine) for slot in between):
+        return second
+    return None
+
+
+def _unify(seq: list[_Slot], order: list[str]) -> list[_Slot]:
+    """One unheard song in two listings is one track. A listing aligns to the songs heard, so
+    a partial tracklist (five songs pasted from 1001Tracklists) can place a song nobody heard
+    on the other side of a heard one than MixesDB does: "Poison" twice at 26:00. The track
+    keeps a listed time over a guessed one, and the first listing's label."""
+    rank = {name: index for index, name in enumerate(order)}
+    unheard = [slot for slot in seq if slot.kind == "named" and slot.texts and not slot.clusters]
+    gone: set[int] = set()
+    for at, later in enumerate(unheard):
+        for earlier in unheard[:at]:
+            if id(earlier) in gone or id(later) in gone:
+                continue
+            keep = _twin(seq, earlier, later)
+            if keep is None:
+                continue
+            other = later if keep is earlier else earlier
+            if keep.approx and not other.approx and other.time is not None:
+                keep.time, keep.approx = other.time, False
+            keep.texts = sorted(keep.texts + other.texts, key=lambda t: rank.get(t["source"], 0))
+            gone.add(id(other))
+    return [slot for slot in seq if id(slot) not in gone]
+
+
 def _merge(
     clusters: list[dict], lists: list[tuple[str, list[dict]]], total, unplaced
 ) -> list[_Slot]:
@@ -971,6 +1025,7 @@ def _merge(
         seq = _place(seq, name, entries)
     seq = _rejoin(seq)
     _interpolate(seq, total)
+    seq = _unify(seq, [name for name, _ in lists])
     seq = _drop_echoes(seq)
     _fill_ids(seq)
     anchors = [i for i, slot in enumerate(seq) if slot.clusters and slot.texts]
@@ -1175,23 +1230,32 @@ def _hints(
     return found
 
 
-def _also_named(slot: _Slot, shown: Song) -> dict | None:
-    """The other spelling of a track heard and listed under different names: the listing's,
-    when the audio's label is shown (``_repairs``), else the audio's when it credits other
-    names or another title."""
-    best, text, repaired = _named_from(slot)
+def _also_named(slot: _Slot, shown: Song) -> list[dict]:
+    """The other spellings of a track heard and listed under different names.
+
+    When the label shown credits the names the audio heard (the audio's own, or a listing that
+    agrees with it), every listing that spells those credits another way (``_repairs``): a
+    pasted tracklist may agree with Shazam while MixesDB writes "Robert Glasper", and a DJ's
+    file is often tagged as a listing spells it (request_items). Otherwise the audio's label,
+    when it credits other names or another title. At most ``SPELLINGS``, first listing first.
+    """
+    best, text, _ = _named_from(slot)
     if not best or not text:
-        return None
-    if repaired:
-        # The listing's labels too: a DJ's file is often tagged that way (request_items).
-        labels = {key: text[key] for key in ("artist", "title", "version")}
-        return {"source": text["source"], "label": _label(**labels), **labels}
+        return []
     heard = _song(best["artist"], best["title"], best["version"])
-    if heard.names == shown.names and heard.core == shown.core:
-        return None
-    main = max(best["providers"], key=lambda provider: provider["hits"])
-    label = _label(best["artist"], best["title"], best["version"])
-    return {"source": "audio", "provider": main["provider"], "label": label}
+    if heard.names != shown.names or heard.core != shown.core:
+        main = max(best["providers"], key=lambda provider: provider["hits"])
+        label = _label(best["artist"], best["title"], best["version"])
+        return [{"source": "audio", "provider": main["provider"], "label": label}]
+    spellings: list[dict] = []
+    for other in slot.texts:
+        if other["kind"] != "named" or not _repairs(other, best):
+            continue
+        labels = {key: other[key] for key in ("artist", "title", "version")}
+        label = _label(**labels)
+        if all(fold(label) != fold(known["label"]) for known in spellings):
+            spellings.append({"source": other["source"], "label": label, **labels})
+    return spellings[:SPELLINGS]
 
 
 def _pace(ordered: list[_Slot], total: float | None) -> float | None:
@@ -1252,7 +1316,9 @@ def _tracks(slots: list[_Slot], total: float | None, comments: list[dict]) -> li
             "candidates": slot.candidates,
         }
         if slot.kind == "named" and (also := _also_named(slot, _song(artist, title, version))):
-            track["also_named"] = also
+            track["also_named"] = also[0]
+            if len(also) > 1:
+                track["also_spellings"] = also
         # A long stretch nobody heard or listed likely holds several songs.
         stretch = slot.kind == "unknown" and not slot.texts and pace and start is not None
         if stretch and end and (songs := round((end - start) / pace)) >= 2:
@@ -1492,8 +1558,9 @@ def _notes(track: dict) -> str:
         if also.get("source") == "audio" and track["status"] != "likely":
             parts.append(f"{_provider(also['provider'])} named it {also['label']}")
         elif also and also.get("source") != "audio":
-            where = SOURCE_NAMES.get(also["source"], also["source"])
-            parts.append(f"{where} spells it {also['label']}")
+            for spelling in _spellings(track):
+                where = SOURCE_NAMES.get(spelling["source"], spelling["source"])
+                parts.append(f"{where} spells it {spelling['label']}")
         if ids:
             parts.append(f"an ID in {ids}")
         if track["status"] == "conflict":
@@ -1519,12 +1586,58 @@ def track_notes(track: dict) -> str:
     return _notes(track)
 
 
+def _spellings(track: dict) -> list[dict]:
+    """A track's listing spellings of its credits (``also_spellings``, else ``also_named``)."""
+    spellings = track.get("also_spellings") or [track.get("also_named") or {}]
+    return [spelling for spelling in spellings if spelling and spelling.get("source") != "audio"]
+
+
+def _credits(track: dict, item: dict) -> list[dict]:
+    """``also`` for a named request item: each listing spelling of the credits, in the mix
+    shown. The repair is about credits: a mix the listing names but the audio did not hear
+    ("Kaytranada Edition" for a "Kaytranada Remix") is another recording."""
+    shown = credit_form("", item["title"], item["version"])[1]
+    own = credit_form(item["artist"], item["title"], item["version"])
+    credits: list[dict] = []
+    for listed in _spellings(track):
+        title, version = listed.get("title") or "", listed.get("version") or ""
+        if credit_form("", title, version)[1] != shown:
+            title, version = item["title"], item["version"]
+        credit = {
+            "artist": _clean(listed.get("artist"))[:500],
+            "title": _clean(title)[:1000],
+            "version": _clean(version)[:300],
+            "source": _clean(listed.get("source"))[:40],
+        }
+        if not credit["artist"] or not credit["title"]:
+            continue
+        form = credit_form(credit["artist"], credit["title"], credit["version"])
+        if form != own and all(
+            form != credit_form(c["artist"], c["title"], c["version"]) for c in credits
+        ):
+            credits.append(credit)
+    return credits[:SPELLINGS]
+
+
+def track_also(track: dict) -> list[dict]:
+    """The ``also`` a request item for this track carries (``request_items``): each listing's
+    spelling of a confirmed song's credits, in the mix shown; [] for anything else."""
+    if track.get("kind") != "named" or track.get("status") != "confirmed":
+        return []
+    item = {
+        "artist": _clean(track.get("artist"))[:500],
+        "title": _clean(track.get("title"))[:1000],
+        "version": _clean(track.get("version"))[:300],
+    }
+    return _credits(track, item) if item["artist"] and item["title"] else []
+
+
 def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
     """Request items (``RequestItem`` fields) in set order, with the evidence in ``notes``.
 
     IDs stay unknown items labelled "ID", in their place even without a time; a likely
     identity goes in the notes only. A confirmed song shown under the credits the audio heard
-    also counts as owned under the listing's spelling of them (``also``), in the mix shown.
+    also counts as owned under each listing's spelling of them (``also``), in the mix shown.
     """
     items = []
     for track in tracklist.get("tracks") or []:
@@ -1540,22 +1653,9 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
                 "notes": notes,
                 "confidence": track["status"],
             }
-            listed = track.get("also_named") or {}
-            title, version = listed.get("title") or "", listed.get("version") or ""
-            shown = credit_form("", item["title"], item["version"])[1]
-            if credit_form("", title, version)[1] != shown:
-                # The repair is about credits: a mix the listing names but the audio did not
-                # hear ("Kaytranada Edition" for a "Kaytranada Remix") is another recording.
-                title, version = item["title"], item["version"]
-            credit = {
-                "artist": _clean(listed.get("artist"))[:500],
-                "title": _clean(title)[:1000],
-                "version": _clean(version)[:300],
-                "source": _clean(listed.get("source"))[:40],
-            }
-            # Only where the audio's spelling replaced the listing's (``_repairs``).
-            if track["status"] == "confirmed" and credit["artist"] and credit["title"]:
-                item["also"] = [credit]
+            # Only where the audio confirms the credits a listing spells another way.
+            if credits := track_also(track):
+                item["also"] = credits
             items.append(item)
         else:
             items.append(

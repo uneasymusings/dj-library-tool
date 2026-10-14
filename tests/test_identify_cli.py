@@ -346,7 +346,7 @@ def test_lines_a_tracklist_could_not_use_are_warnings(application, library_http,
     envelope = json.loads(invoke(application, "identify", URL, "--tracklist", listing).stdout)
     # The heading names the set; the note is reported.
     assert envelope["warnings"][1:] == [
-        "The tracklist file, line 5 skipped (no “Artist - Title” separator): “just a note”"
+        "Your tracklist, line 5 skipped (no “Artist - Title” separator): “just a note”"
     ]
 
 

@@ -61,8 +61,9 @@ class RequestItem(RequestContract):
     notes: str = Field(default="", max_length=4000)
     # How sure an identification is that the set plays this song (djlib set LINK).
     confidence: Literal["confirmed", "likely", "weak", "conflict", "unidentified"] | None = None
-    # Another spelling of a named song's credits that also counts as owning it.
-    also: list[AlsoCredit] = Field(default_factory=list, max_length=1)
+    # Other spellings of a named song's credits that also count as owning it (MixesDB's and a
+    # pasted tracklist's, say), tried in order.
+    also: list[AlsoCredit] = Field(default_factory=list, max_length=3)
 
     @field_validator("artist", "title", "label", "timestamp")
     @classmethod
