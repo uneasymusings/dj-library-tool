@@ -114,7 +114,7 @@ djlib source-inspect 'https://soundcloud.com/USER/SET'
 djlib download --file downloads.json
 ```
 
-`identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition, listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
+`identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition (every minute when a tracklist with times says what plays), listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
 
 - **confirmed**: djlib heard the song, where a tracklist lists it or in three or more windows;
 - **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other), two listening windows, or a listed song djlib heard under another name (the Why column says what each side has);
