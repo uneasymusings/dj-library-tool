@@ -775,6 +775,12 @@ DATE = re.compile(
     r"|\b(?:19|20)\d{2}-\d{2}-\d{2}\b"
 )
 BRACKETED = re.compile(r"[\(\[][^\(\)\[\]]*[\)\]]")
+# A quote or a paragraph with a dash in it: '"Felt so good to be back, London." - RÜFÜS DU
+# SOL', a bio's "… sets — and rowdier productions — are …". The longest track lines in real
+# tracklists have about 20 words outside brackets.
+QUOTED = re.compile(r"^[\"“”‘’'](?P<said>.+)[\"“”‘’']$")
+SENTENCE_MARK = re.compile(r"[.!?](?:\s|$)")
+PROSE_WORDS = 30
 
 
 def _clock(seconds: float) -> str:
@@ -823,6 +829,18 @@ def names_the_set(line: str, uploader: str = "") -> bool:
     return venue and any(_same_name(host, fold(side)) for side in (artist, title))
 
 
+def _prose(line: str) -> bool:
+    """Whether a publisher's line is a quote or a paragraph rather than "Artist - Title"."""
+    plain = BRACKETED.sub(" ", line)
+    if len(plain.split()) > PROSE_WORDS:
+        return True
+    for side in SEPARATOR.split(plain, maxsplit=1):
+        quote = QUOTED.match(side.strip())
+        if quote and len(quote["said"].split()) >= 5 and SENTENCE_MARK.search(quote["said"]):
+            return True
+    return False
+
+
 def _chapter_lines(chapters: list[dict], uploader: str = "") -> list[tuple[float | None, str]]:
     found = []
     for chapter in chapters:
@@ -852,7 +870,9 @@ def _description_lines(description: str, uploader: str = "") -> list[tuple[float
         ):
             continue
         line = _track_text(line)
-        if not LETTER.search(line) or JUNK_TITLE.match(line) or names_the_set(line, uploader):
+        if not LETTER.search(line) or JUNK_TITLE.match(line):
+            continue
+        if _prose(line) or names_the_set(line, uploader):
             continue
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
@@ -866,8 +886,9 @@ def tracklist_from_source(description: str, chapters: list[dict], uploader: str 
     """Tracklist text ("[mm:ss] Artist - Title" per line) from a set's chapters or description.
 
     Three or more chapters win; otherwise description lines that look like tracks are kept and
-    links, hashtags, handles, headers and promo lines are dropped, as are lines about the set
-    itself (``names_the_set``; ``uploader`` is the upload's channel or account).
+    links, hashtags, handles, headers and promo lines are dropped, as are quotes, paragraphs
+    and lines about the set itself (``names_the_set``; ``uploader`` is the upload's channel or
+    account).
     """
     named = [c for c in chapters or [] if isinstance(c, dict) and str(c.get("title") or "")]
     lines = _chapter_lines(named, uploader) if len(named) >= 3 else []

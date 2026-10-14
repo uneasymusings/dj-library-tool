@@ -760,6 +760,30 @@ def test_songs_that_sound_like_a_venue_stay_songs(line, uploader):
     assert not names_the_set(line, uploader)
 
 
+def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
+    """Mixmag's descriptions quote the DJ, and bios hold dashes between their words."""
+    description = "\n".join(
+        [
+            '"Thunderstorms couldn’t stop us. Felt so good to be back, London." - RÜFÜS DU SOL',
+            '"Cover stars in 2018. Lab London in 2024. An honour to work together again" - Mixmag',
+            "Interplanetary Criminal is the Manchester-based producer, DJ and ATW Records "
+            "co-founder leading a rip-roaring new wave of UK garage. His speedy, rowdy sets — and "
+            "speedier, rowdier productions — are connecting with up-for-it audiences from "
+            "Dekmantel to Depot Mayfield.",
+            'Bicep - "Glue"',
+            '"Weird Al" Yankovic - Amish Paradise',
+            "Above & Beyond feat. Zoë Johnston - Love Is Not Enough (Newman (I Love) Remix / "
+            "Above & Beyond’s Cercle Respray)",
+        ]
+    )
+    assert tracklist_from_source(description, []).splitlines() == [
+        'Bicep - "Glue"',
+        '"Weird Al" Yankovic - Amish Paradise',
+        "Above & Beyond feat. Zoë Johnston - Love Is Not Enough (Newman (I Love) Remix / Above "
+        "& Beyond’s Cercle Respray)",
+    ]
+
+
 def test_a_long_tracklist_keeps_every_song_under_a_line_about_the_set():
     description = """Overmono - live at Printworks London, March 2024
 Presented by Cupra
