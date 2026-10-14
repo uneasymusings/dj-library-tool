@@ -1516,6 +1516,46 @@ def test_the_sets_list_keeps_every_count_and_tells_like_names_apart(capsys, widt
     assert "· aaaaaaaa" not in words
 
 
+@pytest.mark.parametrize("width", [50, 60])
+def test_a_narrow_sets_list_leaves_out_counts_before_cutting_names_or_owned(capsys, width):
+    """In a narrow window, IDs, Maybe and To check go (a note names them) before the set's
+    name gets under 12 cells or Rich cuts “800 of 1,007”."""
+    from rich.cells import cell_len
+
+    rows = [
+        {
+            "request_id": f"request_{code * 32}",
+            "name": name,
+            "total_items": total,
+            "updated_at": "2026-10-06T10:00:00+00:00",
+            "counts": counts,
+        }
+        for code, name, total, counts in (
+            (
+                "a",
+                "Shazam 12 Sep – 12 Oct",
+                1007,
+                {"owned": 812, "to_check": 12, "maybe": 31, "other_mix": 44, "missing": 120},
+            ),
+            (
+                "b",
+                "Kaytranada @ Boiler Room Montreal 2013-09-27",
+                25,
+                {"owned": 14, "to_check": 1, "maybe": 1, "other_mix": 1, "missing": 7, "ids": 2},
+            ),
+        )
+    ]
+    out = render("requests list", {"requests": rows, "total": 2}, width=width, capsys=capsys)
+    lines = out.splitlines()
+    assert max(cell_len(line) for line in lines) <= width
+    header = lines[0].split()
+    assert header[0] == "Name" and "Owned" in header and "Missing" in header
+    assert "800 of 1,007" in out and "13 of 25" in out
+    assert "Shazam 12 Sep" in out and "Kaytranada @ " in out  # 12 cells or more of each name
+    hidden = "the To check, Maybe and IDs columns" if width == 50 else "the Maybe and IDs columns"
+    assert f"No room for {hidden}; a wider window shows them." in " ".join(out.split())
+
+
 def test_a_finished_collect_reads_like_a_crate_not_a_job(capsys):
     job = {
         "job_id": JOB,
