@@ -674,11 +674,21 @@ def test_a_song_owned_under_the_listings_spelling_says_so(capsys):
         ],
     }
     out = render("requests get", request, width=200, capsys=capsys)
-    rows = [line for line in out.splitlines() if "music/" in line]
-    assert rows[0].rstrip().endswith("music/09 - Move Love.mp3  as Robert Glasper")
+    lines = out.splitlines()
+    header = next(line for line in lines if line.lstrip().startswith("#"))
+    assert header.split() == ["#", "Own", "Track", "Your", "file"]
+    assert "labels only" not in out and "audio identification" not in out
+    rows = [index for index, line in enumerate(lines) if "music/" in line]
+    # The other spelling goes under the file, so a narrow terminal never cuts it.
+    assert lines[rows[0]].rstrip().endswith("music/09 - Move Love.mp3")
+    assert lines[rows[0] + 1].rstrip().endswith("as Robert Glasper")
     # When more than the names differ, the whole label the file matched.
-    assert rows[1].rstrip().endswith("as Robert Glasper - Move Love (Kaytranada Edition)")
-    assert " as " not in rows[2]
+    assert lines[rows[1] + 1].rstrip().endswith(
+        "as Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+    assert " as " not in "".join(lines[rows[2] :])
+    narrow = render("requests get", request, width=80, capsys=capsys)
+    assert "as Robert Glasper" in narrow and "as Rob…" not in narrow
 
 
 def test_request_lists_lead_with_building_the_crate(capsys):

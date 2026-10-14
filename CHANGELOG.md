@@ -28,7 +28,7 @@
   - An ID line needs only its label; a time or link is optional. A named line of a pasted or file tracklist keeps its time (`timestamp`), so those lists get new keys; a set checked again stays the same set.
   - Captured output is one line of JSON (`--json` at a terminal stays indented).
   - `GET /requests` (`requests list`, `djlib_requests`, the review page) lists sets by when they were last checked (`updated_at`), not made.
-  - `own` can be `maybe`, and a candidate's `identity_match` `similar_credits`. `RequestItem.also` takes up to three spellings. `requests get` says “pick a copy”, “file unavailable” and “to check” where it said “ambiguous” and “unavailable”.
+  - `own` can be `maybe`, and a candidate's `identity_match` `similar_credits`. `RequestItem.also` takes up to three spellings. `requests get` says “pick a copy”, “file unavailable” and “to check” where it said “ambiguous” and “unavailable”, and its columns read Own, Track and Your file (they were Status, Requested and Match), with “as Robert Glasper” under the file.
   - The terminal's first-run error reads “Tell it where your music is” with `djlib init ~/Music` and `djlib scan`; doctor's first row is “Music folders”.
 
 **Details**
