@@ -146,6 +146,18 @@ def not_found(start: str = "No Shazam history was found on this Mac.") -> AppErr
             "steps": setup_message(start),
             "next": SETUP_COMMAND,
             "next_label": "When they've synced, check",
+            # The ways around iCloud sync, as `djlib shazam status` gives them.
+            "next_steps": [
+                {"label": "When they've synced, check", "command": SETUP_COMMAND},
+                {
+                    "label": "No iPhone sync? Apple Music's “My Shazam Tracks”",
+                    "command": "djlib set shazam:apple-music",
+                },
+                {
+                    "label": "Or a CSV from shazam.com/myshazam",
+                    "command": "djlib set ~/Downloads/shazamlibrary.csv",
+                },
+            ],
         },
     )
 
