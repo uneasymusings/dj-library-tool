@@ -752,6 +752,7 @@ def test_lines_about_the_set_are_left_out(line, uploader):
         ("Moderat - Bad Kingdom - Live at Melt Festival 2014", ""),
         ("Bicep - Glue (Live Set Edit)", ""),
         ("Set It Off - Set It Off", ""),
+        ("Bicep - Broadcast", ""),
         ("Fahlberg - Bad Love (Antdot & Maz (BR) Remix) [RADIANT.]", ""),
     ],
 )
