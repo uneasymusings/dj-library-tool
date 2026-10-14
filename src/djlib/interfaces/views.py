@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from djlib import __version__
-from djlib.domain.contracts import TRAILING_VERSION
+from djlib.domain.contracts import TRAILING_VERSION, credit_form
 from djlib.interfaces.client import version_key
 from djlib.interfaces.terminal import (
     ACCESSIBILITY_SETTINGS,
@@ -2571,6 +2571,21 @@ def mix_name(track: dict) -> str:
 MATCHING = frozenset(
     {"exact_labels", "equivalent_labels", "file_name_labels", "operator_identified"}
 )
+
+
+def spelled_as(item: dict) -> str:
+    """The other spelling an owned song's file matched (``accepted.matched_as``): the listing's
+    credits ("Robert Glasper") when only they differ, else its whole label; "" when none."""
+    label = (item.get("accepted") or {}).get("matched_as") or ""
+    source = item.get("input") or {}
+    credit = (source.get("also") or [{}])[0]
+    if label and credit.get("artist"):
+        mix = credit_form("", credit.get("title") or "", credit.get("version") or "")[1]
+        if mix == credit_form("", source.get("title") or "", source.get("version") or "")[1]:
+            return credit["artist"]
+    return label
+
+
 REQUEST_STATES = {
     "satisfied": ("ok", "ok", "owned"),
     "missing": ("bad", "bad", "missing"),
@@ -2651,6 +2666,8 @@ def request_view(term: Terminal, result: dict) -> None:
         exact = [c for c in candidates if c.get("identity_match") in MATCHING]
         if accepted.get("path"):
             match = file_tail(accepted["path"])
+            if spelling := spelled_as(item):
+                match.append(f"  as {spelling}", style="muted")
         elif len(exact) > 1:
             match = Text(f"{len(exact)} copies; pick one", style="warn")
         elif others and item.get("state") == "missing":
