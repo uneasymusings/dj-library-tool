@@ -390,6 +390,11 @@ def test_keinemusik_live_run_keeps_to_the_description():
         [{"at": 3384.0, "hits": 1}],
         [{"at": 3399.0, "hits": 1}],
     ]
+    # The summary assistants read (`identify --json`, djlib_job) keeps those times too.
+    from djlib.application.identification import compact_track
+
+    shown = compact_track(late_id)["candidates"]
+    assert [(c["at"], c["also_at"]) for c in shown] == [("50:09", ["56:24"]), ("51:09", ["56:39"])]
     assert track_notes(late_id) == (
         "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I Got "
         "(Chris Fortier 20yr Dub) (Shazam heard it at 50:09 and 56:24); possibly BR1S4 - THIS "
