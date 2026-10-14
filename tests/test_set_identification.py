@@ -1096,7 +1096,7 @@ def rows(result: dict) -> list[tuple]:
     return [(t["artist"], t["title"], t["version"], t["status"]) for t in result["tracks"]]
 
 
-def test_audio_heard_in_two_windows_corrects_misspelled_listed_credits():
+def test_audio_heard_where_listed_corrects_misspelled_listed_credits():
     """Kaytranada at Boiler Room Montreal: MixesDB's spellings against Shazam's (live probes).
 
     The library check compares credited names exactly, so a misspelt listing would report
@@ -1127,17 +1127,26 @@ def test_audio_heard_in_two_windows_corrects_misspelled_listed_credits():
         "listed in MixesDB as Robert Glasper - Move Love (Kaytranada Edition)"
     )
     assert notes[3] == "Shazam: 3 windows from 08:00; also in MixesDB"
-    # Heard in one window only, the listing's spelling stays, and the heard one is noted.
+    # One window where the listing places it is enough (windows go a minute apart with a
+    # timed tracklist); without a listing one window is no track at all.
     once = build_tracklist(duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"))
     assert once["tracks"] == [] or once["tracks"][0]["kind"] == "unknown"
     listed_once = listing("mixesdb", "1. [00:00] Armand Val Helden - Full Moon")
-    kept = build_tracklist(
+    fixed = build_tracklist(
         duration=300, probes=song(0, 1, "Armand Van Helden", "Full Moon"), listed=[listed_once]
     )
-    assert rows(kept) == [("Armand Val Helden", "Full Moon", "", "confirmed")]
-    assert track_notes(kept["tracks"][0]) == (
-        "Shazam: 1 window at 00:00; also in MixesDB; Shazam named it Armand Van Helden - Full Moon"
+    assert rows(fixed) == [("Armand Van Helden", "Full Moon", "", "confirmed")]
+    assert track_notes(fixed["tracks"][0]) == (
+        "Shazam: 1 window at 00:00; also in MixesDB; "
+        "listed in MixesDB as Armand Val Helden - Full Moon"
     )
+    # Other credits are another song or a remix's sample: the listing's label stays.
+    other = build_tracklist(
+        duration=300,
+        probes=song(0, 1, "Armand Van Helden", "Full Moon"),
+        listed=[listing("mixesdb", "1. [00:00] Common - Full Moon")],
+    )
+    assert rows(other)[0][:2] == ("Common", "Full Moon")
 
 
 def test_heard_and_listed_under_other_names_says_what_each_side_has():
