@@ -113,6 +113,22 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
 
 
+def test_set_says_djlib_isnt_set_up_before_reading_the_set(tmp_path, monkeypatch):
+    """No "Reading the set's description…" first: the friendly setup message comes at once."""
+    from djlib.interfaces import set_sources
+
+    def read(*args, **kwargs):
+        raise AssertionError("read the set's page before checking the setup")
+
+    monkeypatch.setattr(set_sources, "tracklist_from_url", read)
+    link = "https://soundcloud.com/platform/kaytranada-boiler-room"
+    reply = invoke("set", link, pretty=True, workspace=tmp_path / "missing")
+    assert reply.exit_code == 2
+    assert reply.stderr.startswith("✗ djlib isn't set up yet\n") and "Reading" not in reply.stderr
+    captured = invoke("set", link, "--no-rekordbox", workspace=tmp_path / "missing")
+    assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
+
+
 def test_scripts_must_supply_submission_keys(tmp_path):
     reply = invoke("export", "collection_x", workspace=tmp_path / "ws")
     assert reply.exit_code == 2
