@@ -62,14 +62,22 @@ def test_set_listens_when_the_published_tracklist_has_ids(
 def test_a_set_heard_before_comes_back_while_its_page_does_not_answer(
     application, library_http, setup, audio_factory, monkeypatch
 ):
-    """YouTube or SoundCloud fails for a moment: a set djlib already heard is shown from
-    what it read and heard then, saying so, instead of a "safe to retry" error."""
+    """A set djlib heard today comes back at once, from the page it read then. Later, when
+    YouTube or SoundCloud fails for a moment, it is shown from what djlib read and heard,
+    saying so, instead of a "safe to retry" error."""
     from djlib.domain.errors import AppError
 
     owned(library_http, audio_factory)
     setup.page["description"] = LISTED
     FakeRekordbox(monkeypatch)
     first = json.loads(invoke(application, "set", URL).stdout)["result"]
+    read = len(setup.inspected)
+    today = json.loads(invoke(application, "set", URL).stdout)["result"]
+    assert today["identified"]["reused"] is True and len(setup.inspected) == read
+    # Two days on, the page is read again; this time the site doesn't answer.
+    page = identification.set_folder(application.workspace, URL) / "page.json"
+    saved = json.loads(page.read_text(encoding="utf-8"))
+    page.write_text(json.dumps({**saved, "read_at": "2026-01-01T00:00:00+00:00"}), "utf-8")
 
     async def down(url, comments=0):
         raise AppError("SOURCE_FAILED", "The site didn't answer.", 502, True)
