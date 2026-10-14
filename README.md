@@ -1,150 +1,106 @@
-# DJ Library Tool
+# djlib
 
 [![Tests, quality, and packaging](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml/badge.svg)](https://github.com/uneasymusings/dj-library-tool/actions/workflows/quality.yml)
 
-**From a tracklist to a verified USB stick, using the music you already own.**
+**Paste a set link, get every track. See what you own. Play it from your USB.**
 
-`djlib` is a local-first prep tool for rekordbox DJs. Give it a set's tracklist and it tells you which songs you own, which are missing and where you only have a different mix. It builds the crate in set order, puts it into rekordbox and, with one click from you, onto your USB stick. Then it reads the stick back to prove every track is there, in order, byte for byte. Only have a link to the set? djlib listens to it and names its songs, saying how sure it is about each; or start from the songs you Shazamed. Use it from the terminal, or let Claude Code or Codex drive it through MCP. Your music and catalog never leave your computer.
+For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. Everything runs on your computer.
 
 ```text
-$ djlib set Friday.txt --usb
-→ In rekordbox's left sidebar, under Playlists, click “Friday — Warm-up” once; djlib then exports it to RICARDO_AM and checks the stick.
-✓ Friday — Warm-up  12 of 15 songs owned
-  Crate      12 tracks, in set order
-  rekordbox  ✓ playlist “Friday — Warm-up” imported
-  USB        ✓ RICARDO_AM: 12 of 12 in the player's library, in order and byte for byte
+$ djlib set 'https://soundcloud.com/platform/kaytranada-boiler-room' --no-rekordbox
+✓ Kaytranada Boiler Room Montreal DJ Set  14 of 22 owned · 1 in another mix · 7 missing
+  Source      SoundCloud: Kaytranada Boiler Room Montreal DJ Set
+  Identified  9 heard by Shazam · 13 from tracklists only  listened 14 Oct
+  Crate       ✓ 14 tracks, in set order
+  rekordbox   not added yet (--no-rekordbox)
+  Tracklist from MixesDB: 2013-09-27 - Kaytranada @ Boiler Room Montreal 002
 
-Not in the crate (3)
- #   Status         Requested                You own
- 4   ✗ missing      Lumen - Halo (Dub)       Radio Edit
- 9   ✗ missing      Someone - Not Owned
-13   ○ unknown ID   ID - ID @ 41:20
+The set (22)
+ #  Time   Track                                                  Sure      Own
+────────────────────────────────────────────────────────────────────────────────────────
+ 1  00:00  Kaytranada - Roots (Silent Treatment Intro)            ✓         ✓ owned
+ 2  01:09  Robert Glasper Experiment - Move Love (Kaytranada      ✓         ✓ owned
+           Edition)
+ 3  03:08  KenLo Croqnote - Facteur Humidex                       ◐ likely  ✗ missing
+ 4  03:55  Flume - Holdin On (Kaytranada Edit)                    ✓         ✓ owned
+ …
+16  26:00  Bell Biv DeVoe - Poison                                ◐ likely  ≈ Radio Edit
+ …
+22  39:17  Modjo - Lady (Kaytranada Remix)                        ◐ likely  ✓ owned
+
+  Owned under another spelling: #2 Robert Glasper · #19 Armand Val Helden Feat. Common -
+  Full Moon
+
+  From MixesDB: #3, #5, #8, #9, #10, #11, #13, #15, #16, #17, #18, #21, #22
+
+  Likely and weak lines are worth a listen before you play them.
+  You own another mix of 1 song; djlib only counts the exact mix.
+
+Next
+  → Put it in rekordbox        djlib rekordbox push ab33dc73
+  → Or straight onto your USB  djlib rekordbox usb ab33dc73
+  → Your shopping list (7)     djlib requests report 7d3a8f2d
 ```
 
-> **Experimental alpha, 0.1.0a15.** Checked on macOS, Linux and Windows with Python 3.12 and 3.13, and live against rekordbox 7.2.19 with a real library and USB stick. Playback on CDJ/XDJ hardware is not verified by the tool, so test your stick before a gig. Evidence and limits are in [status](docs/STATUS.md).
+Real output, trimmed (rows 5–15, 17–21 and two long lines).
 
-## Quick start
+## Three ways in
 
-**With Claude Code or Codex**, paste this to your assistant:
+```bash
+djlib set 'https://youtu.be/…'   # every track in a set, and which you own
+djlib shazam status              # your Shazams, and the one command to check them
+djlib set paste                  # a tracklist you copied
+```
+
+Add `--usb` to finish on your stick. Put links in single quotes. Not on a Mac? Use a text file: `djlib set Friday.txt`.
+
+## What it does
+
+| You have | Run | You get |
+| --- | --- | --- |
+| **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing or has IDs. |
+| **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command for your last 30 days. |
+| **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line. From 1001Tracklists: copy it in your browser, then `djlib set 'LINK' --tracklist paste`. |
+| **Missing songs** | `djlib requests report last` | A shopping list with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads web copies after asking: stream quality, so buy the real file for the club. |
+| **rekordbox and USB** (Mac) | `djlib set 'LINK' --usb` | A rekordbox playlist in set order. You click it once; rekordbox exports it, and djlib reads the stick back to check every track, in order, byte for byte. |
+
+`≈ Radio Edit` means you own another mix. djlib counts only the exact mix, so it stays out of the crate; drag yours in if you play it.
+
+### How djlib drives rekordbox
+
+- **Only its own menus.** djlib never touches rekordbox's database, and stops if the right dialog isn't in front.
+- **One click for USB.** You pick the playlist; djlib checks it's the right one.
+- **Your screen stays yours.** `--when-idle 60` waits until you step away.
+- **Read back, not trusted.** djlib checks the stick's own library, the one CDJs load. rekordbox writes the stick; djlib never does.
+
+First time: allow the app you run djlib in under System Settings → Privacy & Security → Accessibility.
+
+### In your browser
+
+`djlib ui` opens a private page with your sets, crates and library.
+
+![djlib's review page: a set with times, how sure, and what you own](docs/images/review-page-set.png)
+
+## Install
+
+Paste this to Claude Code or Codex:
 
 > Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md
 
-**In a terminal** (macOS or Linux):
+Or in Terminal (Mac or Linux):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 ```
 
-Either way you get [uv](https://docs.astral.sh/uv/) if needed, the newest djlib release with downloads and song recognition, FFmpeg (through Homebrew when available) and, when Claude Code or Codex is installed, the djlib plugin for them. In a terminal the installer then asks where your music is and indexes it. Running it again, or `djlib upgrade`, updates everything, plugin included. Then:
+It asks where your music is and indexes it in place: nothing is moved, renamed or retagged. `djlib upgrade` updates it. Skipped the music question? `djlib init ~/Music && djlib scan`. Windows: [Install](docs/INSTALL.md).
 
-```bash
-djlib init --allow-root ~/Music      # creates and remembers your workspace
-djlib scan                           # indexes your music in place
-djlib set tracklist.txt              # owned/missing → crate → rekordbox playlist
-djlib set tracklist.txt --usb        # … and onto your USB stick, verified
-djlib identify 'https://youtu.be/…'  # every song in a YouTube or SoundCloud set, and how sure djlib is
-djlib status                         # library, request lists, crates, next steps
-```
+With the plugin, just ask: “What's in this set and which tracks do I own? https://soundcloud.com/…”
 
-Prefer to do it by hand? `brew install ffmpeg`, then `uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a15/dj_library_tool-0.1.0a15-py3-none-any.whl'`.
+> **Alpha (0.1.0a16).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
-A tracklist is plain text with one `Artist - Title (Mix)` per line. Numbering, timestamps and `[Label]` suffixes are ignored, and a heading line names the set. Start without `--usb` to see what you own; add it when the stick is plugged in.
+## Docs
 
-`set` works without rekordbox: `--no-rekordbox` only checks the tracklist and builds the crate, and on Linux and Windows (or without rekordbox installed) the rekordbox step is skipped with the reason shown. rekordbox automation needs macOS and a one-time permission: System Settings → Privacy & Security → Accessibility → your terminal app. See [installation](docs/INSTALL.md) for PATH, Linux/Windows, updates and uninstalling.
+[Quick start](docs/QUICKSTART.md) · [Install](docs/INSTALL.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Advanced commands](docs/ADVANCED.md) · [Contributing](CONTRIBUTING.md)
 
-## How it works
-
-| Step | Command | What happens |
-| --- | --- | --- |
-| All at once | `djlib set tracklist.txt [--fetch] [--usb]` | Runs the steps below. Without `--usb` it stops at the rekordbox playlist; `--no-rekordbox` stops at the crate, and `--when-idle 60` waits until you're away to import. Running it again re-checks the list and reuses the crate and playlist; a changed set becomes “Name (2)”. |
-| From a link | `djlib set https://soundcloud.com/…` | A YouTube or SoundCloud set: its description or chapters become the tracklist, and listener comments around each “ID” are shown as hints. When the tracklist is missing or has IDs, djlib listens to the set first (below). 1001Tracklists only serves browsers, so copy its tracklist into a file (`--tracklist FILE`) or let your assistant read it in your browser. |
-| Every song in a set | `djlib identify https://…` | Reads the set's description, chapters and comments, listens to it with song recognition (a few minutes per hour of audio) and merges one timestamped tracklist. Each track says how sure djlib is (confirmed, likely, weak, conflict) and why; an ID stays an ID, with the song it most likely is as a candidate. The tracklist is saved, so `djlib set` reuses it. Shazam is the default (unofficial; it may slow down or stop working); AudD and ACRCloud are licensed options with your own key. |
-| Your Shazams | `djlib set shazam` | The songs you Shazamed, from your Mac's Music Recognition history (with your iPhone's when Shazam syncs with iCloud), become a set in the order you heard them. `shazam:new` takes only the ones since last time; `djlib shazam status` shows how to turn on the sync. |
-| Missing songs | `--fetch` | Searches YouTube and SoundCloud, downloads clear matches as MP3 after you confirm (official uploads first; previews, live versions, full sets and unrequested remixes skipped), then fills the set. Unclear ones are listed with the best guess. Web audio is the source's quality; you are responsible for having the rights. |
-| Index | `djlib scan` | Reads tags, or “Artist - Title” file names, in place. Nothing is moved or retagged. Rescans only decode new bytes. |
-| Ask | `djlib requests create --text tracklist.txt` | Each line becomes owned, missing, other version owned, or unknown ID. Matching uses exact artist/title/version labels and is hash-checked; a different mix is never swapped in. |
-| Crate | `djlib requests collect ID` | Owned songs become a collection in set order; missing ones stay listed (`requests report` saves them). |
-| rekordbox | `djlib rekordbox push ID [--when-idle 60]` | Imports the crate as a playlist of your original files through rekordbox's File > Import > Import Playlist, so existing analysis and cues are kept. Takes a few seconds; with `--when-idle`, only once you've stepped away. |
-| Analysis | `djlib rekordbox sync` (automatic) | BPM and cue counts are read from rekordbox's own analysis files in the background, with no window. `rekordbox pull` adds musical key through one brief XML export. |
-| USB | `djlib rekordbox usb ID` | You click the playlist once. djlib confirms it is the right one and runs Playlist > Export Playlist > your stick. It then reads the playlist from the stick's device library (`export.pdb`, what CDJs load) and checks each entry, in order, against your files' SHA-256. |
-
-### How djlib drives rekordbox
-
-- **Only rekordbox's own menus and dialogs.** djlib never reads or writes rekordbox's database. Before any keystroke it checks that rekordbox and the expected dialog have focus, and otherwise cancels.
-- **One click for USB.** rekordbox's browser can't be scripted, so you select the playlist when asked. djlib reads which one is selected from rekordbox's export dialog and exports nothing else.
-- **Your screen stays yours.** Analysis is read from files in the background. `--when-idle` defers pushes until you're away, and a locked screen just means "wait".
-- **Read-back, not trust.** Pushes are confirmed from rekordbox's playlist menu, or from its XML export with `--verify`. USB exports are confirmed from the stick itself. djlib never writes the stick; rekordbox does.
-
-## In the terminal, for scripts, and in the browser
-
-In a terminal every command prints a readable view, with live progress for long jobs and copy-pasteable next steps. Piped, captured, or with `--json`, every command prints the same stable JSON envelope instead. `djlib ui` opens a private local review page with library search and BPM/key, request lists with version picks, crate building, and delivery checklists.
-
-## Use with an AI assistant
-
-The installer adds the plugin to Claude Code and Codex when they're installed (Quick start above); to add it by hand, run the commands below and restart. It brings the MCP server and a [skill](skills/dj-library/SKILL.md) that teaches the workflow, including computer etiquette: idle-time pushes, batching, no UI polling.
-
-```bash
-# Claude Code
-claude plugin marketplace add uneasymusings/dj-library-tool
-claude plugin install djlib@dj-library-tool
-
-# Codex
-codex plugin marketplace add uneasymusings/dj-library-tool
-codex plugin add djlib@dj-library-tool
-```
-
-Then ask, for example:
-
-> Here's tonight's tracklist. Check what I own, tell me what's missing and which other versions I have, and put the set on my USB through rekordbox.
-
-> What's in this Boiler Room set? Find every song, tell me how sure you are about each, and which ones I own.
-
-The assistant runs `djlib set` in the background on your Mac and tells you which playlist to click for the USB export. The MCP server offers the core tools (tracklists, crates, set links and their identification, Shazam history, downloads, rekordbox analysis) by default; `DJLIB_MCP_TOOLS=full` adds delivery and organize tools.
-
-Without the plugin, register the server yourself (`--scope user` makes it available in every project) and copy the skill as described in [agent setup](docs/AGENTS.md):
-
-```bash
-claude mcp add --scope user --transport stdio djlib -- "$(command -v djlib)" mcp serve
-codex mcp add djlib -- "$(command -v djlib)" mcp serve
-```
-
-Or try it in a separate session without touching your host settings: `djlib setup-agent --output ~/djlib-session`, then `python3 ~/djlib-session/launch.py claude`.
-
-## More
-
-- **Web downloads** need the `download` extra (included in the install command above) and FFmpeg. Downloads are MP3 and labelled as unverified source quality. See [quickstart](docs/QUICKSTART.md).
-- **Listening to sets** needs the `recognize` extra (included above, on Python 3.12) and FFmpeg. `djlib doctor` shows which recognition service is used; [installation](docs/INSTALL.md#song-recognition) has the licensed AudD and ACRCloud settings.
-- **Delivery workflows.** Separate, tagged working copies with guided native-app and USB checks for when you don't want to export your originals: [DJ delivery](docs/DJ_DELIVERY.md). Serato working copies are supported there but untested with real music.
-- **Try it without your music.** `djlib --workspace ./demo demo` builds a collection from three generated tones.
-- **Step by step.** Request lists, notes and BPM/key filters, JSON input files and the other commands: [advanced use](docs/ADVANCED.md) and [troubleshooting](docs/TROUBLESHOOTING.md).
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[Claude Code / Codex + skill] --> B[MCP stdio]
-    C[CLI: terminal views or JSON] --> D[Authenticated loopback coordinator]
-    B --> D
-    C --> R[rekordbox via its menus, macOS]
-    D --> E[SQLite catalog + durable jobs]
-    D --> F[Background worker: scans, downloads, exports, analysis sync]
-    D --> G[Set identification: listens to one set at a time]
-    R --> U[USB stick: read back from export.pdb]
-```
-
-One coordinator owns a workspace and exits after 30 idle minutes when it was started implicitly. Recordings, immutable byte revisions, file locations and collection membership are separate entities, so a renamed or retagged file never silently changes a crate. Read the [architecture](docs/ARCHITECTURE.md), the [CLI/API contract](docs/CONTRACT.md), [coverage](docs/COVERAGE.md) and the [product plan](PLAN.md).
-
-## Development
-
-Requires Python 3.12+ and uv.
-
-```bash
-git clone https://github.com/uneasymusings/dj-library-tool.git && cd dj-library-tool
-uv sync --locked --extra download
-uv run pytest -q
-uv run ruff check src scripts tests && uv run ruff format --check src scripts tests
-```
-
-CI runs tests, lint, formatting and packaging on Linux, macOS and Windows with Python 3.12 and 3.13; tagged releases are built and checked before publishing. See [validation](docs/VALIDATION.md), [contributing](CONTRIBUTING.md) and [security](SECURITY.md).
-
-MIT licensed. Music stays local; you supply your own sources and download rights. Independent project, not affiliated with AlphaTheta/rekordbox, Serato, or the supported assistant hosts.
+MIT licensed. Bring your own music and download rights. Not affiliated with AlphaTheta/rekordbox, Shazam/Apple, MixesDB or 1001Tracklists.
