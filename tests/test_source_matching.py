@@ -5,6 +5,7 @@ import pytest
 from djlib.application.source_matching import (
     alternates,
     comment_hints,
+    names_the_set,
     rank_sources,
     tracklist_from_source,
     worth_probing,
@@ -688,6 +689,97 @@ def test_trailing_times_move_to_the_front_and_empty_sources_give_nothing():
     assert text.splitlines() == ["[02:41] Phoenix - Lasso", "[12:00] Bicep - Glue"]
     assert tracklist_from_source("", []) == ""
     assert tracklist_from_source("Thanks for listening! https://example.test", []) == ""
+
+
+# How Boiler Room describes nearly every upload (Mura Masa at Primavera Sound 2023, 57 minutes).
+BOILER_ROOM = """Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.
+
+Catch Mura Masa at our London show this September, tickets — blrrm.tv/ldn-sun
+
+►  Listen to Boiler Room’s archive on Apple Music: https://apple.co/BoilerRoom
+►  Shop Boiler Room clothing: https://blrrm.tv/shop
+►  Subscribe to Boiler Room: https://blrrm.tv/YT"""
+
+
+def test_a_line_about_the_set_is_not_a_track():
+    """The upload's one line says who played where; it is no tracklist, so djlib listens."""
+    assert tracklist_from_source(BOILER_ROOM, [], "Boiler Room") == ""
+    assert tracklist_from_source(BOILER_ROOM, []) == ""
+    chapters = [
+        {"start_time": 0.0, "title": "Mura Masa - live at Primavera Sound 2023"},
+        {"start_time": 60.0, "title": "Lumen - Halo"},
+        {"start_time": 240.0, "title": "Bicep - Glue"},
+    ]
+    assert tracklist_from_source("", chapters).splitlines() == [
+        "[01:00] Lumen - Halo",
+        "[04:00] Bicep - Glue",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("line", "uploader"),
+    [
+        ("Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.", ""),
+        ("Fred again.. - Live from Boiler Room: London", ""),
+        ("Kaytranada - Boiler Room Montreal", ""),
+        ("Boiler Room x Cupra – Primavera Sound Barcelona", "Boiler Room"),
+        ("Overmono - live at Printworks London, March 2024", ""),
+        ("Bicep - Live @ Glastonbury", ""),
+        ("Four Tet - DJ set at Lollapalooza", ""),
+        ("Four Tet - DJ-Set", ""),
+        ("Peggy Gou - recorded live at Primavera Sound", ""),
+        ("Bicep - Glastonbury 2019", ""),
+        ("Four Tet - Primavera Sound Barcelona 2023", ""),
+        ("Avalon Emerson - HÖR - Sep 12 / 2022", ""),
+        ("Cercle - Château de Chambord, France", "Cercle"),
+        ("Four Tet - Lollapalooza", "Four Tet"),
+    ],
+)
+def test_lines_about_the_set_are_left_out(line, uploader):
+    assert names_the_set(line, uploader)
+
+
+@pytest.mark.parametrize(
+    ("line", "uploader"),
+    [
+        ("Main Source - Live at the Barbeque", ""),
+        ("Big K.R.I.T. - Live From The Underground", ""),
+        ("Four Tet - Baby", "Four Tet"),
+        ("Pulp - Disco 2000", "Pulp"),
+        ("Ludovico Einaudi - Primavera", ""),
+        ("Daft Punk - Around the World (Live at Alive 2007)", ""),
+        ("Basement Jaxx - Fly Life (Glastonbury 2005 Mix)", ""),
+        ("Moderat - Bad Kingdom - Live at Melt Festival 2014", ""),
+        ("Bicep - Glue (Live Set Edit)", ""),
+        ("Set It Off - Set It Off", ""),
+        ("Fahlberg - Bad Love (Antdot & Maz (BR) Remix) [RADIANT.]", ""),
+    ],
+)
+def test_songs_that_sound_like_a_venue_stay_songs(line, uploader):
+    assert not names_the_set(line, uploader)
+
+
+def test_a_long_tracklist_keeps_every_song_under_a_line_about_the_set():
+    description = """Overmono - live at Printworks London, March 2024
+Presented by Cupra
+Main Source - Live at the Barbeque
+Bicep - Glue (Hammer Edit)
+Four Tet - Baby
+Pulp - Disco 2000"""
+    assert tracklist_from_source(description, [], "Overmono").splitlines() == [
+        "Main Source - Live at the Barbeque",
+        "Bicep - Glue (Hammer Edit)",
+        "Four Tet - Baby",
+        "Pulp - Disco 2000",
+    ]
+    # Only the set's page is read this way: a tracklist the DJ gives keeps every line.
+    items, skipped = parse_tracklist(
+        "Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona."
+    )
+    assert [(item.artist, item.title) for item in items] == [
+        ("Mura Masa", "live from Boiler Room x Cupra at Primavera Sound Barcelona.")
+    ]
+    assert skipped == []
 
 
 def test_a_list_that_times_only_its_ids_keeps_every_track():
