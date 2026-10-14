@@ -472,7 +472,7 @@ def register_commands(app, client, emit, handled, panel=None):
         limit: int = typer.Option(20, min=1, max=100),
         after: str | None = typer.Option(None, help="Cursor from the previous page."),
     ):
-        """The sets you checked, newest first."""
+        """The sets you checked, the one checked last first."""
         params = {"query": query, "limit": limit}
         if after is not None:
             params["after"] = after

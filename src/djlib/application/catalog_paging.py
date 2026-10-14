@@ -266,14 +266,17 @@ def saved(app, kind, query="", limit=20, after=None):
         statement = statement.where(
             or_(*(column.contains(term, autoescape=True) for column in searchable))
         )
+    # Sets come newest first by when they were last checked: checking one again (which reuses
+    # its saved list) brings it back to the top. The rest are newest first as made.
+    newest = model.updated_at if kind == "requests" else model.created_at
     with app.db.transaction() as session:
         total = session.scalar(select(func.count()).select_from(statement.subquery()))
         if context["key"]:
-            statement = statement.where(tuple_(model.created_at, model.id) < tuple(context["key"]))
+            statement = statement.where(tuple_(newest, model.id) < tuple(context["key"]))
         rows = [
             dict(row)
             for row in session.execute(
-                statement.order_by(model.created_at.desc(), model.id.desc()).limit(limit + 1)
+                statement.order_by(newest.desc(), model.id.desc()).limit(limit + 1)
             ).mappings()
         ]
         made_from = (
@@ -292,7 +295,8 @@ def saved(app, kind, query="", limit=20, after=None):
             row["request_id"] = made_from.get(row["collection_id"])
         if kind == "requests":
             row["counts"] = request_counts(row.pop("items"))
-    return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
+    when = "updated_at" if kind == "requests" else "created_at"
+    return _result(kind, rows, total, limit, context, lambda r: [r[when], r[identifier]])
 
 
 def _made_from(session, collection_ids: list[str]) -> dict[str, str | None]:

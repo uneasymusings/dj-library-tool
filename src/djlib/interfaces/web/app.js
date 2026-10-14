@@ -774,7 +774,8 @@ function setRow(row) {
   const badge = h("span", { class: "src-slot", hidden: true });
   const bar = h("div", { class: "strip compact loading-strip", "aria-hidden": "true" });
   const counts = h("p", { class: "tally" }, row.counts ? tally(row.counts) : null);
-  const when = ago(row.created_at); // the list is newest first by when the set was added
+  // The list is newest first by when each set was last checked: a set checked again comes back on top.
+  const when = ago(row.updated_at || row.created_at);
   const node = h("li", null,
     h("a", { class: "set", href },
       h("div", { class: "set-name" },
@@ -810,7 +811,7 @@ async function setsList() {
   const list = h("ol", { class: "sets" });
   const more = h("div");
   const view = h("section", null,
-    pageHead("Sets", `${plural(first.total, "set")}, newest first. Owned tracks are in a crate, in set order.`),
+    pageHead("Sets", `${plural(first.total, "set")}, last checked first. Owned tracks are in a crate, in set order.`),
     list, more);
   const show = (reply) => {
     const rows = reply.requests.map(setRow);
