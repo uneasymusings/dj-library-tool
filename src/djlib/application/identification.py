@@ -546,7 +546,7 @@ def full_disk_error(folder: Path, seconds: float | None = None) -> AppError:
         )
     return AppError(
         "DISK_FULL",
-        f"The disk with djlib's workspace is full ({free / 1e6:.0f} MB free).{need} Free some "
+        f"The disk with djlib's folder is full ({free / 1e6:.0f} MB free).{need} Free some "
         "space, then run the same command again.",
         507,
         True,
@@ -651,7 +651,7 @@ class IdentifyRunner:
                     else AppError(
                         "JOB_FAILED",
                         "The identification stopped unexpectedly; try again. If it keeps "
-                        "failing, the service log in the workspace's runtime folder says why.",
+                        "failing, runtime/service.log in djlib's folder says why.",
                         500,
                         True,
                     )

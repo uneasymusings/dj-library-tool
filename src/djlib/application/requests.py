@@ -869,7 +869,8 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
     if request.action == "satisfy" and refreshed["state"] != "satisfied":
         raise AppError(
             "REQUEST_RECORDING_UNAVAILABLE",
-            "Choose one current, hash-verified catalog revision; refresh to inspect candidates.",
+            "That file can't be used: it changed or isn't there any more. Check the set "
+            "again, then pick again.",
             409,
         )
     ledger["items"][item["position"] - 1] = refreshed

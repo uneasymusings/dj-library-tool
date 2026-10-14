@@ -1485,13 +1485,13 @@ def use_view(term: Terminal, result: dict) -> None:
     status_line(
         term,
         "ok" if result.get("initialized") else "warn",
-        f"Default workspace: {short_path(result.get('workspace'))}",
+        f"djlib folder: {short_path(result.get('workspace'))}",
         label,
     )
     if not result.get("initialized"):
         next_steps(term, [("Create it", ("init", Path.home() / "Music"))])
     elif result.get("changed"):
-        note(term, "Commands now use it without --workspace.")
+        note(term, "djlib uses this folder from now on.")
 
 
 @view("doctor")
