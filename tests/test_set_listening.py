@@ -56,6 +56,28 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     assert again["identified"]["reused"] is True and len(setup.fetched) == 1
 
 
+def test_a_set_checked_again_with_new_notes_keeps_its_list_crate_and_playlist(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Re-running a set after an upgrade that words its notes differently (or adds another
+    spelling) updates the saved list in place: no second crate, no "Friday Set (2)"."""
+    from djlib.application import set_identification
+
+    owned(library_http, audio_factory)
+    setup.page["description"] = LISTED
+    fake = FakeRekordbox(monkeypatch)
+    first = json.loads(invoke(application, "set", URL).stdout)["result"]
+    worded = set_identification._notes
+    monkeypatch.setattr(set_identification, "_notes", lambda track: f"{worded(track)}; reworded")
+    again = json.loads(invoke(application, "set", URL).stdout)["result"]
+    assert again["request_id"] == first["request_id"] and again["revision"] > first["revision"]
+    assert again["missing"][0]["notes"].endswith("; reworded")
+    assert again["collection_id"] == first["collection_id"]
+    assert again["playlist"] == "Friday Set"
+    assert again["rekordbox"]["status"] == "already_in_rekordbox"
+    assert [path.name for path in fake.imported] == ["Friday Set.m3u8"]
+
+
 def test_set_keeps_the_fast_path_when_the_published_tracklist_is_complete(
     application, library_http, setup, audio_factory, monkeypatch
 ):
