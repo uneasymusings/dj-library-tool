@@ -70,6 +70,11 @@ logger = logging.getLogger(__name__)
 KIND = "identify"
 # Listening windows: 12 seconds every 30, starting 9 seconds in (recognition.placements).
 WINDOW, STRIDE, OFFSET = 12.0, 30.0, 9.0
+# With a tracklist that times its songs, the windows only have to find each listed song, so
+# they go every minute: half the requests to the recognizer, and so fewer rate limits.
+# Replaying two live sets (a 62-minute house set, a 40-minute hip-hop set) this way named
+# every track; without a tracklist, the hip-hop set lost half its songs.
+GUIDED_STRIDE, GUIDE_TRACKS = 60.0, 5
 # Checking gaps spends at most half as many windows as the first listen.
 REFINE_SHARE = 0.5
 COMMENTS = 1000
@@ -490,6 +495,7 @@ class _Attempt:
     phase_started: float = 0.0
     phase_done: int = 0
     refine_budget: int = 0
+    stride: float = STRIDE
     progress: dict = field(default_factory=dict)
     notices: list[str] = field(default_factory=list)
 
@@ -765,7 +771,7 @@ class IdentifyRunner:
             add_event(session, job, "phase", {"phase": phase})
 
     def songs(self, attempt: _Attempt) -> int:
-        found = segments(attempt.heard, window=WINDOW, stride=STRIDE)
+        found = segments(attempt.heard, window=WINDOW, stride=attempt.stride)
         return sum(1 for song in found if song["strength"] != "weak")
 
     def heard(self, attempt: _Attempt, done: int, total: int) -> None:
@@ -894,6 +900,7 @@ class IdentifyRunner:
 
         self.enter(attempt, "reading_page")
         page = await self.page_for_listening(attempt, url)
+        attempt.stride = self.spacing(attempt, page, listings)
 
         audio = folder / "audio"
         self.check_room(folder, page.get("duration_seconds"))
@@ -913,7 +920,9 @@ class IdentifyRunner:
         self.check_preview(page, receipt, seconds, folder)
         total = self.check_whole(attempt, page, receipt, seconds)
 
-        starts = recognition.placements(seconds, window=WINDOW, stride=STRIDE, offset=OFFSET)
+        starts = recognition.placements(
+            seconds, window=WINDOW, stride=attempt.stride, offset=OFFSET
+        )
         stored = load_probes(folder)
         first = [p for p in stored if p.get("pass") == "scan"]
         # Windows that failed are asked again; those that answered are not.
@@ -933,7 +942,7 @@ class IdentifyRunner:
                         path,
                         listener,
                         window=WINDOW,
-                        stride=STRIDE,
+                        stride=attempt.stride,
                         offset=OFFSET,
                         on_probe=self.recorder(attempt, "scan", listener.name),
                         skip=[] if whole_file else answered,
@@ -1013,6 +1022,18 @@ class IdentifyRunner:
         attempt.result["page_read"] = True
         self.save(attempt, page_read=True)
         return kept
+
+    def spacing(self, attempt: _Attempt, page: dict, listings: list[dict]) -> float:
+        """Seconds between windows: a minute when a tracklist times the set's songs, else 30.
+        Chosen once per job, so a resume keeps it (a minute's windows are every other one of
+        30 seconds', so windows heard before still count either way)."""
+        stride = attempt.result.get("stride")
+        if not isinstance(stride, int | float) or stride <= 0:
+            listed, _ = _listed(page, listings, attempt.request["url"])
+            stride = GUIDED_STRIDE if any(_guides(source) for source in listed) else STRIDE
+            attempt.result["stride"] = stride
+            self.save(attempt, stride=stride)
+        return float(stride)
 
     async def page_for_reuse(self, attempt: _Attempt, url: str) -> dict:
         """page.json, brought up to date: what `djlib set` just read replaces it (a tracklist
@@ -1198,21 +1219,7 @@ class IdentifyRunner:
         reused: bool,
     ) -> dict:
         url = attempt.request["url"]
-        listed = [listed_tracklist(t["source"], t["text"], url) for t in listings]
-        description = tracklist_from_source(page.get("description") or "", [])
-        chapters = tracklist_from_source("", page.get("chapters") or [])
-        published = [listed_tracklist("description", description, url)] if description else []
-        if chapters and not _same_lines(chapters, description):
-            published.append(listed_tracklist("chapters", chapters, url))
-        # Without one track it is no tracklist, such as chapters YouTube named itself
-        # ("Opening performance"), so its lines are not reported as skipped.
-        listed += [source for source in published if source["entries"]]
-        # A MixesDB tracklist the DJ gave is used instead of the one djlib looked up.
-        found = _usable(page.get("mixesdb"))
-        if found and not any(t["source"] == "mixesdb" for t in listings):
-            listed.append(mixesdb_listing(found))
-        else:
-            found = None
+        listed, found = _listed(page, listings, url)
         skipped = [
             {"source": source["source"], **line}
             for source in listed
@@ -1400,6 +1407,36 @@ def _same_lines(chapters: str, description: str) -> bool:
         return False
     first, second = _lines(chapters), _lines(description)
     return len(first & second) >= 0.8 * min(len(first), len(second))
+
+
+def _listed(page: dict, listings: list[dict], url: str) -> tuple[list[dict], dict | None]:
+    """The set's tracklists as ``listed`` sources: those given, the description's, the
+    chapters' (unless they repeat the description) and MixesDB's (unless one was given),
+    with the MixesDB page used, if any."""
+    listed = [listed_tracklist(t["source"], t["text"], url) for t in listings]
+    description = tracklist_from_source(page.get("description") or "", [])
+    chapters = tracklist_from_source("", page.get("chapters") or [])
+    published = [listed_tracklist("description", description, url)] if description else []
+    if chapters and not _same_lines(chapters, description):
+        published.append(listed_tracklist("chapters", chapters, url))
+    # Without one track it is no tracklist, such as chapters YouTube named itself
+    # ("Opening performance"), so its lines are not reported as skipped.
+    listed += [source for source in published if source["entries"]]
+    # A MixesDB tracklist the DJ gave is used instead of the one djlib looked up.
+    found = _usable(page.get("mixesdb"))
+    if found and not any(t["source"] == "mixesdb" for t in listings):
+        listed.append(mixesdb_listing(found))
+    else:
+        found = None
+    return listed, found
+
+
+def _guides(source: dict) -> bool:
+    """A tracklist that says what plays when: enough named songs, most lines with a time."""
+    entries = source.get("entries") or []
+    named = [entry for entry in entries if entry.get("kind") != "unknown"]
+    timed = [entry for entry in entries if entry.get("timestamp")]
+    return len(named) >= GUIDE_TRACKS and 2 * len(timed) >= len(entries)
 
 
 def _usable(found) -> dict | None:

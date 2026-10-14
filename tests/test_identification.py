@@ -258,6 +258,64 @@ async def test_an_identification_reads_listens_checks_gaps_and_merges(applicatio
     assert json.loads((saved / "page.json").read_text())["title"] == "Friday Set"
 
 
+TIMED = "\n".join(f"[{2 * n:02d}:00] Artist {n} - Song {n}" for n in range(5))
+TWO_MINUTE_SONGS = [(120 * n, 120 * (n + 1), f"Artist {n}", f"Song {n}") for n in range(5)]
+
+
+async def test_a_tracklist_that_times_its_songs_halves_the_windows(application, setup):
+    setup.seconds, setup.page["duration_seconds"] = 600.0, 600
+    setup.page["description"] = TIMED
+    setup.listener.songs = TWO_MINUTE_SONGS
+    job = await run(application, submit(application))
+    assert job["state"] == "completed"
+    scanned = [p["at"] for p in probes(application) if p["pass"] == "scan"]
+    assert scanned == [9.0 + 60 * n for n in range(10)]  # every minute, not every 30 s
+    tracks = job["result"]["tracklist"]["tracks"]
+    assert [(t["title"], t["status"]) for t in tracks] == [
+        (f"Song {n}", "confirmed") for n in range(5)
+    ]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "",  # no tracklist
+        "\n".join(TIMED.splitlines()[:4]),  # four songs are too few to steer by
+        "\n".join(line.split("] ")[1] for line in TIMED.splitlines()),  # no times
+    ],
+)
+async def test_without_a_timed_tracklist_windows_stay_30_seconds_apart(
+    application, setup, description
+):
+    setup.page["description"] = description
+    assert (await run(application, submit(application)))["state"] == "completed"
+    scanned = [p["at"] for p in probes(application) if p["pass"] == "scan"]
+    assert scanned == [9.0 + 30 * n for n in range(10)]
+
+
+async def test_a_resumed_listen_keeps_its_spacing(application, setup):
+    setup.seconds, setup.page["duration_seconds"] = 600.0, 600
+    setup.page["description"] = TIMED
+    job_id = submit(application)
+
+    async def restart(at):
+        if at == 129.0:
+            Worker(application).recover()
+            await asyncio.sleep(1)
+
+    setup.listener.hook = restart
+    assert (await run(application, job_id))["state"] == "queued"
+    assert application.job(job_id)["result"]["stride"] == 60.0
+    # The tracklist is gone by the time the job resumes; the job still listens every minute.
+    setup.page["description"] = ""
+    (folder(application) / "page.json").unlink()
+    identification.PAGES.clear()
+    setup.listener.hook = None
+    assert (await run(application, job_id))["state"] == "completed"
+    scanned = [p["at"] for p in probes(application) if p["pass"] == "scan"]
+    assert scanned == [9.0 + 60 * n for n in range(10)]
+
+
 async def test_the_audio_can_be_kept_and_a_page_just_read_is_not_read_again(
     application, setup, monkeypatch
 ):
