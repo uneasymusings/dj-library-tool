@@ -296,6 +296,30 @@ def test_page_keeps_what_an_id_line_knows():
 
 
 @needs_node
+def test_an_id_line_never_shows_its_guess_as_weak_or_likely():
+    """As the terminal's “○ ID”: the Own column says ID, and Sure says nothing of the guess,
+    nor does an ID count toward the “worth a listen” footnote."""
+    lines = [
+        {"state": "unknown", "input": {"kind": "unknown", "label": "ID", "confidence": "weak"}},
+        {"state": "unknown", "input": {"kind": "unknown", "label": "ID"}},
+        {
+            "state": "missing",
+            "input": {"kind": "named", "artist": "A", "title": "B", "confidence": "weak"},
+        },
+        {
+            "state": "satisfied",
+            "input": {"kind": "named", "artist": "A", "title": "B", "confidence": "confirmed"},
+        },
+    ]
+    assert run_page(*(f"sureOf({json.dumps(line)}) ?? null" for line in lines)) == [
+        None,
+        None,
+        "weak",
+        "confirmed",
+    ]
+
+
+@needs_node
 def test_a_sets_page_says_its_copied_list_was_cut_short():
     notes = run_page(
         'partialNote({"total_items": 7, "hidden_tracks": 12})',
