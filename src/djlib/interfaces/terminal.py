@@ -480,12 +480,15 @@ def needs_ffmpeg(error: dict) -> bool:
 
 
 def render_error(term: Terminal, error: dict) -> None:
+    if error.get("code") in CALM_ERRORS:
+        return render_calm(term, error)
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
     title = Text.assemble((ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
     title.append(f"  ({code})", style="muted")
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
     term.err.print(indented(Text(message)))
+    numbered_steps(term, error)
     hint = ERROR_HINTS.get(code)
     details = error.get("details") if isinstance(error.get("details"), dict) else {}
     if isinstance(details.get("next"), str) and details["next"]:
@@ -506,6 +509,37 @@ def render_error(term: Terminal, error: dict) -> None:
         term.err.print(
             Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")
         )
+
+
+# A normal state that ends a command, not a failure: no red, no code. The exit code and the
+# JSON stay those of an error, so scripts branch the same way.
+CALM_ERRORS = frozenset({"SHAZAM_NOTHING_NEW"})
+
+
+def render_calm(term: Terminal, error: dict) -> None:
+    """ "○ Nothing new since Sat 10 Oct 22:44", what to do, then the next command."""
+    code = str(error.get("code") or "")
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    title = str(details.get("headline") or ERROR_TITLES.get(code) or humanize(code.lower()))
+    message = str(error.get("message") or "").removeprefix(f"{title}. ")
+    hanging(term.err, Text(term.glyph("todo"), style="muted"), Text(title, style="bold"))
+    if message:
+        term.err.print(indented(Text(message)))
+    if isinstance(details.get("next"), str) and details["next"]:
+        label, command = str(details.get("next_label") or "Next"), details["next"]
+        line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
+        line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
+        term.err.print(line.append(command, style="cmd"), soft_wrap=True)
+
+
+def numbered_steps(term: Terminal, error: dict) -> None:
+    """``details.setup`` (how to turn something on) as numbered steps under the message."""
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    steps = details.get("setup")
+    if not isinstance(steps, list):
+        return
+    for number, step in enumerate(steps, 1):
+        hanging(term.err, Text(f"{number}.", style="muted"), Text(str(step)), indent=2)
 
 
 # -- live job progress -------------------------------------------------------------------------

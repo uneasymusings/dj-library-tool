@@ -1343,15 +1343,16 @@ def shazam_check(shazam: dict) -> tuple[bool, str, str]:
     if songs:
         newest = shazam_day(shazam.get("newest_shazamed_at"))
         return True, plural(songs, "song") + (f", newest {newest}" if newest else ""), ""
-    # What to do in a few words; the fix under the row is the command.
+    # What to do in a few words, in the setup steps' words; the fix under the row is the
+    # command (djlib shazam status prints the steps).
     if shazam.get("problem") == "SHAZAM_ACCESS_DENIED":
-        value, hint = "no access", "allow your terminal under Full Disk Access"
+        value, hint = "no access", "allow the app you run djlib in under Full Disk Access"
     elif shazam.get("problem"):
         value, hint = "can't be read", "for djlib set shazam"
     elif shazam.get("found"):
-        value, hint = "no songs yet", "open Music Recognition in Control Center once"
+        value, hint = "no songs yet", "click Recognize Music in the menu bar once"
     else:
-        value, hint = "not set up", "turn on Shazam in iCloud on your iPhone and this Mac"
+        value, hint = "not set up", "turn on Shazam's iCloud Sync on your iPhone and this Mac"
     return False, value, f"optional; {hint}"
 
 
@@ -1938,9 +1939,15 @@ def set_view(term: Terminal, result: dict) -> None:
     if result.get("shazam"):
         from djlib.sources.shazam_history import from_this_mac
 
-        # shazam:new reads this Mac's history only, never a file or Apple Music.
+        # shazam:new reads this Mac's history only, never a file or Apple Music. After a list
+        # cut at 1,000 songs, next_spec brings the next ones.
         if from_this_mac(result["shazam"]):
-            steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
+            left = int(result["shazam"].get("remaining") or 0)
+            if left:
+                spec = result["shazam"].get("next_spec") or "shazam:new"
+                steps.append((f"The next {shazam_count(left, 'Shazam')}", ("set", spec)))
+            else:
+                steps.append(("Later, check only what you Shazam next", ("set", "shazam:new")))
     next_steps(term, steps)
 
 
@@ -1991,6 +1998,11 @@ def set_notes(*, downloaded: bool, hints: bool, usb: bool) -> list[str]:
 # -- shazam ------------------------------------------------------------------------------------
 
 
+def shazam_count(count: int, word: str = "song") -> str:
+    """ "1,520 songs": a Shazam history runs into the thousands."""
+    return f"{count:,} {word}{'' if count == 1 else 's'}"
+
+
 def shazam_source_line(term: Terminal, source: dict) -> None:
     """``✓ Music Recognition on this Mac  412 songs, newest 2026-10-02 21:14``."""
     problem = source.get("problem") or {}
@@ -2001,10 +2013,10 @@ def shazam_source_line(term: Terminal, source: dict) -> None:
     elif problem:
         detail = "can't be read"
     elif source.get("source") == "iphone_backup":
-        detail = plural(count, "backup") if count else "none"
+        detail = plural(count, "backup")
     elif passed:
         newest = shazam_day(source.get("newest_shazamed_at"))
-        detail = plural(int(source["songs"]), "song") + (f", newest {newest}" if newest else "")
+        detail = shazam_count(int(source["songs"])) + (f", newest {newest}" if newest else "")
     else:
         detail = "no songs yet" if source.get("found") else "not found"
     line = Text(str(source.get("label") or ""))
@@ -2013,26 +2025,54 @@ def shazam_source_line(term: Terminal, source: dict) -> None:
     hanging(term.out, glyph, line, indent=2)
 
 
+SHORT_HISTORY = 100  # songs one look can take in; past this, start with the last 30 days
+
+
+def first_check(songs: int, newest: str | None) -> list[Step]:
+    """How to check a history never imported. `djlib set shazam` takes the oldest 1,000, so a
+    long history starts with the last 30 days: what a DJ Shazamed lately."""
+    from djlib.sources.shazam_history import RECENT_DAYS, recent_since
+
+    if songs <= SHORT_HISTORY:
+        return [("Check them against your music", ("set", "shazam"))]
+    since, ends_today = recent_since(newest)
+    recent = f"Check the last {RECENT_DAYS} days" if ends_today else "Check your last month"
+    return [
+        (recent, ("set", f"shazam:{since}")),
+        ("Or your whole history, oldest first", ("set", "shazam")),
+    ]
+
+
 @view("shazam status")
 def shazam_status(term: Terminal, result: dict) -> None:
+    from djlib.sources.shazam_history import FULL_DISK_APPS, FULL_DISK_SETTINGS
+
     songs = int(result.get("songs") or 0)
+    # The history is there but macOS won't open it: say that, not "set up iCloud".
+    locked = bool(result.get("full_disk_access")) and not songs
     if songs:
         newest = shazam_day(result.get("newest_shazamed_at"))
         status_line(
             term,
             "ok",
             "Shazam history",
-            plural(songs, "song") + (f", newest {newest}" if newest else ""),
+            shazam_count(songs) + (f", newest {newest}" if newest else ""),
         )
+    elif locked:
+        status_line(term, "bad", "djlib can't open your Shazam history yet")
+        line = f"Allow {FULL_DISK_APPS} under Full Disk Access, then quit and reopen it."
+        term.out.print(indented(Text(line)))
     else:
         status_line(term, "todo", "No Shazam history on this Mac yet")
     for source in result.get("sources") or []:
-        shazam_source_line(term, source)
+        # Where djlib looked; iPhone backups only when there is one to read.
+        if not locked and (source.get("source") != "iphone_backup" or source.get("backups")):
+            shazam_source_line(term, source)
     last = result.get("last_import") or {}
     if last:
         imported = Text(shazam_day(last.get("imported_at")))
         imported.append(
-            f"  “{last.get('name') or 'Shazam'}”, {plural(int(last.get('songs') or 0), 'song')}",
+            f"  “{last.get('name') or 'Shazam'}”, {shazam_count(int(last.get('songs') or 0))}",
             style="muted",
         )
         fresh = result.get("new_since_last_import")
@@ -2041,14 +2081,16 @@ def shazam_status(term: Terminal, result: dict) -> None:
             term,
             [
                 ("Last import", imported),
-                ("New since", None if fresh is None else plural(int(fresh), "song")),
+                ("New since", None if fresh is None else shazam_count(int(fresh))),
             ],
         )
-    if result.get("full_disk_access"):
+    if result.get("full_disk_access") and not locked:
         term.out.print()
         note(term, result["full_disk_access"])
     steps: list[Step] = []
     setup = result.get("setup") or []
+    if result.get("full_disk_access"):
+        steps.append(("Open Full Disk Access", FULL_DISK_SETTINGS))
     if setup:
         term.out.print()
         term.out.print(Text("Turn on Shazam sync", style="heading"))
@@ -2065,22 +2107,26 @@ def shazam_status(term: Terminal, result: dict) -> None:
             music = "Use Apple Music's “My Shazam Tracks” instead"
         steps += [
             (music, ("set", "shazam:apple-music")),
-            ("Or a Shazam CSV export", ("set", "shazam:FILE.csv")),
+            (
+                "Or a CSV from shazam.com/myshazam (Download CSV, if your account shows it)",
+                ("set", Path.home() / "Downloads" / "shazamlibrary.csv"),
+            ),
         ]
     elif last and result.get("new_since_last_import"):
         steps.append(("Check the new ones against your music", ("set", "shazam:new")))
-    elif not last:
-        steps.append(("Check them against your music", ("set", "shazam")))
+    elif last and last.get("collection_id") and result.get("new_since_last_import") == 0:
+        steps.append(("Your last Shazam crate", ("crate", last["collection_id"])))
+    elif not last and songs:
+        steps += first_check(songs, result.get("newest_shazamed_at"))
     if songs:
         steps.append(("See them", ("shazam", "list")))
     next_steps(term, steps)
 
 
-COORDINATES = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$")
-
-
 @view("shazam list")
 def shazam_list(term: Terminal, result: dict) -> None:
+    from djlib.sources.shazam_history import place_name
+
     records = result.get("records") or []
     songs = int(result.get("songs") or 0)
     since = shazam_day(result.get("since"))
@@ -2089,24 +2135,25 @@ def shazam_list(term: Terminal, result: dict) -> None:
         label = "Nothing new Shazamed" if result.get("new") else "No Shazams"
         status_line(term, "todo", label, f"since {since}" if since else where)
         return
-    subtitle = plural(songs, "song") + (f" since {since}" if since else "")
+    subtitle = shazam_count(songs) + (f" since {since}" if since else "")
     header(term, "Your Shazams", f"{subtitle}  {where}".strip())
     grid = table(
         ("Shazamed", {"style": "muted"}),
         ("Artist", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Title", {"overflow": "ellipsis", "readable": TITLE_WIDTH}),
-        ("Times", {"justify": "right", "drop": 2}),
+        ("×", {"justify": "right", "drop": 2}),
         ("Where", {"overflow": "ellipsis", "yields": True, "drop": 1}),
     )
     for item in records:
         count = int(item.get("count") or 1)
         grid.add_row(
-            shazam_day(item.get("shazamed_at")) or "?",
+            # The latest Shazam: the list is newest first by it.
+            shazam_day(item.get("last_shazamed_at") or item.get("shazamed_at")) or "?",
             item.get("artist") or "",
             item.get("title") or "",
-            str(count) if count > 1 else "",
+            f"{count}×" if count > 1 else "",
             # A place's name helps; bare coordinates don't.
-            "" if COORDINATES.match(item.get("location") or "") else item.get("location") or "",
+            place_name(item.get("location")),
         )
     term.out.print(grid)
     if len(records) < songs:
@@ -2115,8 +2162,10 @@ def shazam_list(term: Terminal, result: dict) -> None:
         for option in ("since", "from"):
             if query.get(option):
                 more[2:2] = [f"--{option}", str(query[option])]
-        more_line(term, f"{len(records)} of {plural(songs, 'song')}, newest first", tuple(more))
-    if result.get("spec"):  # none for a file or Apple Music with --since (see the warning)
+        more_line(term, f"{len(records)} of {shazam_count(songs)}, newest first", tuple(more))
+    if result.get("spec") == "shazam":
+        next_steps(term, first_check(songs, result.get("newest_shazamed_at")))
+    elif result.get("spec"):  # none for a file or Apple Music with --since (see the warning)
         next_steps(term, [("Check them against your music", ("set", result["spec"]))])
 
 

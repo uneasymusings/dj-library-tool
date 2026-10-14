@@ -28,7 +28,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from djlib.domain.contracts import credit_form, label_form, safe_text
@@ -52,17 +52,26 @@ LABELS = {
     "csv": "CSV file",
     "sqlite": "Shazam database file",
 }
+# Apple's steps on iOS 26 and macOS 26 (support.apple.com/118570, the Shazam guide): the
+# Shazam app syncs only with its own iCloud Sync switch on, and macOS 26 keeps Recognize
+# Music out of the menu bar until it is added.
 SETUP = [
-    "On your iPhone: Settings → [your name] → iCloud → turn on Shazam / Music Recognition.",
-    "On this Mac: System Settings → Apple Account → iCloud → See All → turn on Music Recognition.",
-    "Open Control Center → Music Recognition once, then wait a few minutes for it to sync.",
+    "On your iPhone, open Shazam → Settings → turn on iCloud Sync. (If it's off or greyed out: "
+    "Settings → [your name] → iCloud → See All → turn on Shazam and Music Recognition.)",
+    "On this Mac: System Settings → [your name] → iCloud → See All → turn on Music Recognition.",
+    "Add Recognize Music to the menu bar and click it once (macOS 26: Control Center → Edit "
+    "Controls → Recognize Music; macOS 14–15: System Settings → Control Center → Music "
+    "Recognition → Show in Menu Bar). Your iPhone's Shazams arrive within a few minutes.",
 ]
 ALTERNATIVES = [
     "djlib set shazam:apple-music (if Shazam saves to Apple Music's “My Shazam Tracks”)",
-    "djlib set shazam:BACKUP_OR_CSV (an iPhone backup folder or a Shazam CSV export)",
+    "djlib set shazam:BACKUP_OR_CSV (an iPhone backup folder, or a CSV from shazam.com/myshazam: "
+    "Download CSV, if your account shows it)",
 ]
+# Full Disk Access belongs to the app djlib runs in, which isn't always a terminal.
+FULL_DISK_APPS = "the app you run djlib in (Terminal, iTerm, VS Code or Claude)"
 FULL_DISK_ACCESS = (
-    "macOS keeps your Shazam history private. Allow your terminal app under System Settings → "
+    f"macOS keeps your Shazam history private. Allow {FULL_DISK_APPS} under System Settings → "
     "Privacy & Security → Full Disk Access, quit and reopen it, then try again."
 )
 FULL_DISK_SETTINGS = (
@@ -105,7 +114,16 @@ def exists(path: Path) -> bool | None:
 
 
 def no_access(path: Path) -> AppError:
-    return AppError("SHAZAM_ACCESS_DENIED", FULL_DISK_ACCESS, details={"path": str(path)})
+    """SHAZAM_ACCESS_DENIED, with the command that opens Full Disk Access as the next step."""
+    return AppError(
+        "SHAZAM_ACCESS_DENIED",
+        FULL_DISK_ACCESS,
+        details={
+            "path": str(path),
+            "next": FULL_DISK_SETTINGS,
+            "next_label": "Open Full Disk Access",
+        },
+    )
 
 
 def setup_message(start: str) -> str:
@@ -117,12 +135,18 @@ def setup_message(start: str) -> str:
 
 
 def not_found(start: str = "No Shazam history was found on this Mac.") -> AppError:
-    """The steps to turn on Shazam sync are in ``details`` (``djlib shazam status`` shows
-    them), so the message stays one sentence."""
+    """The steps to turn on Shazam sync are in ``details`` (a terminal shows them under the
+    message), so the message stays one sentence."""
     return AppError(
         "SHAZAM_HISTORY_NOT_FOUND",
         start,
-        details={"setup": SETUP, "alternatives": ALTERNATIVES, "steps": setup_message(start)},
+        details={
+            "setup": SETUP,
+            "alternatives": ALTERNATIVES,
+            "steps": setup_message(start),
+            "next": SETUP_COMMAND,
+            "next_label": "When they've synced, check",
+        },
     )
 
 
@@ -311,6 +335,14 @@ def place(views: list[tuple[str, dict]]) -> str | None:
         if latitude is not None and longitude is not None and (latitude or longitude):
             return f"{latitude:.4f}, {longitude:.4f}"
     return None
+
+
+COORDINATES = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*$")
+
+
+def place_name(location: str | None) -> str:
+    """A place's name, or "" for bare coordinates, which mean nothing to a reader."""
+    return "" if not location or COORDINATES.match(location) else location
 
 
 def read_database(connection, source: str) -> list[dict]:
@@ -718,10 +750,73 @@ def unseen(records: list[dict], previous: dict | None) -> list[dict]:
 
 
 def local_time(value: str | None) -> str:
-    """ "2026-10-02 21:14" in this Mac's time zone."""
+    """ "2026-10-02 21:14" in this Mac's time zone; "2026-10-02" for a date without a time
+    (CSV exports and dates you typed are midnight here, which isn't when you Shazamed)."""
     if not value:
         return ""
-    return datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
+    moment = datetime.fromisoformat(value).astimezone()
+    return moment.strftime("%Y-%m-%d" if midnight(moment) else "%Y-%m-%d %H:%M")
+
+
+def midnight(moment: datetime) -> bool:
+    return (moment.hour, moment.minute, moment.second, moment.microsecond) == (0, 0, 0, 0)
+
+
+def today() -> date:
+    """This Mac's date (tests freeze it)."""
+    return datetime.now().astimezone().date()
+
+
+def day(value: str, *, year: bool | None = None) -> str:
+    """ "12 Sep" in this Mac's time zone, with the year when it isn't this year's."""
+    moment = datetime.fromisoformat(value).astimezone()
+    if year is None:
+        year = moment.year != today().year
+    return f"{moment.day} {moment:%b}" + (f" {moment.year}" if year else "")
+
+
+def day_time(value: str) -> str:
+    """ "Sat 10 Oct 22:44"; "Thu 1 Oct" for a date without a time."""
+    moment = datetime.fromisoformat(value).astimezone()
+    text = f"{moment:%a} {day(value)}"
+    return text if midnight(moment) else f"{text} {moment:%H:%M}"
+
+
+def day_range(first: str, last: str) -> str:
+    """ "12 Sep – 12 Oct", "12 Oct", or "2 Mar 2019 – 20 Nov 2023" across years."""
+    start, end = (datetime.fromisoformat(value).astimezone() for value in (first, last))
+    year = start.year != end.year or end.year != today().year
+    if start.date() == end.date():
+        return day(first, year=year)
+    return f"{day(first, year=year)} – {day(last, year=year)}"
+
+
+RECENT_DAYS = 30
+
+
+def recent_since(newest: str | None) -> tuple[str, bool]:
+    """(YYYY-MM-DD, ends today) for a first look at a long history: the last RECENT_DAYS days,
+    or the RECENT_DAYS before the newest Shazam when nothing is that recent."""
+    end = today()
+    last = datetime.fromisoformat(newest).astimezone().date() if newest else end
+    if last < end - timedelta(days=RECENT_DAYS):
+        end = last
+    return f"{end - timedelta(days=RECENT_DAYS):%Y-%m-%d}", end == today()
+
+
+def set_name(sources: list[dict], first: str | None, last: str | None) -> str:
+    """ "Shazam 12 Sep – 12 Oct", or after a file: "Shazam (shazamlibrary.csv)".
+
+    No ":" in names: rekordbox names a playlist after its file.
+    """
+    kinds = [source.get("source") for source in sources]
+    if kinds == ["iphone_backup"]:
+        return "Shazam (iPhone backup)"
+    if kinds and kinds[0] in {"csv", "sqlite"} and sources[0].get("path"):
+        return f"Shazam ({Path(sources[0]['path']).name.replace(':', ' ')})"
+    if first and last:
+        return f"Shazam {day_range(first, last)}"
+    return "Shazam"
 
 
 # -- remembering imports -----------------------------------------------------------------------
@@ -748,10 +843,13 @@ def from_this_mac(summary: dict) -> bool:
     return bool(sources) and all(source in AUTOMATIC for source in sources)
 
 
-def remember_import(workspace, summary: dict, request_id: str | None = None) -> dict | None:
+def remember_import(
+    workspace, summary: dict, request_id: str | None = None, collection_id: str | None = None
+) -> dict | None:
     """Keep the newest Shazam time imported from this Mac's history, so shazam:new starts
     after it. It never moves back, and imports from a file or Apple Music leave it alone
-    (None). Lists cut at 1000 songs are kept in ``held`` (see ``unseen``)."""
+    (None). Lists cut at 1000 songs are kept in ``held`` (see ``unseen``). The crate is kept
+    so "nothing new" can point to it."""
     if not from_this_mac(summary):
         return None
     previous = last_import(workspace) or {}
@@ -763,6 +861,7 @@ def remember_import(workspace, summary: dict, request_id: str | None = None) -> 
         "songs": summary.get("songs"),
         "name": summary.get("name"),
         "request_id": request_id,
+        "collection_id": collection_id,
         "sources": [source.get("source") for source in summary.get("sources") or []],
         "held": held(previous, summary, mark),
     }
@@ -966,9 +1065,7 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
         if not sources:
             denied = [p for p in problems if p["code"] == "SHAZAM_ACCESS_DENIED"]
             if denied:
-                raise AppError(
-                    "SHAZAM_ACCESS_DENIED", FULL_DISK_ACCESS, details={"path": denied[0]["path"]}
-                )
+                raise no_access(Path(denied[0]["path"]))
             if problems:
                 raise AppError(problems[0]["code"], problems[0]["message"])
             raise not_found()
@@ -985,8 +1082,6 @@ def load(source: str | None = None, since: str | None = None, workspace=None) ->
         records if moment is None else after(unseen(records, previous), moment, inclusive=inclusive)
     )
     return {
-        # No ":" in names: rekordbox names a playlist after its file.
-        "name": "Shazam" if moment is None else f"Shazam since {moment.astimezone():%Y-%m-%d}",
         "since": None if moment is None else moment.astimezone(UTC).isoformat(timespec="seconds"),
         "new": bool(since and since.strip().lower() == "new"),
         "last_import": previous,
@@ -1082,20 +1177,23 @@ def status(workspace=None) -> dict:
     sources.append(backup)
     history = merge(raw)
     previous = last_import(workspace)
-    fresh = None
-    if previous:
-        mark = previous.get("newest_shazamed_at")
-        fresh = (
-            len(merge(after(unseen(raw, previous), datetime.fromisoformat(mark), inclusive=False)))
-            if mark
-            else len(history)
-        )
     # Backups always need Full Disk Access; say so only when the history itself does.
     denied = any(
         (entry["problem"] or {}).get("code") == "SHAZAM_ACCESS_DENIED"
         for entry in sources
         if entry["source"] != "iphone_backup"
     )
+    fresh = None
+    # With the history unread or gone, what's new is unknown, not 0.
+    if previous and history and not denied:
+        mark = previous.get("newest_shazamed_at")
+        fresh = (
+            len(merge(after(unseen(raw, previous), datetime.fromisoformat(mark), inclusive=False)))
+            if mark
+            else len(history)
+        )
+    # A history macOS won't open is there: the fix is Full Disk Access, not the iCloud steps.
+    setup = not history and not denied
     return {
         "ready": bool(history),
         "songs": len(history),
@@ -1103,7 +1201,7 @@ def status(workspace=None) -> dict:
         "sources": sources,
         "last_import": previous,
         "new_since_last_import": fresh,
-        "setup": [] if history else SETUP,
-        "alternatives": [] if history else ALTERNATIVES,
+        "setup": SETUP if setup else [],
+        "alternatives": ALTERNATIVES if setup else [],
         "full_disk_access": FULL_DISK_ACCESS if denied else None,
     }
