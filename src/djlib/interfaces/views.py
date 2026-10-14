@@ -916,15 +916,16 @@ def collections(term: Terminal, result: dict) -> None:
         ("ID", {"style": "muted"}),
     )
     for row in rows:
-        # What djlib did with it: a push checks the playlist appeared, a USB export is read back.
+        # What djlib did with it. rekordbox isn't read here, so a push is "pushed … ago" (the
+        # DJ may have deleted the playlist since), never "✓ in rekordbox" as status can say.
         done = row.get("rekordbox") if isinstance(row.get("rekordbox"), dict) else {}
-        places = crate_places(
-            term, {"in_rekordbox": True if done.get("pushed_at") else None, "usb": done.get("usb")}
-        )
+        places = place_parts(term, {"usb": done.get("usb")})
+        if done.get("pushed_at"):
+            places.insert(0, Text(f"pushed {ago(done['pushed_at'])}", style="muted"))
         grid.add_row(
             row.get("name") or "",
             str(row.get("track_count", "")),
-            places[2:] if places.plain.startswith("  ") else places,
+            Text("  ").join(places),
             ago(row.get("created_at")),
             short_id(row.get("collection_id")),
         )

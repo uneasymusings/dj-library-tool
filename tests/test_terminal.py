@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -1265,7 +1266,8 @@ def test_crates_say_where_each_one_went(capsys):
     out = render("crates", {"collections": rows, "total": 2}, width=120, capsys=capsys)
     assert "rekordbox / USB" in out
     friday = next(line for line in out.splitlines() if "Friday" in line)
-    assert "✓ in rekordbox  ✓ on DJ_USB" in friday
+    # rekordbox isn't read here: a push is history (the playlist may be gone), never "✓ in".
+    assert re.search(r"pushed \S+ ago  ✓ on DJ_USB", friday) and "in rekordbox" not in friday
     plain = [{**row, "rekordbox": {}} for row in rows]
     out = render("crates", {"collections": plain, "total": 2}, width=120, capsys=capsys)
     assert "rekordbox / USB" not in out  # nothing to say, no column
