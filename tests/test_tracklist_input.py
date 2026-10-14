@@ -94,6 +94,52 @@ def test_a_cut_short_1001tracklists_copy_says_tracks_are_missing():
     )
     assert not any("Save 12 more" in warning for warning in warnings)
     assert text_request("Lumen - Halo\n", None, "Pasted", None)[1] == []
+    assert body.hidden_tracks == 12
+    assert text_request("Lumen - Halo\n", None, "Pasted", None)[0].hidden_tracks is None
+
+
+def test_a_set_whose_copy_was_cut_short_says_so_on_every_screen(
+    application, library_http, audio_factory, tmp_path, monkeypatch
+):
+    """After the first run's warning, the set still says it is partial: in requests get, the
+    shopping list (and its file), the sets list and status."""
+    from pathlib import Path
+
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    copied = tmp_path / "friday.txt"
+    copied.write_text(
+        "Friday\n01\nLumen - Halo\n02\nBicep - Glue\nSave 12 more tracks\n", encoding="utf-8"
+    )
+    request_id = json.loads(invoke(application, "set", copied, "--no-rekordbox").stdout)[
+        "result"
+    ]["request_id"]
+    got = json.loads(invoke(application, "requests", "get", request_id).stdout)["result"]
+    assert got["hidden_tracks"] == 12 and got["total_items"] == 2
+    listed = json.loads(invoke(application, "requests", "list").stdout)["result"]["requests"]
+    assert [row.get("hidden_tracks") for row in listed] == [12]
+    said = "Partial list: 1001Tracklists hid 12 more tracks, which djlib never checked."
+    pretty = invoke(application, "requests", "get", request_id, pretty=True).stdout
+    assert said in " ".join(pretty.split())
+    report = invoke(application, "requests", "report", request_id, pretty=True).stdout
+    assert said in " ".join(report.split())
+    saved = json.loads(invoke(application, "requests", "report", request_id).stdout)["result"]
+    text = Path(saved["shopping_list"]).read_text(encoding="utf-8")
+    assert text.splitlines()[:2] == [
+        "Friday — 1 to buy",
+        "1001Tracklists hid 12 more tracks; djlib never checked them.",
+    ]
+    status = invoke(application, "status", pretty=True).stdout
+    assert "partial list" in status
+    # The same paste again is the same set, still partial; a list copied whole never says so.
+    again = json.loads(invoke(application, "set", copied, "--no-rekordbox").stdout)["result"]
+    assert again["request_id"] == request_id
+    whole = tmp_path / "whole.txt"
+    whole.write_text("Saturday\nLumen - Halo\nBicep - Glue\n", encoding="utf-8")
+    other = json.loads(invoke(application, "set", whole, "--no-rekordbox").stdout)["result"]
+    assert json.loads(invoke(application, "requests", "get", other["request_id"]).stdout)[
+        "result"
+    ]["hidden_tracks"] is None
 
 
 def test_rich_text_never_names_the_set():

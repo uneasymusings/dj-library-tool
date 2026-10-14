@@ -641,6 +641,8 @@ def get_request(app, request_id: str, offset: int = 0, limit: int = 100) -> dict
         # Where the set came from (its page, the MixesDB tracklist it uses), when known.
         "source": ledger["request"].get("source"),
         "mixesdb": ledger["request"].get("mixesdb"),
+        # Tracks the copied tracklist left out: the list is partial.
+        "hidden_tracks": ledger["request"].get("hidden_tracks"),
         # The newest crate made from it: {collection_id, name, created_at, tracks}.
         "crate": crate,
         "items": page,
@@ -717,8 +719,9 @@ def create_request(app, request: RequestCreate, same_list: bool = False) -> dict
     return get_request(app, request_id)
 
 
-# Where a set came from: shown with it, never part of what its key names.
-SET_PAGE = ("source", "mixesdb")
+# Where a set came from (and what its copied tracklist left out): shown with it, never part
+# of what its key names.
+SET_PAGE = ("source", "mixesdb", "hidden_tracks")
 
 
 def _request_hash(payload: dict) -> str:

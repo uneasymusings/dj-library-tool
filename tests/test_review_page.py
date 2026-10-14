@@ -295,6 +295,21 @@ def test_page_keeps_what_an_id_line_knows():
     ) == [True, True, False]
 
 
+@needs_node
+def test_a_sets_page_says_its_copied_list_was_cut_short():
+    notes = run_page(
+        'partialNote({"total_items": 7, "hidden_tracks": 12})',
+        'partialNote({"total_items": 7, "hidden_tracks": null})',
+        'partialNote({"total_items": 7})',
+    )
+    assert notes == [
+        "7 of 19 tracks: 1001Tracklists hid 12, so djlib never checked them. Copy the full "
+        "list from the page, then run djlib set paste again.",
+        None,
+        None,
+    ]
+
+
 def _item(state, kind="named", *matches):
     song = {"artist": "Antdot", "title": "Mirage", "version": ""}
     source = song if kind == "named" else {"label": "ID", "timestamp": "48:30"}
