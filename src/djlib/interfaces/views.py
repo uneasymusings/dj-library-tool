@@ -2368,8 +2368,9 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
     columns.append(("Track", {"overflow": "fold", "wrap": True, "readable": TITLE_WIDTH}))
     if sure:
         columns.append(("Sure", {}))
-    # Only the mix names wrap; "! owned, pick a copy" keeps to one line.
-    readable = max([OWN_WIDTH, *(own_cell(term, track).cell_len for track in waiting(shown))])
+    # Only the mix names wrap; "! owned, pick a copy" and "? maybe yours" keep to one line.
+    whole = [*waiting(shown), *(track for track in shown if track.get("own") == "maybe")]
+    readable = max([OWN_WIDTH, *(own_cell(term, track).cell_len for track in whole)])
     own = {"overflow": "fold", "wrap": True, "readable": readable, "shrinks_first": True}
     columns.append(("Own", own))
     grid = table(*columns, gutter=2)
