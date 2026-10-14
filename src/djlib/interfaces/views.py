@@ -947,7 +947,12 @@ def collection(term: Terminal, result: dict) -> None:
             term,
             f"{offset + 1}{'–' if term.unicode else '-'}{offset + len(tracks)} "
             f"of {plural(total, 'track')}",
-            ("crate", result.get("collection_id", ""), "--after", str(result["next_cursor"])),
+            (
+                "crate",
+                short_handle(result.get("collection_id", "")),
+                "--after",
+                str(result["next_cursor"]),
+            ),
         )
     collection = result.get("collection_id", "")
     next_steps(
@@ -2868,7 +2873,7 @@ def request_view(term: Terminal, result: dict) -> None:
         more_line(
             term,
             f"{shown} of {plural(int(total or 0), 'song')}",
-            ("requests", "get", request_id, "--after", str(result["next_offset"])),
+            ("requests", "get", short_handle(request_id), "--after", str(result["next_offset"])),
         )
     term.out.print()
     note(term, "Matched by exact artist/title/version labels only; no audio identification.")
