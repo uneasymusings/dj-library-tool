@@ -245,6 +245,12 @@ def test_a_song_owned_under_another_credit_says_which(capsys):
     assert "Owned under another spelling: #2 Robert Glasper" in out
 
 
+def test_the_crate_line_says_how_many_files_the_crate_holds(capsys):
+    """A song the set lists twice is one file in the crate."""
+    out = shown("set", set_result(KAYTRANADA[:3], crate_tracks=2), 100, capsys)
+    assert "✓ 2 tracks, in set order" in out
+
+
 def test_a_shazam_history_lists_only_what_you_dont_own(capsys):
     rows = [
         ("", "Artist", f"Song {n}", "", None, "owned" if n % 40 == 0 else "missing")
@@ -606,6 +612,15 @@ def test_set_json_adds_the_whole_set_and_keeps_missing_as_it_was(friday):
         {"position": 4, "label": "Someone - Not Owned", "state": "missing", "you_own": []},
     ]
     assert result["owned_to_check"] == []
+    # The tally in words: `missing` above also lists other mixes and IDs.
+    assert result["counts"] == {
+        "owned": 1,
+        "missing": 1,
+        "other_mix": 1,
+        "ids": 1,
+        "to_check": 0,
+    }
+    assert result["crate_tracks"] == 1
     assert result["rekordbox"] == {
         "status": "skipped",
         "reason": "not requested (--no-rekordbox)",

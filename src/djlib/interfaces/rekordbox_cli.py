@@ -940,18 +940,26 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 if shown["kind"] == "unknown" and shown["start"] and shown.get("candidates"):
                     guesses[shown["start"]] = shown["candidates"][0]["label"]
         tracks = [set_track(item, link, guesses) for item in items]
+        from djlib.application.catalog_paging import request_counts
+
         result = {
             "name": request.get("name"),
             "request_id": request["request_id"],
             "revision": request.get("revision"),
             "source": None
             if page is None
-            else {key: page.get(key) for key in ("url", "provider", "title", "uploader")},
+            else {
+                key: page.get(key)
+                for key in ("url", "provider", "title", "uploader", "duration_seconds")
+            },
             # The MixesDB page whose tracklist the set uses, for the DJ to check.
             "mixesdb": identification.mixesdb_page(listing)
             if identified is None
             else identification.mixesdb_used(identified["result"]),
             "songs": len(items),
+            # The tally in words, as `djlib requests` gives it: tracks own "missing" are
+            # counts.missing (`missing` below also lists other mixes and IDs).
+            "counts": request_counts(items),
             "owned": len(owned),
             "missing": [set_item(item) for item in items if item.get("state") != "satisfied"],
             "owned_to_check": to_check(items),
@@ -966,6 +974,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             # The command that lets djlib listen to sets when it couldn't this time.
             "listen_fix": listen_fix,
             "collection_id": None,
+            "crate_tracks": 0,
             "playlist": None,
             "replaces": None,
             "rekordbox": None,
@@ -978,13 +987,19 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 "provider": "Shazam",
                 "title": shazam["description"],
                 "uploader": None,
+                "duration_seconds": None,
             }
             result["shazam"] = shazam
         if owned:
             collection_id = build_crate(local, request["request_id"])
             with status("Checking the crate's files…"):
                 crate = prepare(local, workspace, collection_id)
-            result.update(collection_id=collection_id, playlist=crate["playlist"])
+            # One file per song: a song the set lists twice is in the crate once.
+            result.update(
+                collection_id=collection_id,
+                playlist=crate["playlist"],
+                crate_tracks=len(crate["paths"]),
+            )
             if skipped:
                 reason, code = skipped
                 result["rekordbox"] = {"status": "skipped", "reason": reason, "reason_code": code}

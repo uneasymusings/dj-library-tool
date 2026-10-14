@@ -919,6 +919,83 @@ def test_status_rebuilds_a_crate_its_list_has_outgrown(capsys):
     assert "21 of 24 owned" in out
 
 
+def test_a_song_listed_twice_never_outdates_its_crate(capsys):
+    """The set lists one song twice; its crate holds the file once. Status says nothing is
+    outdated, so its Rebuild step can't loop."""
+    crate = {"collection_id": COLLECTION, "name": "Reprise night", "tracks": 2}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Reprise night",
+        "songs": 3,
+        "owned": 3,
+        "in_crate": 2,
+        "missing": 0,
+        "unresolved": 0,
+        "counts": {"owned": 3, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0},
+    }
+    out = render(
+        "status",
+        status_result(recent_collections=[crate], recent_requests=[request]),
+        width=160,
+        capsys=capsys,
+    )
+    assert "outdated" not in out and "Rebuild" not in out
+    assert "3 of 3 owned" in out and "crate 2" in out
+
+
+def test_every_screen_counts_a_song_owned_twice_the_same_way(capsys):
+    """Two copies of one owned song: `djlib set` says "1 to check"; status, `djlib requests`
+    and `djlib requests get` say the same, and point to picking a copy, not a re-check."""
+    counts = {"owned": 2, "missing": 1, "other_mix": 1, "ids": 0, "to_check": 1}
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "t2",
+        "songs": 4,
+        "owned": 1,
+        "to_pick": 1,
+        "needs_check": 1,
+        "missing": 1,
+        "unresolved": 3,
+        "counts": counts,
+    }
+    status = render("status", status_result(recent_requests=[request]), width=160, capsys=capsys)
+    assert "1 of 4 owned · 1 to check · 1 missing · 1 in another mix" in status
+    steps = status.split("Next\n", 1)[1]
+    assert re.search(r"→ Pick which copy to use in “t2” +djlib ui", steps)
+    assert "Re-check" not in steps
+    listed = render(
+        "requests list",
+        {"requests": [{**request, "updated_at": "2026-10-06T10:00:00+00:00"}], "total": 1},
+        width=160,
+        capsys=capsys,
+    )
+    assert "1 of 4" in listed and "To check" in listed and "2 of 4" not in listed
+    items = [
+        {"position": 1, "state": "satisfied", "input": {"artist": "A", "title": "B"}},
+        {"position": 2, "state": "ambiguous", "input": {"artist": "C", "title": "D"}},
+        {"position": 3, "state": "missing", "input": {"artist": "E", "title": "F"}},
+    ]
+    got = render(
+        "requests get",
+        {
+            "request_id": REQUEST,
+            "revision": 2,
+            "name": "t2",
+            "total_items": 3,
+            "counts": {"satisfied": 1, "ambiguous": 1, "missing": 1},
+            "items": items,
+            "unresolved_items": 2,
+        },
+        width=160,
+        capsys=capsys,
+    )
+    assert "1 owned  ·  1 to check  ·  1 missing" in got
+    assert "pick a copy" in got and "ambiguous" not in got
+    assert re.search(r"→ Pick which copy to use +djlib ui\n", got)
+
+
 def test_small_screens_say_only_what_is_true(capsys):
     demo = render("demo", {"ingestion": {"result": {"collection_id": "c"}}}, capsys=capsys)
     assert "service stop" not in demo

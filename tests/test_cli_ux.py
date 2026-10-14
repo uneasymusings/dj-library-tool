@@ -175,12 +175,16 @@ def test_json_and_workspace_options_work_after_the_subcommand(tmp_path, monkeypa
 
 
 class FakeLists:
-    """The saved-list endpoints, newest first, paged two at a time."""
+    """The saved-list endpoints, newest first, paged two at a time, and ``/latest`` (the newest
+    one unless ``latest`` names another: a set checked again)."""
 
-    def __init__(self, kind, rows):
-        self.kind, self.rows, self.calls = kind, rows, []
+    def __init__(self, kind, rows, latest=None):
+        self.kind, self.rows, self.calls, self.latest = kind, rows, [], latest
 
     def request(self, method, path, *, params=None, data=None):
+        if path == "/latest":
+            newest = self.latest or (self.rows[0][f"{self.kind}_id"] if self.rows else None)
+            return {"result": {f"{self.kind}_id": newest}}
         self.calls.append(params)
         terms = (params or {}).get("query", "").casefold().split()
         field = f"{self.kind}_id"
@@ -225,6 +229,9 @@ def test_handles_accept_ids_last_names_and_prefixes():
     assert handles.resolve(lists, "collection", " Friday late ") == full("bbb333")
     assert handles.resolve(lists, "collection", "bbb333") == full("bbb333")
     assert handles.resolve(lists, "collection", "collection_BBB222") == full("bbb222")
+    # `last` is what /latest names: the crate of the set checked again, not the newest made.
+    lists.latest = full("aaa111")
+    assert handles.resolve(lists, "collection", "last") == full("aaa111")
 
 
 def test_handles_report_unknown_and_ambiguous_values():
