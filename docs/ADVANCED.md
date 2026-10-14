@@ -162,7 +162,7 @@ djlib jobs control JOB_ID pause|resume|cancel|retry
 djlib service stop
 ```
 
-Retry keeps successful items, and cancelling keeps accepted files. Stopping the service keeps unfinished work, which resumes on the next start. Logs are in the workspace's `runtime/service.log`; redact them before sharing. Staging and incoming files are not cleaned up automatically.
+Retry keeps successful items, and cancelling keeps accepted files. Stopping the service keeps unfinished work, which resumes on the next start. Logs are in the workspace's `runtime/service.log`, and set downloads that failed (with what YouTube or SoundCloud said, links left out) in `runtime/downloads.log`; redact them before sharing. Staging and incoming files are not cleaned up automatically.
 
 ## Other hidden commands
 
