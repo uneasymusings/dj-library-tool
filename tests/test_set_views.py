@@ -238,7 +238,9 @@ def test_an_id_shows_its_guess_greyed_and_owns_nothing(capsys):
     result["tracks"][1]["maybe"] = "Chris Fortier & Neil Kolo - All I Got"
     out = shown("set", result, 120, capsys)
     line = next(line for line in out.splitlines() if "48:30" in line)
-    assert "ID — maybe Chris Fortier & Neil Kolo - All I Got" in line and "! weak" in line
+    # Counted as an ID in the headline, and said so in the Sure column: the guess is the name's.
+    assert "ID — maybe Chris Fortier & Neil Kolo - All I Got" in line and "○ ID" in line
+    assert "weak" not in line and "worth a listen" not in out
     assert "owned" not in line and "missing" not in line
     assert "1 of 2 owned · 1 ID" in out and "unknown ID" not in out
 
@@ -254,6 +256,17 @@ def test_a_song_owned_under_another_credit_says_which(capsys):
     # The column stays narrow; the spelling the file matched goes under the table.
     assert row.rstrip().endswith("✓ owned")
     assert "Owned under another spelling: #2 Robert Glasper" in out
+    # With a song whose title is spelt otherwise too, every one gets its whole label.
+    moon = ledger_item(
+        19, "33:25", "Armand Van Helden", "Full Moon (feat. Common)", "", "", "owned"
+    )
+    moon["accepted"]["matched_as"] = "Armand Val Helden Feat. Common - Full Moon"
+    both = [track, set_track(moon, SOUNDCLOUD)]
+    out = shown("set", {"name": "Set", "songs": 2, "owned": 2, "tracks": both}, 160, capsys)
+    assert (
+        "Owned under another spelling: #2 Robert Glasper - Move Love (Kaytranada Edition) · "
+        "#19 Armand Val Helden Feat. Common - Full Moon"
+    ) in " ".join(out.split())
 
 
 def test_a_song_maybe_yours_under_a_shorter_credit_is_off_the_shopping_list(capsys):

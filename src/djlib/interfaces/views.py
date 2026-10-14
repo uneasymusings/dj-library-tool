@@ -2399,7 +2399,9 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
             cells.append(track.get("shazamed") or "")
         cells.append(set_track_cell(term, track, timed=timed))
         if sure:
-            cells.append(sure_cell(term, track.get("confidence")))
+            # Every line counted as an ID says so; its guess is beside its name ("ID — maybe X").
+            id_line = track.get("own") == "id"
+            cells.append(sure_cell(term, "unidentified" if id_line else track.get("confidence")))
         cells.append(own_cell(term, track))
         grid.add_row(*cells)
     term.out.print(grid)
@@ -2421,16 +2423,22 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
             if track.get("confidence") not in {None, "confirmed"}
         ],
     )
-    return any(track.get("confidence") in UNSURE for track in shown)
+    return any(track.get("confidence") in UNSURE for track in shown if track.get("own") != "id")
 
 
 def spellings(term: Terminal, tracks: list[dict]) -> None:
     """ "Owned under another spelling: #2 Robert Glasper": the tracklist's credits a file
     matched where Shazam's are shown."""
-    found = [
-        f"#{track.get('position')} {credit}"
+    matched = [
+        (track, credit)
         for track in tracks
         if track.get("own") == "owned" and (credit := owned_as(track))
+    ]
+    # One form for the whole line: the credits alone when only they differ, else every label.
+    whole = any(credit == track.get("matched_as") for track, credit in matched)
+    found = [
+        f"#{track.get('position')} {track['matched_as'] if whole else credit}"
+        for track, credit in matched
     ]
     if found:
         term.out.print()
@@ -2914,7 +2922,10 @@ def identify_view(term: Terminal, result: dict) -> None:
                     f"~{start}" if track.get("approx") and start else start, track.get("listen_url")
                 ),
                 identified_track(term, track),
-                sure_cell(term, track.get("status")),
+                # An ID is an ID however likely its guess; the guess is beside its name.
+                sure_cell(
+                    term, "unidentified" if track.get("kind") == "unknown" else track.get("status")
+                ),
             )
         term.out.print(grid)
         # Why each line worth a listen is there, under the table at any width.
