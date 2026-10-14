@@ -44,12 +44,11 @@ SETTINGS = "Settings"
 AGENTS = "Assistants"
 MORE = "More"
 
+ADVANCED_URL = "https://github.com/uneasymusings/dj-library-tool/blob/main/docs/ADVANCED.md"
 EPILOG = (
-    "[bold]New here?[/]\n"
-    "[bold]djlib init --allow-root ~/Music[/] → [bold]djlib scan[/] → "
-    "[bold]djlib set tracklist.txt[/]\n\n"
-    "Advanced commands (delivery, organize, plan, export…) still work and are listed in "
-    "docs/ADVANCED.md. Output is JSON when piped or with [bold]--json[/]."
+    "[bold]New here?[/]  [bold]djlib set 'LINK'[/]  ·  [bold]djlib shazam status[/]  ·  "
+    "[bold]djlib set paste[/]\n\n"
+    f"More commands: {ADVANCED_URL}"
 )
 
 # Help lists panels in command order, so keep the journey order explicit.
@@ -100,8 +99,8 @@ def print_version(value: bool) -> None:
 app = typer.Typer(
     cls=JourneyGroup,
     help=(
-        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  From a tracklist to rekordbox and a verified USB, "
-        "using the music you own."
+        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]\n\n"
+        "Every track in a set, checked against your music, into rekordbox and onto USB."
     ),
     epilog=EPILOG,
     no_args_is_help=True,

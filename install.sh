@@ -85,6 +85,18 @@ if [ "${DJLIB_PLUGIN:-1}" != 0 ]; then
   fi
 fi
 
+# A folder dragged into Terminal arrives as /Volumes/DJ\ Drive/Music with a trailing space,
+# and a copied path may be quoted: trim, unquote and unescape it, then expand ~.
+folder_answer() {
+  answer=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+    -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/' -e 's/\\\(.\)/\1/g')
+  case "$answer" in
+    "~") printf '%s\n' "$HOME" ;;
+    "~/"*) printf '%s\n' "$HOME/${answer#\~/}" ;;
+    *) printf '%s\n' "$answer" ;;
+  esac
+}
+
 # Index the user's music once: only when nothing is set up yet, and only after asking (or
 # with DJLIB_MUSIC). Assistants running this skip it and ask the user themselves.
 unset_up() { "$djlib" status 2>/dev/null | grep -q '"WORKSPACE_REQUIRED"'; }
@@ -93,23 +105,21 @@ if unset_up; then
   if [ -n "${DJLIB_MUSIC+set}" ]; then
     music="${DJLIB_MUSIC}"
   elif [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
-    default="$HOME/Music"
-    printf '\033[1mWhere is your music?\033[0m [%s] (or "skip") ' "$default"
+    printf '\033[1mWhere is your music?\033[0m Drag the folder here, or press Enter for ~/Music (or type skip): '
     read -r answer </dev/tty || answer="skip"
-    case "$answer" in
-      "") music="$default" ;;
-      skip | SKIP) music="" ;;
-      "~"*) music="$HOME${answer#\~}" ;;
-      *) music="$answer" ;;
+    music=$(folder_answer "$answer")
+    case "$music" in
+      "") music="$HOME/Music" ;;
+      skip | Skip | SKIP) music="" ;;
     esac
   fi
 fi
 if [ -n "$music" ]; then
   if [ -d "$music" ]; then
-    say "Indexing $music in place (nothing is moved or retagged; big libraries take a few minutes)…"
+    say "Indexing $music in place (nothing is moved or retagged; about 4 minutes per 1,000 tracks)…"
     "$djlib" init --allow-root "$music" >/dev/null && "$djlib" scan || true
   else
-    echo "$music isn't a folder. Later: djlib init --allow-root FOLDER && djlib scan" >&2
+    printf '%s isn'\''t a folder. Later: djlib init "%s" && djlib scan\n' "$music" "$music" >&2
   fi
 fi
 
@@ -118,13 +128,19 @@ say "Done. Checking your setup:"
 echo
 if [ -n "$plugins" ]; then
   say "djlib is in$plugins: restart it, then ask for example:"
-  note "\"Here's tonight's tracklist. What do I own, what's missing? Put it in rekordbox and on my USB.\""
+  note "\"What's in this set and which tracks do I own? https://soundcloud.com/…\""
 fi
 if unset_up; then
-  echo "Next: djlib init --allow-root ~/Music   then   djlib scan   then   djlib set tracklist.txt"
+  say "First tell djlib where your music is:"
+  note "djlib init ~/Music && djlib scan"
+  say "Then try one of these:"
 else
-  echo "Next: djlib set tracklist.txt   (one 'Artist - Title (Mix)' per line; add --usb for your stick)"
+  say "Try one of these:"
 fi
+note "djlib set 'https://youtu.be/…'   every track in a set, and which you own"
+note "djlib shazam status              your Shazams, and the one command to check them"
+note "djlib set paste                  a tracklist you copied"
+note "Add --usb to finish on your USB stick. Put links in single quotes."
 if [ "$(uname -s)" = "Darwin" ]; then
   echo "rekordbox and USB steps need your terminal (and Claude Code or Codex) allowed under"
   echo "System Settings → Privacy & Security → Accessibility; djlib doctor shows whether it is."
