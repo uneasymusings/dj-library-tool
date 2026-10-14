@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 from datetime import date, timedelta
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -120,8 +120,11 @@ def test_tracklist_file_errors_say_whats_wrong(tmp_path, monkeypatch):
     assert refused.value.message.startswith("djlib can't read set.mp3 as text.")
     # A link typed without https:// gets the whole link back, quoted for zsh.
     with pytest.raises(AppError) as refused:
-        identify_cli.read_text_file(Path("youtu.be/abc123"))
+        identify_cli.read_text_file(Path("youtu.be/abc123"), given="youtu.be/abc123")
     assert refused.value.details["next"] == "djlib set 'https://youtu.be/abc123'"
+    # Without the typed words (requests create --text), Windows' backslashes still read as one.
+    windows = identify_cli.not_found(PureWindowsPath("youtu.be/abc123"), "djlib set paste")
+    assert windows.details["next"] == "djlib set 'https://youtu.be/abc123'"
 
 
 def test_a_missing_tracklist_shows_a_plain_title(application, tmp_path):
@@ -225,6 +228,29 @@ def test_paste_needs_a_mac_and_says_how_to_pipe_instead(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    ("system", "keys"), [("posix", "Ctrl-D on an empty line"), ("nt", "Ctrl-Z, then Enter")]
+)
+def test_typing_a_tracklist_in_says_how_to_finish(monkeypatch, capsys, system, keys):
+    import io
+    import os
+    import types
+
+    from tests.test_terminal import sized
+
+    class Typed:
+        buffer = io.BytesIO(b"Lumen - Halo\n")
+
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(identify_cli.sys, "stdin", Typed())
+    monkeypatch.setattr(identify_cli, "os", types.SimpleNamespace(name=system, environ=os.environ))
+    monkeypatch.setattr(terminal, "current", lambda: sized(100))
+    assert identify_cli.read_typed("-") == (None, "Lumen - Halo\n")
+    assert f"Paste the tracklist, then press {keys}." in capsys.readouterr().err
+
+
 def test_identify_and_tracklist_take_paste_too(application, monkeypatch, tmp_path):
     clipboard(monkeypatch, "Lumen - Halo\nBicep - Glue\n")
     (found,) = identify_cli.read_tracklists([Path("paste")])
@@ -264,7 +290,10 @@ def test_no_argument_shows_the_ways_in(application):
 
 
 def test_1001tracklists_links_point_to_paste(application, monkeypatch):
+    from djlib.sources import web
+
     FakeRekordbox(monkeypatch)
+    monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works
     link = "https://www.1001tracklists.com/tracklist/abc/some-set.html"
     reply = invoke(application, "set", link, pretty=True, columns=100)
     assert reply.exit_code == 2
@@ -569,10 +598,12 @@ def test_next_steps_line_up_only_when_every_one_fits(capsys, width):
         assert len({step.index("djlib") for step in steps}) == 1
 
 
-def test_a_long_label_puts_every_command_under_its_label(capsys):
+def test_a_long_label_puts_every_command_under_its_label(capsys, monkeypatch):
     from djlib.interfaces.set_sources import browser_only
+    from djlib.sources import web
     from tests.test_terminal import sized
 
+    monkeypatch.setattr(web, "clipboard", lambda: True)  # a Mac, where `paste` works
     with pytest.raises(AppError) as refused:
         browser_only("https://www.1001tracklists.com/tracklist/abc/x.html")
     terminal.render_error(sized(140), refused.value.as_dict())
