@@ -295,26 +295,29 @@ def provider_error(stderr: bytes) -> AppError:
     if any(marker in text for marker in ("sign in", "login required", "private video", "cookies")):
         return AppError(
             "SOURCE_AUTH_REQUIRED",
-            "The provider requires authentication; cookies are unsupported.",
+            "That page needs a login, and djlib doesn't sign in to it.",
             502,
         )
     if "429" in text or "too many requests" in text:
         return AppError(
-            "SOURCE_RATE_LIMITED", "The provider rate limited retrieval; retry later.", 502, True
+            "SOURCE_RATE_LIMITED",
+            "The site is turning djlib away for now; try again later.",
+            502,
+            True,
         )
     if re.search(r"http error 5\d\d", text):
         return AppError(
-            "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
+            "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
         )
     if any(marker in text for marker in UNAVAILABLE):
         # Removed, region-locked and DRM-protected uploads stay that way; retrying cannot help.
         return AppError(
             "SOURCE_UNAVAILABLE",
-            "The public recording is unavailable here (removed, region-locked or DRM-protected).",
+            "That recording isn't available here (removed, region-locked or DRM-protected).",
             502,
         )
     return AppError(
-        "SOURCE_FAILED", "The provider could not retrieve this public source.", 502, True
+        "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
     )
 
 
