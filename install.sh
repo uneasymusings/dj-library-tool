@@ -105,7 +105,7 @@ if unset_up; then
   if [ -n "${DJLIB_MUSIC+set}" ]; then
     music="${DJLIB_MUSIC}"
   elif [ -t 1 ] && (: </dev/tty) 2>/dev/null; then
-    printf '\033[1mWhere is your music?\033[0m Drag the folder here, or press Enter for ~/Music (or type skip): '
+    printf '\033[1mWhere is your music?\033[0m Drag the folder here, Enter for ~/Music, or type skip: '
     read -r answer </dev/tty || answer="skip"
     music=$(folder_answer "$answer")
     case "$music" in
@@ -138,7 +138,7 @@ else
   say "Try one of these:"
 fi
 note "djlib set 'https://youtu.be/…'   every track in a set, and which you own"
-note "djlib shazam status              your Shazams, and the one command to check them"
+note "djlib shazam status              your Shazams, and how to check them"
 note "djlib set paste                  a tracklist you copied"
 note "Add --usb to finish on your USB stick. Put links in single quotes."
 if [ "$(uname -s)" = "Darwin" ]; then
