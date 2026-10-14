@@ -3430,6 +3430,23 @@ REQUEST_STATES = {
     "maybe": ("maybe", "warn", "maybe yours"),
 }
 ID_LABEL = re.compile(r"^\s*(?:id\s*-\s*)?id\s*$", re.IGNORECASE)  # "ID - ID" is an ID
+# An ID's guess in its notes, as the review page reads it (app.js idHint): "ID (likely X): …",
+# or a part "possibly X (Shazam heard it at 50:09)".
+LIKELY_ID = re.compile(r"^ID \(likely (.+?)\): ")
+GUESSED = re.compile(
+    r"^possibly (.+?) \([A-Z][\w.&' -]*?(?: heard |, )[^;]*\d:\d\d[^;]*\)$", re.IGNORECASE
+)
+
+
+def id_guess(notes: object) -> str | None:
+    """ "likely X" or "maybe X": what djlib heard where an ID plays, from its notes."""
+    text = str(notes or "")
+    if found := LIKELY_ID.match(text):
+        return f"likely {found.group(1)}"
+    for part in text.split("; "):
+        if found := GUESSED.match(part):
+            return f"maybe {found.group(1)}"
+    return None
 
 
 def maybe_file(item: dict) -> dict | None:
@@ -3625,6 +3642,9 @@ def request_view(term: Terminal, result: dict) -> None:
         if source.get("kind") == "unknown":
             label_text = str(source.get("label") or "ID")
             requested = Text("ID" if ID_LABEL.match(label_text) else label_text, style="muted")
+            if guess := id_guess(source.get("notes")):
+                # As `djlib set` says it: "ID — maybe X", a guess never the ID's name.
+                requested.append(f" {'—' if term.unicode else '-'} {guess}", style="muted")
             if source.get("timestamp"):
                 requested.append(f"  @ {source['timestamp']}", style="muted")
         else:
@@ -3681,8 +3701,10 @@ def request_view(term: Terminal, result: dict) -> None:
     if any(maybe_file(item) for item in result.get("items") or []):
         steps.append(("Check the songs that may be yours", ("ui",)))
     if owned and crate.get("tracks") == size:
-        # Collecting again would only find this same crate.
+        # Collecting again would only find this same crate; where it goes next, as `set` says.
         steps.append(("See the crate", ("crate", crate["collection_id"])))
+        steps.append(("Put it in rekordbox", ("rekordbox", "push", crate["collection_id"])))
+        steps.append(("Or straight onto your USB", ("rekordbox", "usb", crate["collection_id"])))
     elif owned:
         steps.append(
             (
