@@ -28,6 +28,7 @@ from djlib.domain.request_contracts import (
     RequestResolution,
 )
 from djlib.interfaces.rekordbox_cli import set_item
+from djlib.interfaces.views import spelled_as
 from djlib.persistence.models import Job
 from djlib.persistence.request_models import RequestLedger
 from tests.conftest import execute
@@ -609,9 +610,9 @@ def test_report_refuses_escape_through_existing_exports_symlink(ledger_app, tmp_
         {"kind": "unknown"},
         {"kind": "unknown", "label": "ID", "timestamp": "1:02", "artist": "Guess"},
         {"kind": "unknown", "label": "ID", "source_url": "file:///private/music"},
-        # An ID has no spelling to own it under; a named song has at most one more.
+        # An ID has no spelling to own it under; a named song has at most three more.
         {"kind": "unknown", "label": "ID", "also": [{"artist": "Guess", "title": "Song"}]},
-        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T"}] * 2},
+        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T"}] * 4},
         {"artist": "A", "title": "T", "also": [{"artist": "B"}]},
         {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T", "source": "x" * 41}]},
     ],
@@ -724,6 +725,20 @@ async def test_a_song_is_owned_under_the_listings_spelling_too(ledger_app, audio
     assert plain["state"] == "missing" and plain["accepted"] is None
     collection = requests.collect_request(ledger_app, result["request_id"], result["revision"])
     assert collection["state"] == "queued"
+
+
+async def test_each_listings_spelling_is_tried_in_turn(ledger_app, audio_factory):
+    """A pasted tracklist spells the song one way and MixesDB another: the file is found under
+    whichever spelling it is tagged with, and says which."""
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    pasted = listed_as(artist="Robert Glasper Exp.", source="file")
+    item = create(ledger_app, [named(**GLASPER, also=[pasted, listed_as()])])["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["accepted"]["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert item["accepted"]["matched_as_source"] == "mixesdb"
+    assert spelled_as(item) == "Robert Glasper"
 
 
 async def test_another_spelling_never_loosens_the_mix(ledger_app, audio_factory):
@@ -958,6 +973,23 @@ async def test_the_same_set_checked_again_updates_its_list_in_place(ledger_app, 
     assert same_list(ledger_app, again, "identified:a16")["revision"] == 4
     with ledger_app.db.transaction() as session:
         assert session.scalar(select(func.count()).select_from(RequestLedger)) == 1
+
+
+def test_a_set_checked_again_with_a_pasted_tracklist_keeps_its_list(ledger_app):
+    """1001Tracklists writes "ft." and other capitals where MixesDB writes "Feat.": the same
+    songs, so the same set (and crate), not a second one under the same name."""
+    first = same_list(
+        ledger_app,
+        [named(artist="Full Crate Feat. Papa Ghana", title="L'afrique"), named()],
+        "identified:mixesdb",
+    )
+    again = same_list(
+        ledger_app,
+        [named(artist="Full Crate ft. Papa Ghana", title="L'Afrique"), named()],
+        "identified:pasted",
+    )
+    assert again["request_id"] == first["request_id"] and again["reused"] is True
+    assert again["items"][0]["input"]["artist"] == "Full Crate ft. Papa Ghana"
 
 
 def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):

@@ -346,19 +346,19 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
     return result
 
 
-def _also(requested: dict) -> dict | None:
-    """A named item's other spelling (``also``) as request labels, or None."""
+def _also(requested: dict) -> list[dict]:
+    """A named item's other spellings (``also``) as request labels, in order."""
     credits = requested.get("also") or [] if requested["kind"] == "named" else []
-    if not credits:
-        return None
-    credit = credits[0]
-    return {
-        "kind": "named",
-        "artist": credit["artist"],
-        "title": credit["title"],
-        "version": credit.get("version") or "",
-        "source": credit.get("source") or "",
-    }
+    return [
+        {
+            "kind": "named",
+            "artist": credit["artist"],
+            "title": credit["title"],
+            "version": credit.get("version") or "",
+            "source": credit.get("source") or "",
+        }
+        for credit in credits
+    ]
 
 
 def _label(labels: dict) -> str:
@@ -379,9 +379,9 @@ def _refresh_item(app, item, verification):
     candidates, truncated = _catalog_candidates(app, item, verification, recording_id, revision_id)
     exact = _matches(candidates, requested, verification)
     matched_as = None
-    if not exact and (credit := _also(requested)):
+    for credit in [] if exact else _also(requested):
         # A song shown under Shazam's credits ("Robert Glasper Experiment") may be filed under
-        # the listing's ("Robert Glasper"): the same exact rule, for that spelling.
+        # a listing's ("Robert Glasper"): the same exact rule, for each spelling in turn.
         found, more = _catalog_candidates(
             app, {"input": credit}, verification, recording_id, revision_id
         )
@@ -391,7 +391,9 @@ def _refresh_item(app, item, verification):
         seen = {candidate["asset_revision_id"] for candidate in candidates}
         candidates += [c for c in found if c["asset_revision_id"] not in seen]
         truncated = truncated or more
-        matched_as = credit if exact else None
+        if exact:
+            matched_as = credit
+            break
     item["candidates"], item["candidates_truncated"] = candidates, truncated
     eligible = [c for c in exact if c["availability"] == "verified"]
     if selected and selected.get("asset_revision_id"):
@@ -596,10 +598,13 @@ def create_request(app, request: RequestCreate, same_list: bool = False) -> dict
 
 
 def _songs(items: list[dict]) -> list:
-    """What makes two lists the same set: each song's artist, title and version, and where its
-    IDs are. Notes, times, links, other spellings and how sure djlib is are evidence."""
+    """What makes two lists the same set: each song's credited names, title and version as
+    request matching compares them (case, "feat." or "ft." and the order of names aside), and
+    where its IDs are. Notes, times, links, other spellings and how sure djlib is are evidence:
+    a set checked again with a tracklist pasted from 1001Tracklists ("Full Crate ft. Papa
+    Ghana - L'Afrique" for MixesDB's "Feat. … L'afrique") is the same set."""
     return [
-        _identity(item["artist"], item["title"], item["version"])
+        credit_form(item["artist"], item["title"], item["version"])
         if item["kind"] == "named"
         else None
         for item in items
@@ -714,7 +719,7 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
             value = item["input"]
             labels = recording.artist, recording.title, recording.version
             if value["kind"] == "named" and not any(
-                _equivalent(labels, spelling) for spelling in (value, _also(value)) if spelling
+                _equivalent(labels, spelling) for spelling in (value, *_also(value))
             ):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",

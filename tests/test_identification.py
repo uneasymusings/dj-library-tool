@@ -928,6 +928,17 @@ async def test_a_given_tracklist_with_an_unknown_source_is_a_tracklist_file(appl
     assert saved[0]["source"] == "file"
 
 
+async def test_a_remembered_tracklist_says_its_skipped_lines_only_when_given(application, setup):
+    """A tracklist given once is used again for the set, quietly: its label lines were said
+    when the DJ pasted it, not on every later check."""
+    listing = {"source": "1001tracklists", "text": "Lumen - Halo\nBLUE NOTE\nNia Okoro - Slow Burn"}
+    given = (await run(application, submit(application, tracklists=[listing])))["result"]
+    assert [line["text"] for line in given["skipped_lines"]] == ["BLUE NOTE"]
+    later = (await run(application, submit(application)))["result"]
+    assert later["reused"] is True and later["skipped_lines"] == []
+    assert later["tracklist"] == given["tracklist"]  # the remembered tracklist still counts
+
+
 async def test_listening_again_keeps_the_earlier_tracklist_until_it_finishes(application, setup):
     first = (await run(application, submit(application)))["result"]
     setup.listener.failures[9.0] = AppError(
