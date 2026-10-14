@@ -99,7 +99,7 @@ Errors:
 - `RECOGNITION_RATE_LIMITED`, `RECOGNITION_UNAVAILABLE`, `RECOGNITION_FAILING` (Shazam couldn't hear many parts of the set in a row, or over a quarter of it), `DISK_FULL`: what was heard is saved (`details.resumes: true`). Fix the cause if there is one, then run the same command later; it continues.
 - `SET_PREVIEW_ONLY`, `SOURCE_BROWSER_ONLY`, `TRACKLIST_NOT_FOUND`: as for `set` above. `SOURCE_UNSUPPORTED`: not a YouTube or SoundCloud link (`djlib_source_inspect` answers a 1001Tracklists link with it too; its message and `next` say what works). `SINGLE_SOURCE_REQUIRED`: a playlist or channel page.
 
-The first identification with Shazam (the default) in a workspace adds a notice: djlib uses Shazam's service the way the Shazam app does, unofficially, so it may slow down or stop working. Licensed services need the user's own account and keys in the background service's environment: `DJLIB_RECOGNIZER=audd` with `DJLIB_AUDD_TOKEN`, or `DJLIB_RECOGNIZER=acrcloud` with `DJLIB_ACRCLOUD_HOST`, `DJLIB_ACRCLOUD_KEY` and `DJLIB_ACRCLOUD_SECRET`. A set identified with one service is reused with a notice when another is asked for; `--again` listens with the new one. The audio is deleted after a successful listen (`DJLIB_KEEP_SET_AUDIO=1` keeps it). Notices also say when the download came out short and when Shazam couldn't hear some minutes of the set (those parts count as not heard).
+The first identification with Shazam (the default) in a workspace adds a notice: djlib uses Shazam's service the way the Shazam app does, unofficially, so it may slow down or stop working. Licensed services need the user's own account and keys in the background service's environment: `DJLIB_RECOGNIZER=audd` with `DJLIB_AUDD_TOKEN`, or `DJLIB_RECOGNIZER=acrcloud` with `DJLIB_ACRCLOUD_HOST`, `DJLIB_ACRCLOUD_KEY` and `DJLIB_ACRCLOUD_SECRET`. A set identified with one service is reused with a notice when another is asked for; `--again` listens with the new one. The audio is deleted after a successful listen (`DJLIB_KEEP_SET_AUDIO=1` keeps it). `DJLIB_MIXESDB=off` there turns MixesDB lookups off. Notices also say when the download came out short and when Shazam couldn't hear some minutes of the set (those parts count as not heard).
 
 ## Shazam history
 
@@ -129,7 +129,7 @@ Errors:
 ## Saved sets, shopping lists and crates
 
 ```bash
-djlib requests                                  # the sets you checked, newest first, with owned/missing counts
+djlib requests                                  # the sets you checked, last checked first, with owned/missing counts
 djlib requests get SET                          # each song, owned or missing (items carry `shop`)
 djlib requests report SET                       # the shopping list: store links, saved as "<set> - to buy.txt"
 djlib requests refresh SET                      # check it again, e.g. after a scan
