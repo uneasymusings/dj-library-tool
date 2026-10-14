@@ -1644,13 +1644,43 @@ def test_request_view_offers_the_crate_it_already_has(capsys):
         "crate": {"collection_id": COLLECTION, "tracks": 2},
     }
     out = render("requests get", request, width=160, capsys=capsys)
-    assert f"See the crate  djlib crate {SHORT_COLLECTION}" in out
+    steps = [" ".join(line.split()) for line in out.split("Next\n", 1)[1].splitlines()]
+    # Where the crate goes next, as `djlib set` says it.
+    assert steps == [
+        f"→ See the crate djlib crate {SHORT_COLLECTION}",
+        f"→ Put it in rekordbox djlib rekordbox push {SHORT_COLLECTION}",
+        f"→ Or straight onto your USB djlib rekordbox usb {SHORT_COLLECTION}",
+    ]
     assert "Build the crate" not in out and "Revision" not in out and REQUEST not in out
     # A crate made before more songs were found is built again.
     stale = render(
         "requests get", {**request, "crate": {**request["crate"], "tracks": 1}}, capsys=capsys
     )
     assert "Build the crate from the 2 songs you own" in stale
+
+
+def test_request_view_gives_an_id_its_guess_as_set_does(capsys):
+    notes = (
+        "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I Got "
+        "(Chris Fortier 20yr Dub) (Shazam heard it once at 50:09); possibly BR1S4 - THIS IS "
+        "BRAZIL (Shazam heard it at 51:09 and 56:39)"
+    )
+    unknown = {"kind": "unknown", "label": "ID", "timestamp": "48:30"}
+    items = [
+        {"position": 11, "state": "unknown", "input": {**unknown, "notes": notes}},
+        {"position": 12, "state": "unknown", "input": {**unknown, "notes": "Listed as an ID"}},
+        {
+            "position": 13,
+            "state": "unknown",
+            "input": {**unknown, "notes": "ID (likely Antdot - Mirage): Shazam heard it at 05:39"},
+        },
+    ]
+    request = {"request_id": REQUEST, "name": "Keinemusik", "total_items": 3, "items": items}
+    out = " ".join(render("requests get", request, width=200, capsys=capsys).split())
+    guess = "maybe Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)"
+    assert f"ID — {guess} @ 48:30" in out
+    assert "12 ○ ID ID @ 48:30" in out
+    assert "ID — likely Antdot - Mirage @ 48:30" in out
 
 
 def test_crates_say_where_each_one_went(capsys):
