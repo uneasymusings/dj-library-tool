@@ -706,7 +706,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         A set link whose tracklist is missing or has IDs is listened to (see djlib identify).
 
-        djlib set shazam takes the songs you Shazamed; shazam:new only those since last time.
+        djlib set shazam takes the songs you Shazamed, oldest first, 1,000 at a time.
+
+        shazam:2026-09-13 takes only those since that date; shazam:new only those since last time.
 
         Matches exact artist/title/version; other versions are never swapped in.
 
@@ -1008,7 +1010,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
             # Only now: when a step above fails, rerunning shazam:new rebuilds the same list
             # (same idempotency key) and finishes it.
-            remember_import(workspace, shazam, request["request_id"])
+            remember_import(workspace, shazam, request["request_id"], result["collection_id"])
         reply = envelope(result)
         reply["warnings"] = [*reply.get("warnings", []), *warnings]
         emit(reply)

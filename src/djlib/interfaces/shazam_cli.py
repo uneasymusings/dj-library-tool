@@ -6,6 +6,7 @@ owned/missing, downloads, a crate, rekordbox and USB like any other set.
 
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -46,40 +47,57 @@ def labels(item: dict) -> tuple[str, str, str]:
 
 
 def note(item: dict) -> str:
-    """ "Shazamed 2026-10-02 21:14 · Berlin" in this Mac's time zone."""
+    """ "Shazamed 2026-10-02 21:14 · Berlin" in this Mac's time zone (no bare coordinates)."""
     parts = []
     if item.get("shazamed_at"):
         parts.append(f"Shazamed {shazam_history.local_time(item['shazamed_at'])}")
-    if item.get("location"):
-        parts.append(str(item["location"]))
+    if place := shazam_history.place_name(item.get("location")):
+        parts.append(str(place))
     return " · ".join(parts)[:4000]
 
 
 def describe(loaded: dict, songs: int) -> str:
     """ "Music Recognition on this Mac, 42 songs since 2026-10-01"."""
     where = " + ".join(source["label"] for source in loaded["sources"]) or "Shazam"
-    text = f"{where}, {songs} song{'s' if songs != 1 else ''}"
+    text = f"{where}, {songs:,} song{'s' if songs != 1 else ''}"
     if loaded["since"]:
-        text += f" since {shazam_history.local_time(loaded['since']).removesuffix(' 00:00')}"
+        text += f" since {shazam_history.local_time(loaded['since'])}"
     return text
 
 
 def nothing_new(loaded: dict) -> AppError:
-    """SHAZAM_NOTHING_NEW, naming the last import's list for ``shazam:new``."""
-    start = shazam_history.local_time(loaded["since"])
-    details = {"since": loaded["since"], "songs_in_history": loaded["total"]}
-    again = "Shazam some songs, give them a few minutes to sync, then run this again."
+    """SHAZAM_NOTHING_NEW: a normal state, not a failure (a terminal shows it calmly), with
+    the last Shazam crate as the next step for ``shazam:new``."""
+    since = loaded["since"]
+    when = f" since {shazam_history.day_time(since)}" if since else ""
+    details = {"since": since, "songs_in_history": loaded["total"]}
+    again = "Shazam some songs, wait a few minutes for them to sync, then run this again."
     if not loaded["new"]:
-        message = f"Nothing was Shazamed since {start}. {again}"
-        return AppError("SHAZAM_NOTHING_NEW", message, details=details)
-    last = loaded["last_import"] or {}
-    details["last_import"] = {key: last.get(key) for key in ("request_id", "name", "imported_at")}
-    message = f"Nothing new was Shazamed after {start} (the newest Shazam you imported). {again}"
-    if last.get("request_id"):
-        message += (
-            f" Your last import is the list “{last.get('name') or 'Shazam'}”: "
-            f"djlib requests get {short_id(last['request_id'])}"
+        details.update(
+            headline=f"Nothing Shazamed{when}",
+            next="djlib shazam list",
+            next_label="See what you Shazamed",
         )
+    else:
+        # ``since`` is the newest Shazam imported last time.
+        last = loaded["last_import"] or {}
+        details["last_import"] = {
+            key: last.get(key) for key in ("request_id", "collection_id", "name", "imported_at")
+        }
+        details["headline"] = f"Nothing new{when}"
+        # The list holding that Shazam, which an older list imported since doesn't.
+        newest = last.get("newest_list") or last
+        if newest.get("collection_id"):
+            details.update(
+                next=f"djlib crate {short_id(newest['collection_id'])}",
+                next_label="Your last Shazam crate",
+            )
+        elif newest.get("request_id"):  # none of its songs were owned, so it has no crate
+            details.update(
+                next=f"djlib requests get {short_id(newest['request_id'])}",
+                next_label="Your last Shazam list",
+            )
+    message = f"{details['headline']}. {again}"
     return AppError("SHAZAM_NOTHING_NEW", message, details=details)
 
 
@@ -126,7 +144,16 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
         items, used = items[:MAX_SONGS], used[:MAX_SONGS]
     else:
         items, used = items[remaining:], used[remaining:]
-    title = (name or loaded["name"])[:300]
+    first_times = [item["shazamed_at"] for item in used if item["shazamed_at"]]
+    first = min(first_times, default=None)
+    # With songs left over, shazam:new continues after the last first Shazam in this list,
+    # skipping repeats of its songs up to newest_in_history (shazam_history.unseen).
+    newest = (
+        max(first_times, default=None) if remaining and continues else shazam_history.newest(used)
+    )
+    next_spec = continuation(workspace, newest) if remaining and continues else None
+    # Named after the days it covers, so a crate or playlist says which nights it holds.
+    title = (name or shazam_history.set_name(loaded["sources"], first, newest))[:300]
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
     digest = hashlib.sha256(f"{title}\n{parsed}".encode()).hexdigest()[:16]
     body = RequestCreate(name=title, items=items, idempotency_key=f"shazam:{digest}")
@@ -137,27 +164,21 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     if left_out:
         warnings.append(f"Left out {plural(left_out, 'Shazam')} without an artist or title.")
     if remaining and continues:
-        warnings.append(
-            f"This list has your first {MAX_SONGS} Shazams; run djlib set shazam:new "
-            f"afterwards for the other {remaining}."
-        )
+        # Dates as in the list's name; the command is under Next, in one piece.
+        days = f" ({shazam_history.day_range(first, newest)})" if first and newest else ""
+        rest = "the other one comes" if remaining == 1 else f"the other {remaining:,} come"
+        warnings.append(f"This list has your oldest {MAX_SONGS:,} Shazams{days}; {rest} next.")
     elif remaining:
         if all(item["shazamed_at"] for item in left):
-            which = f"your {remaining} oldest Shazam{'s' if remaining != 1 else ''}"
+            which = f"your {remaining:,} oldest Shazam{'s' if remaining != 1 else ''}"
         else:
             where = (
                 shazam_history.LABELS["apple_music"]
                 if source == shazam_history.APPLE_MUSIC
                 else Path(source).name
             )
-            which = f"the first {plural(remaining, 'song')} in {where}"
-        warnings.append(f"A list holds {MAX_SONGS} songs, so this one leaves out {which}.")
-    first_times = [item["shazamed_at"] for item in used if item["shazamed_at"]]
-    # With songs left over, shazam:new continues after the last first Shazam in this list,
-    # skipping repeats of its songs up to newest_in_history (shazam_history.unseen).
-    newest = (
-        max(first_times, default=None) if remaining and continues else shazam_history.newest(used)
-    )
+            which = f"the first {remaining:,} song{'s' if remaining != 1 else ''} in {where}"
+        warnings.append(f"A list holds {MAX_SONGS:,} songs, so this one leaves out {which}.")
     summary = {
         "name": title,
         "description": describe(loaded, len(items)),
@@ -166,13 +187,29 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
         "new": loaded["new"],
         "songs": len(items),
         "songs_in_history": loaded["total"],
-        "first_shazamed_at": min(first_times, default=None),
+        "first_shazamed_at": first,
         "newest_shazamed_at": newest,
         "newest_in_history": loaded["newest_in_history"],
         "left_out": left_out,
         "remaining": remaining,
+        # The djlib set argument that brings the ``remaining`` songs, when one does.
+        "next_spec": next_spec,
     }
     return body, warnings, summary
+
+
+def continuation(workspace, through: str | None) -> str:
+    """What brings the songs after a list of this Mac's oldest 1,000 that ends at ``through``.
+
+    shazam:new continues from the newest Shazam imported, so it does when this list sets that
+    mark (remember_import). After a newer import, e.g. the last 30 days first, it would find
+    nothing new: the list that starts on this list's last day does (a few songs of that day
+    come again).
+    """
+    mark = (shazam_history.last_import(workspace) or {}).get("newest_shazamed_at")
+    if not through or not mark or datetime.fromisoformat(through) >= datetime.fromisoformat(mark):
+        return "shazam:new"
+    return f"shazam:{shazam_history.local_time(through)[:10]}"
 
 
 def list_result(
@@ -186,14 +223,24 @@ def list_result(
     loaded = shazam_history.load(source, since, workspace)
     records = loaded["records"]
     spec = f"shazam:{source or since}" if source or since else "shazam"
-    # Newest first; songs without a time go last, in the order of the file.
+
+    def latest(item: dict) -> str | None:
+        return item.get("last_shazamed_at") or item["shazamed_at"]
+
+    # Newest first by the latest Shazam, so last night's re-Shazam is on top; songs without
+    # a time go last, in the order of the file. (A set keeps the order you first heard them.)
     newest_first = sorted(
-        records,
-        key=lambda item: (item["shazamed_at"] is not None, item["shazamed_at"] or ""),
-        reverse=True,
+        records, key=lambda item: (latest(item) is not None, latest(item) or ""), reverse=True
     )
+    whole = source is None and since is None and records
     return {
         "spec": None if source and since else spec,
+        # For "my recent Shazams": spec "shazam" is the whole history, oldest first.
+        "recent_spec": (
+            f"shazam:{shazam_history.recent_since(shazam_history.newest(records))[0]}"
+            if whole
+            else None
+        ),
         "query": {"since": since, "from": source},
         "songs": len(records),
         "songs_in_history": loaded["total"],
