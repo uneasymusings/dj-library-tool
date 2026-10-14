@@ -1695,3 +1695,40 @@ def test_upgrade_says_from_and_to(capsys, result, headline):
     assert out.splitlines()[0] == headline
     assert ("Release notes  https://e/notes" in out) is (result["latest"] != result["current"])
     assert ("djlib upgrade" in out) is (result["update_available"] and not result["updated"])
+
+
+def test_progress_and_notices_speak_dj_words(monkeypatch):
+    """ "Reading your music" while a scan runs, the Ctrl-C hint only while there's something to
+    leave running, and no environment variables in the Shazam notice."""
+    from djlib.application import identification
+
+    class Recorder:
+        def __init__(self):
+            self.details: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def add_task(self, label, total=None, detail=""):
+            self.label = label
+            return 1
+
+        def update(self, task, total=None, completed=None, detail=""):
+            self.details.append(detail)
+
+    class Client:
+        def request(self, method, path):
+            return {"result": {"job_id": "job_1", "kind": "scan", "state": "completed"}}
+
+    shown = Recorder()
+    monkeypatch.setattr(terminal, "progress_bar", lambda term: shown)
+    monkeypatch.setattr(terminal.time, "sleep", lambda seconds: None)
+    running = {"job_id": "job_1", "kind": "scan", "state": "queued", "counts": {}}
+    terminal.follow(sized(80), Client(), running)
+    assert shown.label == "Reading your music"
+    assert shown.details == ["waiting its turn · ctrl-c: keep going in the background", ""]
+    assert "DJLIB_RECOGNIZER" not in identification.UNOFFICIAL_SHAZAM
+    assert identification.UNOFFICIAL_SHAZAM.endswith("djlib doctor shows how.")

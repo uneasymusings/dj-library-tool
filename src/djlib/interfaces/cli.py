@@ -141,7 +141,9 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 jobs = typer.Typer(help="Watch and control background jobs.", no_args_is_help=True)
-reviews = typer.Typer(help="Resolve metadata conflicts found while indexing.", no_args_is_help=True)
+reviews = typer.Typer(
+    help="Songs whose tags disagree, found while reading your music.", no_args_is_help=True
+)
 service = typer.Typer(help="Start, stop or check the background service.", no_args_is_help=True)
 mcp = typer.Typer(help="Serve djlib's tools to an assistant over MCP.", no_args_is_help=True)
 delivery = typer.Typer(
@@ -838,9 +840,9 @@ def source_inspect(
 def library(
     ctx: typer.Context,
     words: Annotated[
-        list[str] | None, typer.Argument(metavar="[QUERY]", help="Artist, title or version.")
+        list[str] | None, typer.Argument(metavar="[QUERY]", help="Artist, title or mix.")
     ] = None,
-    query: str = typer.Option("", "--query", "-q", help="Match artist, title or version."),
+    query: str = typer.Option("", "--query", "-q", help="Match artist, title or mix."),
     limit: int = typer.Option(20, min=1, max=100),
     after: str | None = typer.Option(None, help="Cursor from the previous page."),
 ) -> None:
