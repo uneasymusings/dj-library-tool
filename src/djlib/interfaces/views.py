@@ -1501,6 +1501,8 @@ def upgrade_view(term: Terminal, result: dict) -> None:
         next_steps(term, [("Install it", ("upgrade",))])
     elif result.get("updated"):
         next_steps(term, [("Check your setup", ("doctor",))])
+    elif missing and result.get("repair_available"):
+        next_steps(term, [("Add song recognition", ("upgrade",))])
 
 
 @view("setup-agent")
