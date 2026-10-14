@@ -848,25 +848,51 @@ def remember_import(
 ) -> dict | None:
     """Keep the newest Shazam time imported from this Mac's history, so shazam:new starts
     after it. It never moves back, and imports from a file or Apple Music leave it alone
-    (None). Lists cut at 1000 songs are kept in ``held`` (see ``unseen``). The crate is kept
-    so "nothing new" can point to it."""
+    (None). Lists cut at 1000 songs are kept in ``held`` (see ``unseen``), and the rest of
+    one that shazam:new can't bring in ``pending``. The list holding the newest Shazams is
+    kept in ``newest_list``, so "nothing new" points to its crate, not an older list's."""
     if not from_this_mac(summary):
         return None
     previous = last_import(workspace) or {}
     marks = (previous.get("newest_shazamed_at"), summary.get("newest_shazamed_at"))
     mark = max(filter(None, marks), key=datetime.fromisoformat, default=None)
+    this = {"name": summary.get("name"), "request_id": request_id, "collection_id": collection_id}
+    newest_list = this
+    # An older list (the whole history after the last 30 days) leaves the mark where it was.
+    if previous and summary.get("newest_shazamed_at") != mark:
+        newest_list = previous.get("newest_list") or {key: previous.get(key) for key in this}
     entry = {
         "imported_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "newest_shazamed_at": mark,
         "songs": summary.get("songs"),
-        "name": summary.get("name"),
-        "request_id": request_id,
-        "collection_id": collection_id,
+        **this,
         "sources": [source.get("source") for source in summary.get("sources") or []],
         "held": held(previous, summary, mark),
+        "newest_list": newest_list,
+        "pending": pending(previous, summary),
     }
     atomic_json(state_file(workspace), {"last_import": entry})
     return entry
+
+
+def pending(previous: dict, summary: dict) -> dict | None:
+    """{spec, songs, since}: the list that brings the rest of a list cut at 1000 songs when
+    shazam:new can't (its ``next_spec`` is a date), so status keeps offering it. It stays
+    until an import reads from that day or earlier (the whole history, or an earlier date).
+    """
+    kept = previous.get("pending")
+    if not (isinstance(kept, dict) and kept.get("since")):
+        kept = None
+    elif not summary.get("new"):
+        start = summary.get("since")
+        if not start or datetime.fromisoformat(start) <= datetime.fromisoformat(kept["since"]):
+            kept = None
+    spec = summary.get("next_spec") or ""
+    if summary.get("remaining") and spec.startswith("shazam:") and spec != "shazam:new":
+        moment, _, _ = since_moment(spec.removeprefix("shazam:"), None)
+        since = moment.astimezone(UTC).isoformat(timespec="seconds") if moment else None
+        kept = {"spec": spec, "songs": summary["remaining"], "since": since}
+    return kept
 
 
 def held(previous: dict, summary: dict, mark: str | None) -> list[dict]:
@@ -1198,6 +1224,9 @@ def status(workspace=None) -> dict:
         "ready": bool(history),
         "songs": len(history),
         "newest_shazamed_at": newest(history),
+        # What to check first for "my recent Shazams": `djlib set shazam` alone is the whole
+        # history, oldest first.
+        "recent_spec": f"shazam:{recent_since(newest(history))[0]}" if history else None,
         "sources": sources,
         "last_import": previous,
         "new_since_last_import": fresh,

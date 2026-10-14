@@ -59,7 +59,7 @@ def note(item: dict) -> str:
 def describe(loaded: dict, songs: int) -> str:
     """ "Music Recognition on this Mac, 42 songs since 2026-10-01"."""
     where = " + ".join(source["label"] for source in loaded["sources"]) or "Shazam"
-    text = f"{where}, {songs} song{'s' if songs != 1 else ''}"
+    text = f"{where}, {songs:,} song{'s' if songs != 1 else ''}"
     if loaded["since"]:
         text += f" since {shazam_history.local_time(loaded['since'])}"
     return text
@@ -85,14 +85,16 @@ def nothing_new(loaded: dict) -> AppError:
             key: last.get(key) for key in ("request_id", "collection_id", "name", "imported_at")
         }
         details["headline"] = f"Nothing new{when}"
-        if last.get("collection_id"):
+        # The list holding that Shazam, which an older list imported since doesn't.
+        newest = last.get("newest_list") or last
+        if newest.get("collection_id"):
             details.update(
-                next=f"djlib crate {short_id(last['collection_id'])}",
+                next=f"djlib crate {short_id(newest['collection_id'])}",
                 next_label="Your last Shazam crate",
             )
-        elif last.get("request_id"):  # none of its songs were owned, so it has no crate
+        elif newest.get("request_id"):  # none of its songs were owned, so it has no crate
             details.update(
-                next=f"djlib requests get {short_id(last['request_id'])}",
+                next=f"djlib requests get {short_id(newest['request_id'])}",
                 next_label="Your last Shazam list",
             )
     message = f"{details['headline']}. {again}"
@@ -162,12 +164,10 @@ def set_request(spec: str, name: str | None, workspace) -> tuple:
     if left_out:
         warnings.append(f"Left out {plural(left_out, 'Shazam')} without an artist or title.")
     if remaining and continues:
-        local = shazam_history.local_time
-        days = f" ({local(first)[:10]} to {local(newest)[:10]})" if first and newest else ""
-        warnings.append(
-            f"This list has your oldest {MAX_SONGS:,} Shazams{days}; the next {remaining:,} "
-            f"come with djlib set {next_spec}."
-        )
+        # Dates as in the list's name; the command is under Next, in one piece.
+        days = f" ({shazam_history.day_range(first, newest)})" if first and newest else ""
+        rest = "the other one comes" if remaining == 1 else f"the other {remaining:,} come"
+        warnings.append(f"This list has your oldest {MAX_SONGS:,} Shazams{days}; {rest} next.")
     elif remaining:
         if all(item["shazamed_at"] for item in left):
             which = f"your {remaining:,} oldest Shazam{'s' if remaining != 1 else ''}"
@@ -232,8 +232,15 @@ def list_result(
     newest_first = sorted(
         records, key=lambda item: (latest(item) is not None, latest(item) or ""), reverse=True
     )
+    whole = source is None and since is None and records
     return {
         "spec": None if source and since else spec,
+        # For "my recent Shazams": spec "shazam" is the whole history, oldest first.
+        "recent_spec": (
+            f"shazam:{shazam_history.recent_since(shazam_history.newest(records))[0]}"
+            if whole
+            else None
+        ),
         "query": {"since": since, "from": source},
         "songs": len(records),
         "songs_in_history": loaded["total"],
