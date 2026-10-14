@@ -346,6 +346,90 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
     return result
 
 
+# Files that may be the song under a shorter or longer artist credit, offered for the DJ to
+# confirm ("maybe yours"); never owned on their own.
+MAX_MAYBE = 3
+
+
+def _starts(short: str, long: str) -> bool:
+    """One credited name spelled out further: "robert glasper" starts "robert glasper
+    experiment" (two words or more, so "the" never starts "the martinez brothers")."""
+    first, second = sorted((short.split(), long.split()), key=len)
+    return first == second or (len(first) >= 2 and second[: len(first)] == first)
+
+
+def similar_credits(labels: tuple[str, str, str], requested: dict) -> bool:
+    """The same title and mix credited to overlapping artists: one name the start of the
+    other ("Robert Glasper" for "Robert Glasper Experiment"), or some of the names
+    ("Kaytranada" for "Kaytranada feat. Syd"). Never the same credits, which match outright,
+    and never another mix."""
+    mine = credit_form(*labels)
+    theirs = credit_form(requested["artist"], requested["title"], requested["version"])
+    if mine[1] != theirs[1] or mine[0] == theirs[0] or not mine[0] or not theirs[0]:
+        return False
+    fewer, more = sorted((mine[0], theirs[0]), key=len)
+    return all(any(_starts(name, other) for other in more) for name in fewer)
+
+
+def _maybe(app, requested: dict, verification) -> list[dict]:
+    """Catalog files that may be a missing song under other credits (``similar_credits``), as
+    candidates with ``identity_match`` similar_credits; not hash-checked, never accepted."""
+    key = ("maybe", requested["artist"], requested["title"], requested["version"])
+    if key in verification.catalog_cache:
+        return deepcopy(verification.catalog_cache[key])
+    fragments, names = title_lookup(requested["artist"], requested["title"])
+    # The first two words of each name: "robert glasper" finds "Robert Glasper Experiment".
+    stems = {" ".join(name.split()[:2]) for name in names}
+    found = []
+    if stems:
+        with app.db.transaction() as session:
+            rows = session.execute(
+                select(Recording, AssetRevision)
+                .join(Asset, Asset.recording_id == Recording.id)
+                .join(AssetRevision, AssetRevision.asset_id == Asset.id)
+                .where(
+                    or_(
+                        *(
+                            Recording.identity_key.contains(fragment, autoescape=True)
+                            for fragment in fragments
+                        )
+                    ),
+                    or_(
+                        *(Recording.identity_key.contains(stem, autoescape=True) for stem in stems)
+                    ),
+                )
+                .order_by(Recording.id, AssetRevision.id)
+                .limit(MAX_TITLE_ROWS)
+            ).all()
+            for recording, revision in rows:
+                labels = recording.artist, recording.title, recording.version
+                if not similar_credits(labels, requested):
+                    continue
+                location = session.scalar(
+                    select(FileLocation.path)
+                    .where(FileLocation.revision_id == revision.id)
+                    .order_by(FileLocation.managed.desc(), FileLocation.path)
+                    .limit(1)
+                )
+                found.append(
+                    {
+                        "recording_id": recording.id,
+                        "asset_revision_id": revision.id,
+                        "artist": recording.artist,
+                        "title": recording.title,
+                        "version": recording.version,
+                        "sha256": revision.sha256,
+                        "identity_match": "similar_credits",
+                        "availability": "not_checked",
+                        "path": location,
+                    }
+                )
+                if len(found) == MAX_MAYBE:
+                    break
+    verification.catalog_cache[key] = deepcopy(found)
+    return found
+
+
 def _also(requested: dict) -> list[dict]:
     """A named item's other spellings (``also``) as request labels, in order."""
     credits = requested.get("also") or [] if requested["kind"] == "named" else []
@@ -394,6 +478,25 @@ def _refresh_item(app, item, verification):
         if exact:
             matched_as = credit
             break
+    if not exact and selected and candidates and requested["kind"] == "named":
+        # The DJ confirmed a file credited a little differently ("maybe yours"): owned under
+        # that file's own spelling, which is the same title and mix (similar_credits).
+        chosen = candidates[0]
+        labels = chosen["artist"], chosen["title"], chosen["version"]
+        if similar_credits(labels, requested):
+            credit = {
+                "kind": "named",
+                "artist": labels[0],
+                "title": labels[1],
+                "version": labels[2] or "",
+                "source": "you",
+            }
+            found, more = _catalog_candidates(
+                app, {"input": credit}, verification, recording_id, revision_id
+            )
+            exact = _matches(found, credit, verification)
+            candidates, truncated = found, truncated or more
+            matched_as = credit if exact else None
     item["candidates"], item["candidates_truncated"] = candidates, truncated
     eligible = [c for c in exact if c["availability"] == "verified"]
     if selected and selected.get("asset_revision_id"):
@@ -417,6 +520,14 @@ def _refresh_item(app, item, verification):
         item["state"] = "unavailable"
     else:
         item["state"] = "missing" if requested["kind"] == "named" else "unknown"
+        if requested["kind"] == "named" and not selected:
+            seen = {candidate["asset_revision_id"] for candidate in candidates}
+            maybe = [
+                c
+                for c in _maybe(app, requested, verification)
+                if c["asset_revision_id"] not in seen
+            ]
+            item["candidates"] = candidates + maybe
     if item.get("source_selection") and item["state"] not in {"satisfied", "ambiguous"}:
         item["state"] = "source_selected"
     return item
@@ -718,8 +829,10 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
             recording = require(session, Recording, request.recording_id)
             value = item["input"]
             labels = recording.artist, recording.title, recording.version
-            if value["kind"] == "named" and not any(
-                _equivalent(labels, spelling) for spelling in (value, *_also(value))
+            if (
+                value["kind"] == "named"
+                and not any(_equivalent(labels, spelling) for spelling in (value, *_also(value)))
+                and not similar_credits(labels, value)
             ):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",

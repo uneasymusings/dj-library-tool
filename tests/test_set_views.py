@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from djlib.application import identification
 from djlib.application.set_identification import build_tracklist
 from djlib.domain.errors import AppError
-from djlib.interfaces import identify_cli, mcp_server, set_sources, terminal, views
+from djlib.interfaces import identify_cli, library_cli, mcp_server, set_sources, terminal, views
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.rekordbox_cli import set_track
 from djlib.native import rekordbox_mac
@@ -133,6 +133,17 @@ def ledger_item(position, stamp, artist, title, version, sure, own, **extra) -> 
         item["candidates"] = [
             {"identity_match": "different_version", "title": f"{title} (Radio Edit)"}
         ]
+    if own == "maybe":
+        item["candidates"] = [
+            {
+                "identity_match": "similar_credits",
+                "recording_id": "recording_1",
+                "asset_revision_id": "revision_1",
+                "artist": artist.split()[0] + " " + artist.split()[1],
+                "title": title,
+                "version": version,
+            }
+        ]
     item.update(extra)
     return item
 
@@ -243,6 +254,27 @@ def test_a_song_owned_under_another_credit_says_which(capsys):
     # The column stays narrow; the spelling the file matched goes under the table.
     assert row.rstrip().endswith("✓ owned")
     assert "Owned under another spelling: #2 Robert Glasper" in out
+
+
+def test_a_song_maybe_yours_under_a_shorter_credit_is_off_the_shopping_list(capsys):
+    """A Shazam list: the file is tagged "Robert Glasper". Shown as maybe yours, named under
+    the table, counted apart, and the next step is checking it, not buying it."""
+    rows = [
+        ("", "Antdot", "Mirage", "", "", "owned"),
+        ("", "Robert Glasper Experiment", "Move Love", "Kaytranada Edition", "", "maybe"),
+    ]
+    out = shown("set", set_result(rows, link=None), 100, capsys)
+    assert "1 of 2 owned · 1 maybe yours" in out and "missing" not in out
+    assert "? maybe yours" in out
+    assert "Maybe yours under another name: #2 Robert Glasper - Move Love (Kaytranada " in out
+    assert "Check the songs that may be yours (1)" in out and "shopping list" not in out
+    found = library_cli.shopping([ledger_item(n, *row) for n, row in enumerate(rows, 1)])
+    assert found["to_buy"] == []
+    assert found["maybe_yours"][0]["maybe_owned"] == (
+        "Robert Glasper - Move Love (Kaytranada Edition)"
+    )
+    text = library_cli.shopping_text("Shazam", found)
+    assert "Maybe yours already: check before you buy (1)" in text
 
 
 def test_the_crate_line_says_how_many_files_the_crate_holds(capsys):
@@ -619,6 +651,7 @@ def test_set_json_adds_the_whole_set_and_keeps_missing_as_it_was(friday):
         "other_mix": 1,
         "ids": 1,
         "to_check": 0,
+        "maybe": 0,
     }
     assert result["crate_tracks"] == 1
     assert result["rekordbox"] == {

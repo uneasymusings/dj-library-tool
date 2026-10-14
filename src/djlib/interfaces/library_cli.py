@@ -193,6 +193,8 @@ def shopping(items: list[dict]) -> dict:
         "other_mixes": picked(
             "other_mix", "position", "timestamp", "label", "title", "you_own", "shop"
         ),
+        # A file with the same title and mix under other credits: check it before buying.
+        "maybe_yours": picked("maybe", "position", "timestamp", "label", "maybe_owned", "shop"),
         "ids": picked("id", "position", "timestamp"),
     }
 
@@ -207,13 +209,20 @@ def shopping_text(name: str, found: dict) -> str:
     from djlib.interfaces.views import owned_mixes
 
     to_buy, others = found["to_buy"], found["other_mixes"]
-    width = max((len(moment(song)) for song in [*to_buy, *others]), default=0)
+    maybe = found.get("maybe_yours") or []
+    width = max((len(moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
     lines = [f"{name} — {len(to_buy)} to buy", ""]
     for song in to_buy:
         lines.append(f"{moment(song):>{width}}  {song['label']}")
         lines += [
             f"{'':>{width}}  {label:<10}  {song['shop'][store]}" for store, label in STORES.items()
         ]
+    if maybe:
+        lines += ["", f"Maybe yours already: check before you buy ({len(maybe)})"]
+        for song in maybe:
+            lines.append(
+                f"{moment(song):>{width}}  {song['label']} — you have: {song['maybe_owned']}"
+            )
     if others:
         lines += ["", f"You own another mix ({len(others)})"]
         for song in others:

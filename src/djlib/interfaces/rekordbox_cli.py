@@ -170,10 +170,17 @@ def set_track(item: dict, link: str | None = None, guesses: dict | None = None) 
     found = set_item(item)
     named = source.get("kind") != "unknown"
     state = item.get("state")
+    maybe = [
+        candidate
+        for candidate in item.get("candidates") or []
+        if candidate.get("identity_match") == "similar_credits"
+    ]
     if state in OWNED_STATES:
         own = "owned"
     elif not named:
         own = "id"
+    elif maybe:
+        own = "maybe"  # the same title and mix under other credits: the DJ confirms it
     else:
         own = "other_mix" if found["you_own"] else "missing"
     label = str(source.get("label") or "")
@@ -195,9 +202,16 @@ def set_track(item: dict, link: str | None = None, guesses: dict | None = None) 
         "matched_as": (item.get("accepted") or {}).get("matched_as"),
         "listen_url": listen_url(link or source.get("source_url"), seconds(stamp)),
         "shop": shop_links(source.get("artist"), source.get("title"), source.get("version"))
-        if own in {"missing", "other_mix"}
+        if own in {"missing", "other_mix", "maybe"}
         else None,
     }
+    if own == "maybe":
+        file = maybe[0]
+        label = f"{file.get('artist') or ''} - {file.get('title') or ''}"
+        # The file to check, and how to use it: Use this on the review page.
+        track["maybe_owned"] = f"{label} ({file['version']})" if file.get("version") else label
+        track["maybe_recording_id"] = file.get("recording_id")
+        track["maybe_asset_revision_id"] = file.get("asset_revision_id")
     if not named:
         # What djlib heard there: a guess, never the ID's name.
         track["maybe"] = (guesses or {}).get(stamp)
