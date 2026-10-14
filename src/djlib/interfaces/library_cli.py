@@ -69,18 +69,27 @@ def text_request(
     content: str, name: str | None, fallback: str, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
     """A request list from tracklist text; ``fallback`` names it when it has no heading."""
-    from djlib.application.tracklists import HEADING, parse_tracklist
+    from djlib.application.tracklists import HEADING, hidden_tracks, parse_tracklist
     from djlib.domain.contracts import safe_text
 
     items, skipped = parse_tracklist(content, source)
     headings = [line for _, line, reason in skipped if reason == HEADING]
     from djlib.interfaces.identify_cli import quoted
+    from djlib.interfaces.terminal import plural
 
+    hidden = sum(hidden_tracks(line) or 0 for _, line, _ in skipped)
     warnings = [
         f"line {number} skipped ({reason}): “{quoted(line)}”"
         for number, line, reason in skipped
-        if reason != HEADING
+        if reason != HEADING and hidden_tracks(line) is None
     ]
+    if hidden:
+        # A copy cut short: the rest of the set never reached djlib.
+        warnings.insert(
+            0,
+            f"1001Tracklists hid {plural(hidden, 'more track')}. Log in or open the full list "
+            "on the page, then copy it again.",
+        )
     if not items:
         raise AppError("INPUT_INVALID", "No “Artist - Title” lines were found.")
     # A heading such as "Set Zero — Friday" names the list.
