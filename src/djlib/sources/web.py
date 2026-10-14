@@ -147,6 +147,12 @@ def clipboard() -> bool:
     return sys.platform == "darwin"
 
 
+def copied(command: str = "set") -> str:
+    """The command that takes what the DJ copied: ``paste`` reads the Mac's clipboard;
+    elsewhere ``-`` reads what they paste into the terminal (or pipe in)."""
+    return f"djlib {command} {'paste' if clipboard() else '-'}"
+
+
 def mixcloud_message() -> str:
     """Why a Mixcloud link can't be used, and what works instead."""
     copy = (

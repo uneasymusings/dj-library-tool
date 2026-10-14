@@ -19,6 +19,7 @@ from djlib.interfaces import cli, guided, terminal, views
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
 from djlib.interfaces.service import create_app
+from djlib.sources import web
 
 
 def sized(width: int, **options) -> terminal.Terminal:
@@ -928,7 +929,7 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
     }
     out = render("status", status_result(recent_collections=[crate]), width=160, capsys=capsys)
     assert "Service" not in out and "running" not in out
-    assert "djlib set paste" in out.split("Next\n", 1)[1]
+    assert web.copied() in out.split("Next\n", 1)[1]  # djlib set paste on a Mac
     unread = render(
         "status",
         status_result(
@@ -1472,7 +1473,7 @@ def test_request_lists_show_owned_and_missing(capsys):
     out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
     assert "Songs" in out and "Owned" not in out and "22" in out
     empty = render("requests list", {"requests": []}, capsys=capsys)
-    assert "No sets checked yet" in empty and "djlib set paste" in empty
+    assert "No sets checked yet" in empty and web.copied() in empty
 
 
 @pytest.mark.parametrize("width", [60, 80, 100])

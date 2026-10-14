@@ -83,6 +83,13 @@ LINK = re.compile(r"https?://[^\s<>\"'‘’“”]+")
 QUOTES = {"'": "'", '"': '"', "‘": "’", "’": "’", "“": "”", "”": "”"}
 
 
+def copied(command: str = "set") -> str:
+    """``djlib set paste`` on a Mac, else ``djlib set -`` (see web.copied)."""
+    from djlib.sources import web
+
+    return web.copied(command)
+
+
 def unreadable(message: str) -> AppError:
     return AppError("INPUT_INVALID", message, details={"title": CANT_READ})
 
@@ -128,7 +135,7 @@ def from_rich_text(data: bytes, name: str) -> bytes:
             pass
     raise unreadable(
         f"{name} is a rich-text file (TextEdit's default). In TextEdit choose Format → Make "
-        "Plain Text, save, and run this again — or copy the tracklist and run djlib set paste."
+        f"Plain Text, save, and run this again — or copy the tracklist and run {copied()}."
     )
 
 
@@ -183,12 +190,13 @@ def not_found(path: Path, instead: str, given: str | None = None) -> AppError:
 def read_text_file(
     path: Path,
     limit: int = TRACKLIST_BYTES,
-    instead: str = "djlib set paste",
+    instead: str | None = None,
     given: str | None = None,
 ) -> str:
     """A tracklist file's text: a regular file of at most ``limit`` bytes. ``instead`` is the
-    command that takes a copied tracklist where the file can't be found; ``given`` is the
-    file as the DJ typed it."""
+    command that takes a copied tracklist where the file can't be found (``djlib set paste``,
+    or ``-`` off a Mac); ``given`` is the file as the DJ typed it."""
+    instead = instead or copied()
     try:
         if path.is_dir():
             raise unreadable(f"{path} is a folder; give the tracklist file inside it.")
@@ -381,7 +389,8 @@ def nothing_given(command: str) -> AppError:
     if command == "identify":
         steps = [
             ("A set link (in single quotes)", f"djlib identify {link}"),
-            ("A link you copied", "djlib identify paste"),
+            # Off a Mac, `-` asks for what was copied to be pasted into the terminal.
+            ("A link you copied", copied("identify")),
         ]
         title = "Which set should djlib identify?"
         message = "Give it the link of a YouTube or SoundCloud set."
@@ -389,7 +398,7 @@ def nothing_given(command: str) -> AppError:
         since = (date.today() - timedelta(days=30)).isoformat()
         steps = [
             ("A set link (in single quotes)", f"djlib set {link}"),
-            ("A tracklist or link you copied", "djlib set paste"),
+            ("A tracklist or link you copied", copied()),
             ("Your recent Shazams", f"djlib set shazam:{since}"),
         ]
         title = "What should djlib check?"
