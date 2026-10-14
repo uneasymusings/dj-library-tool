@@ -2027,7 +2027,7 @@ def fetched_line(term: Terminal, fetched: dict) -> Text:
 # Above this many songs (a Shazam history), the table lists only the songs you don't own.
 BIG_SET = 60
 BIG_ROWS = 25
-OWN_WIDTH = 12  # "≈ other mix:" on a line of its own; the mix names wrap under it
+OWN_WIDTH = 12  # "≈ Radio Edit"; longer mix names wrap under it
 # How sure djlib is of a line worth a listen before it's played; an ID is just an ID.
 UNSURE = frozenset({"likely", "weak", "conflict"})
 NARROW = 100  # below this many columns, the set and identify tables save room where they can
@@ -2265,6 +2265,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
             style="cmd",
         )
         term.out.print(line, soft_wrap=True)
+    spellings(term, shown)
     reasons(
         term,
         [
@@ -2274,6 +2275,19 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         ],
     )
     return any(track.get("confidence") in UNSURE for track in shown)
+
+
+def spellings(term: Terminal, tracks: list[dict]) -> None:
+    """ "Owned under another spelling: #2 Robert Glasper": the tracklist's credits a file
+    matched where Shazam's are shown."""
+    found = [
+        f"#{track.get('position')} {credit}"
+        for track in tracks
+        if track.get("own") == "owned" and (credit := owned_as(track))
+    ]
+    if found:
+        term.out.print()
+        note(term, "Owned under another spelling: " + f" {term.glyph('dot')} ".join(found))
 
 
 def set_time(clock: str | None, url: str | None) -> Text:
@@ -2310,20 +2324,18 @@ def sure_cell(term: Terminal, confidence: str | None) -> Text:
 
 
 def own_cell(term: Terminal, track: dict) -> Text:
-    """✓ owned (as the credit it matched), ✗ missing, ≈ other mix: Radio Edit; blank for IDs."""
+    """✓ owned, ✗ missing, ≈ Radio Edit (the other mix you own); blank for IDs. The spelling a
+    file matched under goes under the table (``spellings``), so the column stays narrow."""
     own, state = track.get("own"), track.get("state")
     if own == "owned" and state == "ambiguous":
         return marked(term, "warn", "owned, pick a copy")
     if own == "owned" and state == "unavailable":
         return marked(term, "warn", "owned, file unavailable")
     if own == "owned":
-        cell = marked(term, "ok", "owned")
-        if credit := owned_as(track):
-            cell.append(f" as {credit}", style="muted")
-        return cell
+        return marked(term, "ok", "owned")
     if own == "other_mix":
         mixes = owned_mixes(track.get("you_own") or [], track.get("title"))
-        return marked(term, "other", f"other mix: {mixes}", "warn")
+        return marked(term, "other", mixes, "warn")
     if own == "missing":
         return marked(term, "bad", "missing")
     return Text("")

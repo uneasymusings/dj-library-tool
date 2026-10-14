@@ -262,10 +262,11 @@ def test_1001tracklists_links_point_to_paste(application, monkeypatch):
     assert reply.exit_code == 2
     text = " ".join(reply.stderr.split())
     assert "→ Copy the tracklist on the page, then djlib set paste" in text
-    assert "under the player) plus that copy djlib set 'LINK' --tracklist paste" in text
+    assert "(under the player) djlib set 'LINK' --tracklist paste" in text
     identify = json.loads(invoke(application, "identify", link).stdout)["error"]
     assert identify["code"] == "SOURCE_BROWSER_ONLY"
-    assert identify["details"]["next_steps"][1]["command"] == (
+    # Listening needs the set's own link, so for identify that way comes first.
+    assert identify["details"]["next_steps"][0]["command"] == (
         "djlib identify 'LINK' --tracklist paste"
     )
     # Copied from the address bar: the same way out, never a fetch of the page.
