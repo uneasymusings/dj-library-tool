@@ -197,8 +197,8 @@ def test_set_says_why_it_listens_before_a_long_listen(
     said = " ".join(reply.stderr.split())
     assert (
         "The page has no tracklist, so djlib is listening to the set to find the songs. An "
-        "hour-long set usually takes 5–10 minutes; Ctrl-C stops it, and the same command "
-        "carries on." in said
+        "hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "Ctrl-C stops it, and the same command carries on." in said
     )
     # Identified before, it shows at once: nothing to wait for, so nothing said.
     again = invoke(application, "set", URL, "--no-rekordbox", pretty=True, columns=100)

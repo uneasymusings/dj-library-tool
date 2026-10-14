@@ -303,12 +303,13 @@ def test_set_says_why_it_listens_and_how_long_that_takes(application, monkeypatc
 
     assert notice("no_tracklist") == (
         "The page has no tracklist, so djlib is listening to the set to find the songs. "
-        "An hour-long set usually takes 5–10 minutes; Ctrl-C stops it, and the same command "
-        "carries on."
+        "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "Ctrl-C stops it, and the same command carries on."
     )
     assert notice("ids", LISTED) == (
         "The tracklist has 1 ID, so djlib is listening to the set to name it. "
-        "An hour-long set usually takes 5–10 minutes; --no-identify skips it."
+        "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
+        "--no-identify skips it."
     )
     two = "Lumen - Halo\nID - ID\nID\nNia Okoro - Slow Burn\n"
     assert notice("ids", two).startswith("The tracklist has 2 IDs, so djlib is listening to")
