@@ -1058,15 +1058,11 @@ def init_view(term: Terminal, result: dict) -> None:
                 term.out.print(indented(path_text(root)))
         next_steps(term, [("Index the new music", ("scan",))])
         return
-    header(
-        term, "Workspace ready", "set as your default" if result.get("default_workspace") else ""
-    )
+    # Where djlib keeps its own files is for `djlib doctor`; a DJ sees the music.
+    header(term, "Ready")
     fields(
         term,
-        [
-            ("Workspace", path_text(result.get("workspace"))),
-            *[("Music" if i == 0 else "", path_text(root)) for i, root in enumerate(allowed)],
-        ],
+        [("Music" if i == 0 else "", path_text(root)) for i, root in enumerate(allowed)],
     )
     steps = (
         [("Index your music", ("scan",))]
@@ -1423,7 +1419,7 @@ def use_view(term: Terminal, result: dict) -> None:
         label,
     )
     if not result.get("initialized"):
-        next_steps(term, [("Create it", ("init", "--allow-root", Path.home() / "Music"))])
+        next_steps(term, [("Create it", ("init", Path.home() / "Music"))])
     elif result.get("changed"):
         note(term, "Commands now use it without --workspace.")
 
@@ -1434,12 +1430,16 @@ def doctor(term: Terminal, result: dict) -> None:
     runtimes = result.get("javascript_runtimes") or {}
     selected = runtimes.get(runtimes.get("selected") or "") or {}
     ready = result.get("workspace_initialized") is not False
+    folders = [short_path(root) for root in result.get("music_folders") or []]
+    music = folders[0] if folders else ""
+    if len(folders) > 1:
+        music += f" and {len(folders) - 1} more"
     checks = [
-        (
-            "Workspace",
-            ready,
-            (short_path(result.get("workspace")) or "") if ready else "not set up yet",
-            "",
+        ("Music folders", ready, (music or "none yet") if ready else "not set up yet", ""),
+        *(
+            [("djlib's folder", True, short_path(result.get("workspace")) or "", "")]
+            if ready
+            else []
         ),
         (
             "Background service",
@@ -1519,11 +1519,11 @@ def doctor(term: Terminal, result: dict) -> None:
                 hint = f"older than djlib {__version__}; update it, then restart Claude Code"
         checks.append(("Claude Code plugin", not hint, plugin, hint))
     if not ready and not fixes.get("workspace"):
-        fixes = {**fixes, "workspace": term.command("init", "--allow-root", Path.home() / "Music")}
+        fixes = {**fixes, "workspace": term.command("init", Path.home() / "Music")}
     width = max(cell_len(check[0]) for check in checks) + 2  # glyph and space
     for name, passed, value, hint in checks:
         # Not set up yet and not running yet are steps to take, not failures.
-        todo = "optional" in hint or name in {"Background service", "Workspace"}
+        todo = "optional" in hint or name in {"Background service", "Music folders"}
         tone = "ok" if passed else ("todo" if todo else "bad")
         detail = Text.assemble((value, "path" if passed and "/" in value else ""))
         if hint:
@@ -1548,7 +1548,7 @@ def doctor(term: Terminal, result: dict) -> None:
 
 # Doctor check -> key of its install/fix command in the result's ``fixes``.
 DOCTOR_FIXES = {
-    "Workspace": "workspace",
+    "Music folders": "workspace",
     "FFmpeg": "ffmpeg",
     "ffprobe": "ffprobe",
     "yt-dlp": "yt_dlp",

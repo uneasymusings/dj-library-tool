@@ -82,7 +82,7 @@ INSTALL = {
         "win32": "winget install DenoLand.Deno",
     },
 }
-FIRST_STEP = "djlib init --allow-root ~/Music"
+FIRST_STEP = "djlib init ~/Music"
 
 
 class VisibleSuggestions(typer.core.TyperGroup):
@@ -632,6 +632,8 @@ def doctor(ctx: typer.Context) -> None:
             "workspace_id": config.workspace_id if config else None,
             "workspace": str(ctx.obj.root),
             "workspace_initialized": initialized,
+            # The music folders djlib reads (djlib init FOLDER adds one).
+            "music_folders": list(config.allowed_roots) if config else [],
             "ffmpeg": ffmpeg,
             "ffprobe": ffprobe,
             "yt_dlp_installed": importlib.util.find_spec("yt_dlp") is not None,

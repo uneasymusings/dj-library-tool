@@ -102,9 +102,13 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     assert reply.stderr.startswith("✗ djlib isn't set up yet\n")
     # People read the title; the code is for scripts, in the JSON envelope only.
     assert "WORKSPACE_REQUIRED" not in reply.stderr
-    assert "There is no djlib workspace in" in reply.stderr  # the title isn't repeated
+    # Plain words, then the two first steps; the JSON keeps the message.
+    assert "Tell it where your music is" in reply.stderr
+    assert "no djlib workspace" not in reply.stderr
     # The command to paste, as doctor gives it: no placeholder to fill in.
-    assert "init --allow-root" in reply.stderr and "PATH" not in reply.stderr
+    assert "init ~/Music" in reply.stderr or "init /" in reply.stderr
+    assert "--allow-root" not in reply.stderr and "PATH" not in reply.stderr
+    assert "scan" in reply.stderr
     captured = invoke("library", workspace=tmp_path / "missing")
     assert json.loads(captured.stdout)["error"]["code"] == "WORKSPACE_REQUIRED"
 
@@ -1042,7 +1046,7 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
         "ffmpeg": None,
         "ffprobe": None,
         "fixes": {
-            "workspace": "djlib init --allow-root ~/Music",
+            "workspace": "djlib init ~/Music",
             "ffmpeg": "brew install ffmpeg",
             "ffprobe": "brew install ffmpeg",
             "javascript_runtime": "brew install deno",
@@ -1051,9 +1055,10 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
     }
     out = render("doctor", result, width=100, capsys=capsys)
     lines = out.splitlines()
-    workspace = next(i for i, line in enumerate(lines) if "Workspace" in line)
-    assert "○ Workspace" in lines[workspace] and "not set up yet" in lines[workspace]
-    assert lines[workspace + 1].strip() == "→ djlib init --allow-root ~/Music"
+    workspace = next(i for i, line in enumerate(lines) if "Music folders" in line)
+    assert "○ Music folders" in lines[workspace] and "not set up yet" in lines[workspace]
+    assert lines[workspace + 1].strip() == "→ djlib init ~/Music"
+    assert "Workspace" not in out
     ffmpeg = next(i for i, line in enumerate(lines) if "FFmpeg " in line)
     assert "✗ FFmpeg" in lines[ffmpeg] and lines[ffmpeg + 1].strip() == "→ brew install ffmpeg"
     assert "→ brew install deno" in out
@@ -1062,11 +1067,18 @@ def test_doctor_before_init_shows_the_first_step_and_each_fix(capsys):
     assert "Fix the items marked ✗" in out
     ready = render(
         "doctor",
-        {**result, "workspace_initialized": True, "ffmpeg": "/usr/bin/ffmpeg"},
+        {
+            **result,
+            "workspace_initialized": True,
+            "ffmpeg": "/usr/bin/ffmpeg",
+            "music_folders": ["/Users/dj/Music", "/Volumes/DJ_DRIVE"],
+        },
         width=100,
         capsys=capsys,
     )
-    assert "init --allow-root" not in ready and "brew install ffmpeg" in ready  # ffprobe
+    assert "djlib init" not in ready and "brew install ffmpeg" in ready  # ffprobe
+    assert re.search(r"✓ Music folders +/Users/dj/Music and 1 more", ready)
+    assert re.search(r"✓ djlib's folder +/somewhere/djlib", ready)
 
 
 def test_set_notes_say_only_what_applies_in_short_lines():

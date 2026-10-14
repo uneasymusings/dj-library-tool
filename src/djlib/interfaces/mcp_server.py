@@ -52,7 +52,7 @@ def workspace_required(workspace: Workspace) -> AppError:
         where = f" with --workspace {workspace.root}"
     return AppError(
         "WORKSPACE_REQUIRED",
-        f"No djlib workspace yet. Run `djlib init --allow-root ~/Music`{where} in a terminal "
+        f"No djlib workspace yet. Run `djlib init ~/Music`{where} in a terminal "
         "(use the user's music folder), then call this tool again.",
         409,
     )

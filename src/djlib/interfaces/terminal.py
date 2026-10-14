@@ -417,7 +417,7 @@ ACCESSIBILITY_SETTINGS = (
 # (label, command): a tuple is a djlib command, a string a plain shell command.
 ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
     # The command comes from cli.FIRST_STEP (first_step), as doctor gives it.
-    "WORKSPACE_REQUIRED": ("Create a workspace first", None),
+    "WORKSPACE_REQUIRED": ("Tell djlib where your music is", None),
     "WORKSPACE_NOT_EMPTY": ("Pick a new, empty folder for --workspace", None),
     "ROOTS_NOT_UPDATED": ("Add folders to an existing workspace", ("roots", "add", "PATH")),
     # The folder comes from the error's details.path.
@@ -503,11 +503,19 @@ def render_error(term: Terminal, error: dict) -> None:
     heading = details.get("title") if isinstance(details.get("title"), str) else None
     title = Text.assemble((heading or ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
+    if code == "WORKSPACE_REQUIRED":
+        # The first run: where the music is, then reading it. JSON keeps the message.
+        message = "Tell it where your music is, then let it read your music."
+        details = {
+            **details,
+            "next_steps": [
+                {"label": "Your music folder", "command": term.command(*first_step())},
+                {"label": "Then read it", "command": term.command("scan")},
+            ],
+        }
     term.err.print(indented(Text(message)))
     numbered_steps(term, error)
     hint = ERROR_HINTS.get(code)
-    if code == "WORKSPACE_REQUIRED":
-        hint = ("Create a workspace first", first_step())
     if code == "SOURCE_NOT_ALLOWED" and isinstance(details.get("path"), str) and details["path"]:
         hint = ("Allow the folder first", ("roots", "add", Path(details["path"])))
     if isinstance(details.get("next"), str) and details["next"]:
