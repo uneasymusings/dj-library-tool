@@ -1219,16 +1219,16 @@ def set_crates(requests: list[dict], collections: list[dict]) -> dict[str, dict]
 
 
 def status_tally(term: Terminal, counts: dict) -> list[Text]:
-    """``12 of 22 owned``, ``1 to check``, ``8 missing``, ``2 in another mix``, ``2 IDs``: the
-    parts that are there, counted as `djlib set` counts them (an owned song waiting on a pick
-    or an unreadable file is "to check", not owned yet)."""
+    """``12 of 22 owned``, ``1 to check``, ``2 in another mix``, ``8 missing``, ``2 IDs``: the
+    parts that are there, counted and ordered as `djlib set`'s headline (an owned song waiting
+    on a pick or an unreadable file is "to check", not owned yet)."""
     owned = counts["owned"] - counts.get("to_check", 0)
     parts = [Text(f"{owned} of {counts['songs']} owned")]
     for key, label, style in (
         ("to_check", "to check", "warn"),
         ("maybe", "maybe yours", "warn"),
-        ("missing", "missing", "warn"),
         ("other_mix", "in another mix", "warn"),
+        ("missing", "missing", "warn"),
         ("ids", "IDs", "muted"),
     ):
         if amount := counts.get(key):
@@ -3282,14 +3282,14 @@ def requests_list(term: Terminal, result: dict) -> None:
                     else []
                 ),
                 *([("Maybe", {"justify": "right", "style": "warn", "drop": 4})] if maybe else []),
-                ("Missing", {"justify": "right", "style": "warn"}),
                 ("Other mix", {"justify": "right", "style": "warn", "drop": 3}),
+                ("Missing", {"justify": "right", "style": "warn"}),
                 ("IDs", {"justify": "right", "style": "muted", "drop": 2}),
             ]
             if counted
             else [("Songs", {"justify": "right"})]
         ),
-        ("Updated", {"style": "muted", "drop": 1}),
+        ("Checked", {"style": "muted", "drop": 1}),
         ("ID", {"style": "muted"}),
     )
     for row in rows:
@@ -3299,8 +3299,8 @@ def requests_list(term: Terminal, result: dict) -> None:
                 f"{counts['owned'] - counts['to_check']} of {counts['songs']}",
                 *([str(counts["to_check"] or "")] if checking else []),
                 *([str(counts["maybe"] or "")] if maybe else []),
-                str(counts["missing"] or ""),
                 str(counts["other_mix"] or ""),
+                str(counts["missing"] or ""),
                 str(counts["ids"] or ""),
             ]
             if counted
