@@ -986,6 +986,25 @@ def same_list(app, items, key):
     )
 
 
+@pytest.fixture
+def ticking_clock(monkeypatch):
+    """The catalog's clock moves on at every reading, as it does here: Windows' clock on Python
+    3.12 moves every 15.6 ms, so two checks a moment apart could share one time."""
+    from datetime import UTC, datetime, timedelta
+
+    from djlib.persistence import models
+
+    last = [datetime.now(UTC)]
+
+    class Ticking(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            last[0] = max(datetime.now(UTC), last[0] + timedelta(milliseconds=1))
+            return last[0].astimezone(tz) if tz else last[0].astimezone().replace(tzinfo=None)
+
+    monkeypatch.setattr(models, "datetime", Ticking)
+
+
 async def test_the_same_set_checked_again_updates_its_list_in_place(ledger_app, audio_factory):
     """A set run again, by a newer djlib with other notes or after more listening, keeps its
     list (and so its crate and rekordbox playlist) instead of making "Friday Set (2)"."""
@@ -1085,7 +1104,7 @@ async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, a
 
 
 async def test_a_set_checked_again_keeps_its_older_crate_on_the_home_screen(
-    ledger_app, audio_factory
+    ledger_app, audio_factory, ticking_clock
 ):
     """Status lists the newest crates; a set checked again comes first while its crate is older
     than those. Its crate still comes with it, so status doesn't ask for a new one."""
@@ -1112,7 +1131,7 @@ async def test_a_set_checked_again_keeps_its_older_crate_on_the_home_screen(
     assert shown[first_crate] == first["request_id"] and len(shown) == 2
 
 
-def test_a_set_checked_again_with_nothing_new_still_comes_first(ledger_app):
+def test_a_set_checked_again_with_nothing_new_still_comes_first(ledger_app, ticking_clock):
     """The usual re-check finds nothing new: set A still comes first and is `last`, and keeps
     its revision, so the commands printed for it still work."""
     from djlib.application.catalog_paging import latest, saved
