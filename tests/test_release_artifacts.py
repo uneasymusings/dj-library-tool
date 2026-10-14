@@ -106,7 +106,7 @@ def test_the_installer_expands_home_and_keeps_skip_and_quotes_in_names():
     assert installer_folder("skip") == "skip" and installer_folder("   ") == ""
     assert installer_folder("/Volumes/Rock\\'n\\'Roll/DJ") == "/Volumes/Rock'n'Roll/DJ"
     script = INSTALLER.read_text(encoding="utf-8")
-    assert "Drag the folder here, or press Enter for ~/Music (or type skip)" in script
+    assert "Drag the folder here, Enter for ~/Music, or type skip: " in script
     # The way to do it later names the folder the DJ gave, in the form init takes now.
     assert """Later: djlib init "%s" && djlib scan""" in script
 
