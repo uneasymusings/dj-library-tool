@@ -984,7 +984,7 @@ def test_every_screen_counts_a_song_owned_twice_the_same_way(capsys):
         "counts": counts,
     }
     status = render("status", status_result(recent_requests=[request]), width=160, capsys=capsys)
-    assert "1 of 4 owned · 1 to check · 1 missing · 1 in another mix" in status
+    assert "1 of 4 owned · 1 to check · 1 in another mix · 1 missing" in status
     steps = status.split("Next\n", 1)[1]
     assert re.search(r"→ Pick which copy to use in “t2” +djlib ui", steps)
     assert "Re-check" not in steps
@@ -1235,7 +1235,7 @@ def test_status_lists_each_set_once_with_its_crate(capsys):
     assert "no BPM yet" in out and "BPM for 0" not in out
     line = next(line for line in out.splitlines() if "Kaytranada" in line)
     assert line.strip() == (
-        "○ Kaytranada Boiler Room  12 of 22 owned · 7 missing · 1 in another mix · 2 IDs"
+        "○ Kaytranada Boiler Room  12 of 22 owned · 1 in another mix · 7 missing · 2 IDs"
         " · crate 12 · ✓ in rekordbox · ✓ on DJ_USB"
     )
     assert "✓ Warm-up  3 of 3 owned · crate 3" in out
@@ -1358,6 +1358,11 @@ def test_request_lists_show_owned_and_missing(capsys):
     header = out.splitlines()[0].split()
     assert header[:3] == ["Name", "Owned", "Missing"] and "Songs" not in header
     assert "12 of 22" in out and "Other mix" not in out and "1 set" in out
+    # The columns read in the order of `djlib set`'s headline.
+    rows[0]["counts"].update(missing=7, other_mix=1, ids=2)
+    out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
+    header = out.splitlines()[0].split()
+    assert header[:6] == ["Name", "Owned", "Other", "mix", "Missing", "IDs"]
     # Older services list only the number of songs.
     del rows[0]["counts"]
     out = render("requests list", {"requests": rows, "total": 1}, width=100, capsys=capsys)
