@@ -60,6 +60,9 @@ def test_a_mixcloud_link_says_what_works_here(monkeypatch, platform):
     assert mixcloud.value.message.startswith("Mixcloud doesn't allow downloads")
     copied = "djlib set paste" if platform == "darwin" else "djlib set FILE"
     assert mixcloud.value.message.endswith(f"run {copied}.")
+    # An assistant relaying the message must not run the clipboard command.
+    instead = mixcloud.value.details["next_for_assistants"]
+    assert instead.startswith("Don't run paste") and "djlib set -" in instead
 
 
 class FakeLocal:

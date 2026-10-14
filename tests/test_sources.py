@@ -175,6 +175,7 @@ async def test_inspecting_1001tracklists_or_mixcloud_says_what_works(monkeypatch
         assert error.details["next"] == "djlib set paste"
     else:
         assert "Mixcloud doesn't allow downloads" in error.message
+        assert error.details == web.mixcloud_details()
 
 
 @pytest.mark.parametrize(

@@ -55,12 +55,12 @@ def browser_only(url: str, command: str = "set") -> None:
 
 
 def check_set_url(url: str) -> None:
-    from djlib.sources.web import mixcloud_message
+    from djlib.sources.web import mixcloud_details, mixcloud_message
 
     browser_only(url)
     name = host(url)
     if name == "mixcloud.com" or name.endswith(".mixcloud.com"):
-        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message())
+        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message(), details=mixcloud_details())
     if not any(name == known or name.endswith("." + known) for known in SET_HOSTS):
         raise AppError("SOURCE_UNSUPPORTED", "Use a YouTube or SoundCloud set, or a text file.")
 
