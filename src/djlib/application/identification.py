@@ -1574,7 +1574,7 @@ def summary(result: dict) -> dict:
 
     link, tracks = source.get("url"), tracklist.get("tracks") or []
     named = [track for track in tracks if track.get("kind") != "unknown"]
-    heard = sum(
+    heard_tracks = sum(
         1
         for track in named
         if any(entry.get("source") == "audio" for entry in track.get("evidence") or [])
@@ -1599,8 +1599,8 @@ def summary(result: dict) -> dict:
             "tracks": len(tracks),
             **(result.get("counts") or {}),
             # Songs as a DJ counts them: heard in the set, only on a tracklist, or IDs.
-            "heard": heard,
-            "listed_only": len(named) - heard,
+            "heard": heard_tracks,
+            "listed_only": len(named) - heard_tracks,
             "ids": len(tracks) - len(named),
         },
         "tracks": [

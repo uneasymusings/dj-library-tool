@@ -125,7 +125,9 @@ def shopping(items: list[dict]) -> dict:
 
     return {
         "to_buy": picked("missing", "position", "timestamp", "label", "shop"),
-        "other_mixes": picked("other_mix", "position", "timestamp", "label", "you_own", "shop"),
+        "other_mixes": picked(
+            "other_mix", "position", "timestamp", "label", "title", "you_own", "shop"
+        ),
         "ids": picked("id", "position", "timestamp"),
     }
 
@@ -137,6 +139,8 @@ def moment(song: dict) -> str:
 
 def shopping_text(name: str, found: dict) -> str:
     """The shopping list as plain text, laid out as `djlib requests report` prints it."""
+    from djlib.interfaces.views import owned_mixes
+
     to_buy, others = found["to_buy"], found["other_mixes"]
     width = max((len(moment(song)) for song in [*to_buy, *others]), default=0)
     lines = [f"{name} — {len(to_buy)} to buy", ""]
@@ -148,7 +152,7 @@ def shopping_text(name: str, found: dict) -> str:
     if others:
         lines += ["", f"You own another mix ({len(others)})"]
         for song in others:
-            mixes = ", ".join(song["you_own"])
+            mixes = owned_mixes(song["you_own"], song.get("title"))
             lines.append(f"{moment(song):>{width}}  {song['label']} — you have: {mixes}")
     if found["ids"]:
         lines += ["", "IDs, no name yet: " + ", ".join(moment(song) for song in found["ids"])]

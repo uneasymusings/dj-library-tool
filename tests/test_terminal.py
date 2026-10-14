@@ -818,7 +818,10 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
     unread = render(
         "status",
         status_result(
-            rekordbox_checked=False, recent_collections=[{**crate, "in_rekordbox": None}]
+            rekordbox_checked=False,
+            rekordbox_app=True,
+            rekordbox_open=False,
+            recent_collections=[{**crate, "in_rekordbox": None}],
         ),
         capsys=capsys,
     )
@@ -830,6 +833,7 @@ def test_status_ends_with_a_next_step_and_hides_the_service(capsys):
         "status",
         status_result(
             rekordbox_checked=False,
+            rekordbox_app=True,
             recent_collections=[
                 {**crate, "in_rekordbox": None, "pushed_at": "2026-10-06T10:00:00+00:00"}
             ],

@@ -187,6 +187,8 @@ def set_track(item: dict, link: str | None = None, guesses: dict | None = None) 
         "version": (source.get("version") or "") if named else None,
         "state": state,
         "own": own,
+        # Owned but waiting on a pick or an unreadable file stays out of the crate.
+        "in_crate": state == "satisfied",
         "confidence": source.get("confidence"),
         "you_own": found["you_own"],
         "notes": source.get("notes"),

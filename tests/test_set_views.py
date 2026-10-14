@@ -13,6 +13,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from djlib.application import identification
+from djlib.application.set_identification import build_tracklist
 from djlib.domain.errors import AppError
 from djlib.interfaces import identify_cli, mcp_server, set_sources, terminal, views
 from djlib.interfaces.cli import app as cli_app
@@ -22,6 +23,7 @@ from tests.test_headline_workflow import build
 from tests.test_identification import URL
 from tests.test_identify_cli import LISTED, fakes
 from tests.test_identify_cli import invoke as identify_invoke
+from tests.test_set_identification import silence, song
 from tests.test_terminal import COLLECTION, REQUEST, SHORT_COLLECTION, SHORT_REQUEST, sized
 
 SOUNDCLOUD = "https://soundcloud.com/platform/kaytranada-boiler-room"
@@ -256,6 +258,101 @@ def test_a_shazam_history_lists_only_what_you_dont_own(capsys):
     assert len(result["tracks"]) == 1000  # the JSON keeps every one
 
 
+def test_owned_songs_waiting_on_a_pick_are_counted_and_listed(capsys):
+    rows = [*KAYTRANADA[:6], ("", "Lumen", "Halo", "", None, "owned")]
+    items = [ledger_item(n, *row) for n, row in enumerate(rows, 1)]
+    # Two copies of the exact mix, and a file on a drive that isn't plugged in.
+    items[0].update(state="ambiguous", accepted=None)
+    items[3].update(state="unavailable", accepted=None)
+    tracks = [set_track(item, SOUNDCLOUD) for item in items]
+    assert [(track["own"], track["in_crate"]) for track in tracks[:4:3]] == [
+        ("owned", False),
+        ("owned", False),
+    ]
+    assert tracks[4]["in_crate"] is True and tracks[1]["in_crate"] is False
+    result = set_result(rows, tracks=tracks, owned=2, other_mix=0)
+    out = shown("set", result, 100, capsys)
+    # Every song is counted once: 2 + 2 + 3 = 7.
+    assert "2 of 7 owned · 2 to check · 3 missing" in out
+    assert "! owned, pick a copy" in out and "! owned, file unavailable" in out
+    steps = [" ".join(line.split()[1:]) for line in out.split("Next\n", 1)[1].splitlines()]
+    assert steps[:2] == [
+        "Pick which copy to use (1) djlib ui",
+        f"Once the unavailable files are back, check again djlib requests refresh {SHORT_REQUEST}",
+    ]
+    # A long list (a Shazam history) keeps them, under a heading that fits them.
+    many = rows + [("", "Artist", f"Song {n}", "", None, "owned") for n in range(60)]
+    items += [ledger_item(n, *row) for n, row in enumerate(many[7:], 8)]
+    big = set_result(many, tracks=[set_track(item) for item in items], shazam={"songs": 67})
+    out = shown("set", big, 120, capsys)
+    assert "Not in the crate yet (5 of 67)" in out
+    assert "pick a copy" in out and "file unavailable" in out
+    # No crate at all: the songs marked ! are why.
+    none = set_result(rows[:1], tracks=tracks[:1], owned=0, collection_id=None)
+    assert "none yet: the songs marked ! need a look first" in shown("set", none, 120, capsys)
+
+
+def test_a_pasted_tracklist_that_times_only_its_ids_has_no_time_column(capsys):
+    rows = [
+        ("", "Antdot", "Mirage", "", None, "owned"),
+        ("06:20", "", "", "", None, "id"),
+        ("", "Modjo", "Lady", "Kaytranada Remix", None, "missing"),
+    ]
+    out = shown("set", set_result(rows, link=LINK), 100, capsys)
+    assert "Time" not in out and "ID @ 06:20" in out
+    timed = shown("set", set_result(KAYTRANADA[:2] + rows[1:2]), 100, capsys)
+    assert "Time" in timed and "ID @" not in timed
+
+
+def test_at_80_columns_most_songs_keep_to_one_line(capsys):
+    def table(width):
+        out = shown("set", set_result(KAYTRANADA), width, capsys)
+        return out.split("The set (22)\n", 1)[1].split("\n\n", 1)[0].splitlines()[2:]
+
+    narrow = table(80)
+    # Two columns between cells, and a confirmed line is just its tick.
+    assert len(narrow) - 22 <= 4, "\n".join(narrow)
+    assert " 1  00:00  Kaytranada - Roots (Silent Treatment Intro)" in narrow[0]
+    assert "✓ confirmed" not in "\n".join(narrow) and "◐ likely" in "\n".join(narrow)
+    assert "✓ confirmed" in "\n".join(table(100))
+
+
+def test_another_mix_with_no_mix_name_says_so(capsys):
+    item = ledger_item(1, "", "Bell Biv DeVoe", "Poison", "Extended Mix", None, "missing")
+    item["candidates"] = [{"identity_match": "different_version", "title": "Poison"}]
+    track = set_track(item)
+    assert track["own"] == "other_mix" and track["you_own"] == ["Poison"]  # the JSON as read
+    result = set_result([], tracks=[track], songs=1, owned=0, other_mix=1, collection_id=None)
+    out = shown("set", result, 120, capsys)
+    assert "≈ other mix: no mix name" in out and "other mix: Poison" not in out
+    # The headline counts it in another mix; the crate row agrees.
+    assert "0 of 1 owned · 1 in another mix" in out
+    assert "no exact mixes in your library yet" in out and "none of these songs" not in out
+    request = {"request_id": REQUEST, "name": "Friday", "total_items": 1, "items": [item]}
+    assert "you own: no mix name" in shown("requests get", request, 120, capsys)
+
+
+def test_the_listen_note_is_for_likely_and_weak_lines_not_ids(capsys):
+    rows = [
+        ("00:00", "A", "One", "", "confirmed", "owned"),
+        ("03:00", "", "", "", "unidentified", "id"),
+    ]
+    out = shown("set", set_result(rows), 120, capsys)
+    assert "#2" in out and "worth a listen" not in out
+    unsure = shown(
+        "set", set_result([*rows, ("06:00", "B", "Two", "", "weak", "missing")]), 120, capsys
+    )
+    assert "Likely and weak lines are worth a listen before you play them." in unsure
+
+
+def test_a_long_list_you_own_every_song_of_keeps_its_heading(capsys):
+    rows = [("", "Artist", f"Song {n}", "", None, "owned") for n in range(1, 71)]
+    result = set_result(rows, link=None, name="Shazam since 2026-09-01", shazam={"songs": 70})
+    out = shown("set", result, 100, capsys)
+    assert "Your Shazams (70)" in out and "You own every one of them." in out
+    assert "Not owned yet" not in out
+
+
 def test_without_rekordbox_installed_the_crate_is_the_next_step(capsys):
     result = set_result(KAYTRANADA[:2])
     result["rekordbox"]["installed"] = False
@@ -331,6 +428,22 @@ def test_the_identify_screen_speaks_in_tracks_heard_and_ids(capsys):
     assert "unofficial; may slow down or stop working" in fresh
 
 
+def test_the_summary_counts_songs_and_keeps_seconds_heard_in_seconds():
+    probes = [*song(0, 6, "Lumen", "Halo"), *map(silence, range(180, 1380, 30))]
+    tracklist = build_tracklist(duration=1600, probes=[*probes, *song(1380, 6, "Ana", "Rain")])
+    assert tracklist["coverage"]["seconds_heard"] == 324.0
+    found = identification.summary({"source": {"url": SOUNDCLOUD}, "tracklist": tracklist})
+    assert found["coverage"]["seconds_heard"] == 324.0  # seconds, as before
+    assert found["coverage"]["percent_heard"] == 20
+    assert {key: found["counts"][key] for key in ("tracks", "heard", "listed_only", "ids")} == {
+        "tracks": 3,
+        "heard": 2,
+        "listed_only": 0,
+        "ids": 1,
+    }
+    assert found["tracks"][2]["listen_url"] == f"{SOUNDCLOUD}#t=23:00"
+
+
 def test_requests_get_marks_another_mix_and_ids_in_dj_words(capsys):
     items = [ledger_item(n, *row) for n, row in enumerate(KAYTRANADA[14:16], 1)]
     items.append(ledger_item(3, "40:00", "", "", "", "unidentified", "id"))
@@ -393,6 +506,51 @@ def test_the_shopping_list_prints_each_store_link_in_one_piece(capsys):
     assert "26:00 Bell Biv DeVoe - Poison — you have: Radio Edit" in " ".join(out.split())
     assert "IDs, no name yet: #3" in out
     assert f"djlib requests refresh {SHORT_REQUEST}" in out
+
+
+def test_the_shopping_list_path_prints_in_one_piece(capsys):
+    saved = "/w/exports/requests/request_408fe122/Kaytranada Boiler Room Montreal - to buy.txt"
+    result = {"request_id": REQUEST, "name": "Kaytranada", "to_buy": [], "shopping_list": saved}
+    out = shown("requests report", result, 60, capsys)
+    assert f"  Saved to  {saved}" in out.splitlines()
+
+
+# -- status: rekordbox where there is one ------------------------------------------------------
+
+
+def status_with(**changes) -> dict:
+    crate = {"collection_id": COLLECTION, "name": "Kaytranada", "tracks": 12, "in_rekordbox": None}
+    return {"tracks": 20, "with_bpm": 20, "with_key": 20, "recent_collections": [crate], **changes}
+
+
+def test_status_offers_rekordbox_only_where_it_is_installed(capsys):
+    out = shown("status", status_with(rekordbox_checked=False, rekordbox_app=False), 120, capsys)
+    assert "rekordbox" not in out.replace("djlib rekordbox", "")
+    assert "push" not in out and "closed" not in out
+    closed = status_with(rekordbox_checked=False, rekordbox_app=True, rekordbox_open=False)
+    out = shown("status", closed, 120, capsys)
+    assert "not in rekordbox yet" in out and f"djlib rekordbox push {SHORT_COLLECTION}" in out
+    assert "(rekordbox is closed, so djlib can't tell which are in it)" in out
+    # Open, but its playlists out of reach: djlib doesn't claim it's closed.
+    opened = status_with(rekordbox_checked=False, rekordbox_app=True, rekordbox_open=True)
+    out = shown("status", opened, 120, capsys)
+    assert "closed" not in out and "can't see rekordbox's playlists right now" in out
+    assert f"djlib rekordbox push {SHORT_COLLECTION}" in out
+
+
+def test_status_knows_whether_rekordbox_is_open(application, library_http, monkeypatch):
+    from djlib.interfaces import rekordbox_cli
+
+    monkeypatch.setattr(rekordbox_cli, "rekordbox_playlists", lambda: None)
+    monkeypatch.setattr(rekordbox_mac, "installed", lambda: {"path": "/Applications/rekordbox 7"})
+    monkeypatch.setattr(rekordbox_mac, "process_running", lambda: False)
+    workspace = ["--workspace", str(application.workspace.root)]
+    reply = CliRunner().invoke(cli_app, [*workspace, "status"])
+    result = json.loads(reply.stdout)["result"]
+    assert (result["rekordbox_app"], result["rekordbox_open"]) == (True, False)
+    monkeypatch.setattr(rekordbox_mac, "installed", lambda: None)
+    result = json.loads(CliRunner().invoke(cli_app, [*workspace, "status"]).stdout)["result"]
+    assert result["rekordbox_app"] is False and "rekordbox_open" not in result
 
 
 # -- through the CLI and the coordinator ----------------------------------------------------------
