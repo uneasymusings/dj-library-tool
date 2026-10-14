@@ -555,6 +555,55 @@ async def test_the_runner_survives_a_busy_catalog_and_runs_queued_identification
     assert application.job(job_id)["state"] == "completed" and len(calls) >= 2
 
 
+async def test_a_set_identified_before_shows_while_another_set_is_listened_to(application, setup):
+    # Live, Shazam's rate limits stretched one listen to an hour; `djlib set` on a set
+    # identified earlier waited behind it the whole time.
+    await run(application, submit(application))
+    gate = asyncio.Event()
+
+    async def hold(at):
+        await gate.wait()
+
+    setup.listener.hook = hold
+    asked = len(setup.listener.heard)
+    listening = submit(application, url="https://soundcloud.com/lumen/other-set")
+    task = asyncio.create_task(IdentifyRunner(application).run())
+    try:
+        for _ in range(300):
+            if len(setup.listener.heard) > asked:
+                break
+            await asyncio.sleep(0.01)
+        shown = submit(application)
+        assert "ahead" not in (application.job(shown)["result"].get("progress") or {})
+        for _ in range(300):
+            if application.job(shown)["state"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert application.job(shown)["result"]["reused"] is True
+        assert application.job(listening)["state"] == "running"
+        gate.set()
+        for _ in range(300):
+            if application.job(listening)["state"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert application.job(listening)["state"] == "completed"
+    finally:
+        gate.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_work_on_one_set_waits_for_the_job_already_on_it(application, setup):
+    await run(application, submit(application))
+    again = submit(application, again=True)
+    shown = submit(application)
+    assert application.job(shown)["result"]["progress"] == {"phase": "queued", "ahead": 1}
+    runner = IdentifyRunner(application)
+    assert runner.claim_reuse() is None  # the --again listen of the set goes first
+    assert runner.claim()[0] == again
+    assert runner.claim_reuse() is None and runner.claim() is None  # the set is busy
+
+
 # -- staying honest and robust -------------------------------------------------------------------
 
 
