@@ -171,6 +171,32 @@ def test_saved_work_can_be_found_and_paged_with_honest_native_state(application,
         assert "ready_for_app_use" not in first[kind][0]
 
 
+def test_a_set_checked_again_comes_back_to_the_top_of_the_sets(application):
+    """`djlib set` on a set checked before reuses its saved list in place, so the list of sets
+    goes by when each was last checked, not made; paging keeps that order."""
+    with application.db.transaction() as session:
+        for day, name in enumerate(["Monday", "Tuesday", "Wednesday", "Thursday"], 1):
+            made = f"2026-10-0{day}T20:00:00+00:00"
+            session.add(
+                RequestLedger(
+                    id=f"request_{day:032x}",
+                    name=name,
+                    request={},
+                    items=[{"kind": "unknown"}],
+                    created_at=made,
+                    updated_at=made,
+                )
+            )
+        session.flush()
+        # Monday's set, checked again today.
+        session.get(RequestLedger, f"request_{1:032x}").updated_at = "2026-10-09T20:00:00+00:00"
+    first = application.saved("requests", limit=2)
+    rest = application.saved("requests", limit=2, after=first["next_cursor"])
+    names = [row["name"] for row in first["requests"] + rest["requests"]]
+    assert names == ["Monday", "Thursday", "Wednesday", "Tuesday"]
+    assert rest["next_cursor"] is None
+
+
 def test_historical_collection_members_remain_visible_when_location_is_retired(application):
     seed_catalog(application, 1)
     with application.db.transaction() as session:

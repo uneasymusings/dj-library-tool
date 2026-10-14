@@ -26,6 +26,7 @@
   - `WORKSPACE_REQUIRED` and `SOURCE_NOT_ALLOWED` have new messages; the codes are unchanged. The terminal no longer prints error codes.
   - An ID line needs only its label; a time or link is optional. A named line of a pasted or file tracklist keeps its time (`timestamp`), so those lists get new keys; a set checked again stays the same set.
   - Captured output is one line of JSON (`--json` at a terminal stays indented).
+  - `GET /requests` (`requests list`, `djlib_requests`, the review page) lists sets by when they were last checked (`updated_at`), not made.
   - `own` can be `maybe`, and a candidate's `identity_match` `similar_credits`. `RequestItem.also` takes up to three spellings. `requests get` says “pick a copy”, “file unavailable” and “to check” where it said “ambiguous” and “unavailable”.
   - The terminal's first-run error reads “Tell it where your music is” with `djlib init ~/Music` and `djlib scan`; doctor's first row is “Music folders”.
 
@@ -69,7 +70,7 @@
 *Status, sets and crates*
 - `last` is the set you checked most recently (checking one again counts) and its crate, for `djlib requests report last` and `djlib rekordbox push last`.
 - `djlib status` lists your sets with their crates, one line each: “Kaytranada … 14 of 22 owned · 7 missing · 1 in another mix · crate 14 · ✓ in rekordbox · ✓ on DJ_USB 1d ago”. Each crate sits on the line of the set it was made from; others go under “Other crates”. On a computer without rekordbox, status doesn't talk about rekordbox for your crates. When nothing is checked yet, it suggests `djlib set paste` and, when this Mac has Shazams, your recent ones.
-- `djlib requests` lists your sets with the same counts as `djlib set`: Owned, Missing, Other mix, IDs.
+- `djlib requests` lists your sets with the same counts as `djlib set`: Owned, Missing, Other mix, IDs. The set you checked last comes first, also when you checked it again, and so on the review page.
 - `djlib requests collect` shows “✓ Crate “Name” 12 tracks, in set order”. When owned songs were left out (files missing or unreadable), it says so with the reasons and offers “See what failed” and “Retry failed items” before the push.
 - `djlib crates` shows what djlib did for each crate (“pushed 1d ago  ✓ on DJ_USB 1d ago”). Only `djlib status` says “✓ in rekordbox”, because only it reads rekordbox.
 - `djlib library mirage` searches without `-q`. `djlib crate` alone shows your newest crate, and `djlib requests`, `djlib shazam`, `djlib roots` and `djlib jobs` alone do the obvious thing. “Did you mean” suggests only commands you can see in help.
