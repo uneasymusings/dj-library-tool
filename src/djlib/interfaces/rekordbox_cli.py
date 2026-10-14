@@ -832,7 +832,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
         page = shazam = identified = listing = listen_fix = None
-        tracklist = identify_cli.unquoted(tracklist)
+        tracklist = identify_cli.with_https(identify_cli.unquoted(tracklist))
         # paste or -: a link in it is used as typed, anything else is the tracklist's text.
         pasted = columns = None
         if kind := identify_cli.typed(tracklist):

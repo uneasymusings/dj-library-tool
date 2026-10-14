@@ -11,6 +11,7 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
+from djlib.application import identification
 from djlib.application.tracklists import HEADING, RICH_TEXT, parse_tracklist
 from djlib.domain.errors import AppError
 from djlib.interfaces import identify_cli, terminal
@@ -215,9 +216,7 @@ def test_a_tracklist_can_be_piped_in(application, library_http, audio_factory, m
         "1,2026-10-10,Halo,Lumen,https://www.shazam.com/track/1,1\n",
         encoding="utf-8",
     )
-    shazams = CliRunner().invoke(
-        cli_app, [*workspace, "requests", "create", "--text", str(export)]
-    )
+    shazams = CliRunner().invoke(cli_app, [*workspace, "requests", "create", "--text", str(export)])
     assert shazams.exit_code == 0, shazams.output
     assert json.loads(shazams.stdout)["result"]["counts"]["satisfied"] == 1
 
@@ -501,6 +500,22 @@ def test_tracklist_paste_with_the_link_still_copied_asks_for_the_tracklist(
         assert "The clipboard still holds the set's link." in reply.stderr
 
 
+def test_a_link_zsh_escaped_when_pasted_is_still_the_link(
+    application, library_http, audio_factory, monkeypatch
+):
+    """oh-my-zsh writes \\? and \\= into a pasted link; in single quotes they reach djlib."""
+    setup = fakes(monkeypatch)
+    owned(library_http, audio_factory)
+    setup.page["description"] = "Lumen - Halo\n"
+    FakeRekordbox(monkeypatch)
+    reply = invoke(application, "set", r"https://youtu.be/fridayset1\?si\=abc123", "--no-rekordbox")
+    assert reply.exit_code == 0, reply.output
+    assert setup.inspected == ["https://youtu.be/fridayset1?si=abc123"]
+    assert identification.canonical_url(r"https://www.youtube.com/watch\?v\=fridayset1") == (
+        "https://www.youtube.com/watch?v=fridayset1"
+    )
+
+
 @pytest.mark.parametrize("quotes", ["'{}'", '"{}"', "‘{}’", "“{}”"])
 def test_a_link_that_arrives_with_its_quotes_is_still_the_link(
     application, library_http, audio_factory, monkeypatch, quotes
@@ -516,15 +531,24 @@ def test_a_link_that_arrives_with_its_quotes_is_still_the_link(
     assert setup.inspected == [link]
 
 
-def test_files_and_bare_links_are_named_as_typed(application, monkeypatch, tmp_path):
+def test_files_and_bare_links_are_named_as_typed(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
     monkeypatch.chdir(tmp_path)
     error = json.loads(invoke(application, "set", "‘Friday set.txt’").stdout)["error"]
     assert error["message"].startswith("Can't find Friday set.txt in ")
+    # A set link typed without https:// gets it, with the DJ's own options kept.
+    setup = fakes(monkeypatch)
+    owned(library_http, audio_factory)
+    setup.page["description"] = "Lumen - Halo\n"
+    FakeRekordbox(monkeypatch)
     bare = "soundcloud.com/platform/kaytranada-boiler-room"
-    for command, typed in (("set", f"'{bare}'"), ("identify", bare)):
-        error = json.loads(invoke(application, command, typed).stdout)["error"]
-        assert error["details"]["title"] == "That link needs its https://", command
-        assert error["details"]["next"] == f"djlib {command} 'https://{bare}'"
+    reply = invoke(application, "set", f"'{bare}'", "--no-rekordbox", pretty=True)
+    assert reply.exit_code == 0, reply.output
+    assert f"Reading it as https://{bare}" in reply.stderr
+    assert setup.inspected == [f"https://{bare}"]
+    listened = json.loads(invoke(application, "identify", bare).stdout)["result"]
+    assert listened["source"]["url"] == f"https://{bare}"
     # A file whose name has quotes in it is still that file.
     (tmp_path / "'odd'.txt").write_text("Lumen - Halo\n", encoding="utf-8")
     assert identify_cli.unquoted("'odd'.txt") == "'odd'.txt"

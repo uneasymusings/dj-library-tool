@@ -110,6 +110,19 @@ def resolve_link(url: str, transport: httpx.BaseTransport | None = None) -> str:
     return validate_url(f"https://soundcloud.com{target.path}")
 
 
+# zsh (oh-my-zsh's url-quote-magic) writes \? \= \& into a pasted link; quoted after that, the
+# backslashes reach djlib. No set link has a backslash of its own.
+SHELL_ESCAPED = re.compile(r"\\+(?=[?=&#%!*\[\]~;])")
+
+
+def unescaped(value: str) -> str:
+    """A link without the backslashes a shell put in front of ? = & #; anything else as given."""
+    text = str(value)
+    if not text.lstrip().lower().startswith(("http://", "https://")):
+        return value
+    return SHELL_ESCAPED.sub("", text)
+
+
 # Sites djlib can't take a set from: 1001Tracklists (its short links too) and Mixcloud.
 TRACKLISTS_HOSTS = ("1001tracklists.com", "1001.tl")
 MIXCLOUD_HOSTS = ("mixcloud.com",)
