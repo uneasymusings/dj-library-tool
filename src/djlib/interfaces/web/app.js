@@ -430,18 +430,25 @@ function jobTable(jobs) {
 // -- what you own, per track ------------------------------------------------------------------
 
 function otherMixes(item) {
-  if (item.state !== "missing") return [];
   const names = (item.candidates || [])
     .filter((candidate) => candidate.identity_match === "different_version")
     .map((candidate) => (candidate.version ? `${candidate.title} (${candidate.version})` : candidate.title));
   return [...new Set(names.filter(Boolean))];
 }
 
+// You own the exact mix: one copy, two to pick from, or a file djlib can't read right now.
+const OWNED_STATES = new Set(["satisfied", "ambiguous", "unavailable"]);
+
 // owned | missing | other | id: the same four answers as the terminal's Own column.
 function ownKind(item) {
-  if (item.state === "satisfied") return "owned";
-  if (item.state === "unknown") return "id";
+  if (OWNED_STATES.has(item.state)) return "owned";
+  if (item.input?.kind === "unknown") return "id";
   return otherMixes(item).length ? "other" : "missing";
+}
+
+// Not in stores yet, so no store search and not on the list to buy.
+function unreleased(input) {
+  return /\bunreleased\b/i.test(`${input?.title || ""} ${input?.version || ""}`);
 }
 
 // The same tally as a /requests row's counts, for items the page has in hand.
@@ -477,7 +484,8 @@ function strip(items, { compact = false, onPick } = {}) {
   for (const item of items) {
     const input = item.input || {};
     const where = input.timestamp || `#${item.position}`;
-    const segment = h("span", { class: `seg ${ownKind(item)}`, title: `${where}  ${plainLabel(input).replace(" - ", " – ")}` });
+    const what = input.kind === "unknown" ? idName(input.label) : plainLabel(input).replace(" - ", " – ");
+    const segment = h("span", { class: `seg ${ownKind(item)}`, title: `${where}  ${what}` });
     if (onPick) segment.addEventListener("click", () => onPick(item));
     bar.append(segment);
   }
@@ -531,29 +539,43 @@ function sureMeter(confidence) {
     [1, 2, 3].map((bar) => h("i", { class: bar <= level ? "on" : null })));
 }
 
+// "possibly X (Shazam heard it at 50:09 (3×))" or a15's "(Shazam, 1 window at 51:09)": one
+// guess per "; " part, so a match never runs into the next guess.
+const GUESS = /^possibly (.+?) \([A-Z][\w.&' -]*?(?: heard |, )[^;]*\d:\d\d[^;]*\)$/i;
+
 // An ID's lead, "maybe X" or "likely X", out of its notes; the rest of the notes stay.
 function idHint(notes) {
   const text = String(notes || "");
   const likely = /^ID \(likely (.+?)\): /.exec(text);
   if (likely) return { hint: `likely ${likely[1]}`, rest: text.slice(likely[0].length) };
-  const maybe = /(?:^|; )possibly (.+?) \([^()]*\d:\d\d[^()]*\)(?=;|$)/.exec(text);
-  if (maybe) {
-    const rest = (text.slice(0, maybe.index) + text.slice(maybe.index + maybe[0].length)).replace(/^; /, "");
-    return { hint: `maybe ${maybe[1]}`, rest };
-  }
-  return { hint: null, rest: text };
+  const parts = text.split("; ");
+  const at = parts.findIndex((part) => GUESS.test(part));
+  if (at < 0) return { hint: null, rest: text };
+  const hint = `maybe ${GUESS.exec(parts[at])[1]}`;
+  return { hint, rest: parts.filter((_, index) => index !== at).join("; ") };
 }
 
 function capital(text) {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
+// "ID", "ID - ID", "? - ?": nothing known. "Kaytranada - ID" keeps the artist, the one clue.
+const BARE_ID = /^\s*(?:id\s*-\s*)?id\s*$/i;
+const UNKNOWN_PART = /^(?:id|\?+|unknown|unreleased id|tba)$/i;
+
+function idName(label) {
+  const text = String(label || "").trim();
+  if (!text || BARE_ID.test(text) || text.split(/\s+[-–—]\s+/).every((part) => UNKNOWN_PART.test(part))) return "ID";
+  return text.replace(/\s+-\s+/, " – ");
+}
+
 function trackCell(item) {
   const input = item.input || {};
   if (input.kind === "unknown") {
     const { hint, rest } = idHint(input.notes);
+    const name = idName(input.label);
     return [
-      h("div", { class: "name id" }, h("b", null, "ID"), hint ? h("span", { class: "muted" }, ` — ${hint}`) : null),
+      h("div", { class: "name id" }, h("b", null, name), hint ? h("span", { class: "muted" }, ` — ${hint}`) : null),
       rest ? h("div", { class: "note", title: input.notes }, capital(rest)) : null,
     ];
   }
@@ -709,7 +731,7 @@ function setRow(row) {
   const badge = h("span", { class: "src-slot", hidden: true });
   const bar = h("div", { class: "strip compact loading-strip", "aria-hidden": "true" });
   const counts = h("p", { class: "tally" }, row.counts ? tally(row.counts) : null);
-  const when = ago(row.updated_at || row.created_at);
+  const when = ago(row.created_at); // the list is newest first by when the set was added
   const node = h("li", { title: row.request_id },
     h("a", { class: "set", href },
       h("div", { class: "set-name" },
@@ -775,16 +797,26 @@ async function requestDetail(requestId) {
   const counts = countsOf(items);
   const source = setSource(items);
   const setUrl = source?.url || null;
+  // Only songs with one readable copy go into the crate; the rest of what you own waits.
+  const ready = items.filter((item) => item.state === "satisfied").length;
+  const twice = items.filter((item) => item.state === "ambiguous").length;
+  const unread = items.filter((item) => item.state === "unavailable").length;
   const message = h("div");
+  const waiting = [
+    twice ? `You own ${plural(twice, "song")} twice: pick the copy for the crate below.` : null,
+    unread ? `djlib can't read ${plural(unread, "song")} you own right now (is the drive plugged in?), so the crate leaves ${unread === 1 ? "it" : "them"} out.` : null,
+  ].filter(Boolean);
   const view = h("section", { class: "set-page" }, crumb("#/sets", "Sets"));
-  const build = h("button", { type: "button", class: "primary", disabled: !counts.owned },
-    counts.owned ? `Build crate (${plural(counts.owned, "track")})` : "Build crate");
+  const build = h("button", { type: "button", class: "primary", disabled: !ready },
+    ready ? `Build crate (${plural(ready, "track")})` : "Build crate");
   const when = ago(ledger.updated_at || ledger.created_at);
   view.append(h("div", { class: "set-head" },
     h("div", { class: "set-title" },
       h("p", { class: "meta" }, sourceBadge(source), plural(ledger.total_items, "track"), when ? ` · checked ${when}` : null),
       h("h1", null, ledger.name)),
-    build), message);
+    build));
+  if (waiting.length) view.append(notice("warn", waiting.join(" ")));
+  view.append(message);
 
   const rows = new Map();
   const pick = (item) => {
@@ -798,7 +830,8 @@ async function requestDetail(requestId) {
   };
   view.append(strip(items, { onPick: pick }));
 
-  const missing = items.filter((item) => ownKind(item) === "missing" && item.input?.kind !== "unknown");
+  // The songs to buy: missing outright, and in a store already.
+  const missing = items.filter((item) => ownKind(item) === "missing" && !unreleased(item.input));
   view.append(h("div", { class: "set-tally" },
     h("p", { class: "tally big" }, tally(counts)),
     missing.length ? copyLines(`Copy ${missing.length} missing`, missing.map((item) => plainLabel(item.input))) : null));
@@ -815,7 +848,7 @@ async function requestDetail(requestId) {
       const collectionId = job.result?.collection_id;
       if (job.state === "completed" && collectionId) {
         message.replaceChildren(h("div", { class: "notice ok" },
-          `Crate ready with ${plural(job.result.selected_count ?? counts.owned, "track")}, in set order. `,
+          `Crate ready with ${plural(job.result.selected_count ?? ready, "track")}, in set order. `,
           h("a", { href: `#/collections/${encodeURIComponent(collectionId)}` }, "Open the crate")));
       } else {
         message.replaceChildren(notice("bad", `The crate job ended as ${job.state}.`, job.job_id));
@@ -855,6 +888,8 @@ async function requestDetail(requestId) {
   const timed = items.some((item) => item.input?.timestamp);
   const moment = (item) => {
     const stamp = item.input?.timestamp;
+    // In a timed set a bare number would read as a time; say there is none instead.
+    if (!stamp && timed) return h("span", { class: "pos", title: `Track ${item.position}: no time in the tracklist` }, "—");
     if (!stamp) return h("span", { class: "pos" }, item.position);
     const link = setUrl && listenUrl(setUrl, stampSeconds(stamp));
     return link
@@ -865,6 +900,22 @@ async function requestDetail(requestId) {
   const own = (item) => {
     const kind = ownKind(item);
     const accepted = item.accepted || {};
+    if (kind === "owned" && item.state === "ambiguous") {
+      // Only readable copies of this exact mix; djlib refuses anything else.
+      const copies = (item.candidates || []).filter((candidate) => candidate.availability === "verified"
+        && !["different_version", "different_labels"].includes(candidate.identity_match));
+      return [
+        pill("warn", "!", "Owned, pick a copy", "You own this mix more than once"),
+        copies.length ? h("ul", { class: "candidates" }, copies.map((candidate) => {
+          const button = h("button", { type: "button", class: "small" }, "Use this");
+          button.addEventListener("click", () => choose(item, candidate, button));
+          return h("li", null, button, fileTail(candidate.path || (candidate.locations || [])[0]));
+        })) : null,
+      ];
+    }
+    if (kind === "owned" && item.state === "unavailable") {
+      return pill("warn", "!", "Owned, file unavailable", "djlib can't read the file right now. Is the drive plugged in?");
+    }
     if (kind === "owned") {
       return [
         pill("ok", "✓", "Owned", accepted.path || null),
@@ -875,19 +926,13 @@ async function requestDetail(requestId) {
     if (kind === "other") {
       return [pill("other", "≈", "Other mix"), h("div", { class: "own-note" }, `You own ${otherMixes(item).join(", ")}`)];
     }
-    const candidates = item.candidates || [];
-    if (item.state === "ambiguous" && candidates.length) {
-      return [pill("warn", "!", "Pick a version"), h("ul", { class: "candidates" }, candidates.map((candidate) => {
-        const button = h("button", { type: "button", class: "small" }, "Use this");
-        button.addEventListener("click", () => choose(item, candidate, button));
-        return h("li", null, button, fileTail(candidate.path || (candidate.locations || [])[0]));
-      }))];
-    }
-    if (item.state === "unavailable") return pill("warn", "!", "File unavailable", "djlib can't read the file right now");
     if (item.state === "source_selected") {
       return [pill("info", "◐", "Source picked"), h("div", { class: "own-note path" }, item.source_selection?.source_url || "")];
     }
-    return [pill("bad", "✗", "Missing"), item.input?.kind !== "unknown" ? storeLinksNode(item) : null];
+    return [
+      pill("bad", "✗", "Missing"),
+      unreleased(item.input) ? h("span", { class: "buy" }, "Not in stores yet") : storeLinksNode(item),
+    ];
   };
 
   view.append(table(

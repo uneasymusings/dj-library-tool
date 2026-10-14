@@ -289,17 +289,22 @@ def saved(app, kind, query="", limit=20, after=None):
     return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
 
 
+# The library holds the exact mix: one verified copy, several to pick from, or a copy djlib
+# can't read just now. Same as `djlib set` (rekordbox_cli.OWNED_STATES).
+OWNED_STATES = frozenset({"satisfied", "ambiguous", "unavailable"})
+
+
 def request_counts(items: list[dict] | None) -> dict:
-    """A saved set's tally in DJ words. Owned is what goes into the crate; a song you only
-    have in another mix is other_mix; anything else not owned counts as missing."""
+    """A saved set's tally in DJ words, the same as `djlib set`'s own column: owned (the exact
+    mix), ids, other_mix (only another mix of it) and missing. Only satisfied songs go into the
+    crate; an owned song with two copies or an unreadable file waits until that is sorted."""
     counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0}
     for item in items or []:
-        state = item.get("state")
-        if state == "satisfied":
+        if item.get("state") in OWNED_STATES:
             counts["owned"] += 1
-        elif state == "unknown":
+        elif (item.get("input") or {}).get("kind") == "unknown":
             counts["ids"] += 1
-        elif state == "missing" and any(
+        elif any(
             candidate.get("identity_match") == "different_version"
             for candidate in item.get("candidates") or []
         ):

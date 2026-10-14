@@ -383,6 +383,7 @@ a.time { color: var(--text); text-decoration: underline dotted; text-decoration-
 a.time:hover { color: var(--amber-text); text-decoration: underline; text-decoration-color: currentColor; }
 
 .name { font-size: 14.5px; line-height: 1.35; }
+.t-set .name, .t-set .note { overflow-wrap: anywhere; }
 .name b { font-weight: 650; }
 .note {
   margin-top: 2px;
@@ -419,6 +420,7 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
 .notice { margin: 0 0 18px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
 .notice.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 .notice.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.notice.warn { border-color: color-mix(in srgb, var(--other) 55%, var(--line)); }
 .notice .code { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: 8px; }
 
 /* A crate: where it goes next, then its tracks in order. */
