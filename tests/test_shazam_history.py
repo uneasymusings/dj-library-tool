@@ -1030,7 +1030,8 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert "No Shazam history on this Mac yet" in pretty and "Turn on Shazam sync" in pretty
     assert "set shazam:apple-music" in pretty
     # Where to get a CSV, and a command that works as pasted (see the test below).
-    assert "set ~/Downloads/shazamlibrary.csv" in pretty  # as the docs give it
+    csv = terminal.shell_path(Path.home() / "Downloads" / "shazamlibrary.csv")
+    assert f"set {csv}" in pretty  # ~/Downloads/… as the docs give it, off Windows
     # No backup to read: no "iPhone backups  none" row.
     assert "iPhone backups" not in pretty
 
