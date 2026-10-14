@@ -537,9 +537,22 @@ def test_up_to_three_skipped_lines_are_quoted_one_by_one():
     lines = [f"line {n} skipped (no “Artist - Title” separator): “LABEL”" for n in range(3)]
     notice = "MixesDB marks this tracklist incomplete: songs may be missing."
     assert skipped_once([notice, *lines]) == [notice, *lines]
-    more = [notice, *lines, "MixesDB, line 9 skipped (unreadable characters): “x”", "Last"]
+    heading = "MixesDB, line 1 skipped (looks like a heading): “- Friday at Fabric”"
+    more = [notice, heading, *lines, "Last"]
     assert skipped_once(more) == [
         notice,
         "4 lines without “Artist - Title” skipped (labels, headings, notes)",
         "Last",
+    ]
+    # Lines that may be songs are never folded into the summary.
+    songs = [
+        "MixesDB, line 9 skipped (unreadable characters): “Real Artist - Real Song”",
+        "MixesDB, line 900 skipped (more than 400 tracks; this one and the rest are left out): "
+        "“X - Y”",
+        "line 12 skipped (no “Artist - Title” separator): “Kaytranada -Glowed Up”",
+    ]
+    assert skipped_once([notice, heading, *lines, *songs]) == [
+        notice,
+        "4 lines without “Artist - Title” skipped (labels, headings, notes)",
+        *songs,
     ]
