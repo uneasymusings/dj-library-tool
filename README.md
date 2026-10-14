@@ -28,8 +28,7 @@ The set (22)
  …
 22  39:17  Modjo - Lady (Kaytranada Remix)                        ◐ likely  ✓ owned
 
-  Owned under another spelling: #2 Robert Glasper · #19 Armand Val Helden Feat. Common -
-  Full Moon
+  Owned under another spelling: #2 Robert Glasper · …
 
   From MixesDB: #3, #5, #8, #9, #10, #11, #13, #15, #16, #17, #18, #21, #22
 
@@ -42,29 +41,29 @@ Next
   → Your shopping list (7)     djlib requests report 7d3a8f2d
 ```
 
-Real output, trimmed (rows 5–15, 17–21 and two long lines).
+Real output, trimmed (rows 5–15 and 17–21, and a few long lines).
 
 ## Three ways in
 
 ```bash
-djlib set 'https://youtu.be/…'   # every track in a set, and which you own
-djlib shazam status              # your Shazams, and the one command to check them
-djlib set paste                  # a tracklist you copied
+djlib set 'https://youtu.be/…' --no-rekordbox   # every track in a set, and which you own
+djlib shazam status                             # your Shazams, and how to check them
+djlib set paste                                 # a tracklist you copied
 ```
 
-Add `--usb` to finish on your stick. Put links in single quotes. Not on a Mac? Use a text file: `djlib set Friday.txt`.
+Leave out `--no-rekordbox` and djlib also makes the rekordbox playlist; add `--usb` to finish on your stick. Put links in single quotes. Not on a Mac? Use a text file: `djlib set Friday.txt`.
 
 ## What it does
 
 | You have | Run | You get |
 | --- | --- | --- |
 | **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing or has IDs. |
-| **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command for your last 30 days. |
-| **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line. From 1001Tracklists: copy it in your browser, then `djlib set 'LINK' --tracklist paste`. |
-| **Missing songs** | `djlib requests report last` | A shopping list with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads web copies after asking: stream quality, so buy the real file for the club. |
+| **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command to check them (your last 30 days first, when you have more than 100). |
+| **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line. From 1001Tracklists: type `djlib set 'LINK' --tracklist paste` with the set's YouTube or SoundCloud link, then copy the tracklist on the 1001Tracklists page and press Enter. |
+| **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads web copies after asking: stream quality, so buy the real file for the club. |
 | **rekordbox and USB** (Mac) | `djlib set 'LINK' --usb` | A rekordbox playlist in set order. You click it once; rekordbox exports it, and djlib reads the stick back to check every track, in order, byte for byte. |
 
-`≈ Radio Edit` means you own another mix. djlib counts only the exact mix, so it stays out of the crate; drag yours in if you play it.
+`≈ Radio Edit` means you own another mix. djlib counts only the exact mix, so it stays out of the crate; drag yours in if you play it. `? maybe yours` means you have a file with the same title and mix under another artist name (Robert Glasper for Robert Glasper Experiment, common with Shazams). It stays off the shopping list; if it's the song, pick Use this on the review page.
 
 ### How djlib drives rekordbox
 
@@ -77,7 +76,7 @@ First time: allow the app you run djlib in under System Settings → Privacy & S
 
 ### In your browser
 
-`djlib ui` opens a private page with your sets, crates and library.
+`djlib ui` opens a private page with your sets, crates and library. Times open the set at that moment, and a set's crate is one click away.
 
 ![djlib's review page: a set with times, how sure, and what you own](docs/images/review-page-set.png)
 
@@ -101,6 +100,6 @@ With the plugin, just ask: “What's in this set and which tracks do I own? http
 
 ## Docs
 
-[Quick start](docs/QUICKSTART.md) · [Install](docs/INSTALL.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Advanced commands](docs/ADVANCED.md) · [Contributing](CONTRIBUTING.md)
+[Quick start](docs/QUICKSTART.md) · [Install](docs/INSTALL.md) · [With Claude Code or Codex](docs/AGENTS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Advanced commands](docs/ADVANCED.md) · [Contributing](CONTRIBUTING.md)
 
 MIT licensed. Bring your own music and download rights. Not affiliated with AlphaTheta/rekordbox, Shazam/Apple, MixesDB or 1001Tracklists.

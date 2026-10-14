@@ -5,7 +5,7 @@ In a terminal, djlib says what went wrong in plain words and gives you the next 
 ## Install and upgrade
 
 - **`djlib: command not found`.** Open a new terminal window. Still missing? `uv tool update-shell` adds djlib's folder to your PATH (`uv tool dir --bin` shows where it is). See [uv's tool guide](https://docs.astral.sh/uv/guides/tools/#installing-tools).
-- **An error right after “Installing” when upgrading from 0.1.0a15.** 0.1.0a15 runs its own upgrade code one last time. The upgrade worked: run `djlib doctor` to confirm.
+- **A Python error (`ModuleNotFoundError`) at the end of `djlib upgrade` from 0.1.0a15.** 0.1.0a15 runs its own upgrade code one last time, after a quiet wait. The upgrade worked: run `djlib doctor` to confirm.
 - **Song recognition isn't installed after an upgrade.** `djlib doctor` says so; run `djlib upgrade` once more and it adds it.
 - **`djlib doctor`** checks FFmpeg, yt-dlp, the YouTube helper (Deno or Node), song recognition, rekordbox, the Accessibility permission and the background service without starting it. It also shows your Mac's Shazam history and djlib's folder, and flags a Claude Code plugin from another release.
 - **Use a lasting install for assistants.** An MCP registration or `setup-agent` session stores the path of the installed `djlib`. A temporary `uvx` environment or a deleted checkout breaks it; reinstall with `uv tool install` and make a new session.
@@ -72,7 +72,7 @@ The first listen that uses Shazam says once that djlib uses Shazam's service uno
 | **Which USB?** (`DEVICE_REQUIRED`) | No stick, or several sticks, are plugged in. Pass `--device /Volumes/NAME`. |
 | **Driving rekordbox needs a Mac** (`APP_AUTOMATION_UNSUPPORTED`) | `djlib set` still builds the crate; import it into your DJ app yourself. |
 | **USB check failed … don't take this stick yet** (exit code 4) | Tracks are missing or out of order on the stick. Don't play from it; export again. |
-| A set you checked with 0.1.0a15 shows up as “Name (2)” in rekordbox | 0.1.0a16 found more songs you own, so it built a new crate. Delete the older playlist. |
+| A set you checked with 0.1.0a15 shows up as “Name (2)” in rekordbox | 0.1.0a16 found more songs you own, or now reads the untimed ID lines in your tracklist file, so it made a new crate. Delete the older playlist. |
 
 djlib never edits rekordbox's database and never writes the USB stick itself; rekordbox does the export. Playback on CDJ and XDJ players isn't verified by the tool, so test the stick before a gig.
 
@@ -106,4 +106,4 @@ Then open or reconnect Claude Code or Codex. **djlib's background service isn't 
 
 ## Backups
 
-Upgrades back up the catalog under djlib's folder in `backups/` before changing it. Your music and rekordbox's own data aren't part of that backup, and there is no automatic restore.
+Upgrades back up djlib's index of your music (its sets and crates too) under djlib's folder in `backups/` before changing it. Your music and rekordbox's own data aren't part of that backup, and there is no automatic restore.

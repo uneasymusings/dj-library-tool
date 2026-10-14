@@ -137,12 +137,14 @@ if unset_up; then
 else
   say "Try one of these:"
 fi
-note "djlib set 'https://youtu.be/…'   every track in a set, and which you own"
-note "djlib shazam status              your Shazams, and how to check them"
-note "djlib set paste                  a tracklist you copied"
-note "Add --usb to finish on your USB stick. Put links in single quotes."
+note "djlib set 'https://youtu.be/…' --no-rekordbox   which tracks you own"
+note "djlib shazam status                              your Shazams"
+note "djlib set paste                                  a tracklist you copied"
+note "Leave out --no-rekordbox for a rekordbox playlist; add --usb for your stick."
+note "Put links in single quotes."
 if [ "$(uname -s)" = "Darwin" ]; then
-  echo "rekordbox and USB steps need your terminal (and Claude Code or Codex) allowed under"
-  echo "System Settings → Privacy & Security → Accessibility; djlib doctor shows whether it is."
+  echo "rekordbox and USB steps need your terminal (and Claude Code or Codex)"
+  echo "allowed under System Settings → Privacy & Security → Accessibility."
+  echo "djlib doctor shows whether it is."
 fi
 echo "If 'djlib' isn't found, open a new terminal window."

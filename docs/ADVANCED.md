@@ -33,7 +33,7 @@ The workspace holds the catalog, a runtime token, managed media and exports; `dj
 
 `djlib identify 'LINK'` (and `djlib set 'LINK'` when the tracklist is missing or has IDs) reads the set's description, chapters and listener comments, looks the set up on MixesDB, downloads the audio and sends a 12-second clip every 30 seconds to song recognition (every minute when a timed tracklist says what plays). It listens again where songs change, then merges everything into one timed tracklist saved in the workspace's `sets/` folder. The audio is deleted afterwards unless `DJLIB_KEEP_SET_AUDIO=1`. `djlib identify 'LINK' --again` listens again even when djlib heard the set before.
 
-When Shazam hears a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), djlib uses the spelling Shazam heard, so your files are found, and notes how the tracklist wrote it. A song heard once that fits nowhere is listed under “Heard once, not placed”, not as a track. `djlib source-inspect 'LINK'` reads only the description and chapters.
+When Shazam hears a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), djlib uses the spelling Shazam heard, so your files are found, and notes how the tracklist wrote it; and if your file is tagged the way a tracklist spells it (MixesDB's, or one you pasted), it still counts as owned (“Owned under another spelling”), for the same exact mix. A song heard once that fits nowhere is listed under “Heard once, not placed”, not as a track. `djlib source-inspect 'LINK'` reads only the description and chapters.
 
 Shazam is the default, used the way the Shazam app uses it, without an official API. AudD and ACRCloud are licensed options with your own key: see [song recognition](INSTALL.md#song-recognition). `djlib identify 'LINK' --recognizer audd` picks one for a single run.
 
@@ -65,7 +65,7 @@ djlib requests report last                      # the shopping list
 djlib requests resolve last ITEM_ID --file choice.json
 ```
 
-Matching uses normalized artist/title/version labels; another mix never substitutes, and “(Original Mix)” counts as no version. “and” matches “&” in titles, and a remixer's country tag inside a mix name (“Antdot & Maz (BR) Remix”) is ignored, but a file spelled exactly as asked wins. Several matching files stay “pick a copy” until you choose. Reads show saved evidence; create, refresh and resolve check files. IDs stay IDs. Picking a web source with `requests resolve` records a candidate only; it doesn't download it. Details: [requests](../skills/dj-library/references/requests.md).
+Matching uses normalized artist/title/version labels; another mix never substitutes, and “(Original Mix)” counts as no version. “and” matches “&” in titles, and a remixer's country tag inside a mix name (“Antdot & Maz (BR) Remix”) is ignored, but a file spelled exactly as asked wins. A confirmed song also matches a file tagged with a tracklist's credits for it (“Owned under another spelling”). A file with the same title and mix under a shorter or longer artist credit (“Robert Glasper” for “Robert Glasper Experiment”) is “maybe yours”: off the shopping list, and owned once you pick Use this on the review page. Several matching files stay “pick a copy” until you choose. Reads show saved evidence; create, refresh and resolve check files. IDs stay IDs. Picking a web source with `requests resolve` records a candidate only; it doesn't download it. Details: [requests](../skills/dj-library/references/requests.md).
 
 ## Crates from local files
 
@@ -136,7 +136,7 @@ Keep referenced files where they are: rekordbox and Serato point at them.
 
 ## The review page
 
-`djlib ui` opens Sets · Crates · Library. The older pages are still there at `#/overview`, `#/deliveries` and `#/jobs`. The Sure meter shows 3 bars for confirmed, 2 for likely, 1 for weak and 1 red bar for a conflict. Times link to the set only when djlib knows its link, which today means a set with an ID that carries it; other sets show plain times. A song marked “Not in stores yet” gets no store search and isn't in “Copy N missing”. An untimed line in a timed set shows “—”. `djlib ui --no-open` prints the link without opening it; the link holds a private token, so keep it to yourself.
+`djlib ui` opens Sets · Crates · Library. The older pages are still there at `#/overview`, `#/deliveries` and `#/jobs`. The Sure column uses the terminal's words: “◐ likely”, “! weak” in amber, “✗ conflict” in red, nothing for confirmed. Times link to that moment of the set when djlib knows its link (every set `djlib set` checks from a link). A set's crate opens with one click, with its rekordbox and USB commands. A list over 60 tracks opens on the songs to act on, 50 at a time, and a Shazam list reads newest first. A song marked “Not in stores yet” gets no store search and isn't in “Copy N to buy”. An untimed line in a timed set shows “—”. `djlib ui --no-open` prints the link without opening it; the link holds a private token, so keep it to yourself.
 
 ## Paging and saved work
 
