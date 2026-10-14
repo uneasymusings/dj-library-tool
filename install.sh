@@ -3,7 +3,7 @@
 # Installs uv if needed, the newest djlib release, FFmpeg through Homebrew when available and
 # the djlib plugin for Claude Code and Codex when they are installed. In a terminal it then
 # offers to index your music. Safe to run again: it updates whatever is already there.
-#   DJLIB_VERSION=0.1.0a14  pin a release
+#   DJLIB_VERSION=0.1.0a15  pin a release
 #   DJLIB_PLUGIN=0          don't add the Claude Code / Codex plugin
 #   DJLIB_MUSIC=~/Music     index this folder without asking (DJLIB_MUSIC= skips it)
 set -eu

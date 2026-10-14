@@ -13,7 +13,7 @@ curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/
 By hand, with [uv](https://docs.astral.sh/uv/getting-started/installation/) installed (macOS: also `brew install ffmpeg`):
 
 ```bash
-uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a14/dj_library_tool-0.1.0a14-py3-none-any.whl'
+uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a15/dj_library_tool-0.1.0a15-py3-none-any.whl'
 djlib version
 djlib init --allow-root ~/Music
 djlib scan
