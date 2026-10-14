@@ -218,6 +218,40 @@ def set_track(item: dict, link: str | None = None, guesses: dict | None = None) 
     return track
 
 
+def with_set_page(body, page, shazam, identified, listing, source):
+    """The set's request with where the set came from (its page and the MixesDB tracklist it
+    uses), so the review page can show its badge, link its times and credit MixesDB."""
+    from djlib.application import identification
+    from djlib.domain.request_contracts import RequestCreate
+    from djlib.interfaces.set_sources import provider_of
+
+    found: dict = {}
+    if shazam is not None:
+        found["source"] = {"provider": "Shazam", "title": shazam.get("description") or None}
+    elif page and provider_of(page.get("url")):
+        found["source"] = {
+            "url": page["url"],
+            "provider": provider_of(page["url"]),
+            "title": page.get("title") or None,
+            "uploader": page.get("uploader") or None,
+        }
+    elif source and provider_of(source):
+        found["source"] = {"url": source, "provider": provider_of(source)}
+    credit = (
+        identification.mixesdb_used(identified["result"])
+        if identified is not None
+        else identification.mixesdb_page(listing)
+    )
+    if credit and credit.get("page_title"):
+        found["mixesdb"] = {key: credit.get(key) for key in ("page_title", "page_url", "tracklist")}
+    if not found:
+        return body
+    try:
+        return RequestCreate.model_validate({**body.model_dump(mode="json"), **found})
+    except ValueError:
+        return body  # a page that can't be credited still leaves the set as it is
+
+
 def to_check(items: list[dict]) -> list[dict]:
     """Owned songs going into the crate that the identification is not sure of: worth a
     listen before the gig."""
@@ -929,6 +963,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     body = identify_cli.identified_request(identified["result"], body.name)
                     warnings += identify_cli.warnings_of(identified["result"])
                     page = identified["result"].get("source")
+        body = with_set_page(body, page, shazam, identified, listing, source)
         with status("Checking which songs you own…"):
             reply = created(local, body)
         request = reply["result"]

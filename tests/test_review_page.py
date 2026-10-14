@@ -298,6 +298,9 @@ OWN = [
     (_item("ambiguous", "named", "exact_labels", "exact_labels"), "owned"),  # owned twice
     (_item("unavailable", "named", "exact_labels"), "owned"),  # drive unplugged
     (_item("missing"), "missing"),
+    # The same title and mix under another artist name: maybe yours, for the DJ to confirm.
+    (_item("missing", "named", "similar_credits"), "maybe"),
+    (_item("missing", "named", "similar_credits", "different_version"), "maybe"),
     (_item("missing", "named", "different_version"), "other_mix"),
     (_item("missing", "named", "different_labels"), "missing"),
     (_item("source_selected"), "missing"),
@@ -312,9 +315,18 @@ def test_a_sets_tally_counts_what_you_own_like_the_terminal():
 
     for item, bucket in OWN:
         counts = request_counts([item])
-        assert counts[bucket] == 1 and sum(counts.values()) == 1, (item["state"], bucket)
+        # An owned song waiting on a pick or a file is also counted to check.
+        waits = int(item["state"] in {"ambiguous", "unavailable"})
+        assert counts[bucket] == 1 and counts["to_check"] == waits, (item["state"], bucket)
+        assert sum(counts.values()) == 1 + waits, (item["state"], bucket)
     if shutil.which("node"):
-        kinds = {"owned": "owned", "missing": "missing", "other_mix": "other", "ids": "id"}
+        kinds = {
+            "owned": "owned",
+            "missing": "missing",
+            "other_mix": "other",
+            "ids": "id",
+            "maybe": "maybe",
+        }
         items = json.dumps([item for item, _ in OWN])
         shown, counted = run_page(f"{items}.map(ownKind)", f"countsOf({items})")
         assert shown == [kinds[bucket] for _, bucket in OWN]
@@ -354,7 +366,14 @@ async def test_saved_sets_carry_the_tally_the_page_draws(application, audio_fact
     token = {"Authorization": "Bearer " + application.workspace.token()}
     row = http.get("/requests", headers=token).json()["result"]["requests"][0]
     assert row["request_id"] == ledger["request_id"]
-    assert row["counts"] == {"owned": 3, "missing": 1, "other_mix": 1, "ids": 1}
+    assert row["counts"] == {
+        "owned": 3,
+        "missing": 1,
+        "other_mix": 1,
+        "ids": 1,
+        "to_check": 2,
+        "maybe": 0,
+    }
     assert "items" not in row
     if shutil.which("node"):
         # The page's own count of the same items agrees with the service.
@@ -375,3 +394,52 @@ def test_wheel_ships_the_page(tmp_path):
     names = set(zipfile.ZipFile(wheel).namelist())
     for name in ("index.html", "app.js", "app.css"):
         assert f"djlib/interfaces/web/{name}" in names
+
+
+@needs_node
+def test_page_shows_a_sets_own_source_spellings_and_mixes_like_the_terminal():
+    """A fully identified set links its times from its own page (no ID carries the link), an
+    owned song reads "as Robert Glasper" as the terminal says it, a typed "(Extended Mix)"
+    reads as the mix, and a Shazam list reads newest first."""
+    from djlib.interfaces.views import spelled_as
+
+    link = "https://soundcloud.com/platform/kaytranada-boiler-room"
+    ledger = {"source": {"url": link, "provider": "SoundCloud"}}
+    glasper = {
+        "input": {
+            "kind": "named",
+            "artist": "Robert Glasper Experiment",
+            "title": "Move Love",
+            "version": "Kaytranada Edition",
+            "also": [
+                {
+                    "artist": "Robert Glasper",
+                    "title": "Move Love",
+                    "version": "Kaytranada Edition",
+                    "source": "mixesdb",
+                }
+            ],
+        },
+        "accepted": {"matched_as": "Robert Glasper - Move Love (Kaytranada Edition)"},
+    }
+    shazams = [
+        {"position": 1, "input": {"kind": "named", "notes": "Shazamed 2026-09-01"}},
+        {"position": 2, "input": {"kind": "named", "notes": "Shazamed 2026-10-12 in Montreal"}},
+        {"position": 3, "input": {"kind": "named", "notes": "Shazamed 2026-10-01"}},
+    ]
+    shown = run_page(
+        f"setSource([], {json.dumps(ledger)})",
+        'setSource([], {source: {provider: "Shazam", title: "Shazam 26 Sep – 12 Oct"}})',
+        f"spelledAs({json.dumps(glasper)})",
+        'TRAILING_MIX.exec("Poison (Extended Mix)").slice(1)',
+        'TRAILING_MIX.exec("Full Moon (feat. Common)")',
+        'TRAILING_MIX.exec("Bad Love (Antdot & Maz (BR) Remix)").slice(1)',
+        f"newestFirst({json.dumps(shazams)}).map((item) => item.position)",
+    )
+    assert shown[0] == {"kind": "soundcloud", "url": link}
+    assert shown[1] == {"kind": "shazam", "url": None}
+    assert shown[2] == spelled_as(glasper) == "Robert Glasper"
+    assert shown[3] == ["Poison", "Extended Mix"]
+    assert shown[4] is None  # a featured artist is not a mix
+    assert shown[5] == ["Bad Love", "Antdot & Maz (BR) Remix"]
+    assert shown[6] == [2, 3, 1]

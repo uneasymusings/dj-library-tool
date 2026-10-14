@@ -1084,6 +1084,48 @@ async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, a
     assert made_from[second_crate] == second["request_id"]
 
 
+async def test_a_set_keeps_where_it_came_from_and_its_crate(ledger_app, audio_factory):
+    """The review page shows a set's badge, links its times and credits MixesDB from the set
+    itself (a fully identified set has no ID to carry the link), and opens its crate. Where
+    a set came from never makes it another set, nor conflicts with its key."""
+    await owned(ledger_app, audio_factory)
+    page = {
+        "source": {
+            "url": "https://soundcloud.com/platform/kaytranada-boiler-room",
+            "provider": "SoundCloud",
+            "title": "Kaytranada Boiler Room Montreal DJ Set",
+            "uploader": "Boiler Room",
+        },
+        "mixesdb": {
+            "page_title": "2013-09-27 - Kaytranada @ Boiler Room Montreal 002",
+            "page_url": "https://www.mixesdb.com/w/Kaytranada",
+            "tracklist": "complete",
+        },
+    }
+    plain = same_list(ledger_app, [named()], "identified:k")
+    assert plain["source"] is None and plain["mixesdb"] is None and plain["crate"] is None
+    # The same key with the set's page: the same request, not IDEMPOTENCY_CONFLICT.
+    body = RequestCreate(name="Friday Set", items=[named()], idempotency_key="identified:k", **page)
+    again = requests.create_request(ledger_app, body, same_list=True)
+    assert again["request_id"] == plain["request_id"]
+    # A newer djlib checking it again records the page; the songs and revision stay.
+    other = RequestCreate(name="Friday Set", items=[named()], idempotency_key="other", **page)
+    learnt = requests.create_request(ledger_app, other, same_list=True)
+    assert learnt["request_id"] == plain["request_id"] and learnt["revision"] == plain["revision"]
+    got = requests.get_request(ledger_app, plain["request_id"])
+    assert got["source"] == page["source"] and got["mixesdb"] == page["mixesdb"]
+    job = requests.collect_request(ledger_app, got["request_id"], got["revision"])
+    done = await execute(ledger_app, job["job_id"])
+    crate = requests.get_request(ledger_app, plain["request_id"])["crate"]
+    assert crate["collection_id"] == done["result"]["collection_id"] and crate["tracks"] == 1
+    # Lists without a page serialize as before, so their keys still match.
+    assert (
+        "source" not in RequestCreate(name="n", items=[named()], idempotency_key="k").model_dump()
+    )
+    with pytest.raises(ValidationError):
+        RequestCreate(name="n", items=[named()], idempotency_key="k", source={"url": "http://x"})
+
+
 def test_only_the_same_songs_under_the_same_name_reuse_a_list(ledger_app):
     first = same_list(ledger_app, [named(), named(title="Second")], "one")
     for number, (name, items) in enumerate(

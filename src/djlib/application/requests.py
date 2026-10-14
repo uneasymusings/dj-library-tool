@@ -630,10 +630,19 @@ def get_request(app, request_id: str, offset: int = 0, limit: int = 100) -> dict
     """Read a bounded stored report. This never refreshes filesystem evidence implicitly."""
     if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 100:
         raise AppError("REQUEST_PAGE_INVALID", "Use offset >= 0 and a limit from 1 to 100.")
+    from djlib.application.catalog_paging import crate_of
+
     ledger = _load(app, request_id)
     page = ledger["items"][offset : offset + limit]
+    with app.db.transaction() as session:
+        crate = crate_of(session, request_id)
     return {
         **_summary(ledger),
+        # Where the set came from (its page, the MixesDB tracklist it uses), when known.
+        "source": ledger["request"].get("source"),
+        "mixesdb": ledger["request"].get("mixesdb"),
+        # The newest crate made from it: {collection_id, name, created_at, tracks}.
+        "crate": crate,
         "items": page,
         "offset": offset,
         "limit": limit,
@@ -650,7 +659,7 @@ def create_request(app, request: RequestCreate, same_list: bool = False) -> dict
     second list (and crate, and playlist) beside it.
     """
     payload = request.model_dump(mode="json", exclude={"idempotency_key"})
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    digest = _request_hash(payload)
     with app.db.transaction() as session:
         previous = session.get(RequestSubmission, request.idempotency_key)
         if previous:
@@ -706,6 +715,16 @@ def create_request(app, request: RequestCreate, same_list: bool = False) -> dict
                 )
             )
     return get_request(app, request_id)
+
+
+# Where a set came from: shown with it, never part of what its key names.
+SET_PAGE = ("source", "mixesdb")
+
+
+def _request_hash(payload: dict) -> str:
+    """The digest a key's request is held to: the name and items, not the set's page."""
+    kept = {key: value for key, value in payload.items() if key not in SET_PAGE}
+    return hashlib.sha256(json.dumps(kept, sort_keys=True).encode()).hexdigest()
 
 
 def _songs(items: list[dict]) -> list:
@@ -767,6 +786,12 @@ def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None)
             ledger.items, ledger.request = items, payload
             ledger.revision += 1
             ledger.updated_at = timestamp()
+        elif any(ledger.request.get(key) != payload.get(key) for key in SET_PAGE):
+            # Where the set came from, learnt by a newer djlib: the songs are as they were.
+            ledger.request = {
+                **ledger.request,
+                **{key: payload[key] for key in SET_PAGE if key in payload},
+            }
         return ledger.id
 
 

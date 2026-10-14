@@ -1,5 +1,5 @@
 /* djlib review page. Colour means one thing everywhere: green owned, red missing, amber
-   another mix, hatched an ID. The brand amber is kept for the logo, the active tab, the
+   another mix, blue maybe yours (a file under another artist name), hatched an ID. The brand amber is kept for the logo, the active tab, the
    primary button and the LCD readouts for BPM and key. */
 
 :root {
@@ -23,6 +23,8 @@
   --other: #e9a516;
   --other-text: #8a5a00;
   --id: #a3a7af;
+  --maybe: #3b82d6;
+  --maybe-text: #1e5fa8;
   --ok: var(--own-text);
   --warn: #8a5d00;
   --bad: var(--miss-text);
@@ -54,6 +56,8 @@
     --other: #e3b341;
     --other-text: #ebbf55;
     --id: #5d626b;
+    --maybe: #5b9cf0;
+    --maybe-text: #8cbcf7;
     --warn: #e3b341;
     --info: #6cb6ff;
   }
@@ -243,6 +247,7 @@ tr.link:hover a { text-decoration: underline; text-decoration-color: var(--amber
 .pill.id { color: var(--muted); background: color-mix(in srgb, var(--muted) 13%, transparent); }
 .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--other) 15%, transparent); }
 .pill.info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+.pill.maybe { color: var(--maybe-text); background: color-mix(in srgb, var(--maybe) 15%, transparent); }
 
 /* Buttons */
 
@@ -258,9 +263,11 @@ button, .button {
   color: var(--text);
 }
 
-button:hover { border-color: var(--muted); }
-button.primary { background: var(--amber); border-color: var(--amber); color: #1d1b18; }
-button.primary:hover { background: #e39200; border-color: #e39200; }
+a.button { display: inline-block; text-decoration: none; white-space: nowrap; }
+button:hover, a.button:hover { border-color: var(--muted); }
+button.primary, .button.primary { background: var(--amber); border-color: var(--amber); color: #1d1b18; }
+button.primary:hover, .button.primary:hover { background: #e39200; border-color: #e39200; }
+button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--panel); }
 button.small { font-size: 12.5px; padding: 4px 11px; font-weight: 500; border-radius: 6px; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -283,7 +290,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Fixed strip and tally columns, so every set's strip lines up with the next. */
 .set {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 34%) 19.5em;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 30%) 23em;
   align-items: center;
   gap: 8px 28px;
   padding: 15px 20px;
@@ -339,6 +346,7 @@ code.inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); b
 .seg.owned { background: var(--own); }
 .seg.missing { background: var(--miss); }
 .seg.other { background: var(--other); }
+.seg.maybe { background: var(--maybe); }
 .seg.id { background: repeating-linear-gradient(135deg, var(--id) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--id) 60%, transparent); }
 .strip:not(.compact) .seg { cursor: pointer; }
 .strip:not(.compact) .seg:hover { filter: brightness(1.12); box-shadow: inset 0 0 0 2px var(--text); }
@@ -350,6 +358,8 @@ code.inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); b
 .tally .t.owned::before { background: var(--own); }
 .tally .t.missing::before { background: var(--miss); }
 .tally .t.other::before { background: var(--other); }
+.tally .t.maybe::before { background: var(--maybe); }
+.tally .t.check::before { background: var(--own); box-shadow: inset 0 0 0 2px var(--other); }
 .tally .t.id::before { background: repeating-linear-gradient(135deg, var(--id) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px var(--id); }
 .tally b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 .tally.big { gap: 6px 22px; font-size: 14px; }
@@ -362,18 +372,25 @@ code.inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); b
 .set-title { min-width: 0; flex: 1 1 32rem; }
 .set-title h1 { font-size: 28px; line-height: 1.18; letter-spacing: -0.022em; margin: 8px 0 0; max-width: 42ch; overflow-wrap: anywhere; }
 .set-tally { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; margin: 0 0 16px; }
+.credit { margin: -6px 0 16px; font-size: 13px; color: var(--muted); }
+.credit a { color: var(--muted); text-underline-offset: 3px; }
+.credit a:hover { color: var(--text); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.hint-box { margin: 0 0 16px; }
+.hint-box .hint { margin: 0 0 4px; }
 
 .copy-out { margin: -4px 0 16px; padding: 10px 12px; max-width: 100%; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: 12.5px/1.6 var(--mono); user-select: all; }
 
 .t-set td { padding: 10px 14px; vertical-align: middle; }
 .t-set th.c-time, .t-set td.c-time { width: 3.2em; }
 .t-set.timed th.c-time, .t-set.timed td.c-time { width: 5.4em; }
-.t-set th.c-sure, .t-set td.c-sure { width: 3.6em; }
+.t-set th.c-sure, .t-set td.c-sure { width: 6.2em; white-space: nowrap; }
 .t-set td.c-own { width: 1%; white-space: nowrap; }
 .t-set tbody td:first-child { box-shadow: inset 3px 0 0 var(--edge, transparent); }
 .t-set tr.own-owned { --edge: var(--own); }
 .t-set tr.own-missing { --edge: var(--miss); }
 .t-set tr.own-other { --edge: var(--other); }
+.t-set tr.own-maybe { --edge: var(--maybe); }
 .t-set tr.own-id { --edge: color-mix(in srgb, var(--id) 70%, transparent); }
 .t-set tr.flash td { animation: flash 1.8s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--amber) 24%, transparent); } }
@@ -398,19 +415,17 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
 
 .own-note { margin-top: 4px; font-size: 12px; color: var(--muted); white-space: normal; max-width: 34ch; }
 .own-other .own-note { color: var(--other-text); }
+.own-maybe .own-note { color: var(--maybe-text); min-width: 26ch; }
+.own-note button { margin-left: 6px; vertical-align: baseline; }
 .buy { margin-left: 12px; font-size: 12.5px; color: var(--muted); }
 .buy a { color: var(--muted); text-decoration: none; }
 .buy a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 
-.meter { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; vertical-align: middle; }
-.meter i { width: 4px; border-radius: 1px; background: var(--line-strong); }
-.meter i:nth-child(1) { height: 6px; }
-.meter i:nth-child(2) { height: 10px; }
-.meter i:nth-child(3) { height: 14px; }
-.meter i.on { background: var(--text); }
-.meter.m2 i.on { background: color-mix(in srgb, var(--text) 75%, var(--panel)); }
-.meter.m1 i.on { background: color-mix(in srgb, var(--text) 55%, var(--panel)); }
-.meter.conflict i.on { background: var(--miss); }
+.sure-word { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.sure-word .g { font-family: var(--mono); font-weight: 700; }
+.sure-word.likely { color: var(--muted); }
+.sure-word.weak { color: var(--warn); }
+.sure-word.conflict { color: var(--bad); }
 
 .foot { margin: 14px 2px 0; color: var(--muted); font-size: 13px; max-width: 80ch; }
 
@@ -510,7 +525,7 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
   .summary { font-size: 19px; }
   .set-title h1 { font-size: 22px; }
   .set-head { margin-bottom: 16px; }
-  .set-head button { width: 100%; }
+  .set-head button, .set-head .button { width: 100%; text-align: center; }
   .set { padding: 13px 14px; }
   .set-tally { margin-bottom: 12px; }
 
@@ -544,7 +559,8 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
   .t-set .note { -webkit-line-clamp: 3; }
   .buy { display: none; }
   .pill { width: 28px; height: 28px; padding: 0; justify-content: center; font-size: 14px; }
-  .pill .l { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .pill .l, .sure-word .l { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sure-word { font-size: 14px; }
 
   /* Library and crate rows: title over artist, readouts on the right. */
   .t-lib tr {

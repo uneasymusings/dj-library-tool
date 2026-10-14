@@ -108,15 +108,65 @@ class RequestItem(RequestContract):
         return data
 
 
+class SetSource(RequestContract):
+    """Where a set came from, shown beside it: its page (YouTube or SoundCloud, or "Shazam")."""
+
+    url: str | None = Field(default=None, max_length=4096)
+    provider: str | None = Field(default=None, max_length=40)
+    title: str | None = Field(default=None, max_length=1000)
+    uploader: str | None = Field(default=None, max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def link(cls, value):
+        return evidence_url(value) if value is not None else value
+
+    @field_validator("provider", "title", "uploader")
+    @classmethod
+    def text(cls, value):
+        return clean_text(value) if value else None
+
+
+class MixesdbCredit(RequestContract):
+    """The MixesDB page whose tracklist a set uses, credited and linked beside it."""
+
+    page_title: str = Field(min_length=1, max_length=1000)
+    page_url: str = Field(min_length=1, max_length=4096)
+    tracklist: Literal["complete", "incomplete", "unknown"] | None = None
+
+    @field_validator("page_title")
+    @classmethod
+    def text(cls, value):
+        return clean_text(value)
+
+    @field_validator("page_url")
+    @classmethod
+    def link(cls, value):
+        return evidence_url(value)
+
+
 class RequestCreate(RequestContract):
     name: str = Field(min_length=1, max_length=300)
     items: list[RequestItem] = Field(min_length=1, max_length=1000)
     idempotency_key: str = Field(min_length=1, max_length=200)
+    # Where the set came from, for people (badge, links into the set, MixesDB credit). Never
+    # part of what makes two lists the same, nor of the key's request.
+    source: SetSource | None = None
+    mixesdb: MixesdbCredit | None = None
 
     @field_validator("name", "idempotency_key")
     @classmethod
     def text(cls, value):
         return clean_text(value)
+
+    @model_serializer(mode="wrap")
+    def without_empty_source(self, handler):
+        # Lists without a source serialize as before these fields existed.
+        data = handler(self)
+        for key in ("source", "mixesdb"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class RequestRefresh(RequestContract):
