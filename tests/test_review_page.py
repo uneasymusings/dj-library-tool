@@ -216,42 +216,145 @@ def test_page_links_only_to_the_set_and_store_searches():
 
 @needs_node
 def test_page_reads_an_ids_lead_out_of_its_notes():
-    maybe, likely, plain = run_page(
-        'idHint("Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I '
-        "Got (Chris Fortier 20yr Dub) (Shazam, 1 window at 50:09); possibly BR1S4 - THIS IS "
-        'BRAZIL (Shazam, 1 window at 51:09)")',
-        'idHint("ID (likely Antdot - Mirage): Shazam heard it in 2 windows from 05:39")',
-        'idHint("Listed as an ID in the description")',
+    hints = run_page(
+        *(
+            f"idHint({json.dumps(notes)})"
+            for notes in (
+                # a15's wording
+                "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I "
+                "Got (Chris Fortier 20yr Dub) (Shazam, 1 window at 50:09); possibly BR1S4 - THIS "
+                "IS BRAZIL (Shazam, 1 window at 51:09)",
+                "ID (likely Antdot - Mirage): Shazam heard it in 2 windows from 05:39",
+                "Listed as an ID in the description",
+                # a16's: a count in brackets inside the bracket, and a guess that opens the notes
+                "Listed as an ID in the description; possibly Chris Fortier & Neil Kolo - All I "
+                "Got (Chris Fortier 20yr Dub) (Shazam heard it at 50:09 (3×)); possibly BR1S4 - "
+                "THIS IS BRAZIL (Shazam heard it once at 51:09)",
+                "ID (likely Antdot - Mirage (Extended Mix)): Shazam heard it at 05:39 (4×)",
+                "Possibly BR1S4 - THIS IS BRAZIL (Shazam heard it at 02:00 (4×) and 05:30 (3×)); "
+                "listeners named A - B; C - D",
+                "Not identified from 12:00 to 15:30; listeners named A - B (Edit 1:00)",
+            )
+        )
     )
-    assert maybe == {
-        "hint": "maybe Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)",
-        "rest": "Listed as an ID in the description; possibly BR1S4 - THIS IS BRAZIL "
-        "(Shazam, 1 window at 51:09)",
+    assert hints == [
+        {
+            "hint": "maybe Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)",
+            "rest": "Listed as an ID in the description; possibly BR1S4 - THIS IS BRAZIL "
+            "(Shazam, 1 window at 51:09)",
+        },
+        {"hint": "likely Antdot - Mirage", "rest": "Shazam heard it in 2 windows from 05:39"},
+        {"hint": None, "rest": "Listed as an ID in the description"},
+        {
+            "hint": "maybe Chris Fortier & Neil Kolo - All I Got (Chris Fortier 20yr Dub)",
+            "rest": "Listed as an ID in the description; possibly BR1S4 - THIS IS BRAZIL "
+            "(Shazam heard it once at 51:09)",
+        },
+        {
+            "hint": "likely Antdot - Mirage (Extended Mix)",
+            "rest": "Shazam heard it at 05:39 (4×)",
+        },
+        {"hint": "maybe BR1S4 - THIS IS BRAZIL", "rest": "listeners named A - B; C - D"},
+        {
+            "hint": None,
+            "rest": "Not identified from 12:00 to 15:30; listeners named A - B (Edit 1:00)",
+        },
+    ]
+
+
+@needs_node
+def test_page_keeps_what_an_id_line_knows():
+    names = run_page(
+        *(
+            f"idName({json.dumps(label)})"
+            for label in ("Kaytranada - ID", "ID - ID", "ID", "id-id", "? - ?", "", None)
+        )
+    )
+    assert names == ["Kaytranada – ID", "ID", "ID", "ID", "ID", "ID", "ID"]
+    assert run_page(
+        'unreleased({"title": "Untitled", "version": "Unreleased"})',
+        'unreleased({"title": "Untitled (Unreleased)"})',
+        'unreleased({"title": "Released", "version": "Extended Mix"})',
+    ) == [True, True, False]
+
+
+def _item(state, kind="named", *matches):
+    song = {"artist": "Antdot", "title": "Mirage", "version": ""}
+    source = song if kind == "named" else {"label": "ID", "timestamp": "48:30"}
+    return {
+        "position": 1,
+        "state": state,
+        "input": {"kind": kind, **source},
+        "candidates": [{**song, "version": "Radio Edit", "identity_match": m} for m in matches],
+        "accepted": {"recording_id": "r", "asset_revision_id": "a"}
+        if state == "satisfied"
+        else None,
     }
-    assert likely == {
-        "hint": "likely Antdot - Mirage",
-        "rest": "Shazam heard it in 2 windows from 05:39",
-    }
-    assert plain == {"hint": None, "rest": "Listed as an ID in the description"}
+
+
+# Every state a set's line can be in, and what the DJ is told about it.
+OWN = [
+    (_item("satisfied"), "owned"),
+    (_item("ambiguous", "named", "exact_labels", "exact_labels"), "owned"),  # owned twice
+    (_item("unavailable", "named", "exact_labels"), "owned"),  # drive unplugged
+    (_item("missing"), "missing"),
+    (_item("missing", "named", "different_version"), "other_mix"),
+    (_item("missing", "named", "different_labels"), "missing"),
+    (_item("source_selected"), "missing"),
+    (_item("source_selected", "named", "different_version"), "other_mix"),
+    (_item("unknown", "unknown"), "ids"),
+    (_item("source_selected", "unknown"), "ids"),
+]
+
+
+def test_a_sets_tally_counts_what_you_own_like_the_terminal():
+    from djlib.application.catalog_paging import request_counts
+
+    for item, bucket in OWN:
+        counts = request_counts([item])
+        assert counts[bucket] == 1 and sum(counts.values()) == 1, (item["state"], bucket)
+    if shutil.which("node"):
+        kinds = {"owned": "owned", "missing": "missing", "other_mix": "other", "ids": "id"}
+        items = json.dumps([item for item, _ in OWN])
+        shown, counted = run_page(f"{items}.map(ownKind)", f"countsOf({items})")
+        assert shown == [kinds[bucket] for _, bucket in OWN]
+        assert counted == request_counts([item for item, _ in OWN])
+    # `djlib set`'s own column (K3, from the setviews stream) gives the same answer.
+    from djlib.interfaces import rekordbox_cli
+
+    set_track = getattr(rekordbox_cli, "set_track", None)
+    if set_track is not None:
+        buckets = {"id": "ids"}
+        own = [set_track(item)["own"] for item, _ in OWN]
+        assert [buckets.get(value, value) for value in own] == [bucket for _, bucket in OWN]
 
 
 async def test_saved_sets_carry_the_tally_the_page_draws(application, audio_factory, http):
     await owned(application, audio_factory, name="mirage", title="Mirage")
     radio = {"title": "Poison", "version": "Radio Edit", "frequency": 550}
     await owned(application, audio_factory, name="poison", **radio)
+    # Owned twice, and owned on a drive djlib can't read right now: still owned.
+    await owned(application, audio_factory, name="twice-1", title="Twice", frequency=220)
+    await owned(application, audio_factory, name="twice-2", title="Twice", frequency=330)
+    gone = await owned(application, audio_factory, name="gone", title="Gone", frequency=660)
+    Path(gone["path"]).write_bytes(Path(gone["path"]).read_bytes() + b"changed")
     ledger = create(
         application,
         [
             named(title="Mirage"),
             named(title="Poison", version="Extended Mix"),
             named(title="Not here"),
+            named(title="Twice"),
+            named(title="Gone"),
             RequestItem(kind="unknown", label="ID", timestamp="48:30"),
         ],
     )
+    states = [item["state"] for item in ledger["items"]]
+    assert states == ["satisfied", "missing", "missing", "ambiguous", "unavailable", "unknown"]
     token = {"Authorization": "Bearer " + application.workspace.token()}
     row = http.get("/requests", headers=token).json()["result"]["requests"][0]
     assert row["request_id"] == ledger["request_id"]
-    assert row["counts"] == {"owned": 1, "missing": 1, "other_mix": 1, "ids": 1}
+    assert row["counts"] == {"owned": 3, "missing": 1, "other_mix": 1, "ids": 1}
     assert "items" not in row
     if shutil.which("node"):
         # The page's own count of the same items agrees with the service.
