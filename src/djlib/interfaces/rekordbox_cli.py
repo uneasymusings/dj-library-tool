@@ -579,7 +579,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         collection_ids: Annotated[
             list[str] | None,
             typer.Argument(
-                metavar="CRATE",
+                metavar="CRATE...",
                 help="Crates to push: name, ID or its first characters, or 'last'.",
             ),
         ] = None,
