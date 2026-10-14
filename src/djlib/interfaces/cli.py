@@ -609,7 +609,7 @@ def ui(
         True, "--open/--no-open", help="Open the page in your browser (terminal only)."
     ),
 ) -> None:
-    """Open the review page: library, requests, crates, deliveries.
+    """Open the review page: your sets, crates and library.
 
     The link includes this workspace's local access token; keep it to yourself.
     """
@@ -621,11 +621,12 @@ def ui(
     if term.workspace is not None:
         handoff["ws"] = terminal.shell_path(term.workspace)
     page = f"{url}/ui/#{urlencode(handoff)}"
+    opened = False
     if not term.json and open_browser:
         import webbrowser
 
-        webbrowser.open(page)
-    emit(envelope({"url": page}))
+        opened = bool(webbrowser.open(page))
+    emit(envelope({"url": page, "opened": opened}))
 
 
 @app.command(hidden=True)
