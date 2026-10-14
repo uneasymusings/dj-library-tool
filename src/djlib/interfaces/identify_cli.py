@@ -25,13 +25,15 @@ PHASES = {
     "queued": "Starting",
     "reading_page": "Reading the set's page and comments",
     "downloading": "Downloading the set's audio",
-    "listening": "Listening to the set",
-    "checking_gaps": "Listening again where songs change",
+    "listening": "Listening",
+    "checking_gaps": "Checking the transitions",
     "merging": "Putting the tracklist together",
 }
 EVENT_SECONDS = 15
 POLL_SECONDS = 0.5
 TRACKLIST_BYTES = 1_000_000
+# How long a listen takes, said once before `djlib set LINK` starts one.
+LISTEN_TIME = "An hour-long set usually takes 5–10 minutes"
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
 
@@ -108,52 +110,77 @@ def submit(
     return local.request("POST", "/identifications", data=body)["result"]
 
 
-def _minutes(seconds) -> str:
-    if not isinstance(seconds, int | float):
-        return ""
-    if seconds < 90:
-        return "under 2 min left" if seconds >= 45 else "less than a minute left"
-    return f"about {round(seconds / 60)} min left"
-
-
 def waiting_text(waiting: dict) -> str:
-    """ "Shazam asked djlib to slow down; trying again in 20 s (gives up after 14 min)"."""
+    """ "Shazam is slow, waiting (Ctrl-C is safe)": no countdown, since the wait has no known
+    end, and stopping keeps what was heard."""
     service = waiting.get("service") or "Song recognition"
-    seconds = max(int(waiting.get("retry_in") or 0), 1)
-    if waiting.get("reason") == "rate_limited":
-        text = f"{service} asked djlib to slow down; trying again in {seconds} s"
-        if isinstance(left := waiting.get("gives_up_in"), int | float):
-            text += f" (gives up after {max(round(left / 60), 1)} min more)"
-        return text
-    return f"{service} didn't answer; trying again in {seconds} s"
+    slow = "is slow" if waiting.get("reason") == "rate_limited" else "isn't answering"
+    return f"{service} {slow}, waiting (Ctrl-C is safe)"
 
 
-def progress_line(job: dict) -> str:
-    """ "Listening to the set… 34 of 124 windows · 6 songs so far · about 2 min left"."""
+def _where(phase: str | None, progress: dict) -> str:
+    """How far the phase got: set time while listening ("15:30 of 42:05"), else a count."""
+    from djlib.interfaces.set_sources import clock
+
+    done, total = progress.get("windows_done") or 0, progress.get("windows_total")
+    if phase == "listening":
+        at, length = progress.get("position_seconds"), progress.get("duration_seconds")
+        if isinstance(at, int | float) and isinstance(length, int | float) and length > 0:
+            return f"{clock(at)} of {clock(length)}"
+        return f"{done} of {total} parts" if total else ""
+    if phase == "checking_gaps" and total:
+        return f"{done} of {total}"
+    if phase == "downloading" and progress.get("downloaded_bytes"):
+        return f"{progress['downloaded_bytes'] / 1_000_000:.0f} MB"
+    return ""
+
+
+def progress_line(job: dict, width: int = 78) -> str:
+    """ "Listening… 15:30 of 42:05 · 5 songs so far", in at most ``width`` columns.
+
+    Progress is the set's own time, never a countdown: Shazam's waits make any guess of the
+    time left wrong. While Shazam makes djlib wait, the line says so instead.
+    """
+    from rich.cells import cell_len
+
     progress = (job.get("result") or {}).get("progress") or {}
     phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
-    text = PHASES.get(phase or "", "Identifying the set") + "…"
     if phase == "queued" and progress.get("ahead"):
-        text = "Waiting for the set before it to finish…"
-    parts = []
-    if phase in {"listening", "checking_gaps"} and progress.get("windows_total"):
-        parts.append(f"{progress.get('windows_done') or 0} of {progress['windows_total']} windows")
-    if phase == "downloading" and progress.get("downloaded_bytes"):
-        parts.append(f"{progress['downloaded_bytes'] / 1_000_000:.0f} MB")
+        return "Waiting for the set before it to finish…"
+    text = PHASES.get(phase or "", "Identifying the set") + "…"
+    where = _where(phase, progress)
+    songs = ""
     if phase in {"listening", "checking_gaps", "merging"} and progress.get("songs_heard"):
-        parts.append(f"{plural(int(progress['songs_heard']), 'song')} so far")
-    if phase in {"listening", "checking_gaps"} and isinstance(progress.get("waiting"), dict):
-        parts.append(waiting_text(progress["waiting"]))
-    elif phase in {"listening", "checking_gaps"} and (eta := _minutes(progress.get("eta_seconds"))):
-        parts.append(eta)
-    return f"{text} {' · '.join(parts)}" if parts else text
+        songs = plural(int(progress["songs_heard"]), "song")
+    waiting = progress.get("waiting") if phase in {"listening", "checking_gaps"} else None
+    if isinstance(waiting, dict):
+        calm = waiting_text(waiting)
+        # Fullest first, the first that fits; that Ctrl-C is safe matters more than the count.
+        choices = [
+            [where, songs, calm],
+            [where, calm],
+            [where, calm.removesuffix(" (Ctrl-C is safe)")],
+        ]
+    else:
+        choices = [[where, f"{songs} so far" if songs else ""], [where, songs], [where]]
+    for parts in choices:
+        line = f"{text} {' · '.join(part for part in parts if part)}".rstrip()
+        if cell_len(line) <= width:
+            return line
+    return line
 
 
-def follow(local, job: dict, url: str | None = None) -> dict:
+def fit(term) -> int:
+    """The progress line's room: the terminal's width less the spinner, so it never wraps."""
+    return max(term.err.width - 2, 20)
+
+
+def follow(local, job: dict, url: str | None = None, reason: str | None = None) -> dict:
     """Wait for an identification, showing progress; Ctrl-C cancels it.
 
     A terminal gets a live status line; scripts and assistants get a JSON event on stderr
-    when the job starts, at each phase and at most every 15 seconds in between.
+    when the job starts (with ``identify_reason`` when `djlib set` chose to listen), at each
+    phase and at most every 15 seconds in between.
     """
     from djlib.interfaces.rekordbox_cli import event
 
@@ -162,9 +189,10 @@ def follow(local, job: dict, url: str | None = None) -> dict:
     live = None
     status = None
     if term.json:
-        event("identify_started", job_id=job_id, url=url)
+        why = {"identify_reason": reason} if reason else {}
+        event("identify_started", job_id=job_id, url=url, **why)
     else:
-        status = term.err.status(f"[bold]{progress_line(job)}", spinner_style="accent")
+        status = term.err.status(f"[bold]{progress_line(job, fit(term))}", spinner_style="accent")
         live = status.__enter__()
     last_phase, last_event = None, 0.0
     try:
@@ -172,7 +200,7 @@ def follow(local, job: dict, url: str | None = None) -> dict:
             progress = (job.get("result") or {}).get("progress") or {}
             phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
             if live is not None:
-                live.update(f"[bold]{progress_line(job)}")
+                live.update(f"[bold]{progress_line(job, fit(term))}")
             elif phase != last_phase or time.monotonic() - last_event >= EVENT_SECONDS:
                 event(
                     "identify_progress",
@@ -280,26 +308,82 @@ def listen_fix(error: AppError) -> str | None:
     return INSTALLER
 
 
-def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
-    """Whether `djlib set LINK` listens to the set: when asked to, or by default when its
-    published tracklist is missing, has IDs or is not ``complete`` (as MixesDB marks some),
-    or it was identified before (that costs nothing)."""
+def listen_reason(
+    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True
+) -> str | None:
+    """Why `djlib set LINK` listens to the set, or None when it doesn't: "asked" (--identify),
+    or by default "no_tracklist", "incomplete" (MixesDB marks some tracklists so), "ids" when
+    the tracklist has IDs, or "identified_before" (that costs nothing)."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
     if choice is not None:
-        return choice
-    if not text.strip() or not complete:
-        return True
+        return "asked" if choice else None
+    if not text.strip():
+        return "no_tracklist"
+    if not complete:
+        return "incomplete"
     items, _ = parse_tracklist(text, url)
     if any(item.kind == "unknown" for item in items):
-        return True
-    return finished(workspace, url) is not None
+        return "ids"
+    return "identified_before" if finished(workspace, url) is not None else None
 
 
-def listen(local, url: str, tracklists: list[dict] | None = None, name: str | None = None):
-    """Identify a set and wait for it: ``{"job_id", "result"}`` (raises why it stopped)."""
-    job = follow(local, submit(local, url, tracklists=tracklists, name=name), url)
+def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
+    """Whether `djlib set LINK` listens to the set (see ``listen_reason``)."""
+    return listen_reason(choice, text, url, workspace, complete=complete) is not None
+
+
+def listening_notice(reason: str | None, text: str, url: str, workspace) -> str | None:
+    """What `djlib set LINK` says before it listens: why, and how long that takes. None when
+    there is nothing new to hear (a set identified before shows at once)."""
+    from djlib.application.identification import finished
+    from djlib.application.tracklists import parse_tracklist
+
+    if reason in {None, "identified_before"} or finished(workspace, url) is not None:
+        return None
+    # Without a tracklist, skipping the listen leaves nothing to check.
+    carry_on = "Ctrl-C stops it, and the same command carries on"
+    if reason == "no_tracklist":
+        why = "The page has no tracklist, so djlib is listening to the set to find the songs."
+        return f"{why} {LISTEN_TIME}; {carry_on}."
+    if reason == "ids":
+        ids = sum(item.kind == "unknown" for item in parse_tracklist(text, url)[0])
+        them = "it" if ids == 1 else "them"
+        why = (
+            f"The tracklist has {plural(ids, 'ID')}, so djlib is listening to the set to name "
+            f"{them}."
+        )
+    elif reason == "incomplete":
+        why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
+    else:
+        return f"djlib is listening to the set. {LISTEN_TIME}; {carry_on}."
+    return f"{why} {LISTEN_TIME}; --no-identify skips it."
+
+
+def listen(
+    local,
+    url: str,
+    tracklists: list[dict] | None = None,
+    name: str | None = None,
+    *,
+    reason: str | None = None,
+    notice: str | None = None,
+):
+    """Identify a set and wait for it: ``{"job_id", "result"}`` (raises why it stopped).
+    A terminal first gets ``notice`` (``listening_notice``), once the listen is queued."""
+    job = submit(local, url, tracklists=tracklists, name=name)
+    term = terminal.current()
+    if notice and not term.json:
+        from rich.text import Text
+
+        # Why on the first line, how long on the next.
+        why, _, how_long = notice.partition(". ")
+        said = Text(f"{why}.") if how_long else Text(why)
+        if how_long:
+            said.append(f"\n{how_long}", style="muted")
+        terminal.hanging(term.err, Text(term.glyph("run"), style="accent"), said)
+    job = follow(local, job, url, reason)
     return {"job_id": job["job_id"], "result": outcome(job)}
 
 

@@ -498,6 +498,10 @@ class _Attempt:
     stride: float = STRIDE
     progress: dict = field(default_factory=dict)
     notices: list[str] = field(default_factory=list)
+    # The audio's length once downloaded, and the time the recognizer kept djlib waiting.
+    seconds: float | None = None
+    waited: float = 0.0
+    wait_started: float | None = None
 
 
 def _receipt_path(receipt: dict) -> Path:
@@ -762,6 +766,7 @@ class IdentifyRunner:
             "windows_total": counts.get("windows_total"),
             "songs_heard": self.songs(attempt),
             "eta_seconds": None,
+            **self.set_time(attempt, counts.get("windows_done"), counts.get("windows_total")),
         }
         with self.app.db.transaction() as session:
             job = require(session, Job, attempt.job_id)
@@ -784,21 +789,49 @@ class IdentifyRunner:
         eta = None
         if fresh >= 3:
             eta = round((now - attempt.phase_started) / fresh * left)
+        if attempt.wait_started is not None:  # an answer ends the wait
+            attempt.waited += now - attempt.wait_started
+            attempt.wait_started = None
         attempt.progress = {
             "phase": attempt.phase,
             "windows_done": done,
             "windows_total": total,
             "songs_heard": self.songs(attempt),
             "eta_seconds": eta,
+            **self.set_time(attempt, done, total),
         }
         self.save(attempt, progress=attempt.progress)
 
+    def set_time(self, attempt: _Attempt, done: int | None, total: int | None) -> dict:
+        """How far the first listen got in the set's own time (``position_seconds``, null in
+        other phases), the set's length, and how long the recognizer kept djlib waiting."""
+        seconds, position = attempt.seconds, None
+        if attempt.phase == "listening" and seconds and total:
+            done = done or 0
+            position = seconds if done >= total else min(done * attempt.stride, seconds)
+        return {
+            "position_seconds": None if position is None else round(position),
+            "duration_seconds": None if seconds is None else round(seconds),
+            "waited_seconds": self.waited(attempt),
+        }
+
+    def waited(self, attempt: _Attempt) -> int:
+        waited = attempt.waited
+        if attempt.wait_started is not None:
+            waited += time.monotonic() - attempt.wait_started
+        return round(waited)
+
     def waiting(self, attempt: _Attempt, service: str):
-        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer)."""
+        """Progress while the recognizer makes djlib wait (a rate limit, a dropped answer).
+        No time left is promised meanwhile: the wait has no known end."""
 
         def wait(seconds: float, reason: str, left: float | None) -> None:
+            if attempt.wait_started is None:
+                attempt.wait_started = time.monotonic()
             attempt.progress = {
                 **attempt.progress,
+                "eta_seconds": None,
+                "waited_seconds": self.waited(attempt),
                 "waiting": {
                     "service": service,
                     "reason": reason,
@@ -919,6 +952,7 @@ class IdentifyRunner:
         seconds = await asyncio.to_thread(windows.duration, path)
         self.check_preview(page, receipt, seconds, folder)
         total = self.check_whole(attempt, page, receipt, seconds)
+        attempt.seconds = seconds
 
         starts = recognition.placements(
             seconds, window=WINDOW, stride=attempt.stride, offset=OFFSET
