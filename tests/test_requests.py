@@ -1084,6 +1084,32 @@ async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, a
     assert made_from[second_crate] == second["request_id"]
 
 
+def test_a_set_checked_again_with_nothing_new_still_comes_first(ledger_app):
+    """The usual re-check finds nothing new: set A still comes first and is `last`, and keeps
+    its revision, so the commands printed for it still work."""
+    from djlib.application.catalog_paging import latest, saved
+
+    first = same_list(ledger_app, [named()], "a")
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    assert latest(ledger_app)["request_id"] == second["request_id"]
+    again = same_list(ledger_app, [named()], "a")  # `djlib set` on the same tracklist
+    assert again["request_id"] == first["request_id"] and again["revision"] == first["revision"]
+    assert latest(ledger_app)["request_id"] == first["request_id"]
+    listed = saved(ledger_app, "requests")["requests"]
+    assert [row["name"] for row in listed] == ["Friday Set", "Tuesday"]
+    # `djlib requests refresh` counts as checking it too.
+    checked = requests.refresh_request(
+        ledger_app, second["request_id"], RequestRefresh(revision=second["revision"])
+    )
+    assert checked["revision"] == second["revision"]
+    assert checked["updated_at"] > again["updated_at"]
+    assert latest(ledger_app)["request_id"] == second["request_id"]
+
+
 async def test_a_set_keeps_where_it_came_from_and_its_crate(ledger_app, audio_factory):
     """The review page shows a set's badge, links its times and credits MixesDB from the set
     itself (a fully identified set has no ID to carry the link), and opens its crate. Where

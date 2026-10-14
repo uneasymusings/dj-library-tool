@@ -782,10 +782,12 @@ def _same_list(app, payload: dict, key: str, digest: str, ledger_id: str | None)
         for item, value in zip(items, payload["items"], strict=True):
             if item["input"] != value:
                 item["input"], changed = value, True
+        # Checked again: it comes first among the sets and is what `last` names, even when
+        # nothing changed (the revision moves only with its items, so printed commands hold).
+        ledger.updated_at = timestamp()
         if changed:
             ledger.items, ledger.request = items, payload
             ledger.revision += 1
-            ledger.updated_at = timestamp()
         elif any(ledger.request.get(key) != payload.get(key) for key in SET_PAGE):
             # Where the set came from, learnt by a newer djlib: the songs are as they were.
             ledger.request = {
@@ -809,9 +811,17 @@ def refresh_request(app, request_id: str, request: RequestRefresh) -> dict:
         else item
         for item in ledger["items"]
     ]
-    # A re-check that changed nothing keeps the revision, so printed commands stay valid.
+    # A re-check that changed nothing keeps the revision, so printed commands stay valid; it
+    # still counts as the set's latest check.
     if _evidence(ledger["items"]) != before:
         _save(app, ledger)
+    else:
+        with app.db.transaction() as session:
+            session.execute(
+                update(RequestLedger)
+                .where(RequestLedger.id == request_id)
+                .values(updated_at=timestamp())
+            )
     return get_request(app, request_id)
 
 
