@@ -1091,11 +1091,13 @@ def _status(slot: _Slot) -> str:
 
 
 def _repairs(text: dict, cluster: dict) -> bool:
-    """Whether a song heard in two or more windows spells the credits a listing misspells:
-    the same title, and the same names one for one, some written differently ("Armand Val
-    Helden" listed, "Armand Van Helden" heard). Other or extra credits, a single window or a
+    """Whether a song heard where a listing places it spells the credits the listing
+    misspells: the same title, and the same names one for one, some written differently
+    ("Armand Val Helden" listed, "Armand Van Helden" heard). A wrong match can't agree that
+    closely, so one regular window is enough, as it often is when a timed tracklist spaces
+    the windows a minute apart. Other or extra credits, windows that only checked gaps or a
     DJ-mix compilation's copy leave the listing's label alone."""
-    if cluster["hits"] < 2 or cluster.get("mixed"):
+    if cluster["hits"] < 1 or cluster.get("mixed"):
         return False
     heard = _song(cluster["artist"], cluster["title"], cluster["version"])
     listed = text["song"]
