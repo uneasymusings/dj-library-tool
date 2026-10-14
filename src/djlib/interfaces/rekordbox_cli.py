@@ -879,6 +879,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             listing = set_sources.from_mixesdb(page)
             complete = listing is None or bool(listing.get("complete"))
             warnings = []
+            if page.get("from_saved_page"):
+                warnings.append(set_sources.saved_page_note(page, tracklist))
             problem = None
             # --tracklist merges with what djlib hears, so it asks for a listen.
             reason = identify_cli.listen_reason(
