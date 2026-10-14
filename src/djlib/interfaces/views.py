@@ -1377,6 +1377,11 @@ def status_steps(
             )
             break
     for row in requests:
+        if set_counts(row)["maybe"]:
+            # A file under another artist name: owned once the DJ says it's the song.
+            steps.append((f"Check the songs that may be yours in “{row['name']}”", ("ui",)))
+            break
+    for row in requests:
         if row.get("to_pick"):
             # Two copies of an owned song: checking again finds both again.
             steps.append((f"Pick which copy to use in “{row['name']}”", ("ui",)))
@@ -3470,7 +3475,9 @@ def request_view(term: Terminal, result: dict) -> None:
             )
         )
     if result.get("unresolved_items"):
-        steps.append(("Your shopping list", ("requests", "report", request_id)))
+        # Songs to buy: missing outright (not another mix, nor maybe yours already).
+        if int(counts.get("missing", 0)):
+            steps.append(("Your shopping list", ("requests", "report", request_id)))
         steps.append(("Re-check after adding music", ("requests", "refresh", request_id)))
     next_steps(term, steps)
 

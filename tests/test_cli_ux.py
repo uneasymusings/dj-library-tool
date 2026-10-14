@@ -438,10 +438,9 @@ def test_a_set_points_at_its_crate_once_it_is_built(
     after = run("requests", "get", "last", pretty=True, workspace=root, columns=160).stdout
     assert "See the crate" in after and f" crate {short}" in after
     assert "Build the crate" not in after
-    # JSON readers get the list exactly as before.
-    assert (
-        "crate" not in json.loads(run("requests", "get", "last", workspace=root).stdout)["result"]
-    )
+    # JSON readers get the set's crate too (additive since 0.1.0a16).
+    listed = json.loads(run("requests", "get", "last", workspace=root).stdout)["result"]
+    assert listed["crate"]["collection_id"] == collection and listed["crate"]["tracks"] == 2
 
     # Another set with the same name (every Shazam import is "Shazam") has no crate yet.
     other = tmp_path / "other" / "Friday.txt"
