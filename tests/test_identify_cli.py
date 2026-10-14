@@ -361,6 +361,9 @@ def test_set_listens_when_the_published_tracklist_is_too_short_for_the_set(appli
     assert identify_cli.sparse_warning("Lumen - Halo\n", URL) == (
         "The description names only 1 song: songs may be missing."
     )
+    assert identify_cli.sparse_warning("Lumen - Halo\nID - ID\n", URL, 3431) == (
+        "The description names only 1 song for this 57-minute set: songs may be missing."
+    )  # an ID names no song
     assert identify_cli.sparse_warning(five, URL, 3431) is None
     assert identify_cli.sparse_warning("", URL, 3431) is None
 

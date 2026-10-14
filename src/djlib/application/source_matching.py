@@ -796,9 +796,9 @@ def names_the_set(line: str, uploader: str = "") -> bool:
     where or when it was played or recorded ("Mura Masa – live from Boiler Room x Cupra at
     Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza", "Bicep - Glastonbury
     2019", "Avalon Emerson - HÖR - Sep 12 / 2022"), or pairs the uploader with a venue
-    ("Cercle - Château de Chambord" from Cercle). A song's
-    mix in brackets ("(Live at Dekmantel 2019)") is not read, and "Live at the Barbeque"
-    stays a song: "live at" counts only with an event, a year or the uploader beside it.
+    ("Cercle - Château de Chambord" from Cercle). A song's mix in brackets ("(Live at
+    Dekmantel 2019)") is not read, and "Live at the Barbeque" stays a song: "live at" counts
+    only with an event, a year or the uploader beside it.
     """
     plain = " ".join(BRACKETED.sub(" ", line).split())
     words = _text(plain)
