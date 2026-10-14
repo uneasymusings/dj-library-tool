@@ -2887,13 +2887,17 @@ def identify_view(term: Terminal, result: dict) -> None:
         # Songs heard in one window only: one a line, at the moment to listen to.
         term.out.print()
         more = f" (and {len(unplaced) - 5} more)" if len(unplaced) > 5 else ""
-        note(term, f"Heard once, not placed{more}")
+        # A song heard in two places, each time briefly, wasn't heard once.
+        once = not any(song.get("also_at") for song in unplaced[:5])
+        note(term, f"Heard {'once' if once else 'briefly'}, not placed{more}")
         width = max(cell_len(str(song.get("at") or "?")) for song in unplaced[:5])
         for song in unplaced[:5]:
             at = str(song.get("at") or "?")
             line = Text(" " * (width - cell_len(at)), style="muted")
             line.append_text(set_time(at, song.get("listen_url")))
             line.append(f"  {song.get('label') or ''}")
+            if song.get("also_at"):
+                line.append(f"  again at {', '.join(map(str, song['also_at']))}", style="muted")
             term.out.print(indented(line, 4))
     if any(track.get("status") in UNSURE for track in tracks):
         term.out.print()

@@ -1467,6 +1467,7 @@ def build_tracklist(
     else:
         slots = _recognized(clusters, total, unplaced, comments)
     tracks = _tracks(slots, total, comments)
+    unplaced = _heard_elsewhere(tracks, unplaced)
     return {
         "tracks": tracks,
         "coverage": _coverage(tracks, total),
@@ -1475,12 +1476,69 @@ def build_tracklist(
     }
 
 
+def _heard_key(entry: dict) -> tuple[str, str]:
+    """One song as a recognizer named it, whatever the spacing or capitals."""
+    label = (
+        f"{entry.get('artist') or ''} - {entry.get('title') or ''} ({entry.get('version') or ''})"
+    )
+    return str(entry.get("provider") or ""), " ".join(label.casefold().split())
+
+
+def _heard_elsewhere(tracks: list[dict], unplaced: list[dict]) -> list[dict]:
+    """A song heard in one window here and another there was heard more than once, so no line
+    says "once" for it: an ID's candidate lists every other time it was heard
+    (``also_heard``: ``{at, hits}``), and ``unplaced`` keeps a song only when nothing else in
+    the set names it, once, with its other times in ``also_heard``."""
+    heard: dict[tuple, dict[float, dict]] = defaultdict(dict)
+    named = set()
+    candidates = []
+    for track in tracks:
+        found = [e for e in track["evidence"] if e["source"] == "audio"]
+        mine = [c for c in track["candidates"] if c["source"] == "audio"]
+        candidates += mine
+        for entry in found + mine:
+            named.add(_heard_key(entry))
+            heard[_heard_key(entry)].setdefault(round(entry["at"], 3), entry)
+    for song in unplaced:
+        heard[_heard_key(song)].setdefault(round(song["at"], 3), song)
+
+    def others(entry: dict) -> list[dict]:
+        times = heard[_heard_key(entry)]
+        return [
+            {"at": other["at"], "hits": other["hits"]}
+            for at, other in sorted(times.items())
+            if at != round(entry["at"], 3)
+        ]
+
+    for candidate in candidates:
+        if again := others(candidate):
+            candidate["also_heard"] = again
+    kept: dict[tuple, dict] = {}
+    for song in unplaced:
+        key = _heard_key(song)
+        if key in named or key in kept:
+            continue
+        if again := others(song):
+            song["also_heard"] = again
+        kept[key] = song
+    return list(kept.values())
+
+
 # Output
 
 
 def _heard_at(provider: str, hits: int, at: float, what: str = "it") -> str:
     """ "Shazam heard it at 05:39 (4×)", or "… once at 01:09": where to listen, in set time."""
     return _heard_by([{"provider": provider, "hits": hits, "at": at}], what)[0]
+
+
+def _heard_all(candidate: dict, what: str = "it") -> str:
+    """Where the audio heard an ID's candidate, every time in the set (see
+    ``_heard_elsewhere``): "Shazam heard it at 51:09 and 56:39", not "once at 51:09"."""
+    moments = [candidate, *(candidate.get("also_heard") or [])]
+    provider = candidate["provider"]
+    entries = [{"provider": provider, "hits": m["hits"], "at": m["at"]} for m in moments]
+    return _heard_by(sorted(entries, key=lambda entry: entry["at"]), what)[0]
 
 
 def _heard_by(heard: list[dict], what: str = "it") -> list[str]:
@@ -1528,20 +1586,14 @@ def _notes(track: dict) -> str:
         parts = []
         if audio and audio[0]["strength"] != "weak":
             top, audio = audio[0], audio[1:]
-            parts.append(
-                f"ID (likely {_candidate_label(top)}): "
-                + _heard_at(top["provider"], top["hits"], top["at"])
-            )
+            parts.append(f"ID (likely {_candidate_label(top)}): " + _heard_all(top))
         if ids:
             parts.append(f"listed as an ID in {ids}")
         elif track["start"] is not None and track["end"] is not None:
             parts.append(f"not identified from {clock(track['start'])} to {clock(track['end'])}")
             if track.get("songs_estimate"):
                 parts[-1] += f", about {track['songs_estimate']} songs at this set's pace"
-        parts += [
-            f"possibly {_candidate_label(c)} ({_heard_at(c['provider'], c['hits'], c['at'])})"
-            for c in audio
-        ]
+        parts += [f"possibly {_candidate_label(c)} ({_heard_all(c)})" for c in audio]
         if fans:
             parts.append("listeners named " + "; ".join(_candidate_label(c) for c in fans))
     else:

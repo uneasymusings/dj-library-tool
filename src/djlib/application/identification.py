@@ -1656,6 +1656,12 @@ def summary(result: dict) -> dict:
                 "heard_by": _label(str(song.get("provider") or "")),
                 "at": _clock(song.get("at")),
                 "listen_url": listen_url(link, song.get("at")),
+                # The other times it was heard, each once too: it played more than once.
+                **(
+                    {"also_at": [_clock(m.get("at")) for m in song["also_heard"]]}
+                    if song.get("also_heard")
+                    else {}
+                ),
             }
             for song in (tracklist.get("unplaced") or [])[:20]
         ],

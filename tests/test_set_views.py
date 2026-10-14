@@ -460,6 +460,11 @@ def test_the_identify_screen_speaks_in_tracks_heard_and_ids(capsys):
     assert "Shazam · listened 13 Oct" in out and "unofficial" not in out
     assert "% heard" not in out and "unidentified" not in out and "○ ID" in out
     assert "Heard once, not placed" in out and "05:39  C - Three" in out
+    # Heard in one window here and one there: twice, not once.
+    twice = {**result, "unplaced": [{**result["unplaced"][0], "also_at": ["08:09"]}]}
+    again = shown("identify", twice, 100, capsys)
+    assert "Heard briefly, not placed" in again and "once" not in again.split("Heard")[-1]
+    assert "05:39  C - Three  again at 08:09" in again
     steps = out.split("Next\n", 1)[1]
     assert steps.index("--no-rekordbox") < steps.index("Put it in rekordbox")
     # The once-per-workspace notice fires on this listen: the row says so too.
