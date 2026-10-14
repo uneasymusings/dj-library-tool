@@ -1997,12 +1997,13 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         grid.add_row(*cells)
     term.out.print(grid)
     if more > 0:
-        line = Text(f"{'…' if term.unicode else '...'} and {more} more: ", style="muted")
+        # One unbroken line, so the command pastes whole.
+        line = Text(f"  {'…' if term.unicode else '...'} and {more} more: ", style="muted")
         line.append(
             term.command("requests", "report", short_handle(result.get("request_id") or "")),
             style="cmd",
         )
-        term.out.print(indented(line), soft_wrap=True)
+        term.out.print(line, soft_wrap=True)
     unsure = [
         (track.get("position"), track.get("notes"))
         for track in shown
@@ -2480,9 +2481,10 @@ def request_report(term: Terminal, result: dict) -> None:
                 term.out.print(line, soft_wrap=True)
     if len(to_buy) > BIG_ROWS:
         more = len(to_buy) - BIG_ROWS
-        line = Text(f"{'…' if term.unicode else '...'} and {more} more in ", style="muted")
+        # One unbroken line, so the path can be copied whole.
+        line = Text(f"  {'…' if term.unicode else '...'} and {more} more in ", style="muted")
         line.append(short_path(result.get("shopping_list")) or "the report", style="path")
-        term.out.print(indented(line), soft_wrap=True)
+        term.out.print(line, soft_wrap=True)
     if others:
         term.out.print()
         term.out.print(Text(f"You own another mix ({len(others)})", style="heading"))

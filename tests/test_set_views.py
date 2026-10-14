@@ -382,6 +382,10 @@ def test_the_shopping_list_prints_each_store_link_in_one_piece(capsys):
         "report_path": "/w/exports/requests/r/missing-r1.json",
     }
     out = shown("requests report", result, 60, capsys)
+    many = {**result, "to_buy": to_buy * 30}
+    assert "… and 5 more in /w/exports/requests/r/Kaytranada - to buy.txt" in shown(
+        "requests report", many, 60, capsys
+    )
     assert out.startswith("✓ Kaytranada Boiler Room Montreal DJ Set — 1 to buy")
     lines = [line.strip() for line in out.splitlines()]
     for store, link in to_buy[0]["shop"].items():
