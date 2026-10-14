@@ -192,13 +192,22 @@ STORES = {"beatport": "Beatport", "bandcamp": "Bandcamp", "traxsource": "Traxsou
 
 def shopping(items: list[dict]) -> dict:
     """A request list as a shopping list, in set order: the missing songs with store searches,
-    the songs you own in another mix, and the IDs."""
+    the songs you own in another mix, and the IDs. A Shazam's songs carry the day it was
+    Shazamed (``shazamed``), which a terminal and the text file show them newest first by."""
     from djlib.interfaces.rekordbox_cli import set_track
+    from djlib.interfaces.views import shazamed_day
 
     tracks = [set_track(item) for item in items]
 
     def picked(own: str, *keys: str) -> list[dict]:
-        return [{key: track[key] for key in keys} for track in tracks if track["own"] == own]
+        found = []
+        for track in tracks:
+            if track["own"] == own:
+                song = {key: track[key] for key in keys}
+                if day := shazamed_day(track.get("notes")):
+                    song["shazamed"] = day
+                found.append(song)
+        return found
 
     return {
         "to_buy": picked("missing", "position", "timestamp", "label", "shop"),
@@ -212,17 +221,19 @@ def shopping(items: list[dict]) -> dict:
 
 
 def moment(song: dict) -> str:
-    """Where a song plays in the set: its time, else its number."""
-    return song.get("timestamp") or f"#{song.get('position')}"
+    """Where a song plays in the set: its time, else the day it was Shazamed, else its
+    number."""
+    return song.get("timestamp") or song.get("shazamed") or f"#{song.get('position')}"
 
 
 def shopping_text(name: str, found: dict) -> str:
     """The shopping list as plain text, laid out as `djlib requests report` prints it."""
     from djlib.interfaces.terminal import number
-    from djlib.interfaces.views import owned_mixes
+    from djlib.interfaces.views import newest_first, owned_mixes
 
-    to_buy, others = found["to_buy"], found["other_mixes"]
-    maybe = found.get("maybe_yours") or []
+    # A Shazam list newest first, as everywhere else; a set in set order.
+    to_buy, others = newest_first(found["to_buy"]), newest_first(found["other_mixes"])
+    maybe = newest_first(found.get("maybe_yours") or [])
     width = max((len(moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
     lines = [f"{name} — {number(len(to_buy))} to buy", ""]
     for song in to_buy:

@@ -855,7 +855,10 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
     assert result["rekordbox"]["status"] == "imported"
     assert fake.imported[-1].name == f"{result['name']}.m3u8"
     assert result["source"]["provider"] == "Shazam"
-    assert result["source"]["title"] == "Music Recognition on this Mac, 3 songs"
+    # One song was Shazamed twice: said, not merged silently.
+    assert (
+        result["source"]["title"] == "Music Recognition on this Mac, 4 Shazams · 3 different songs"
+    )
     summary = result["shazam"]
     assert (summary["songs"], summary["songs_in_history"]) == (3, 3)
     assert summary["sources"][0]["songs"] == 3  # songs, not the 4 Shazams
@@ -914,7 +917,7 @@ def test_set_shazam_checks_your_shazams_and_then_only_new_ones(
 
     pretty = invoke(workspace, "set", "shazam", "--no-rekordbox", pretty=True)
     assert pretty.exit_code == 0, pretty.output
-    assert "Shazam: Music Recognition on this Mac, 5 songs" in pretty.stdout
+    assert "Shazam: Music Recognition on this Mac, 6 Shazams · 5 different songs" in pretty.stdout
     assert "Later, check only what you Shazam next" in pretty.stdout
     assert "set shazam:new" in pretty.stdout
 
