@@ -65,7 +65,7 @@ After songs arrive (download or scan), refresh the set, then collect it again.
 
 ## Shopping list
 
-`requests report SET` lists the missing songs in set order with Beatport, Bandcamp and Traxsource search links, then the songs that may be theirs under another artist name (to check before buying), then the other mixes the user has, then the IDs. The CLI prints up to 25 and saves all of them as "<set> - to buy.txt" (`shopping_list`), next to the full JSON report (`report_path`); it starts no downloads and buys nothing. Store searches find the song, not always the exact mix: say so. Over MCP, `djlib_request` items have no `shop` links; build the same searches from artist, title and mix if the user wants them.
+`requests report SET` lists the missing songs in set order with Beatport, Bandcamp and Traxsource search links, then the songs that may be theirs under another artist name (to check before buying), then the other mixes the user has, then the IDs. The CLI prints up to 25 and saves all of them as "<set> - to buy.txt" (`shopping_list`) in the "Shopping lists" folder of djlib's folder; the full JSON report is `report_path`; it starts no downloads and buys nothing. Store searches find the song, not always the exact mix: say so. Over MCP, `djlib_request` items have no `shop` links; build the same searches from artist, title and mix if the user wants them.
 
 ## Sets, artists and sources
 

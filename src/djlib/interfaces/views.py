@@ -2,6 +2,7 @@
 
 import contextlib
 import re
+import sys
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -3048,6 +3049,8 @@ def request_report(term: Terminal, result: dict) -> None:
         line.append(short_path(result["shopping_list"]), style="path")
         term.out.print(line, soft_wrap=True)
     steps: list[Step] = []
+    if result.get("shopping_list") and sys.platform == "darwin":
+        steps.append(("Open the list", f"open {shell_path(result['shopping_list'])}"))
     if maybe:
         steps.append(("If one is the same song, use it", ("ui",)))
     if to_buy:

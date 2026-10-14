@@ -266,18 +266,22 @@ def shopping_text(name: str, found: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+# Where shopping lists go in djlib's folder, by set name, so a DJ finds them in Finder.
+SHOPPING_LISTS = "Shopping lists"
+
+
 def save_shopping_list(workspace, report_path: str | None, name: str, found: dict) -> str | None:
-    """Write "<set> - to buy.txt" beside the request's reports, replacing the last one."""
+    """Write "<set> - to buy.txt" in the "Shopping lists" folder of djlib's folder, replacing
+    the last one for that set's name."""
     import os
 
     from djlib.interfaces.rekordbox_cli import playlist_file_name
 
     if not report_path:
         return None
-    folder = Path(report_path).parent
+    folder = workspace.root / SHOPPING_LISTS
     try:
-        if not folder.resolve().is_relative_to(workspace.root.resolve()):
-            return None
+        folder.mkdir(exist_ok=True)
         path = folder / f"{playlist_file_name(name)} - to buy.txt"
         temporary = folder / f".{path.name}.partial"
         temporary.write_text(shopping_text(name, found), encoding="utf-8")
@@ -460,7 +464,7 @@ def register_commands(app, client, emit, handled, panel=None):
     ):
         """Your shopping list: the missing songs, with Beatport, Bandcamp and Traxsource links.
 
-        Also saved as a text file, beside a full JSON report of the songs not owned.
+        Also saved as a text file in "Shopping lists" in djlib's folder.
         """
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
