@@ -110,6 +110,72 @@ def finish_checks(local, reply: dict) -> dict:
             reply = local.request("POST", f"/requests/{result['request_id']}/refresh", data=body)
 
 
+STORES = {"beatport": "Beatport", "bandcamp": "Bandcamp", "traxsource": "Traxsource"}
+
+
+def shopping(items: list[dict]) -> dict:
+    """A request list as a shopping list, in set order: the missing songs with store searches,
+    the songs you own in another mix, and the IDs."""
+    from djlib.interfaces.rekordbox_cli import set_track
+
+    tracks = [set_track(item) for item in items]
+
+    def picked(own: str, *keys: str) -> list[dict]:
+        return [{key: track[key] for key in keys} for track in tracks if track["own"] == own]
+
+    return {
+        "to_buy": picked("missing", "position", "timestamp", "label", "shop"),
+        "other_mixes": picked("other_mix", "position", "timestamp", "label", "you_own", "shop"),
+        "ids": picked("id", "position", "timestamp"),
+    }
+
+
+def moment(song: dict) -> str:
+    """Where a song plays in the set: its time, else its number."""
+    return song.get("timestamp") or f"#{song.get('position')}"
+
+
+def shopping_text(name: str, found: dict) -> str:
+    """The shopping list as plain text, laid out as `djlib requests report` prints it."""
+    to_buy, others = found["to_buy"], found["other_mixes"]
+    width = max((len(moment(song)) for song in [*to_buy, *others]), default=0)
+    lines = [f"{name} — {len(to_buy)} to buy", ""]
+    for song in to_buy:
+        lines.append(f"{moment(song):>{width}}  {song['label']}")
+        lines += [
+            f"{'':>{width}}  {label:<10}  {song['shop'][store]}" for store, label in STORES.items()
+        ]
+    if others:
+        lines += ["", f"You own another mix ({len(others)})"]
+        for song in others:
+            mixes = ", ".join(song["you_own"])
+            lines.append(f"{moment(song):>{width}}  {song['label']} — you have: {mixes}")
+    if found["ids"]:
+        lines += ["", "IDs, no name yet: " + ", ".join(moment(song) for song in found["ids"])]
+    return "\n".join(lines) + "\n"
+
+
+def save_shopping_list(workspace, report_path: str | None, name: str, found: dict) -> str | None:
+    """Write "<set> - to buy.txt" beside the request's reports, replacing the last one."""
+    import os
+
+    from djlib.interfaces.rekordbox_cli import playlist_file_name
+
+    if not report_path:
+        return None
+    folder = Path(report_path).parent
+    try:
+        if not folder.resolve().is_relative_to(workspace.root.resolve()):
+            return None
+        path = folder / f"{playlist_file_name(name)} - to buy.txt"
+        temporary = folder / f".{path.name}.partial"
+        temporary.write_text(shopping_text(name, found), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        return None
+    return str(path)
+
+
 def current_revision(local, request_id: str) -> int:
     """The request list's revision right now, for commands that default to it."""
     return local.request("GET", f"/requests/{request_id}", params={"limit": 1})["result"][
@@ -185,11 +251,18 @@ def register_commands(app, client, emit, handled, panel=None):
         limit: int = typer.Option(100, min=1, max=100),
     ):
         """Show a request list and each song's status."""
+        from djlib.interfaces.rekordbox_cli import set_track
+
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
-        emit(
-            local.request("GET", f"/requests/{request_id}", params={"after": after, "limit": limit})
+        reply = local.request(
+            "GET", f"/requests/{request_id}", params={"after": after, "limit": limit}
         )
+        # Store searches for each song you don't own (search links; djlib never opens them).
+        for item in reply["result"].get("items") or []:
+            if (shop := set_track(item)["shop"]) is not None:
+                item["shop"] = shop
+        emit(reply)
 
     @requests.command("collect")
     @handled
@@ -238,12 +311,24 @@ def register_commands(app, client, emit, handled, panel=None):
         request_id: Annotated[str, typer.Argument(metavar="LIST", help=request_help)],
         revision: int | None = typer.Option(None, min=1, help=revision_help),
     ):
-        """Save a report of the missing and unclear songs in a request list."""
+        """Your shopping list: the missing songs, with Beatport, Bandcamp and Traxsource links.
+
+        Also saved as a text file, beside a full JSON report of the songs not owned.
+        """
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
         if revision is None:
             revision = current_revision(local, request_id)
-        emit(local.request("POST", f"/requests/{request_id}/report", data={"revision": revision}))
+        reply = local.request("POST", f"/requests/{request_id}/report", data={"revision": revision})
+        ledger = local.request("GET", f"/requests/{request_id}", params={"limit": 100})["result"]
+        found = shopping(all_items(local, ledger))
+        name = ledger.get("name") or "Set"
+        result = reply["result"]
+        result.update(name=name, **found)
+        result["shopping_list"] = save_shopping_list(
+            ctx.obj, result.get("report_path"), name, found
+        )
+        emit(reply)
 
     @requests.command("resolve")
     @handled

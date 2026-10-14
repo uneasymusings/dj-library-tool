@@ -1927,7 +1927,7 @@ def set_view(term: Terminal, result: dict) -> None:
     to_buy = sum(1 for track in tracks if track.get("own") == "missing")
     if to_buy:
         report = ("requests", "report", result.get("request_id", ""))
-        steps.append(("Save the missing songs as a list", report))
+        steps.append((f"Your shopping list ({to_buy})", report))
     if result.get("listen_fix"):
         steps.append(("So djlib can listen to sets, fix this", result["listen_fix"]))
     if result.get("shazam"):
@@ -2443,15 +2443,77 @@ def rekordbox_sync(term: Terminal, result: dict) -> None:
     )
 
 
+STORE_NAMES = {"beatport": "Beatport", "bandcamp": "Bandcamp", "traxsource": "Traxsource"}
+
+
 @view("requests report")
 def request_report(term: Terminal, result: dict) -> None:
-    status_line(
-        term,
-        "ok",
-        "Missing-tracks report saved",
-        plural(int(result.get("unresolved_items") or 0), "unresolved song"),
-    )
-    fields(term, [("Report", path_text(result.get("report_path")))])
+    """The shopping list: each missing song with its store searches, one unbroken link a line
+    (Cmd-click or right-click opens it), then the songs you own in another mix and the IDs."""
+    to_buy = result.get("to_buy")
+    if not isinstance(to_buy, list):
+        status_line(
+            term,
+            "ok",
+            "Missing-tracks report saved",
+            plural(int(result.get("unresolved_items") or 0), "unresolved song"),
+        )
+        fields(term, [("Report", path_text(result.get("report_path")))])
+        return
+    others = result.get("other_mixes") or []
+    dash = "—" if term.unicode else "-"
+    if to_buy:
+        status_line(term, "ok", f"{result.get('name') or 'Set'} {dash} {len(to_buy)} to buy")
+    else:
+        status_line(term, "ok", result.get("name") or "Set", "nothing to buy")
+    width = max((cell_len(song_moment(song)) for song in [*to_buy, *others]), default=0)
+    if to_buy:
+        term.out.print()
+    for song in to_buy[:BIG_ROWS]:
+        lead = Text(f"{song_moment(song):>{width}} ", style="muted")
+        hanging(term.out, lead, Text(str(song.get("label") or ""), style="heading"), indent=2)
+        for store, name in STORE_NAMES.items():
+            url = (song.get("shop") or {}).get(store)
+            if url:
+                line = Text.assemble(" " * (width + 4), (f"{name:<10}", "muted"), "  ")
+                line.append(url, style="path").stylize(Style(link=url), len(line) - len(url))
+                term.out.print(line, soft_wrap=True)
+    if len(to_buy) > BIG_ROWS:
+        more = len(to_buy) - BIG_ROWS
+        line = Text(f"{'…' if term.unicode else '...'} and {more} more in ", style="muted")
+        line.append(short_path(result.get("shopping_list")) or "the report", style="path")
+        term.out.print(indented(line), soft_wrap=True)
+    if others:
+        term.out.print()
+        term.out.print(Text(f"You own another mix ({len(others)})", style="heading"))
+        for song in others:
+            body = Text(str(song.get("label") or ""))
+            mixes = ", ".join(str(mix) for mix in song.get("you_own") or [])
+            body.append(f" {dash} you have: {mixes}", style="warn")
+            lead = Text(f"{song_moment(song):>{width}} ", style="muted")
+            hanging(term.out, lead, body, indent=2)
+    ids = result.get("ids") or []
+    if ids:
+        term.out.print()
+        note(term, "IDs, no name yet: " + ", ".join(song_moment(song) for song in ids))
+    term.out.print()
+    fields(term, [("Saved to", path_text(result.get("shopping_list")))])
+    if to_buy:
+        term.out.print()
+        note(term, "Store searches: check it's the mix you want before you buy.")
+        request_id = result.get("request_id", "")
+        next_steps(
+            term,
+            [
+                ("After you buy them, index the new music", ("scan",)),
+                ("Then check the set again", ("requests", "refresh", request_id)),
+            ],
+        )
+
+
+def song_moment(song: dict) -> str:
+    """Where a song plays in the set: its time, else its number."""
+    return str(song.get("timestamp") or f"#{song.get('position')}")
 
 
 # -- delivery ----------------------------------------------------------------------------------
@@ -2845,7 +2907,7 @@ def request_view(term: Terminal, result: dict) -> None:
             )
         )
     if result.get("unresolved_items"):
-        steps.append(("Save a missing-tracks report", ("requests", "report", request_id)))
+        steps.append(("Your shopping list", ("requests", "report", request_id)))
         steps.append(("Re-check after adding music", ("requests", "refresh", request_id)))
     next_steps(term, steps)
 

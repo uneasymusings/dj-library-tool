@@ -1,9 +1,11 @@
-"""What a DJ sees after `djlib set` and `djlib identify`: the whole set in set order,
-owned/missing/other mix/ID, store searches and times that play the set from that moment."""
+"""What a DJ sees after `djlib set` and `djlib identify`, and the shopping list after
+`djlib requests report`: the whole set in set order, owned/missing/other mix/ID, store searches
+and times that play the set from that moment."""
 
 import io
 import json
 import re
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -185,7 +187,7 @@ def test_the_whole_set_reads_in_set_order_at_any_width(width, capsys):
     assert steps[:3] == [
         f"Put it in rekordbox djlib rekordbox push {SHORT_COLLECTION}",
         f"Or straight onto your USB djlib rekordbox usb {SHORT_COLLECTION}",
-        f"Save the missing songs as a list djlib requests report {SHORT_REQUEST}",
+        f"Your shopping list (9) djlib requests report {SHORT_REQUEST}",
     ]
 
 
@@ -346,7 +348,47 @@ def test_requests_get_marks_another_mix_and_ids_in_dj_words(capsys):
     poison = next(line for line in out.splitlines() if "Poison" in line)
     assert "≈ other mix" in poison and "you own: Radio Edit" in poison
     assert "ID - ID" not in out and "unknown ID" not in out
-    assert f"djlib requests report {SHORT_REQUEST}" in out
+    assert f"Your shopping list djlib requests report {SHORT_REQUEST}" in " ".join(out.split())
+
+
+# -- the shopping list -----------------------------------------------------------------------------
+
+
+def test_the_shopping_list_prints_each_store_link_in_one_piece(capsys):
+    to_buy = [
+        {
+            "position": 2,
+            "timestamp": "01:09",
+            "label": "Robert Glasper Experiment - Move Love (Kaytranada Edition)",
+            "shop": set_sources.shop_links(
+                "Robert Glasper Experiment", "Move Love", "Kaytranada Edition"
+            ),
+        },
+    ]
+    result = {
+        "request_id": REQUEST,
+        "name": "Kaytranada Boiler Room Montreal DJ Set",
+        "to_buy": to_buy,
+        "other_mixes": [
+            {
+                "position": 16,
+                "timestamp": "26:00",
+                "label": "Bell Biv DeVoe - Poison",
+                "you_own": ["Radio Edit"],
+            }
+        ],
+        "ids": [{"position": 3, "timestamp": None}],
+        "shopping_list": "/w/exports/requests/r/Kaytranada - to buy.txt",
+        "report_path": "/w/exports/requests/r/missing-r1.json",
+    }
+    out = shown("requests report", result, 60, capsys)
+    assert out.startswith("✓ Kaytranada Boiler Room Montreal DJ Set — 1 to buy")
+    lines = [line.strip() for line in out.splitlines()]
+    for store, link in to_buy[0]["shop"].items():
+        assert f"{views.STORE_NAMES[store]}{' ' * (12 - len(store))}{link}" in lines
+    assert "26:00 Bell Biv DeVoe - Poison — you have: Radio Edit" in " ".join(out.split())
+    assert "IDs, no name yet: #3" in out
+    assert f"djlib requests refresh {SHORT_REQUEST}" in out
 
 
 # -- through the CLI and the coordinator ----------------------------------------------------------
@@ -423,6 +465,32 @@ def test_an_identified_set_times_every_song_and_keeps_an_ids_guess_apart(
     assert tracks[1]["label"] == "ID" and tracks[1]["maybe"] == "Bicep - Glue"
     pretty = identify_invoke(application, "set", URL, "--no-rekordbox", pretty=True).stdout
     assert "ID — likely Bicep - Glue" in pretty and "The set (3)" in pretty
+
+
+def test_requests_report_is_a_shopping_list_saved_beside_the_report(friday):
+    djlib, tracklist = friday
+    request_id = djlib("set", tracklist, "--no-rekordbox")["request_id"]
+    report = djlib("requests", "report", request_id)
+    assert report["report_path"].endswith(".json") and report["unresolved_items"] == 3
+    assert [song["label"] for song in report["to_buy"]] == ["Someone - Not Owned"]
+    assert report["to_buy"][0]["shop"] == set_sources.shop_links("Someone", "Not Owned")
+    assert [song["label"] for song in report["other_mixes"]] == ["Lumen - Halo (Dub)"]
+    assert report["ids"] == [{"position": 3, "timestamp": "06:20"}]
+    saved = report["shopping_list"]
+    assert saved.endswith("Friday — Warm-up - to buy.txt")
+    text = Path(saved).read_text(encoding="utf-8")
+    # Each song by its time in the set, else its number.
+    assert text.splitlines()[:3] == ["Friday — Warm-up — 1 to buy", "", "#4  Someone - Not Owned"]
+    assert "    Beatport    https://www.beatport.com/search?q=Someone+Not+Owned\n" in text
+    assert "You own another mix (1)\n#2  Lumen - Halo (Dub) — you have: Radio Edit" in text
+    assert text.endswith("IDs, no name yet: 06:20\n")
+    # Again: the same file, rewritten, and no second one.
+    again = djlib("requests", "report", request_id)
+    folder = Path(saved).parent
+    assert again["shopping_list"] == saved and len(list(folder.glob("*to buy.txt"))) == 1
+    # The request list gives the same store searches for each song you don't own.
+    items = djlib("requests", "get", request_id)["items"]
+    assert [("shop" in item) for item in items] == [False, True, False, True]
 
 
 # -- next steps that paste and work ------------------------------------------------------------
