@@ -1013,7 +1013,10 @@ def test_set_shazam_without_history_shows_the_setup_steps(application, monkeypat
     numbered = [line for line in lines if line[:2] in {"1.", "2.", "3."}]
     assert [line[:2] for line in numbered] == ["1.", "2.", "3."]
     assert "iCloud Sync" in numbered[0] and "Recognize Music" in pretty
-    assert lines[-1].startswith("→ When they've synced, check") and "shazam status" in pretty
+    assert "→ When they've synced, check" in pretty and "shazam status" in pretty
+    # And the ways around iCloud sync, as `djlib shazam status` gives them.
+    assert "djlib set shazam:apple-music" in pretty
+    assert lines[-1] == "djlib set ~/Downloads/shazamlibrary.csv"
 
 
 def test_shazam_status_and_list(application, home, tmp_path):
@@ -1027,7 +1030,7 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert "No Shazam history on this Mac yet" in pretty and "Turn on Shazam sync" in pretty
     assert "set shazam:apple-music" in pretty
     # Where to get a CSV, and a command that works as pasted (see the test below).
-    assert f"set shazam:{Path.home() / 'Downloads' / 'shazamlibrary.csv'}" in pretty
+    assert "set ~/Downloads/shazamlibrary.csv" in pretty  # as the docs give it
     # No backup to read: no "iPhone backups  none" row.
     assert "iPhone backups" not in pretty
 

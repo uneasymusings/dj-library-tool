@@ -2606,8 +2606,8 @@ def shazam_status(term: Terminal, result: dict) -> None:
             (music, ("set", "shazam:apple-music")),
             (
                 "Or a CSV from shazam.com/myshazam (Download CSV, if your account shows it)",
-                # shazam:FILE, like the steps above: it reads any CSV as Shazams.
-                ("set", f"shazam:{Path.home() / 'Downloads' / 'shazamlibrary.csv'}"),
+                # As the docs give it: a Shazam CSV given as the set's file reads as Shazams.
+                ("set", Path.home() / "Downloads" / "shazamlibrary.csv"),
             ),
         ]
     elif last:
