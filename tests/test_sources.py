@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -404,6 +405,41 @@ def test_gone_uploads_are_unavailable_and_not_retried(stderr, code, retryable):
     error = web.provider_error(stderr.encode())
     assert (error.code, error.retryable) == (code, retryable)
     assert stderr.split(": ")[-1] not in error.message
+
+
+async def test_yt_dlp_error_lines_are_kept_without_links_cookies_or_the_home_folder():
+    home = str(Path.home())
+    stderr = "\n".join(
+        [
+            "[youtube] fridayset1: Downloading webpage",
+            *(f"WARNING: old warning {n}" for n in range(5)),
+            "WARNING: [youtube] fridayset1: Some formats may be missing\x1b[31m",
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden "
+            "(https://rr3---sn-ab5l6n.googlevideo.com/videoplayback?expire=1&sig=SECRET1&n=x)",
+            f"ERROR: Unable to rename file: '{home}/djlib/sets/abc/audio/set.webm.part'",
+            "ERROR: request failed (token=SECRET3); Cookie: SID=SECRET2; HSID=SECRET5",
+            "ERROR: " + "x" * 1000,
+            "Traceback (most recent call last): sig=SECRET4",
+        ]
+    )
+    yt_dlp = "import sys; sys.stderr.write(sys.argv[1]); sys.exit(1)"
+    with pytest.raises(AppError) as failed:
+        await web.run([sys.executable, "-c", yt_dlp, stderr], timeout=5, output_limit=100)
+    error = failed.value
+    assert (error.code, error.retryable) == ("SOURCE_FAILED", True)
+    # The last six ERROR and WARNING lines, cleaned, as the error's notes.
+    assert error.__notes__[:5] == [
+        "WARNING: old warning 4",
+        "WARNING: [youtube] fridayset1: Some formats may be missing[31m",
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden (<googlevideo.com link>)",
+        "ERROR: Unable to rename file: '~/djlib/sets/abc/audio/set.webm.part'",
+        "ERROR: request failed (token=…); Cookie: …",
+    ]
+    assert error.__notes__[5] == "ERROR: " + "x" * 293
+    notes = "\n".join(error.__notes__)
+    assert "SECRET" not in notes and "videoplayback" not in notes and "\x1b" not in notes
+    # They never reach the message or the JSON envelope.
+    assert "Forbidden" not in json.dumps(error.as_dict()) and "403" not in error.message
 
 
 async def test_probe_selects_audio_without_downloading(monkeypatch):

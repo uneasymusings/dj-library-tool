@@ -16,6 +16,7 @@ from djlib.domain.errors import AppError
 from djlib.interfaces import identify_cli, terminal
 from djlib.interfaces.cli import app as cli_app
 from djlib.interfaces.client import LocalClient
+from djlib.sources import web
 from tests.test_identification import URL, Setup
 
 THREE_SONGS = [
@@ -128,6 +129,28 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "merging",
         "completed",
     }
+
+
+def test_a_download_tried_again_gets_an_event_at_once(
+    application, library_http, setup, monkeypatch
+):
+    fetched = setup.fetch
+
+    async def refused_once(url, destination, on_retry=None):
+        await asyncio.sleep(0.3)  # the client polls every 0.02 s: it saw the download start
+        on_retry(AppError("SOURCE_FAILED", "The site didn't answer just now.", 502, True), 2)
+        await asyncio.sleep(0.3)
+        return await fetched(url, destination)
+
+    monkeypatch.setattr(web, "fetch_set_audio", refused_once)
+    reply = invoke(application, "identify", URL)
+    assert reply.exit_code == 0, reply.output
+    downloading = [e for e in events(reply) if e.get("phase") == "downloading"]
+    # Well within the 15 seconds between other events.
+    assert [e.get("download_retry") for e in downloading] == [
+        None,
+        {"try": 2, "of": 2, "after": "SOURCE_FAILED"},
+    ]
 
 
 def test_identify_without_a_tracklist_suggests_one_when_little_was_named(
@@ -249,6 +272,12 @@ def test_progress_lines_say_what_djlib_is_doing():
     assert identify_cli.progress_line(gaps) == "Checking the transitions… 9 of 31 · 8 songs so far"
     downloading = job("downloading", downloaded_bytes=45_200_000)
     assert identify_cli.progress_line(downloading) == "Downloading the set's audio… 45 MB"
+    # The site refused the first try, and djlib tries once more by itself.
+    retry = {"try": 2, "of": 2, "after": "SOURCE_FAILED"}
+    again = job("downloading", download_retry=retry)
+    assert identify_cli.progress_line(again) == "Downloading the set's audio… trying again"
+    again = job("downloading", download_retry=retry, downloaded_bytes=45_200_000)
+    assert identify_cli.progress_line(again) == "Downloading the set's audio… 45 MB · trying again"
     assert identify_cli.progress_line({"state": "queued", "result": {}}) == "Starting…"
     waiting = {"state": "queued", "result": {"progress": {"phase": "queued", "ahead": 1}}}
     assert identify_cli.progress_line(waiting) == "Waiting for the set before it to finish…"
