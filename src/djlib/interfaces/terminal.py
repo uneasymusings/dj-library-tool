@@ -516,34 +516,41 @@ def render_error(term: Terminal, error: dict) -> None:
         hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
-    # More than one way forward: each on its own line, commands lined up.
+    # More than one way forward: each on its own line, commands lined up; a note (what to put
+    # in place of LINK) goes under its command.
     hints = [
-        (str(step.get("label") or "Next"), str(step["command"]))
+        (str(step.get("label") or "Next"), str(step["command"]), str(step.get("note") or ""))
         for step in details.get("next_steps") or []
         if isinstance(step, dict) and step.get("command")
-    ] or ([hint] if hint else [])
+    ] or ([(*hint, "")] if hint else [])
     lines = [
-        (label, "" if not parts else parts if isinstance(parts, str) else term.command(*parts))
-        for label, parts in hints
+        (
+            label,
+            "" if not parts else parts if isinstance(parts, str) else term.command(*parts),
+            note,
+        )
+        for label, parts, note in hints
     ]
     # Commands line up after the labels only when every step fits on one line and no long
     # label pushes the short ones far right; otherwise each command goes under its label.
-    commands = [(label, command) for label, command in lines if command]
+    commands = [(label, command) for label, command, _ in lines if command]
     width = max((len(label) for label, _ in commands), default=0)
     aligned = all(width + len(command) + 8 <= term.err.width for _, command in commands) and (
         len(commands) < 2 or width <= ALIGNED_LABEL
     )
-    for label, command in lines:
+    for label, command, note in lines:
         if command and aligned:
             line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
             line.append(" " * (width - len(label) + 2))
             line.append(command, style="cmd")
             term.err.print(line, soft_wrap=True)
-            continue
-        # A long label wraps under itself; the command stays in one piece for copying.
-        hanging(term.err, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
-        if command:
-            term.err.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+        else:
+            # A long label wraps under itself; the command stays in one piece for copying.
+            hanging(term.err, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
+            if command:
+                term.err.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+        if note:
+            term.err.print(indented(Text(note, style="muted"), 4))
     if not hints and error.get("retryable"):
         term.err.print(
             Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")

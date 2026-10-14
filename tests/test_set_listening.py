@@ -11,7 +11,7 @@ import pytest
 from djlib.application import identification
 from tests.test_headline_workflow import build
 from tests.test_identification import URL, Setup
-from tests.test_identify_cli import LISTED, fakes, invoke
+from tests.test_identify_cli import LISTED, events, fakes, invoke
 from tests.test_rekordbox_push import FakeRekordbox
 
 
@@ -50,6 +50,9 @@ def test_set_listens_when_the_published_tracklist_has_ids(
     assert fake.imported[-1].name == "Friday Set.m3u8"
     assert identification.UNOFFICIAL_SHAZAM in envelope["warnings"]
     assert len(setup.inspected) == 1  # the identification reused the page djlib set read
+    # Scripts and assistants learn why djlib chose to listen.
+    started = events(reply)[0]
+    assert started["event"] == "identify_started" and started["identify_reason"] == "ids"
 
     # Once identified, the same set reuses what djlib heard.
     again = json.loads(invoke(application, "set", URL).stdout)["result"]
@@ -135,8 +138,9 @@ def test_without_song_recognition_set_falls_back_or_says_how_to_install_it(
     )
     # The fix is a next step of its own, in one piece.
     assert envelope["result"]["listen_fix"] == identification.INSTALLER
-    pretty = invoke(application, "set", URL, "--no-rekordbox", pretty=True).stdout
-    assert identification.INSTALLER in pretty
+    pretty = invoke(application, "set", URL, "--no-rekordbox", pretty=True)
+    assert identification.INSTALLER in pretty.stdout
+    assert "listening to the set" not in pretty.stderr  # it never started
     explicit = json.loads(invoke(application, "set", URL, "--identify").stdout)["error"]
     assert explicit["code"] == "DEPENDENCY_REQUIRED"
     fakes.page["description"] = ""
@@ -159,8 +163,10 @@ def test_set_merges_a_1001tracklists_file_with_what_it_hears(
     listing = tmp_path / "tracklist.txt"
     listing.write_text("1001Tracklists\n" + LISTED, encoding="utf-8")
     # A link with the file to merge…
-    result = json.loads(invoke(application, "set", URL, "--tracklist", listing).stdout)["result"]
+    reply = invoke(application, "set", URL, "--tracklist", listing)
+    result = json.loads(reply.stdout)["result"]
     assert result["identified"]["counts"]["likely"] == 1 and result["songs"] == 3
+    assert events(reply)[0]["identify_reason"] == "asked"
     # …or the file with its link (the 1001Tracklists path); identified before, so free.
     result = json.loads(invoke(application, "set", listing, "--source", URL).stdout)["result"]
     assert result["identified"]["reused"] is True and result["songs"] == 3
@@ -178,3 +184,24 @@ def test_identification_options_need_a_set_link(application, monkeypatch, tmp_pa
     ):
         error = json.loads(invoke(application, "set", *arguments).stdout)["error"]
         assert error["code"] == "INPUT_INVALID" and words in error["message"], arguments
+
+
+def test_set_says_why_it_listens_before_a_long_listen(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    setup.page["description"] = ""
+    reply = invoke(application, "set", URL, "--no-rekordbox", pretty=True, columns=100)
+    assert reply.exit_code == 0, reply.output
+    said = " ".join(reply.stderr.split())
+    assert (
+        "The page has no tracklist, so djlib is listening to the set to find the songs. An "
+        "hour-long set usually takes 5–10 minutes; Ctrl-C stops it, and the same command "
+        "carries on." in said
+    )
+    # Identified before, it shows at once: nothing to wait for, so nothing said.
+    again = invoke(application, "set", URL, "--no-rekordbox", pretty=True, columns=100)
+    assert again.exit_code == 0 and "listening to the set" not in again.stderr
+    started = events(invoke(application, "set", URL, "--no-rekordbox"))[0]
+    assert started["identify_reason"] == "no_tracklist"

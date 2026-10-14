@@ -10,7 +10,9 @@ import asyncio
 import html
 import logging
 import re
+import time
 import unicodedata
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date
@@ -28,8 +30,12 @@ API = "https://www.mixesdb.com/w/api.php"
 PAGES = "https://www.mixesdb.com/w/"
 USER_AGENT = f"djlib/{__version__} (+https://github.com/uneasymusings/dj-library-tool)"
 MAX_REQUESTS = 4
+# mixesdb.com's robots.txt asks for 4 seconds between requests (Crawl-delay: 4).
+CRAWL_DELAY = 4.0
 TIMEOUT = httpx.Timeout(8.0, connect=5.0)
-DEADLINE = 20.0  # seconds for a whole lookup
+# Seconds a lookup may spend asking MixesDB. Waiting for its turn doesn't count, so lookups
+# for several sets at once each still get theirs.
+DEADLINE = 20.0
 MAX_REPLY_BYTES = 4 * 1024 * 1024
 MAX_PAGE_CHARS = 300_000
 MAX_LINE_CHARS = 2000
@@ -575,11 +581,39 @@ def _only_part(wanted: Wanted, page: Page) -> bool:
 # Network
 
 
-class Api:
-    """MixesDB's MediaWiki API, at most MAX_REQUESTS requests per lookup."""
+class Spacing:
+    """At least CRAWL_DELAY seconds between requests to mixesdb.com, across every lookup in
+    this process: each request takes the next free moment, then waits for it."""
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(
+        self,
+        delay: float = CRAWL_DELAY,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[object]] = asyncio.sleep,
+    ):
+        self.delay, self.clock, self.sleep = delay, clock, sleep
+        self.next_at: float | None = None
+
+    def reserve(self) -> float:
+        """Takes the next free moment; the seconds until it comes."""
+        now = self.clock()
+        start = now if self.next_at is None else max(now, self.next_at)
+        self.next_at = start + self.delay
+        return start - now
+
+
+SPACING = Spacing()
+
+
+class Api:
+    """MixesDB's MediaWiki API, at most MAX_REQUESTS requests per lookup, spaced out.
+
+    Time spent waiting for a turn moves ``deadline`` (the lookup's) back by as much."""
+
+    def __init__(self, client: httpx.AsyncClient, deadline: asyncio.Timeout | None = None):
         self.client = client
+        self.deadline = deadline
         self.requests = 0
 
     @property
@@ -608,6 +642,10 @@ class Api:
         if self.spent:
             return []
         self.requests += 1
+        if (wait := SPACING.reserve()) > 0:
+            if self.deadline is not None and (when := self.deadline.when()) is not None:
+                self.deadline.reschedule(when + wait)
+            await SPACING.sleep(wait)
         query = {
             "action": "query",
             "format": "json",
@@ -726,9 +764,11 @@ async def lookup(
 ) -> dict | None:
     """The MixesDB tracklist of the set at ``url`` (titled ``title``), or None.
 
-    At most MAX_REQUESTS requests within DEADLINE seconds; no page, or a doubtful one, is
-    None. So is an error or no answer in time, unless ``strict``: then that raises (an
-    AppError, or TimeoutError), so callers can ask again later instead of keeping None.
+    At most MAX_REQUESTS requests, CRAWL_DELAY seconds apart, and DEADLINE seconds of asking
+    (waits for a turn, behind this lookup's requests or another's, come on top); no page, or a
+    doubtful one, is None. So is an error or no answer in time, unless ``strict``:
+    then that raises (an AppError, or TimeoutError), so callers can ask again later instead
+    of keeping None.
     Returns ``{"source": "mixesdb", "page_title", "page_url", "text",
     "complete", "tracklist" ("complete", "incomplete" or "unknown"), "tracks",
     "duration_seconds", "players", "match": {"by", "score"}}``. ``match.by`` is "url" when the
@@ -739,11 +779,11 @@ async def lookup(
     """
     wanted = Wanted(title, uploader or "", duration, url)
     try:
-        async with asyncio.timeout(DEADLINE):
+        async with asyncio.timeout(DEADLINE) as deadline:
             if client is not None:
-                return await _find(Api(client), wanted)
+                return await _find(Api(client, deadline), wanted)
             async with httpx.AsyncClient(follow_redirects=True) as own:
-                return await _find(Api(own), wanted)
+                return await _find(Api(own, deadline), wanted)
     except AppError as error:
         logger.debug("MixesDB lookup stopped: %s (%s)", error.message, error.code)
         if strict:

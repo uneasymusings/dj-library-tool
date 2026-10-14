@@ -6,6 +6,7 @@ recognizer are fakes, and windows carry their start time instead of audio.
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -171,18 +172,63 @@ def test_every_link_to_a_set_shares_one_folder(link, canonical):
     ("link", "code"),
     [
         ("https://www.1001tracklists.com/tracklist/abc/set.html", "SOURCE_BROWSER_ONLY"),
+        ("https://1001.tl/14rk2xyz", "SOURCE_BROWSER_ONLY"),
         ("https://www.mixcloud.com/lumen/set/", "SOURCE_UNSUPPORTED"),
         ("https://www.youtube.com/playlist?list=PL1", "SINGLE_SOURCE_REQUIRED"),
         ("https://soundcloud.com/", "SINGLE_SOURCE_REQUIRED"),
         ("not a link", "SOURCE_UNSUPPORTED"),
     ],
 )
-def test_other_links_are_refused_with_a_way_forward(link, code):
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_other_links_are_refused_with_a_way_forward(monkeypatch, link, code, platform):
+    monkeypatch.setattr(web.sys, "platform", platform)
     with pytest.raises(AppError) as refused:
         identification.canonical_url(link)
     assert refused.value.code == code
+    copied = "paste" if platform == "darwin" else "FILE"  # `paste` reads a Mac's clipboard
     if code == "SOURCE_BROWSER_ONLY":
-        assert refused.value.details["next"] == "djlib identify SET_LINK --tracklist FILE"
+        # The copied tracklist with the set's own link, or checked against the music alone.
+        details = refused.value.details
+        assert details["next"] == f"djlib identify 'LINK' --tracklist {copied}"
+        assert [step["command"] for step in details["next_steps"]] == [
+            f"djlib identify 'LINK' --tracklist {copied}",
+            f"djlib set {copied}",
+        ]
+        assert details["next_label"] == (
+            "With the set's YouTube or SoundCloud link (under the player)"
+        )
+        assert details["next_steps"][0]["note"]  # the order, or what FILE is
+        assert all(len(step["label"]) <= 70 for step in details["next_steps"])  # 80 columns
+        assert "djlib identify 'LINK' --tracklist -" in details["next_for_assistants"]
+    if "mixcloud" in link:
+        assert "Mixcloud doesn't allow downloads" in refused.value.message
+        assert f"djlib set {copied}" in refused.value.message
+
+
+@pytest.mark.parametrize(
+    ("sources", "asks"),
+    [
+        ([{"source": "audio"}], True),
+        ([{"source": "audio"}, {"source": "description"}], True),
+        ([{"source": "audio"}, {"source": "1001tracklists"}], False),
+        ([{"source": "audio"}, {"source": "file"}], False),  # pasted, or a file
+        ([{"source": "audio"}, {"source": "mixesdb"}], False),  # copied from MixesDB
+        ([{"source": "audio"}, {"source": "mixesdb", "page_url": "https://mixesdb.com/w/x"}], True),
+    ],
+)
+def test_a_tracklist_the_dj_gave_is_not_asked_for_again(sources, asks):
+    """Only a tracklist djlib found itself leaves room to add one for the IDs left."""
+    found = {
+        "source": {"url": URL},
+        "tracks": [{"kind": "unknown", "status": "unidentified"}],
+        "coverage": {"percent": 90},
+        "sources": sources,
+    }
+    asked = f"djlib identify '{URL}' --tracklist paste"
+    assert identification.next_steps(found) == [
+        f"djlib set '{URL}' --no-rekordbox",
+        *([asked] if asks else []),
+    ]
 
 
 def test_submitting_needs_song_recognition_unless_the_set_was_identified(application):
@@ -340,7 +386,13 @@ async def test_progress_counts_windows_and_songs(application, setup):
     assert [p["windows_done"] for p in listening] == list(range(10))
     assert {p["windows_total"] for p in listening} == {10}
     assert listening[-1]["songs_heard"] == 2 and listening[-1]["eta_seconds"] is not None
+    # How far it got in the set's own time: 30 seconds a window, in a five-minute set.
+    assert [p["position_seconds"] for p in listening] == [30 * done for done in range(10)]
+    assert {p["duration_seconds"] for p in listening} == {300}
+    assert {p["waited_seconds"] for p in listening} == {0}
     assert seen[-1]["phase"] == "checking_gaps" and seen[-1]["windows_total"] == 5
+    # Listening again where songs change jumps around the set: no position there.
+    assert seen[-1]["position_seconds"] is None and seen[-1]["duration_seconds"] == 300
 
 
 # -- stopping, resuming, failing ---------------------------------------------------------------
@@ -422,7 +474,7 @@ async def test_a_rate_limit_keeps_what_was_heard_and_a_retry_resumes(application
     assert failed["state"] == "failed"
     error = failed["result"]["error"]
     assert error["code"] == "RECOGNITION_RATE_LIMITED" and error["retryable"] is True
-    assert "(2 listening windows) is saved" in error["message"]
+    assert "What djlib heard so far is saved" in error["message"]
     assert error["details"] == {"windows_heard": 2, "resumes": True}
     assert failed["result"]["progress"]["phase"] == "listening"
     assert (folder(application) / "audio").exists()  # no second download for the retry
@@ -717,7 +769,7 @@ async def test_recognition_failing_on_most_windows_is_no_tracklist(application, 
     error = failed["result"]["error"]
     assert failed["state"] == "failed" and error["code"] == "RECOGNITION_FAILING"
     assert error["retryable"] and error["details"]["resumes"] is True
-    assert "failed on 4 of 10 listening windows" in error["message"]
+    assert "couldn't hear 4 of 10 parts of the set" in error["message"]
     assert identification.finished(application.workspace, URL) is None
     assert (folder(application) / "audio").exists()  # kept for the retry
     # Trying again asks only the windows that failed.
@@ -839,15 +891,33 @@ async def test_waiting_on_the_recognizer_shows_in_progress(application, setup):
 
     setup.listener.hook = throttled
     await run(application, job_id)
-    assert seen[0]["result"]["progress"]["waiting"] == {
+    progress = seen[0]["result"]["progress"]
+    assert progress["waiting"] == {
         "service": "Shazam",
         "reason": "rate_limited",
         "retry_in": 20,
         "gives_up_in": 880,
     }
+    # While Shazam makes djlib wait, no time left is promised.
+    assert progress["eta_seconds"] is None and progress["waited_seconds"] == 0
     line = progress_line(seen[0])
-    assert "Shazam asked djlib to slow down; trying again in 20 s" in line
+    assert line == "Listening… 0:30 of 5:00 · Shazam is slow, waiting (Ctrl-C is safe)"
     assert setup.listener.pace.on_wait is None  # only while this job listens
+
+
+def test_time_spent_waiting_on_the_recognizer_adds_up(application, tmp_path):
+    runner = IdentifyRunner(application)
+    attempt = identification._Attempt("job_1", 1, {}, tmp_path, {}, phase="listening")
+    attempt.seconds, attempt.waited = 3600.0, 30.0
+    attempt.wait_started = time.monotonic() - 12  # waiting for 12 seconds now
+    assert runner.set_time(attempt, 40, 120) == {
+        "position_seconds": 1200,
+        "duration_seconds": 3600,
+        "waited_seconds": 42,
+    }
+    assert runner.set_time(attempt, 120, 120)["position_seconds"] == 3600  # the end
+    attempt.phase = "checking_gaps"
+    assert runner.set_time(attempt, 3, 20)["position_seconds"] is None
 
 
 async def test_a_given_tracklist_with_an_unknown_source_is_a_tracklist_file(application, setup):
