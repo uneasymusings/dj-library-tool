@@ -1551,6 +1551,9 @@ def _candidate(candidate: dict) -> dict:
             at=_clock(candidate.get("at")),
             strength=candidate.get("strength"),
         )
+        if candidate.get("also_heard"):
+            # The other times it was heard in the set, as unplaced songs say them.
+            found["also_at"] = [_clock(moment.get("at")) for moment in candidate["also_heard"]]
     elif candidate.get("source") == "comments":
         found.update(
             mentions=candidate.get("mentions"),
