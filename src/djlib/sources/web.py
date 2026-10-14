@@ -146,6 +146,17 @@ def mixcloud_message() -> str:
     )
 
 
+def mixcloud_details() -> dict:
+    """What an assistant in a shell does instead of a Mixcloud link: the message's
+    `djlib set paste` reads whatever the user copied last."""
+    return {
+        "next_for_assistants": (
+            "Don't run paste (it reads the user's clipboard): use the set's YouTube or "
+            "SoundCloud link if it has one, else pipe the set's tracklist text into djlib set -."
+        )
+    }
+
+
 SET_LINK = "the set's YouTube or SoundCloud link (under the player)"
 
 
@@ -220,7 +231,7 @@ def check_set_site(url: str) -> None:
             details=browser_only_details("set"),
         )
     if site == "mixcloud":
-        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message())
+        raise AppError("SOURCE_UNSUPPORTED", mixcloud_message(), details=mixcloud_details())
 
 
 async def resolved(url: str) -> str:

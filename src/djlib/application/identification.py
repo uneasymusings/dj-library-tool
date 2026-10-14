@@ -146,7 +146,7 @@ def canonical_url(url: str) -> str:
             "SOURCE_BROWSER_ONLY", web.BROWSER_ONLY, details=web.browser_only_details("identify")
         )
     if site == "mixcloud":
-        raise AppError("SOURCE_UNSUPPORTED", web.mixcloud_message())
+        raise AppError("SOURCE_UNSUPPORTED", web.mixcloud_message(), details=web.mixcloud_details())
     if (
         parts is None
         or parts.scheme not in {"http", "https"}
