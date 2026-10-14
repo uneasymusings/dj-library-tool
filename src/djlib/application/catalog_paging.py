@@ -238,6 +238,7 @@ def saved(app, kind, query="", limit=20, after=None):
             model.revision,
             model.updated_at,
             func.json_array_length(model.items).label("total_items"),
+            model.items.label("items"),
         ]
     elif kind == "deliveries":
         columns += [
@@ -283,6 +284,8 @@ def saved(app, kind, query="", limit=20, after=None):
             )
         if kind == "collections":
             row.update(app_state="not_tracked_here", device_state="not_tracked_here")
+        if kind == "requests":
+            row["counts"] = request_counts(row.pop("items"))
     return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
 
 
