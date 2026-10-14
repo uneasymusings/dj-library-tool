@@ -1349,6 +1349,9 @@ def set_line(
         else counts["owned"] - counts["to_check"] == counts["songs"]
     )
     parts = status_tally(term, counts)
+    if row.get("hidden_tracks"):
+        # Its copied tracklist was cut short (1001Tracklists' "Save 12 more tracks").
+        parts.append(Text("partial list", style="warn"))
     if crate:
         parts.append(Text(f"crate {number(int(crate.get('tracks') or 0))}"))
         if outdated:
@@ -3032,6 +3035,7 @@ def request_report(term: Terminal, result: dict) -> None:
         )
     else:
         status_line(term, "ok", result.get("name") or "Set", "nothing to buy")
+    partial_list(term, result)
     width = max((cell_len(song_moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
     if to_buy:
         term.out.print()
@@ -3103,6 +3107,21 @@ def copied_step() -> Step:
     from djlib.sources.web import clipboard
 
     return ("Copy a set link or tracklist, then", ("set", "paste" if clipboard() else "-"))
+
+
+def partial_list(term: Terminal, result: dict) -> None:
+    """``! Partial list: 1001Tracklists hid 12 more tracks, which djlib never checked.``, with
+    how to check them, for a set whose copied tracklist was cut short."""
+    hidden = result.get("hidden_tracks")
+    if not isinstance(hidden, int) or hidden <= 0:
+        return
+    again = " ".join(("djlib", *copied_step()[1]))
+    message = Text(
+        f"Partial list: 1001Tracklists hid {plural(hidden, 'more track')}, which djlib never "
+        f"checked. Copy the full list from the page, then run {again} again.",
+        style="warn",
+    )
+    hanging(term.out, Text(term.glyph("warn"), style="warn"), message, indent=2)
 
 
 def song_moment(song: dict) -> str:
@@ -3573,6 +3592,7 @@ def request_view(term: Terminal, result: dict) -> None:
             label = "IDs" if label == "ID" and amount != 1 else label
             summary.append(f"{number(amount)} {label}", style="heading" if tone == "ok" else tone)
     term.out.print(indented(summary))
+    partial_list(term, result)
     term.out.print()
     # The words of `djlib set`'s table: whether you own it, the track, and your file.
     grid = table(

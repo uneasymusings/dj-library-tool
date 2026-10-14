@@ -1102,6 +1102,47 @@
           "title": "AlsoCredit",
           "type": "object"
         },
+        "MixesdbCredit": {
+          "additionalProperties": false,
+          "description": "The MixesDB page whose tracklist a set uses, credited and linked beside it.",
+          "properties": {
+            "page_title": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Page Title",
+              "type": "string"
+            },
+            "page_url": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "title": "Page Url",
+              "type": "string"
+            },
+            "tracklist": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "complete",
+                    "incomplete",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Tracklist"
+            }
+          },
+          "required": [
+            "page_title",
+            "page_url"
+          ],
+          "title": "MixesdbCredit",
+          "type": "object"
+        },
         "RequestItem": {
           "additionalProperties": false,
           "properties": {
@@ -1109,7 +1150,7 @@
               "items": {
                 "$ref": "#/$defs/AlsoCredit"
               },
-              "maxItems": 1,
+              "maxItems": 3,
               "title": "Also",
               "type": "array"
             },
@@ -1226,10 +1267,84 @@
           },
           "title": "RequestItem",
           "type": "object"
+        },
+        "SetSource": {
+          "additionalProperties": false,
+          "description": "Where a set came from, shown beside it: its page (YouTube or SoundCloud, or \"Shazam\").",
+          "properties": {
+            "provider": {
+              "anyOf": [
+                {
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Provider"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 1000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Title"
+            },
+            "uploader": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Uploader"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Url"
+            }
+          },
+          "title": "SetSource",
+          "type": "object"
         }
       },
       "additionalProperties": false,
       "properties": {
+        "hidden_tracks": {
+          "anyOf": [
+            {
+              "maximum": 100000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hidden Tracks"
+        },
         "idempotency_key": {
           "maxLength": 200,
           "minLength": 1,
@@ -1245,11 +1360,33 @@
           "title": "Items",
           "type": "array"
         },
+        "mixesdb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MixesdbCredit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "name": {
           "maxLength": 300,
           "minLength": 1,
           "title": "Name",
           "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [

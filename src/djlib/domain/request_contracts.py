@@ -153,6 +153,9 @@ class RequestCreate(RequestContract):
     # part of what makes two lists the same, nor of the key's request.
     source: SetSource | None = None
     mixesdb: MixesdbCredit | None = None
+    # Tracks a copied tracklist left out (1001Tracklists' "Save 12 more tracks"), so every
+    # screen can say the list is partial.
+    hidden_tracks: int | None = Field(default=None, ge=1, le=100_000)
 
     @field_validator("name", "idempotency_key")
     @classmethod
@@ -163,7 +166,7 @@ class RequestCreate(RequestContract):
     def without_empty_source(self, handler):
         # Lists without a source serialize as before these fields existed.
         data = handler(self)
-        for key in ("source", "mixesdb"):
+        for key in ("source", "mixesdb", "hidden_tracks"):
             if data.get(key) is None:
                 data.pop(key, None)
         return data

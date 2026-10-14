@@ -581,6 +581,16 @@ function sureWord(confidence) {
 
 const UNSURE = new Set(["likely", "weak", "conflict"]);
 
+// A copied tracklist cut short (1001Tracklists' "Save 12 more tracks"): the songs it hid
+// were never checked, so the set's page says so.
+function partialNote(ledger) {
+  const hidden = ledger?.hidden_tracks;
+  if (!(hidden > 0)) return null;
+  const shown = ledger.total_items || 0;
+  return `${number(shown)} of ${plural(shown + hidden, "track")}: 1001Tracklists hid ${number(hidden)}, ` +
+    `so djlib never checked them. Copy the full list from the page, then run ${commandText("set", "paste")} again.`;
+}
+
 // "possibly X (Shazam heard it at 50:09 (3×))" or a15's "(Shazam, 1 window at 51:09)": one
 // guess per "; " part, so a match never runs into the next guess.
 const GUESS = /^possibly (.+?) \([A-Z][\w.&' -]*?(?: heard |, )[^;]*\d:\d\d[^;]*\)$/i;
@@ -935,6 +945,8 @@ async function requestDetail(requestId) {
       h("h1", null, ledger.name)),
     action));
   if (waiting.length) view.append(notice("warn", waiting.join(" ")));
+  const partial = partialNote(ledger);
+  if (partial) view.append(notice("warn", partial));
   view.append(message);
 
   // Where the crate goes next, as on the crate's own page.

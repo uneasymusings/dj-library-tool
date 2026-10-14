@@ -98,7 +98,12 @@ def text_request(
     # differently (edited, or by a newer djlib) becomes a new list instead of a conflict.
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
     digest = hashlib.sha256(f"{title}\n{source}\n{parsed}".encode()).hexdigest()[:16]
-    body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
+    body = RequestCreate(
+        name=title,
+        items=items,
+        idempotency_key=f"tracklist:{digest}",
+        hidden_tracks=min(hidden, 100_000) or None,
+    )
     return body, warnings
 
 
@@ -237,7 +242,7 @@ def moment(song: dict) -> str:
 
 def shopping_text(name: str, found: dict) -> str:
     """The shopping list as plain text, laid out as `djlib requests report` prints it."""
-    from djlib.interfaces.terminal import number
+    from djlib.interfaces.terminal import number, plural
     from djlib.interfaces.views import newest_first, owned_mixes
 
     # A Shazam list newest first, as everywhere else; a set in set order.
@@ -245,6 +250,10 @@ def shopping_text(name: str, found: dict) -> str:
     maybe = newest_first(found.get("maybe_yours") or [])
     width = max((len(moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
     lines = [f"{name} — {number(len(to_buy))} to buy", ""]
+    if hidden := found.get("hidden_tracks"):
+        # A copied tracklist cut short: the rest of the set may hold more to buy.
+        hid = f"1001Tracklists hid {plural(hidden, 'more track')}; djlib never checked them."
+        lines[1:1] = [hid]
     for song in to_buy:
         lines.append(f"{moment(song):>{width}}  {song['label']}")
         lines += [
@@ -495,6 +504,8 @@ def register_commands(app, client, emit, handled, panel=None):
         reply = local.request("POST", f"/requests/{request_id}/report", data={"revision": revision})
         ledger = local.request("GET", f"/requests/{request_id}", params={"limit": 100})["result"]
         found = shopping(all_items(local, ledger))
+        # Tracks the copied tracklist left out: the list may be short of songs to buy.
+        found["hidden_tracks"] = ledger.get("hidden_tracks")
         name = ledger.get("name") or "Set"
         result = reply["result"]
         result.update(name=name, **found)

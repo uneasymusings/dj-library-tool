@@ -239,6 +239,7 @@ def saved(app, kind, query="", limit=20, after=None):
             model.updated_at,
             func.json_array_length(model.items).label("total_items"),
             model.items.label("items"),
+            model.request["hidden_tracks"].as_integer().label("hidden_tracks"),
         ]
     elif kind == "deliveries":
         columns += [
@@ -295,6 +296,8 @@ def saved(app, kind, query="", limit=20, after=None):
             row["request_id"] = made_from.get(row["collection_id"])
         if kind == "requests":
             row["counts"] = request_counts(row.pop("items"))
+            if row.get("hidden_tracks") is None:  # a list copied whole, as most are
+                row.pop("hidden_tracks", None)
     when = "updated_at" if kind == "requests" else "created_at"
     return _result(kind, rows, total, limit, context, lambda r: [r[when], r[identifier]])
 
@@ -459,6 +462,12 @@ def summary(app, recent: int = 5) -> dict:
                     "unresolved": sum(1 for s in states if s not in {"satisfied"}),
                     # The tally `djlib requests` shows, so both screens agree.
                     "counts": request_counts(ledger.items),
+                    # A copied tracklist cut short: the songs it hid were never checked.
+                    **(
+                        {"hidden_tracks": hidden}
+                        if (hidden := (ledger.request or {}).get("hidden_tracks"))
+                        else {}
+                    ),
                 }
             )
         # A set checked again comes back to the top while its crate may be older than the
