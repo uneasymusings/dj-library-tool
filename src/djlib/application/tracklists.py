@@ -49,6 +49,7 @@ LEADING_DIGITS = re.compile(r"^\s*#?(\d{1,3})")
 
 
 HEADING = "looks like a heading"
+RICH_TEXT = "rich-text formatting"
 LIST_LABEL = re.compile(r"^(?:full\s+)?(?:track\s*list|set\s*list|tracks)\s*:?$", re.IGNORECASE)
 LEADING_NUMBER = re.compile(r"^\s*\d{1,3}(?:\s*[-.)_]\s*|\s+)(?=\S)")
 
@@ -163,4 +164,9 @@ def parse_tracklist(
         items.append(item)
         if times is not None:
             times.append((number, timestamp))
+    # Rich text read as plain ("{\rtf1\ansi…") is formatting, never the set's name.
+    skipped = [
+        (number, raw, RICH_TEXT if reason == HEADING and raw.startswith("{\\") else reason)
+        for number, raw, reason in skipped
+    ]
     return items, skipped

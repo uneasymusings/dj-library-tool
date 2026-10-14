@@ -1233,7 +1233,7 @@ def test_the_listings_spelling_never_brings_another_mix():
     ]
     # The notes still say how the listing wrote it.
     assert items[0]["notes"].endswith(
-        "listed in MixesDB as Robert Glasper - Move Love (Kaytranada Edition)"
+        "MixesDB spells it Robert Glasper - Move Love (Kaytranada Edition)"
     )
 
 

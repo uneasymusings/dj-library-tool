@@ -84,11 +84,13 @@ def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     assert "--install-completion" not in reply.output
     assert "--version" in reply.output
     epilog = " ".join(reply.output.split())
-    assert "New here? djlib init --allow-root ~/Music → djlib scan → djlib set tracklist.txt" in (
-        epilog
-    )
-    assert "Advanced commands (delivery, organize, plan, export…) still work" in epilog
-    assert "docs/ADVANCED.md" in epilog
+    # The headline jobs first: a set link, your Shazams, a tracklist you copied.
+    assert "New here? djlib set 'LINK' · djlib shazam status · djlib set paste" in epilog
+    assert f"More commands: {cli.ADVANCED_URL}" in epilog
+    assert cli.ADVANCED_URL.startswith("https://github.com/")
+    tagline = "Every track in a set, checked against your music, into rekordbox and onto USB."
+    lines = [line.strip() for line in reply.output.splitlines()]
+    assert "⣠⣴⣿⣦⣄ djlib" in lines and tagline in lines
     assert max(len(line) for line in reply.output.splitlines()) <= 80
 
 
