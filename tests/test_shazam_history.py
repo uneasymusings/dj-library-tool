@@ -1116,7 +1116,9 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert mac_only["result"]["recent_spec"] is None  # the spec is already a date
 
 
-def test_the_csv_step_in_status_works_as_pasted(application, monkeypatch, tmp_path):
+def test_the_csv_step_in_status_works_as_pasted(application, library_http, monkeypatch, tmp_path):
+    # library_http answers in-process: without it `djlib set` would start a real background
+    # service that outlives the test run.
     for name in ("HOME", "USERPROFILE"):  # Path.home() on macOS and Linux, and on Windows
         monkeypatch.setenv(name, str(tmp_path))
     FakeRekordbox(monkeypatch)
