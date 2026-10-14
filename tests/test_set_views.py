@@ -268,6 +268,10 @@ def test_a_song_maybe_yours_under_a_shorter_credit_is_off_the_shopping_list(caps
     assert "? maybe yours" in out
     assert "Maybe yours under another name: #2 Robert Glasper - Move Love (Kaytranada " in out
     assert "Check the songs that may be yours (1)" in out and "shopping list" not in out
+    # At 80 columns the words stay on one line; the track's name wraps instead.
+    timed = [("00:00", *rows[0][1:]), ("01:09", *rows[1][1:])]
+    narrow = shown("set", set_result(timed), 80, capsys)
+    assert any(line.rstrip().endswith("? maybe yours") for line in narrow.splitlines()), narrow
     found = library_cli.shopping([ledger_item(n, *row) for n, row in enumerate(rows, 1)])
     assert found["to_buy"] == []
     assert found["maybe_yours"][0]["maybe_owned"] == (
