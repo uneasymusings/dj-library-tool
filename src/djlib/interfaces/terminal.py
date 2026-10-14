@@ -160,7 +160,16 @@ class Terminal:
         )
 
     def print_json(self, value: dict) -> None:
-        typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
+        # Indented for a person at a terminal; one line for scripts and assistants, whose
+        # tools cap how much output they read (a 30-song set is 20 KB indented).
+        try:
+            person = sys.stdout.isatty()
+        except (AttributeError, ValueError):
+            person = False
+        if person:
+            typer.echo(json.dumps(value, ensure_ascii=False, indent=2))
+        else:
+            typer.echo(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
 # Typer may vendor its own Click, so commands bind their context explicitly.
