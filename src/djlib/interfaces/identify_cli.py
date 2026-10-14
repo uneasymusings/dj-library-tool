@@ -153,10 +153,10 @@ def bare_link(given: str, command: str = "set") -> AppError | None:
 
 def not_found(path: Path, instead: str, given: str | None = None) -> AppError:
     """Why a named tracklist file isn't there, and the way forward. ``given`` is the
-    argument as typed (a Path would turn https:// into https:/)."""
-    given = given or str(path)
-    if (error := bare_link(given)) is not None:
+    argument as typed (a Path would turn https:// into https:/, and Windows its / into \\)."""
+    if (error := bare_link(given or path.as_posix())) is not None:
         return error
+    given = given or str(path)
     where = "" if path.is_absolute() else f" in {terminal.short_path(str(Path.cwd()))}"
     return unreadable(
         f"Can't find {given}{where}. Drag the file into this window to paste its full path, "
@@ -253,9 +253,9 @@ def read_typed(kind: str, limit: int = TRACKLIST_BYTES) -> tuple[str | None, str
         term = terminal.current()
         if stream is not None and sys.stdin.isatty() and not term.json:
             # Nothing is piped in: the DJ types or pastes it here.
-            term.err.print(
-                "Paste the tracklist, then press Ctrl-D on an empty line.", style="muted"
-            )
+            # Windows consoles end typed input with Ctrl-Z, then Enter; Ctrl-D only types ^D.
+            eof = "Ctrl-Z, then Enter" if os.name == "nt" else "Ctrl-D on an empty line"
+            term.err.print(f"Paste the tracklist, then press {eof}.", style="muted")
         data = stream.read(limit + 1) if stream is not None else b""
         where = "The text piped in"
     else:
