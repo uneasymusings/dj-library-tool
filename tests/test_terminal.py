@@ -1474,6 +1474,46 @@ def test_request_lists_show_owned_and_missing(capsys):
     assert "No sets checked yet" in empty and "djlib set paste" in empty
 
 
+@pytest.mark.parametrize("width", [60, 80, 100])
+def test_the_sets_list_keeps_every_count_and_tells_like_names_apart(capsys, width):
+    """Counts add up at any width, names keep their room before the code does, and two sets
+    of one name say when each was checked."""
+
+    def row(code, name, **counts):
+        counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0, "maybe": 0, **counts}
+        return {
+            "request_id": f"request_{code * 32}",
+            "name": name,
+            "total_items": sum(counts.values()),
+            "updated_at": "2026-10-06T10:00:00+00:00",
+            "counts": counts,
+        }
+
+    paste = "Kaytranada @ Boiler Room Montreal 2013-09-27"
+    rows = [
+        row("a", "Antdot- Keinemusik Radio Show 2026-01-30", owned=7, missing=4, ids=2),
+        row("b", paste, owned=3, maybe=1, missing=2, ids=1),
+        row("c", paste, owned=5, other_mix=1, missing=1, ids=1),
+    ]
+    out = render("requests list", {"requests": rows, "total": 3}, width=width, capsys=capsys)
+    lines = out.splitlines()
+    assert max(len(line) for line in lines) <= width
+    header = lines[0].split()
+    assert header[1:7] == ["Owned", "Maybe", "Other", "mix", "Missing", "IDs"], out
+    assert "ID" not in header  # the code column isn't called ID beside the IDs
+    if width >= 80:
+        assert "Antdot- Keinemusik Radio Show 2026-01" in out
+    if width >= 100:
+        assert "Code" in header and "aaaaaaaa" in out
+    else:
+        assert "Open one: djlib requests get last, or its name in quotes" in out
+    # The same name twice: each says when it was checked, and its code, never cut.
+    words = " ".join(out.split())
+    assert re.search(r"checked \w+ ago · bbbbbbbb", words), out
+    assert re.search(r"checked \w+ ago · cccccccc", words), out
+    assert "· aaaaaaaa" not in words
+
+
 def test_a_finished_collect_reads_like_a_crate_not_a_job(capsys):
     job = {
         "job_id": JOB,
