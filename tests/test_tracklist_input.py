@@ -193,6 +193,14 @@ def test_a_tracklist_can_be_piped_in(application, library_http, audio_factory, m
         cli_app, [*workspace, "requests", "create", "--text", "-"], input="Lumen - Halo\n"
     )
     assert json.loads(created.stdout)["result"]["counts"]["satisfied"] == 1
+    # Spreadsheet cells, pasted with tabs, read as a song list there too, as `djlib set -`.
+    cells = "Artist\tTitle\tMix\nLumen\tHalo\t\nX\tY\t\n"
+    tabbed = CliRunner().invoke(
+        cli_app, [*workspace, "requests", "create", "--text", "-"], input=cells
+    )
+    assert tabbed.exit_code == 0, tabbed.output
+    listed = json.loads(tabbed.stdout)["result"]
+    assert (listed["total_items"], listed["counts"]["satisfied"]) == (2, 1)
 
 
 def test_a_file_named_paste_is_still_that_file(
