@@ -545,7 +545,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             str, typer.Argument(help="The crate: name, ID or its first characters, or 'last'.")
         ],
         device: Path | None = typer.Option(
-            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+            None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
         ),
         timeout: int = typer.Option(
             600, min=10, help="Seconds to wait for you to select the playlist in rekordbox."
@@ -632,7 +632,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "--no-rekordbox only builds the crate.",
         ),
         device: Path | None = typer.Option(
-            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+            None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
         ),
         timeout: int = typer.Option(
             600, min=10, help="With --usb: seconds to wait for you to click the playlist."
