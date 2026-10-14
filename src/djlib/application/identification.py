@@ -242,14 +242,38 @@ RESULT_FILES = ("probes.jsonl", "tracklist.json", "tracklist.txt")
 PAGE_PASSING = frozenset({"SOURCE_FAILED", "SOURCE_TIMEOUT", "SOURCE_RATE_LIMITED"})
 
 
-def saved_page(workspace: Workspace, url: str) -> dict | None:
+def saved_page(workspace: Workspace, url: str, comments: int = COMMENTS) -> dict | None:
     """The page a finished identification of this set was made with (page.json, ``read_at``
     saying when), marked ``from_saved_page``: what `djlib set` uses when the page can't be
-    read just now. None when djlib never finished listening to the set."""
+    read just now. It has the keys of a fresh read with ``comments`` comments. None when
+    djlib never finished listening to the set."""
     if finished(workspace, url) is None:
         return None
     page = _json(set_folder(workspace, url) / "page.json")
-    return {**page, "from_saved_page": True} if page.get("url") else None
+    if not page.get("url"):
+        return None
+    duration = page.get("duration_seconds")
+    if isinstance(duration, float) and duration.is_integer():
+        duration = int(duration)
+    kept = [comment for comment in page.get("comments") or [] if isinstance(comment, dict)]
+    return {
+        "identity_evidence": web.PAGE_EVIDENCE,
+        "description_truncated": False,
+        **page,
+        "duration_seconds": duration,
+        "comments": kept[:comments],
+        "from_saved_page": True,
+    }
+
+
+# Sets whose page just couldn't be read (a moment's outage, PAGE_PASSING): the identification
+# `djlib set` starts next makes its tracklist from page.json instead of trying again.
+PAGE_FAILURES: dict[str, tuple[float, str]] = {}
+
+
+def page_failed(url: str, code: str) -> None:
+    with contextlib.suppress(AppError):
+        _keep(PAGE_FAILURES, canonical_url(url), code)
 
 
 def _age(stamp: object) -> float:
@@ -1093,7 +1117,12 @@ class IdentifyRunner:
         folder = attempt.folder
         saved = _json(folder / "page.json")
         fresh = recent_page(url)
-        stale = fresh is None and _age(saved.get("read_at")) >= REFRESH_SECONDS
+        # A page `djlib set` just couldn't read is not tried again: page.json makes the list.
+        stale = (
+            fresh is None
+            and _recent(PAGE_FAILURES, url) is None
+            and _age(saved.get("read_at")) >= REFRESH_SECONDS
+        )
         unknown = not _usable(saved.get("mixesdb")) and (
             _age(saved.get("mixesdb_checked_at")) >= REFRESH_SECONDS
         )
@@ -1229,6 +1258,7 @@ class IdentifyRunner:
             "uploader": str(page.get("uploader") or ""),
             "duration_seconds": float(duration) if isinstance(duration, int | float) else None,
             "description": str(page.get("description") or ""),
+            "description_truncated": bool(page.get("description_truncated")),
             "chapters": [c for c in page.get("chapters") or [] if isinstance(c, dict)],
             "comments": [c for c in page.get("comments") or [] if isinstance(c, dict)],
             "comments_skipped": bool(page.get("comments_skipped")),

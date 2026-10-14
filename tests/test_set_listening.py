@@ -92,6 +92,51 @@ def test_a_set_heard_before_comes_back_while_its_page_does_not_answer(
     assert json.loads(other.stdout)["error"]["code"] == "SOURCE_FAILED"
 
 
+def test_a_saved_page_answers_like_a_fresh_read_and_is_read_once(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """While the site times out, the saved page has the keys and the comment count a fresh
+    read would, and the identification `djlib set` starts doesn't read the page again."""
+    from djlib.domain.errors import AppError
+
+    owned(library_http, audio_factory)
+    setup.page["description"] = LISTED
+    setup.page["comments"] = [{"text": f"comment {n}", "author": "x"} for n in range(50)]
+    FakeRekordbox(monkeypatch)
+    invoke(application, "set", URL)
+    fresh = library_http.post("/sources/inspect", json={"url": URL, "comments": 1000}).json()
+    tries = []
+
+    async def slow(url, comments=0):
+        tries.append(comments)
+        raise AppError("SOURCE_TIMEOUT", "The site didn't answer in time.", 504, True)
+
+    import djlib.interfaces.service as service_module
+
+    monkeypatch.setattr(service_module, "inspect_source", slow)
+    monkeypatch.setattr(identification.web, "inspect_source", slow)
+    for comments in (5, 0):
+        saved = library_http.post("/sources/inspect", json={"url": URL, "comments": comments})
+        result = saved.json()["result"]
+        assert result["from_saved_page"] is True and len(result["comments"]) == comments
+        listed = set() if comments else {"named_in_comments"}  # only asked with comments
+        assert set(fresh["result"]) - listed <= set(result)
+        assert result["identity_evidence"] == identification.web.PAGE_EVIDENCE
+        assert result["description_truncated"] is False
+        assert result["duration_seconds"] == 300 and type(result["duration_seconds"]) is int
+    # Two days on, with nothing read in this process: one try, then what djlib heard.
+    page = identification.set_folder(application.workspace, URL) / "page.json"
+    kept = json.loads(page.read_text(encoding="utf-8"))
+    page.write_text(json.dumps({**kept, "read_at": "2026-01-01T00:00:00+00:00"}), "utf-8")
+    monkeypatch.setattr(identification, "PAGES", {})
+    monkeypatch.setattr(identification, "PAGE_FAILURES", {})
+    tries.clear()
+    reply = invoke(application, "set", URL)
+    assert reply.exit_code == 0, reply.output
+    assert json.loads(reply.stdout)["result"]["identified"]["reused"] is True
+    assert tries == [identification.COMMENTS]
+
+
 def test_a_tracklist_published_the_same_day_is_read(
     application, library_http, setup, audio_factory, monkeypatch
 ):
