@@ -2706,9 +2706,24 @@ def crate_collected(term: Terminal, job: dict, *, detached: bool = False) -> Non
         job_card(term, job, detached=detached)
         return
     tracks = int(result.get("selected_count") or 0)
-    tone = "warn" if job.get("outcome") == "completed_with_gaps" else "ok"
+    failed = int((job.get("counts") or {}).get("failed") or 0)
+    gaps = job.get("outcome") == "completed_with_gaps" or failed or result.get("excluded_count")
     name = f"Crate “{result.get('name') or ''}”"
-    status_line(term, tone, name, f"{plural(tracks, 'track')}, in set order")
+    status_line(term, "warn" if gaps else "ok", name, f"{plural(tracks, 'track')}, in set order")
+    if gaps:
+        # Owned songs that didn't make it in: say why and how to retry before offering the push.
+        groups = failure_groups(job)
+        rows: list[tuple[str, object]] = [
+            ("Failed" if index == 0 else "", Text.assemble((f"{plural(n, 'track')}  ", "bad"), why))
+            for index, (_, why, n) in enumerate(groups)
+        ]
+        if failed and not groups:
+            rows.append(("Failed", Text(plural(failed, "track"), style="bad")))
+        kind = job.get("kind") or "organize"
+        rows += [row for row in job_result_rows(term, kind, result) if row[0] != "Crate"]
+        fields(term, rows)
+        next_steps(term, job_next_steps(term, job, groups))
+        return
     collection = result["collection_id"]
     next_steps(
         term,
