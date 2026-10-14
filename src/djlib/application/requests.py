@@ -116,10 +116,10 @@ def _identity(artist, title, version=""):
     )
 
 
-def _equivalent(labels, requested):
+def _equivalent(labels, requested, fold=True):
     """Same song and version: labels as written, or the same credited names in any order."""
     return equivalent_labels(
-        labels, (requested["artist"], requested["title"], requested["version"])
+        labels, (requested["artist"], requested["title"], requested["version"]), fold=fold
     )
 
 
@@ -406,7 +406,10 @@ def _refresh_item(app, item, verification):
 
 def _matches(candidates: list[dict], requested: dict, verification) -> list[dict]:
     """Mark how each candidate's labels compare with ``requested`` (``identity_match``) and
-    hash-check the ones naming the same song and version, which are returned."""
+    hash-check the ones naming the same song and version, which are returned.
+
+    A file spelled as asked ("Me, Myself & I") is the match even beside a copy spelled "Me
+    Myself and I"; that one counts only when no closer spelling is owned (``match_words``)."""
     wanted = (
         _identity(requested["artist"], requested["title"], requested["version"])
         if requested["kind"] == "named"
@@ -415,7 +418,7 @@ def _matches(candidates: list[dict], requested: dict, verification) -> list[dict
     wanted_base = (
         credit_base_form(requested["artist"], requested["title"]) if wanted is not None else None
     )
-    exact = []
+    matched = []
     for candidate in candidates:
         labels = candidate["artist"], candidate["title"], candidate["version"]
         identical = wanted is not None and _identity(*labels) == wanted
@@ -441,22 +444,28 @@ def _matches(candidates: list[dict], requested: dict, verification) -> list[dict
         locations = candidate.pop("locations")
         candidate.update(availability="not_checked", path=None)
         if matches:
-            statuses = []
-            for location in locations:
-                availability = verification.location(location, candidate["sha256"])
-                statuses.append(availability)
-                if availability == "verified":
-                    candidate.update(availability=availability, path=location)
-                    break
-            else:
-                candidate["availability"] = (
-                    "verification_limit"
-                    if "verification_limit" in statuses
-                    else "changed"
-                    if "changed" in statuses
-                    else "unavailable"
-                )
-            exact.append(candidate)
+            close = not equivalent or _equivalent(labels, requested, fold=False)
+            matched.append((close, candidate, locations))
+    if any(close for close, _, _ in matched):
+        matched = [entry for entry in matched if entry[0]]
+    exact = []
+    for _, candidate, locations in matched:
+        statuses = []
+        for location in locations:
+            availability = verification.location(location, candidate["sha256"])
+            statuses.append(availability)
+            if availability == "verified":
+                candidate.update(availability=availability, path=location)
+                break
+        else:
+            candidate["availability"] = (
+                "verification_limit"
+                if "verification_limit" in statuses
+                else "changed"
+                if "changed" in statuses
+                else "unavailable"
+            )
+        exact.append(candidate)
     return exact
 
 
