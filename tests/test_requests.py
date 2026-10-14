@@ -607,6 +607,11 @@ def test_report_refuses_escape_through_existing_exports_symlink(ledger_app, tmp_
         {"kind": "unknown"},
         {"kind": "unknown", "label": "ID", "timestamp": "1:02", "artist": "Guess"},
         {"kind": "unknown", "label": "ID", "source_url": "file:///private/music"},
+        # An ID has no spelling to own it under; a named song has at most one more.
+        {"kind": "unknown", "label": "ID", "also": [{"artist": "Guess", "title": "Song"}]},
+        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T"}] * 2},
+        {"artist": "A", "title": "T", "also": [{"artist": "B"}]},
+        {"artist": "A", "title": "T", "also": [{"artist": "B", "title": "T", "source": "x" * 41}]},
     ],
 )
 def test_request_items_are_strict_and_unknown_evidence_is_required(value):
@@ -618,6 +623,17 @@ def test_an_id_keeps_its_place_without_a_time():
     """ "5. ID - ID" in a pasted list is an ID at number 5, even with no time or link."""
     item = RequestItem.model_validate({"kind": "unknown", "label": "ID"})
     assert (item.label, item.timestamp, item.source_url) == ("ID", None, None)
+
+
+def test_other_spellings_leave_saved_lists_and_their_keys_as_they_were():
+    """Items without ``also`` serialize as before it existed, so lists saved by 0.1.0a15 and
+    the keys made from them still match; one with ``also`` carries it."""
+    plain = named().model_dump(mode="json")
+    assert "also" not in plain and "also" not in named().model_dump()
+    credit = {"artist": "B", "title": "T", "version": "", "source": "mixesdb"}
+    assert named(also=[credit]).model_dump(mode="json")["also"] == [credit]
+    body = RequestCreate(name="n", items=[named()], idempotency_key="k")
+    assert body.model_dump(mode="json")["items"] == [plain]
 
 
 def test_resolution_and_revision_contracts_are_strict():
@@ -667,6 +683,79 @@ async def test_original_mix_means_no_special_version(ledger_app, audio_factory):
     assert states == ["satisfied", "satisfied", "satisfied", "missing"]
     lumen = result["items"][3]["candidates"]
     assert [c["identity_match"] for c in lumen] == ["different_version"]
+
+
+GLASPER = {
+    "artist": "Robert Glasper Experiment",
+    "title": "Move Love",
+    "version": "Kaytranada Edition",
+}
+
+
+def listed_as(**changes):
+    """MixesDB's spelling of the song Shazam heard as GLASPER."""
+    return {
+        "artist": "Robert Glasper",
+        "title": "Move Love",
+        "version": "Kaytranada Edition",
+        "source": "mixesdb",
+        **changes,
+    }
+
+
+async def test_a_song_is_owned_under_the_listings_spelling_too(ledger_app, audio_factory):
+    """Shazam credits "Robert Glasper Experiment"; the DJ's file, like MixesDB, says "Robert
+    Glasper". Each spelling is matched exactly; the crate takes the file."""
+    track = await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    result = create(ledger_app, [named(**GLASPER, also=[listed_as()]), named(**GLASPER)])
+    item, plain = result["items"]
+    assert item["state"] == "satisfied"
+    accepted = item["accepted"]
+    assert accepted["recording_id"] == track["recording_id"]
+    assert accepted["basis"] == "exact_catalog_labels"
+    assert accepted["identity_match"] == "equivalent_labels"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert accepted["matched_as_source"] == "mixesdb"
+    # Without the listing's spelling, the same song stays missing: names are never loosened.
+    assert plain["state"] == "missing" and plain["accepted"] is None
+    collection = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+    assert collection["state"] == "queued"
+
+
+async def test_another_spelling_never_loosens_the_mix(ledger_app, audio_factory):
+    await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    item = create(ledger_app, [named(**GLASPER, also=[listed_as(version="Kaytranada Remix")])])[
+        "items"
+    ][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    # The file is another mix of that spelling: shown as one you own, never in the crate.
+    assert [c["identity_match"] for c in item["candidates"]] == ["different_version"]
+    assert set_item(item)["you_own"] == ["Kaytranada Edition"]
+
+
+async def test_two_files_under_the_other_spelling_need_a_choice(ledger_app, audio_factory):
+    labels = {"artist": "Robert Glasper", "title": "Move Love (Kaytranada Edition)"}
+    await owned(ledger_app, audio_factory, name="first", frequency=220, **labels)
+    second = await owned(ledger_app, audio_factory, name="second", frequency=330, **labels)
+    result = create(ledger_app, [named(**GLASPER, also=[listed_as()])])
+    assert result["items"][0]["state"] == "ambiguous"
+    # Either file may be chosen: it matches the item's other spelling.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=second["recording_id"],
+        asset_revision_id=second["asset_revision_id"],
+        notes="The DJ picked the second copy",
+    )
+    accepted = chosen["items"][0]["accepted"]
+    assert accepted["asset_revision_id"] == second["asset_revision_id"]
+    assert accepted["basis"] == "operator_selection"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
 
 
 @pytest.mark.parametrize(

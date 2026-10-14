@@ -330,6 +330,26 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
     return result
 
 
+def _also(requested: dict) -> dict | None:
+    """A named item's other spelling (``also``) as request labels, or None."""
+    credits = requested.get("also") or [] if requested["kind"] == "named" else []
+    if not credits:
+        return None
+    credit = credits[0]
+    return {
+        "kind": "named",
+        "artist": credit["artist"],
+        "title": credit["title"],
+        "version": credit.get("version") or "",
+        "source": credit.get("source") or "",
+    }
+
+
+def _label(labels: dict) -> str:
+    text = f"{labels['artist']} - {labels['title']}"
+    return f"{text} ({labels['version']})" if labels["version"] else text
+
+
 def _refresh_item(app, item, verification):
     item = deepcopy(item)
     requested, resolution = item["input"], item.get("resolution")
@@ -338,13 +358,55 @@ def _refresh_item(app, item, verification):
     if requested["kind"] == "unknown" and not selected:
         item["state"] = "source_selected" if item.get("source_selection") else "unknown"
         return item
-    candidates, truncated = _catalog_candidates(
-        app,
-        item,
-        verification,
-        selected["recording_id"] if selected else None,
-        selected.get("asset_revision_id") if selected else None,
-    )
+    recording_id = selected["recording_id"] if selected else None
+    revision_id = selected.get("asset_revision_id") if selected else None
+    candidates, truncated = _catalog_candidates(app, item, verification, recording_id, revision_id)
+    exact = _matches(candidates, requested, verification)
+    matched_as = None
+    if not exact and (credit := _also(requested)):
+        # A song shown under Shazam's credits ("Robert Glasper Experiment") may be filed under
+        # the listing's ("Robert Glasper"): the same exact rule, for that spelling.
+        found, more = _catalog_candidates(
+            app, {"input": credit}, verification, recording_id, revision_id
+        )
+        exact = _matches(found, credit, verification)
+        hits = {candidate["asset_revision_id"] for candidate in exact}
+        candidates = [c for c in candidates if c["asset_revision_id"] not in hits]
+        seen = {candidate["asset_revision_id"] for candidate in candidates}
+        candidates += [c for c in found if c["asset_revision_id"] not in seen]
+        truncated = truncated or more
+        matched_as = credit if exact else None
+    item["candidates"], item["candidates_truncated"] = candidates, truncated
+    eligible = [c for c in exact if c["availability"] == "verified"]
+    if selected and selected.get("asset_revision_id"):
+        eligible = [c for c in eligible if c["asset_revision_id"] == selected["asset_revision_id"]]
+    # Do not choose among alternate byte revisions automatically, including unavailable ones.
+    unambiguous = selected and selected.get("asset_revision_id") or len(exact) == 1
+    if len(eligible) == 1 and unambiguous and not truncated:
+        item["accepted"] = {
+            **eligible[0],
+            "basis": "operator_selection" if selected else "exact_catalog_labels",
+            "verified_at": item["refreshed_at"],
+            "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification",
+        }
+        if matched_as:
+            item["accepted"]["matched_as"] = _label(matched_as)
+            item["accepted"]["matched_as_source"] = matched_as["source"]
+        item["state"] = "satisfied"
+    elif truncated or (len(exact) > 1 and not selected) or len(eligible) > 1:
+        item["state"] = "ambiguous"
+    elif exact:
+        item["state"] = "unavailable"
+    else:
+        item["state"] = "missing" if requested["kind"] == "named" else "unknown"
+    if item.get("source_selection") and item["state"] not in {"satisfied", "ambiguous"}:
+        item["state"] = "source_selected"
+    return item
+
+
+def _matches(candidates: list[dict], requested: dict, verification) -> list[dict]:
+    """Mark how each candidate's labels compare with ``requested`` (``identity_match``) and
+    hash-check the ones naming the same song and version, which are returned."""
     wanted = (
         _identity(requested["artist"], requested["title"], requested["version"])
         if requested["kind"] == "named"
@@ -395,29 +457,7 @@ def _refresh_item(app, item, verification):
                     else "unavailable"
                 )
             exact.append(candidate)
-    item["candidates"], item["candidates_truncated"] = candidates, truncated
-    eligible = [c for c in exact if c["availability"] == "verified"]
-    if selected and selected.get("asset_revision_id"):
-        eligible = [c for c in eligible if c["asset_revision_id"] == selected["asset_revision_id"]]
-    # Do not choose among alternate byte revisions automatically, including unavailable ones.
-    unambiguous = selected and selected.get("asset_revision_id") or len(exact) == 1
-    if len(eligible) == 1 and unambiguous and not truncated:
-        item["accepted"] = {
-            **eligible[0],
-            "basis": "operator_selection" if selected else "exact_catalog_labels",
-            "verified_at": item["refreshed_at"],
-            "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification",
-        }
-        item["state"] = "satisfied"
-    elif truncated or (len(exact) > 1 and not selected) or len(eligible) > 1:
-        item["state"] = "ambiguous"
-    elif exact:
-        item["state"] = "unavailable"
-    else:
-        item["state"] = "missing" if requested["kind"] == "named" else "unknown"
-    if item.get("source_selection") and item["state"] not in {"satisfied", "ambiguous"}:
-        item["state"] = "source_selected"
-    return item
+    return exact
 
 
 def _summary(ledger):
@@ -579,8 +619,9 @@ def resolve_request(app, request_id: str, item_id: str, request: RequestResoluti
         with app.db.transaction() as session:
             recording = require(session, Recording, request.recording_id)
             value = item["input"]
-            if value["kind"] == "named" and not _equivalent(
-                (recording.artist, recording.title, recording.version), value
+            labels = recording.artist, recording.title, recording.version
+            if value["kind"] == "named" and not any(
+                _equivalent(labels, spelling) for spelling in (value, _also(value)) if spelling
             ):
                 raise AppError(
                     "REQUEST_IDENTITY_CONFLICT",

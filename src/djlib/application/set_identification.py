@@ -1182,8 +1182,9 @@ def _also_named(slot: _Slot, shown: Song) -> dict | None:
     if not best or not text:
         return None
     if repaired:
-        label = _label(text["artist"], text["title"], text["version"])
-        return {"source": text["source"], "label": label}
+        # The listing's labels too: a DJ's file is often tagged that way (request_items).
+        labels = {key: text[key] for key in ("artist", "title", "version")}
+        return {"source": text["source"], "label": _label(**labels), **labels}
     heard = _song(best["artist"], best["title"], best["version"])
     if heard.names == shown.names and heard.core == shown.core:
         return None
@@ -1505,24 +1506,34 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
     """Request items (``RequestItem`` fields) in set order, with the evidence in ``notes``.
 
     IDs stay unknown items labelled "ID", in their place even without a time; a likely
-    identity goes in the notes only.
+    identity goes in the notes only. A confirmed song shown under the credits the audio heard
+    also counts as owned under the listing's spelling (``also``).
     """
     items = []
     for track in tracklist.get("tracks") or []:
         stamp = clock(track["start"]) if track.get("start") is not None else None
         notes = _notes(track)
         if track["kind"] == "named":
-            items.append(
-                {
-                    "kind": "named",
-                    "artist": _clean(track["artist"])[:500],
-                    "title": _clean(track["title"])[:1000],
-                    "version": _clean(track.get("version"))[:300],
-                    "timestamp": stamp,
-                    "notes": notes,
-                    "confidence": track["status"],
-                }
-            )
+            item = {
+                "kind": "named",
+                "artist": _clean(track["artist"])[:500],
+                "title": _clean(track["title"])[:1000],
+                "version": _clean(track.get("version"))[:300],
+                "timestamp": stamp,
+                "notes": notes,
+                "confidence": track["status"],
+            }
+            listed = track.get("also_named") or {}
+            credit = {
+                "artist": _clean(listed.get("artist"))[:500],
+                "title": _clean(listed.get("title"))[:1000],
+                "version": _clean(listed.get("version"))[:300],
+                "source": _clean(listed.get("source"))[:40],
+            }
+            # Only where the audio's spelling replaced the listing's (``_repairs``).
+            if track["status"] == "confirmed" and credit["artist"] and credit["title"]:
+                item["also"] = [credit]
+            items.append(item)
         else:
             items.append(
                 {
