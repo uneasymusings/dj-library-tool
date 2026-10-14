@@ -255,6 +255,11 @@ def build_server(workspace: Workspace) -> MCPServer:
     ) -> ResponseEnvelope:
         """List the songs the user Shazamed, newest first, with the total (read-only).
 
+        For recent songs ("this month"), check them with `djlib set SPEC --no-rekordbox` in
+        the shell, SPEC being result.recent_spec (the last 30 days, e.g. shazam:2026-09-13) or
+        shazam:START-DATE. `djlib set shazam` alone is the whole history, oldest first, 1,000
+        songs at a time; its result.shazam.next_spec brings the rest.
+
         By default from this Mac's Music Recognition history (which holds the iPhone's Shazams
         when Shazam syncs with iCloud). source: apple-music (opens Music) or the path of an
         iPhone backup folder, ShazamDataModel.sqlite or a CSV export. since: a date such as

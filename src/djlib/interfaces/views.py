@@ -1350,7 +1350,8 @@ def shazam_check(shazam: dict) -> tuple[bool, str, str]:
     elif shazam.get("problem"):
         value, hint = "can't be read", "for djlib set shazam"
     elif shazam.get("found"):
-        value, hint = "no songs yet", "click Recognize Music in the menu bar once"
+        # macOS 26 leaves it out of the menu bar until it is added.
+        value, hint = "no songs yet", "add Recognize Music to the menu bar and click it once"
     else:
         value, hint = "not set up", "turn on Shazam's iCloud Sync on your iPhone and this Mac"
     return False, value, f"optional; {hint}"
@@ -2031,12 +2032,17 @@ SHORT_HISTORY = 100  # songs one look can take in; past this, start with the las
 def first_check(songs: int, newest: str | None) -> list[Step]:
     """How to check a history never imported. `djlib set shazam` takes the oldest 1,000, so a
     long history starts with the last 30 days: what a DJ Shazamed lately."""
-    from djlib.sources.shazam_history import RECENT_DAYS, recent_since
+    from djlib.sources.shazam_history import RECENT_DAYS, day_range, recent_since
 
     if songs <= SHORT_HISTORY:
         return [("Check them against your music", ("set", "shazam"))]
     since, ends_today = recent_since(newest)
-    recent = f"Check the last {RECENT_DAYS} days" if ends_today else "Check your last month"
+    # Nothing Shazamed lately: name the days, since "last month" would read as the calendar's.
+    recent = (
+        f"Check the last {RECENT_DAYS} days"
+        if ends_today or not newest
+        else f"Check your last month of Shazams ({day_range(since, newest)})"
+    )
     return [
         (recent, ("set", f"shazam:{since}")),
         ("Or your whole history, oldest first", ("set", "shazam")),
@@ -2045,7 +2051,7 @@ def first_check(songs: int, newest: str | None) -> list[Step]:
 
 @view("shazam status")
 def shazam_status(term: Terminal, result: dict) -> None:
-    from djlib.sources.shazam_history import FULL_DISK_APPS, FULL_DISK_SETTINGS
+    from djlib.sources.shazam_history import FULL_DISK_APPS, FULL_DISK_SETTINGS, day
 
     songs = int(result.get("songs") or 0)
     # The history is there but macOS won't open it: say that, not "set up iCloud".
@@ -2109,14 +2115,25 @@ def shazam_status(term: Terminal, result: dict) -> None:
             (music, ("set", "shazam:apple-music")),
             (
                 "Or a CSV from shazam.com/myshazam (Download CSV, if your account shows it)",
-                ("set", Path.home() / "Downloads" / "shazamlibrary.csv"),
+                # shazam:FILE, like the steps above: it reads any CSV as Shazams.
+                ("set", f"shazam:{Path.home() / 'Downloads' / 'shazamlibrary.csv'}"),
             ),
         ]
-    elif last and result.get("new_since_last_import"):
-        steps.append(("Check the new ones against your music", ("set", "shazam:new")))
-    elif last and last.get("collection_id") and result.get("new_since_last_import") == 0:
-        steps.append(("Your last Shazam crate", ("crate", last["collection_id"])))
-    elif not last and songs:
+    elif last:
+        fresh = result.get("new_since_last_import")
+        # The rest of a list cut at 1,000 that shazam:new can't bring, until it is checked.
+        rest = (last.get("pending") or {}) if songs else {}
+        newest = last.get("newest_list") or last  # the list with your newest Shazams
+        if fresh:
+            steps.append(("Check the new ones against your music", ("set", "shazam:new")))
+        if rest.get("spec") and int(rest.get("songs") or 0):
+            label = f"The next {shazam_count(int(rest['songs']), 'Shazam')}"
+            if rest.get("since"):
+                label += f", from {day(rest['since'])}"
+            steps.append((label, ("set", rest["spec"])))
+        elif fresh == 0 and newest.get("collection_id"):
+            steps.append(("Your last Shazam crate", ("crate", newest["collection_id"])))
+    elif songs:
         steps += first_check(songs, result.get("newest_shazamed_at"))
     if songs:
         steps.append(("See them", ("shazam", "list")))

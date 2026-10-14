@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import plistlib
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -522,7 +523,7 @@ def test_words_and_dates_win_over_files_of_the_same_name(home, tmp_path, monkeyp
     assert titles(json.loads(listed.stdout)["result"]["records"]) == ["Halo"]
 
 
-def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
+def test_a_long_history_comes_in_lists_of_1000(home, tmp_path, monkeypatch):
     workspace = Workspace(tmp_path / "workspace")
     workspace.root.mkdir()
     start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
@@ -536,16 +537,20 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
     assert len(body.items) == 1000 and body.items[0].title == "Song 0"
     assert (summary["songs"], summary["remaining"]) == (1000, 3)
-    # Which Shazams the list holds, and the command that brings the rest.
-    first, last = (f"{datetime.fromtimestamp(start + 3600 * n):%Y-%m-%d}" for n in (0, 999))
-    assert (
-        f"This list has your oldest 1,000 Shazams ({first} to {last}); the next 3 come with "
-        "djlib set shazam:new." in warnings
-    )
-    assert summary["next_spec"] == "shazam:new"
+    assert summary["description"] == "Music Recognition on this Mac, 1,000 songs"
     # Named after the days it covers; not this year's, so with the year.
     days = shazam_history.day_range(summary["first_shazamed_at"], summary["newest_shazamed_at"])
     assert body.name == f"Shazam {days}" and days.endswith(" 2025")
+    # Which Shazams the list holds, in the name's words; the command that brings the rest is
+    # under Next (next_spec), where it isn't broken across lines.
+    assert f"This list has your oldest 1,000 Shazams ({days}); the other 3 come next." in warnings
+    assert summary["next_spec"] == "shazam:new"
+    with monkeypatch.context() as patch:
+        patch.setattr(shazam_cli, "MAX_SONGS", 999)
+        since = "shazam:2025-01-01T14:30:00+00:00"
+        _, one_left, _ = shazam_cli.set_request(since, None, workspace)
+    # 1,000 songs since then: one past the (smaller) list.
+    assert any(warning.endswith("; the other one comes next.") for warning in one_left)
     shazam_history.remember_import(workspace, summary)
     body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
     assert [item.title for item in body.items] == ["Song 1000", "Song 1001", "Song 1002"]
@@ -557,7 +562,9 @@ def test_a_long_history_comes_in_lists_of_1000(home, tmp_path):
     )
 
 
-def test_after_the_last_30_days_the_whole_history_still_says_what_comes_next(home, tmp_path):
+def test_after_the_last_30_days_the_whole_history_still_says_what_comes_next(
+    home, tmp_path, capsys
+):
     workspace = Workspace(tmp_path / "workspace")
     workspace.root.mkdir()
     start = datetime.fromisoformat("2025-01-01T12:00:00+00:00").timestamp()
@@ -571,17 +578,43 @@ def test_after_the_last_30_days_the_whole_history_still_says_what_comes_next(hom
     )
     # What status suggests first: the last 30 days. Its import moves shazam:new's mark to now.
     _, _, recent = shazam_cli.set_request("shazam:2026-09-13", None, workspace)
-    shazam_history.remember_import(workspace, recent)
+    recent_ids = ("request_" + "a" * 32, "collection_" + "c" * 32)
+    shazam_history.remember_import(workspace, recent, *recent_ids)
     body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
     # So shazam:new would find nothing; the list from this one's last day brings the rest.
     last_day = f"{datetime.fromtimestamp(start + 3600 * 999):%Y-%m-%d}"
     assert (summary["remaining"], summary["next_spec"]) == (4, f"shazam:{last_day}")
-    assert any(f"the next 4 come with djlib set shazam:{last_day}." in w for w in warnings)
-    shazam_history.remember_import(workspace, summary)
-    following, _, _ = shazam_cli.set_request(summary["next_spec"], None, workspace)
+    assert any(warning.endswith("; the other 4 come next.") for warning in warnings)
+    shazam_history.remember_import(workspace, summary, "request_" + "b" * 32)  # none owned
+
+    # Status, where a DJ comes back to, keeps offering the rest until it is checked.
+    status = shazam_history.status(workspace)
+    assert status["new_since_last_import"] == 0
+    rest = status["last_import"]["pending"]
+    assert (rest["spec"], rest["songs"]) == (summary["next_spec"], 4)
+    lines = shown("shazam status", status, capsys)
+    assert f"“{body.name}”, 1,000 songs" in " ".join(lines)
+    step = steps_of(lines)[0]
+    assert step.startswith(f"→ The next 4 Shazams, from {shazam_history.day(rest['since'])}")
+    assert step.endswith(f"set shazam:{last_day}")
+    # "Nothing new" points to the crate with the newest Shazams, not to the older list.
+    with pytest.raises(AppError) as nothing:
+        shazam_cli.set_request("shazam:new", None, workspace)
+    assert nothing.value.details["next"] == "djlib crate cccccccc"
+    assert nothing.value.details["last_import"]["request_id"] == "request_" + "b" * 32
+    # Checking the last 30 days again doesn't check the rest.
+    shazam_history.remember_import(workspace, recent, *recent_ids)
+    assert shazam_history.last_import(workspace)["pending"] == rest
+
+    following, _, then = shazam_cli.set_request(summary["next_spec"], None, workspace)
     titles = [item.title for item in following.items]
     assert titles[-4:] == ["Song 1000", "Song 1001", "Song 1002", "Halo"]
     assert "Song 999" in titles  # that day's songs come again rather than go missing
+    shazam_history.remember_import(workspace, then, "request_" + "d" * 32, "collection_" + "e" * 32)
+    last = shazam_history.last_import(workspace)
+    assert last["pending"] is None and last["newest_list"]["collection_id"].endswith("e" * 32)
+    done = steps_of(shown("shazam status", shazam_history.status(workspace), capsys))
+    assert done[0].startswith("→ Your last Shazam crate") and done[0].endswith("crate eeeeeeee")
 
 
 def test_the_next_list_skips_repeats_of_songs_a_full_list_already_checked(home, tmp_path):
@@ -602,14 +635,14 @@ def test_the_next_list_skips_repeats_of_songs_a_full_list_already_checked(home, 
     )
     body, warnings, summary = shazam_cli.set_request("shazam", None, workspace)
     assert body.items[-1].title == "Song 999"
-    assert any("the next 1,003 come with" in warning for warning in warnings)
+    assert any("the other 1,003 come next" in warning for warning in warnings)
     shazam_history.remember_import(workspace, summary)
     assert shazam_history.status(workspace)["new_since_last_import"] == 1003
 
     body, warnings, summary = shazam_cli.set_request("shazam:new", None, workspace)
     # Song 0 and Song 5 were in the first list, so their repeats don't bring them back.
     assert [item.title for item in body.items] == [f"Song {n}" for n in range(1000, 2000)]
-    assert any("the next 3 come with" in warning for warning in warnings)
+    assert any("the other 3 come next" in warning for warning in warnings)
     shazam_history.remember_import(workspace, summary)
     body, _, summary = shazam_cli.set_request("shazam:new", None, workspace)
     assert [item.title for item in body.items] == ["Song 2000", "Song 2001", "Song 2002"]
@@ -993,8 +1026,8 @@ def test_shazam_status_and_list(application, home, tmp_path):
     pretty = invoke(workspace, "shazam", "status", pretty=True).stdout
     assert "No Shazam history on this Mac yet" in pretty and "Turn on Shazam sync" in pretty
     assert "set shazam:apple-music" in pretty
-    # Where to get a CSV, and a command that works as pasted.
-    assert "set ~/Downloads/shazamlibrary.csv" in pretty
+    # Where to get a CSV, and a command that works as pasted (see the test below).
+    assert f"set shazam:{Path.home() / 'Downloads' / 'shazamlibrary.csv'}" in pretty
     # No backup to read: no "iPhone backups  none" row.
     assert "iPhone backups" not in pretty
 
@@ -1029,11 +1062,14 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert result["sources"][0]["songs"] == 2
     assert len(result["sources"][1]["backups"]) == 1
     assert result["last_import"] is None and result["setup"] == []
+    # For assistants asked about recent Shazams: `set shazam` alone is the oldest first.
+    assert result["recent_spec"] == "shazam:2026-09-13"
     pretty = invoke(workspace, "shazam", "status", pretty=True).stdout
     assert "Shazam history" in pretty and "2 songs" in pretty and "set shazam" in pretty
 
     listed = json.loads(invoke(workspace, "shazam", "list", "--limit", "1").stdout)["result"]
     assert listed["songs"] == 2 and listed["spec"] == "shazam"
+    assert listed["recent_spec"] == "shazam:2026-09-13"
     # Newest first by the latest Shazam: the song Shazamed again on 10-05 is on top.
     [newest] = listed["records"]
     assert (newest["title"], newest["count"]) == ("Slow Burn", 2)
@@ -1074,6 +1110,31 @@ def test_shazam_status_and_list(application, home, tmp_path):
     assert "can't combine a file" in pretty and "set shazam" not in pretty
     mac_only = json.loads(invoke(workspace, "shazam", "list", "--since", "2026-10-01").stdout)
     assert mac_only["result"]["spec"] == "shazam:2026-10-01" and not mac_only["warnings"]
+    assert mac_only["result"]["recent_spec"] is None  # the spec is already a date
+
+
+def test_the_csv_step_in_status_works_as_pasted(application, monkeypatch, tmp_path):
+    for name in ("HOME", "USERPROFILE"):  # Path.home() on macOS and Linux, and on Windows
+        monkeypatch.setenv(name, str(tmp_path))
+    FakeRekordbox(monkeypatch)
+    export = tmp_path / "Downloads" / "shazamlibrary.csv"
+    export.parent.mkdir()
+    export.write_text(
+        "Shazam Library\nIndex,TagTime,Title,Artist,URL,TrackKey\n"
+        "1,2026-10-10,Mirage,Antdot,https://www.shazam.com/track/1,1\n",
+        encoding="utf-8",
+    )
+    workspace = application.workspace
+    pretty = invoke(workspace, "shazam", "status", pretty=True).stdout
+    line = next(line for line in pretty.splitlines() if "djlib" in line and "shazamlibrary" in line)
+    posix = os.name != "nt"  # Windows quotes with "…" and keeps its backslashes
+    words = [word.strip('"') for word in shlex.split(line[line.index("djlib") :], posix=posix)]
+    # The exact command status prints, run as a DJ would paste it.
+    reply = invoke(workspace, *words[words.index("set") :], "--no-rekordbox")
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert result["name"] == "Shazam (shazamlibrary.csv)" and result["songs"] == 1
+    assert result["shazam"]["sources"][0]["source"] == "csv"
 
 
 def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
@@ -1104,8 +1165,10 @@ def test_doctor_reports_the_mac_shazam_history(home, tmp_path, monkeypatch):
     assert result["fixes"]["shazam"] == "djlib shazam status"
     pretty = invoke(workspace, "doctor", pretty=True).stdout
     row = next(line for line in pretty.splitlines() if "Shazam history" in line)
-    # The setup steps' words: macOS 26 calls the menu bar control Recognize Music.
-    assert "no songs yet" in row and "click Recognize Music in the menu bar once" in row
+    # The setup steps' words: macOS 26 calls the menu bar control Recognize Music, and leaves
+    # it out of the menu bar until it is added.
+    assert "no songs yet" in row
+    assert "add Recognize Music to the menu bar and click it once" in row
 
     mac_history(home, ("2026-10-02T21:14:00+00:00", "Lumen", "Halo"))
     result = json.loads(invoke(workspace, "doctor").stdout)["result"]
@@ -1175,9 +1238,9 @@ def test_a_long_history_starts_with_the_last_30_days(capsys):
     stale = steps_of(
         shown("shazam status", history_status(400, local_noon(date(2026, 7, 1))), capsys)
     )
-    assert stale[0].startswith("→ Check your last month") and stale[0].endswith(
-        "set shazam:2026-06-01"
-    )
+    # Named by its days: in October, "last month" alone would read as September.
+    assert stale[0].startswith("→ Check your last month of Shazams (1 Jun – 1 Jul)")
+    assert stale[0].endswith("set shazam:2026-06-01")
     # After an import: the new ones; with none, the crate it made.
     last = {
         "imported_at": "2026-10-12T20:00:00+00:00",
