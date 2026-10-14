@@ -2170,13 +2170,22 @@ WHY = {"overflow": "ellipsis", "yields": True, "readable": 20, "drop": 1, "style
 
 
 def reasons(term: Terminal, rows: list[tuple[object, object]]) -> None:
-    """ "#3  From MixesDB" under a table whose Why column didn't fit."""
-    shown = [(n, why) for n, why in rows if why]
-    if not shown:
+    """ "#3  Listed as an ID" under a table whose Why column didn't fit; lines sharing a
+    reason share a line ("From MixesDB: #3, #5, #8"), not one each."""
+    grouped: dict[str, list[object]] = {}
+    for n, why in rows:
+        if why:
+            grouped.setdefault(str(why), []).append(n)
+    if not grouped:
         return
     term.out.print()
-    for n, why in shown:
-        hanging(term.out, Text(f"#{n}", style="muted"), Text(str(why), style="muted"), indent=2)
+    for why, numbers in grouped.items():
+        if len(numbers) == 1:
+            lead = Text(f"#{numbers[0]}", style="muted")
+            hanging(term.out, lead, Text(why, style="muted"), indent=2)
+        else:
+            listed = ", ".join(f"#{n}" for n in numbers)
+            term.out.print(indented(Text(f"{why}: {listed}", style="muted"), 2))
 
 
 @view("identify")
