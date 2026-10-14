@@ -948,6 +948,25 @@ def test_a_song_listed_twice_never_outdates_its_crate(capsys):
     assert "3 of 3 owned" in out and "crate 2" in out
 
 
+def test_status_points_to_the_songs_that_may_be_yours(capsys):
+    request = {
+        "request_id": REQUEST,
+        "revision": 2,
+        "name": "Shazam (shazamlibrary.csv)",
+        "songs": 3,
+        "owned": 2,
+        "missing": 1,
+        "unresolved": 1,
+        "counts": {"owned": 2, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0, "maybe": 1},
+    }
+    out = render("status", status_result(recent_requests=[request]), width=160, capsys=capsys)
+    assert "2 of 3 owned · 1 maybe yours" in out
+    steps = out.split("Next\n", 1)[1]
+    assert re.search(
+        r"→ Check the songs that may be yours in “Shazam \(shazamlibrary.csv\)” +djlib ui", steps
+    )
+
+
 def test_every_screen_counts_a_song_owned_twice_the_same_way(capsys):
     """Two copies of one owned song: `djlib set` says "1 to check"; status, `djlib requests`
     and `djlib requests get` say the same, and point to picking a copy, not a re-check."""
