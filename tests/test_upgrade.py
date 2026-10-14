@@ -1,6 +1,7 @@
 import importlib.abc
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -303,6 +304,9 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
 
     def run(command, **kwargs):
         commands.append(command)
+        if command[1:3] == ["plugin", "update"]:
+            # Claude Code installs the marketplace's newest plugin into its cache.
+            plugin_cache(*{__version__} - {upgrade_cli.claude_plugin_version()})
         return subprocess.CompletedProcess(command, 0, "", "")
 
     monkeypatch.setattr(upgrade_cli.subprocess, "run", run)
@@ -320,6 +324,8 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     # Already on the newest engine: an outdated plugin is still brought up to date.
     commands.clear()
     latest["version"] = __version__
+    shutil.rmtree(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "plugins/cache/dj-library-tool/djlib")
+    plugin_cache("0.1.0a12")
     current = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
     assert current["result"]["updated"] is False
     assert current["result"]["plugin_updated"]["to"] == __version__ and len(commands) == 2
@@ -328,6 +334,17 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     commands.clear()
     checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
     assert "plugin_updated" not in checked["result"] and commands == []
+
+    # `claude` answers fine, but its marketplace has no newer plugin yet: not updated.
+    shutil.rmtree(Path(os.environ["CLAUDE_CONFIG_DIR"]) / "plugins/cache/dj-library-tool/djlib")
+    plugin_cache("0.1.0a12")
+    monkeypatch.setattr(
+        upgrade_cli.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 0)
+    )
+    behind = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)
+    assert "plugin_updated" not in behind["result"]
+    assert behind["warnings"][-1].startswith("The Claude Code plugin is still 0.1.0a12 (its ")
+    assert f"marketplace doesn't offer {__version__} yet" in behind["warnings"][-1]
 
     def refused(command, **kwargs):
         return subprocess.CompletedProcess(command, 1, "", "Marketplace not found")

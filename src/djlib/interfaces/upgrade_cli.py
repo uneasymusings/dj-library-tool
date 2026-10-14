@@ -76,13 +76,18 @@ def sync_plugin(reply: dict, target: str) -> None:
     if not plugin or version_key(plugin) >= version_key(target):
         return
     problem = update_claude_plugin()
-    if problem is None:
+    # `claude plugin update` succeeds when the marketplace has no newer release yet: only a
+    # plugin that reached this release counts as updated.
+    now = claude_plugin_version() if problem is None else None
+    if now is not None and version_key(now) >= version_key(target):
         reply["result"]["plugin_updated"] = {"from": plugin, "to": target}
         reply["warnings"].append(
             f"Updated the Claude Code plugin from {plugin}. Restart Claude Code (or run "
             "/mcp → djlib → Reconnect) to load it."
         )
         return
+    if problem is None:
+        problem = f"its marketplace doesn't offer {target} yet"
     reply["warnings"].append(
         f"The Claude Code plugin is still {plugin} ({problem}). Update it with "
         f"`{PLUGIN_UPDATE}`, then restart Claude Code."
