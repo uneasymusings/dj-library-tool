@@ -683,8 +683,8 @@ def test_a_song_owned_under_the_listings_spelling_says_so(capsys):
     assert lines[rows[0]].rstrip().endswith("music/09 - Move Love.mp3")
     assert lines[rows[0] + 1].rstrip().endswith("as Robert Glasper")
     # When more than the names differ, the whole label the file matched.
-    assert lines[rows[1] + 1].rstrip().endswith(
-        "as Robert Glasper - Move Love (Kaytranada Edition)"
+    assert (
+        lines[rows[1] + 1].rstrip().endswith("as Robert Glasper - Move Love (Kaytranada Edition)")
     )
     assert " as " not in "".join(lines[rows[2] :])
     narrow = render("requests get", request, width=80, capsys=capsys)
