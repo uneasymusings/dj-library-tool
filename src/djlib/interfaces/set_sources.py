@@ -266,3 +266,68 @@ def worth_retrying(local, job: dict) -> bool:
         "GET", f"/jobs/{job['job_id']}/items", params={"state": "failed", "limit": 100}
     )["result"]["items"]
     return any(((item.get("result") or {}).get("error") or {}).get("retryable") for item in failed)
+
+
+# -- links: djlib only prints these; it never requests them ---------------------------------------
+
+# "Song [ED BANGER]": the label a tracklist names, which a store search reads as words.
+RECORD_LABEL = re.compile(r"\s*\[[^\[\]]*\]\s*$")
+YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com"})
+SOUNDCLOUD_HOSTS = frozenset({"soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"})
+VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# A SoundCloud set's path as djlib writes it, nothing that could end the link early.
+SOUNDCLOUD_PATH = re.compile(r"^(?:/[A-Za-z0-9_.~%-]+)+$")
+
+
+def shop_links(artist: str | None, title: str | None, version: str | None = "") -> dict:
+    """Beatport, Bandcamp and Traxsource searches for a song: links for the DJ to open."""
+    from urllib.parse import quote_plus
+
+    from djlib.domain.contracts import plain_labels, split_featured
+
+    title, version = plain_labels(
+        RECORD_LABEL.sub("", title or ""), RECORD_LABEL.sub("", version or "")
+    )
+    words = (split_featured(artist or "")[0], split_featured(title)[0], version)
+    # As the stores' own search forms send it: "+" between words, the rest percent-encoded.
+    query = quote_plus(" ".join(" ".join(filter(None, words)).split()), safe="")
+    return {
+        "beatport": f"https://www.beatport.com/search?q={query}",
+        "bandcamp": f"https://bandcamp.com/search?q={query}&item_type=t",
+        "traxsource": f"https://www.traxsource.com/search?term={query}",
+    }
+
+
+def listen_url(source_url: str | None, seconds) -> str | None:
+    """The set's link at that moment: YouTube's ``t=`` or SoundCloud's ``#t=``; None for any
+    other site, a plain-http link or no time."""
+    import math
+    from urllib.parse import parse_qs
+
+    if isinstance(seconds, bool) or not isinstance(seconds, int | float):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    try:
+        parts = urlsplit(str(source_url or "").strip())
+        name = (parts.hostname or "").lower()
+    except ValueError:
+        return None
+    if parts.scheme != "https":
+        return None
+    at = round(seconds)
+    if name == "youtu.be" or name in YOUTUBE_HOSTS:
+        segments = [part for part in parts.path.split("/") if part]
+        if name == "youtu.be":
+            video = segments[0] if segments else ""
+        else:
+            video = (parse_qs(parts.query).get("v") or [""])[0]
+            if not video and len(segments) == 2 and segments[0] in {"live", "embed", "v"}:
+                video = segments[1]
+        return f"https://www.youtube.com/watch?v={video}&t={at}s" if VIDEO_ID.match(video) else None
+    if name in SOUNDCLOUD_HOSTS:
+        path = re.sub(r"/{2,}", "/", parts.path).rstrip("/")
+        if not SOUNDCLOUD_PATH.match(path):
+            return None
+        return f"https://soundcloud.com{path}#t={clock(at)}"
+    return None

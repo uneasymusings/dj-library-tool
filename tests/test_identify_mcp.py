@@ -40,6 +40,8 @@ async def test_mcp_identifies_a_set_and_trims_the_job(application, library_http,
     assert "tracklist" not in result  # the raw evidence stays in tracklist_json
     assert [track["status"] for track in result["tracks"]] == ["confirmed", "likely", "confirmed"]
     assert result["tracks"][1]["candidates"][0]["label"] == "Bicep - Glue"
+    # Each timed track links to that moment, for an assistant to write as a markdown link.
+    assert result["tracks"][0]["listen_url"] == "https://www.youtube.com/watch?v=fridayset1&t=9s"
     assert result["counts"]["tracks"] == 3 and result["coverage"]["percent"] == 67
     assert result["notices"] == [identification.UNOFFICIAL_SHAZAM]
     assert len(json.dumps(result)) < 8000

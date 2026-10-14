@@ -78,6 +78,10 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "weak": 0,
         "conflict": 0,
         "unidentified": 0,
+        # As a DJ counts them: heard in the set, only on a tracklist, IDs.
+        "heard": 2,
+        "listed_only": 0,
+        "ids": 1,
     }
     halo, glue_id, burn = result["tracks"]
     assert halo == {
@@ -90,6 +94,8 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
         "version": "",
         "status": "confirmed",
         "evidence": "Shazam heard it at 00:09 (4×); also in 1001Tracklists",
+        # Plays the set from that moment.
+        "listen_url": "https://www.youtube.com/watch?v=fridayset1&t=9s",
     }
     # The ID stays an ID; what Shazam heard there is a candidate, never its name.
     assert (glue_id["kind"], glue_id["artist"], glue_id["title"]) == ("unknown", None, None)
@@ -99,7 +105,8 @@ def test_identify_lists_every_song_with_how_sure_djlib_is(
     assert burn["title"] == "Slow Burn"
     assert [source["source"] for source in result["sources"]] == ["audio", "1001tracklists"]
     # A 1001Tracklists tracklist was given, so the ID left is not a reason to ask for one.
-    assert result["next"] == [f"djlib set '{URL}'"]
+    # Checking what you own makes no rekordbox playlist nobody asked for.
+    assert result["next"] == [f"djlib set '{URL}' --no-rekordbox"]
     assert result["tracklist_file"].endswith("tracklist.txt")
     # The one-time note about the unofficial Shazam service.
     assert envelope["warnings"] == [identification.UNOFFICIAL_SHAZAM]
@@ -133,7 +140,10 @@ def test_identify_without_a_tracklist_suggests_one_when_little_was_named(
     assert [track["status"] for track in result["tracks"]] == ["confirmed", "unidentified"]
     assert result["coverage"]["percent"] < identification.LOW_COVERAGE
     # Quoted, so zsh doesn't read "?" in the link as a glob.
-    assert result["next"] == [f"djlib set '{URL}'", f"djlib identify '{URL}' --tracklist FILE"]
+    assert result["next"] == [
+        f"djlib set '{URL}' --no-rekordbox",
+        f"djlib identify '{URL}' --tracklist paste",
+    ]
 
 
 def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_http, setup):
@@ -142,12 +152,20 @@ def test_identify_reads_as_a_numbered_table_in_a_terminal(application, library_h
     assert reply.exit_code == 0, reply.output
     text = reply.stdout
     assert "Friday Set" in text and "YouTube · 05:00" in text
-    assert "3 tracks, 67% of the set named, 92% heard" in text and "2 confirmed, 1 likely" in text
+    # Songs as a DJ counts them; percentages and listening windows stay in the JSON.
+    assert "3 tracks · 2 heard by Shazam · 1 ID" in text
+    assert "% heard" not in text and "window" not in text and "unidentified" not in text
     rows = [line for line in text.splitlines() if "Halo" in line or "Glue" in line]
     assert "✓ confirmed" in rows[0] and "Lumen - Halo" in rows[0]
     assert "ID — likely Bicep - Glue" in rows[1]
-    assert "Shazam  unofficial; may slow down or stop working" in text
-    assert f"set {terminal.quote(URL)}" in text  # the next step, quoted for the shell
+    heard_by = next(line for line in text.splitlines() if "Heard by" in line)
+    assert "Shazam · listened " in heard_by
+    # Said by the listen that leans on Shazam the first time, not by every view after it.
+    assert "unofficial; may slow down or stop working" in heard_by
+    # The next step checks what you own without making a rekordbox playlist.
+    assert f"set {terminal.quote(URL)} --no-rekordbox" in text
+    again = invoke(application, "identify", URL, pretty=True).stdout
+    assert "Shazam · listened " in again and "unofficial" not in again
 
 
 def test_ctrl_c_cancels_the_identification(application, library_http, setup, monkeypatch):
