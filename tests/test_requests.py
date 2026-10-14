@@ -604,7 +604,7 @@ def test_report_refuses_escape_through_existing_exports_symlink(ledger_app, tmp_
         {"artist": "Artist", "title": "Title", "download": True},
         {"artist": "Artist", "title": "Title", "version": 5},
         {"artist": " ", "title": "Title"},
-        {"kind": "unknown", "label": "ID"},
+        {"kind": "unknown"},
         {"kind": "unknown", "label": "ID", "timestamp": "1:02", "artist": "Guess"},
         {"kind": "unknown", "label": "ID", "source_url": "file:///private/music"},
     ],
@@ -612,6 +612,12 @@ def test_report_refuses_escape_through_existing_exports_symlink(ledger_app, tmp_
 def test_request_items_are_strict_and_unknown_evidence_is_required(value):
     with pytest.raises(ValidationError):
         RequestItem.model_validate(value)
+
+
+def test_an_id_keeps_its_place_without_a_time():
+    """ "5. ID - ID" in a pasted list is an ID at number 5, even with no time or link."""
+    item = RequestItem.model_validate({"kind": "unknown", "label": "ID"})
+    assert (item.label, item.timestamp, item.source_url) == ("ID", None, None)
 
 
 def test_resolution_and_revision_contracts_are_strict():

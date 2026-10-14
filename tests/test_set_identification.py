@@ -315,9 +315,10 @@ def test_keinemusik_request_items_validate(keinemusik, keinemusik_heard_only):
     assert heard_only[8]["notes"].startswith(
         "Not identified from 39:12 to 50:30, about 2 songs at this set's pace; possibly Q-Force"
     )
-    # An ID needs a time or a link to listen to.
+    # An ID keeps its place in the set without a time or a link to listen to.
     timeless = {"tracks": [{**keinemusik["tracks"][0], "start": None}]}
-    assert request_items(timeless) == []
+    (untimed,) = valid_request(request_items(timeless)).items
+    assert (untimed.kind, untimed.label, untimed.timestamp) == ("unknown", "ID", None)
 
 
 @pytest.mark.parametrize("which", ["keinemusik", "keinemusik_heard_only"])

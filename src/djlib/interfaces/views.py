@@ -84,7 +84,7 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
     if result is None:
         result = {}
     # Skipped lines and similar notes belong under the headline, not after the next steps.
-    term.pending = [str(warning) for warning in envelope.get("warnings") or []]
+    term.pending = skipped_once([str(warning) for warning in envelope.get("warnings") or []])
     if (
         name in FOLLOW
         and client_factory is not None
@@ -130,6 +130,22 @@ TONE_STYLES = {
     "skip": "muted",
     "mark": "brand",
 }
+
+
+# "line 6 skipped (no “Artist - Title” separator): “SELF RELEASED”", or "MixesDB, line 6 …".
+SKIPPED_LINE = re.compile(r"^(?:[^,]+, )?line \d+ skipped \(")
+QUOTED_SKIPS = 3
+
+
+def skipped_once(warnings: list[str]) -> list[str]:
+    """More than three tracklist lines skipped read as one line (JSON keeps each one)."""
+    skipped = [warning for warning in warnings if SKIPPED_LINE.match(warning)]
+    if len(skipped) <= QUOTED_SKIPS:
+        return warnings
+    summary = f"{len(skipped)} lines without “Artist - Title” skipped (labels, headings, notes)"
+    first = warnings.index(skipped[0])
+    kept = [warning for warning in warnings if not SKIPPED_LINE.match(warning)]
+    return [*kept[:first], summary, *kept[first:]]
 
 
 def flush_warnings(term: Terminal) -> None:
