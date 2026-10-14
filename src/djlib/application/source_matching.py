@@ -9,6 +9,7 @@ import functools
 import math
 import re
 import statistics
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -464,13 +465,14 @@ CHAT = _terms(
     "is was part drop starts starting goes hits kicks moment section stretch transition bit"
 )
 PRAISE = _terms(
-    "absolute absolutely amazing banger bangers beautiful best chills choon crazy damn fire goat "
+    "absolute absolutely amazing awesome banger bangers beautiful best chills choon crazy damn "
+    "fire goat "
     "goated good goosebumps great heater huge incredible insane love magic massive mmm omg "
     "perfect sick tune tunes unreal vibe vibes wow"
 )
 SMALL_TALK = _terms(
-    "a all bro ever haha holy it its lol mate mix of pure set so song such that the this time "
-    "track what yes"
+    "a all are bro ever haha holy is it its just lol mate mix of pure really set so song such "
+    "that the this time track was what yes"
 )
 QUESTION = re.compile(r"(?i)^(?:what|whats|who|anyone|does|any|track\s*id|song\s*id|id\b)")
 
@@ -633,14 +635,15 @@ def _supports(title: str, hint: Hint) -> bool:
     )
 
 
-def comment_hints(
-    comments: list[dict], at_seconds: float | None, *, before: float = 90, after: float = 300
-) -> list[dict]:
-    """Identities fans wrote near ``at_seconds`` (anywhere when None), best first.
+_READ = threading.local()
 
-    Only "Artist - Title" strings, or titles in a timestamped fan tracklist, are read; nothing
-    is inferred. Untimed replies count only when they back a timed identity near the moment.
-    """
+
+def _comment_mentions(comments: list[dict]) -> tuple[list[tuple], list[tuple]]:
+    """Every song named in the comments, timed and untimed. Read once per list: a merge asks
+    about every ID of a set with the same comments."""
+    last = getattr(_READ, "last", None)
+    if last is not None and last[0] is comments and last[1] == len(comments):
+        return last[2]
     timed, untimed = [], []
     for number, comment in enumerate(comments[:MAX_COMMENTS]):
         if len(timed) + len(untimed) >= MAX_MENTIONS:
@@ -655,6 +658,19 @@ def comment_hints(
                 if found := _mentions(clause, listing):
                     mention = (number, *found, seconds, max(likes, 0), text)
                     (untimed if seconds is None else timed).append(mention)
+    _READ.last = (comments, len(comments), (timed, untimed))
+    return timed, untimed
+
+
+def comment_hints(
+    comments: list[dict], at_seconds: float | None, *, before: float = 90, after: float = 300
+) -> list[dict]:
+    """Identities fans wrote near ``at_seconds`` (anywhere when None), best first.
+
+    Only "Artist - Title" strings, or titles in a timestamped fan tracklist, are read; nothing
+    is inferred. Untimed replies count only when they back a timed identity near the moment.
+    """
+    timed, untimed = _comment_mentions(comments)
 
     def near(seconds: float) -> bool:
         return at_seconds is None or at_seconds - before <= seconds <= at_seconds + after
@@ -790,7 +806,9 @@ def _description_lines(description: str) -> list[tuple[float | None, str]]:
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
     timed = [line for line in found if line[0] is not None]
-    return timed if len(timed) >= 2 else found
+    # In a timestamped tracklist, untimed lines are the set's own credits; a list that times
+    # only its IDs ("48:30 ID - ID" among plain lines) keeps every line.
+    return timed if len(timed) >= 2 and len(timed) * 2 >= len(found) else found
 
 
 def tracklist_from_source(description: str, chapters: list[dict]) -> str:

@@ -22,6 +22,7 @@ djlib set tracklist.txt --no-rekordbox     # what you own and the crate, nothing
 djlib set tracklist.txt                    # … and a rekordbox playlist (macOS)
 djlib set tracklist.txt --usb              # … and your USB stick, verified from the stick
 djlib set 'https://soundcloud.com/USER/SET' --fetch
+djlib set shazam:new                       # the songs you Shazamed since last time
 ```
 
 See the [README](../README.md#how-it-works) for what each step does and [the CLI reference](../skills/dj-library/references/cli.md#one-command-for-a-set) for the result fields. On Linux and Windows the rekordbox step is skipped with the reason shown; the crate is still built.
@@ -104,14 +105,32 @@ Embedded BPM/key/genre are read as unverified evidence; missing or conflicting v
 
 Don't rescan changed bytes and assume old crates now point at them. Submit `djlib reconcile --file reconciliation.json` with the old revision and the current file's SHA-256 (`tag_only` for tag edits, `replace_audio` for new audio), then wait for the job. Old crates and notes stay pinned to the old bytes; see [organize](../skills/dj-library/references/organize.md#a-file-changed-on-disk).
 
-## 4. Set links and downloads
+## 4. Set links, Shazams and downloads
 
 ```bash
+djlib identify 'https://www.youtube.com/watch?v=VIDEO'
+djlib identify 'https://soundcloud.com/USER/SET' --tracklist 1001.txt
 djlib source-inspect 'https://soundcloud.com/USER/SET'
 djlib download --file downloads.json
 ```
 
-`source-inspect` reads a YouTube or SoundCloud set's description and chapters; `set URL` turns them into a tracklist and adds listeners' comments around each ID as hints. 1001Tracklists only serves browsers: copy its tracklist into a file. Nothing in djlib recognizes audio.
+`identify` finds the songs in one YouTube or SoundCloud set. It reads the description, chapters and listener comments, downloads the audio, listens to a 12-second window every 30 seconds with song recognition (every minute when a tracklist with times says what plays), listens again where songs change, and merges everything into one timestamped tracklist, saved in the workspace's `sets/` folder. That takes a few minutes per hour of audio; Ctrl-C stops it, and running it again continues where it stopped. Each track says how sure djlib is:
+
+- **confirmed**: djlib heard the song, where a tracklist lists it or in three or more windows;
+- **likely**: one good source, such as a tracklist djlib didn't hear the song for (even when two tracklists list it, as they often copy each other), two listening windows, or a listed song djlib heard under another name (the Why column says what each side has);
+- **weak**: only a listener's comment, or a single window;
+- **conflict**: the tracklist names one song where djlib heard another;
+- **unidentified**: an ID nothing named.
+
+When djlib heard a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), it uses the spelling it heard, so your files are found, and notes how the tracklist wrote it. An ID stays an ID: the song djlib most likely heard there is shown as a candidate (“ID — likely …”), never as its name; a long stretch nobody named says about how many songs it holds. Songs heard in one window that fit nowhere are listed apart, not as tracks. The coverage line says how much of the set has a named song.
+
+`set URL` does this by itself when the set's published tracklist is missing or has IDs (`--no-identify` uses the published list only) and reuses an earlier identification for free. Without song recognition installed, it uses the published list and says so. 1001Tracklists only serves browsers: copy its tracklist into a file and add it with `--tracklist FILE` to `identify` or `set` with the set's own link; djlib merges it with what it hears.
+
+Song recognition uses Shazam by default, the way the Shazam app does. Apple doesn't offer it to other apps, so it may slow down or stop working; the first identification says so once. For a licensed service with your own account, see [song recognition](INSTALL.md#song-recognition).
+
+`djlib set shazam` makes a set of the songs you Shazamed, in the order you heard them: from your Mac's Music Recognition history, which includes your iPhone's Shazams once Shazam syncs with iCloud. `shazam:new` takes only those since the last import, `shazam:2026-10-01` those since a date, and `shazam:apple-music` or `shazam:PATH` (an iPhone backup folder, a `ShazamDataModel.sqlite` or a CSV export) read other sources. `djlib shazam status` shows what djlib finds and how to turn on the sync.
+
+`source-inspect` reads a YouTube or SoundCloud set's description and chapters; `set URL` turns them into a tracklist and adds listeners' comments around each ID as hints.
 
 `set --fetch` searches YouTube and SoundCloud for missing songs and downloads clear matches after you confirm. `download --file` takes selected URLs:
 

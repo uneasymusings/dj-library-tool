@@ -6,6 +6,7 @@ be allowed under System Settings > Privacy & Security > Accessibility.
 """
 
 import contextlib
+import re
 import subprocess
 import sys
 import time
@@ -492,6 +493,37 @@ def notify(message: str, title: str = "djlib") -> None:
         _osascript(NOTIFY, message, title)
 
 
+LIST_SUMMARY = """
+tell application "System Events"
+  tell process "rekordbox" to set texts to value of static texts of window 1
+end tell
+set AppleScript's text item delimiters to linefeed
+return texts as text
+"""
+TRACK_COUNT = re.compile(r"^(\d[\d,.]*)\s+tracks?\b", re.IGNORECASE)
+
+
+def list_summary() -> str | None:
+    """rekordbox's “5 Tracks, 17 minutes, 140 MB” line for the list on screen, or None.
+
+    It follows the selected playlist and is read without opening anything, so it says when
+    to look at the selection, and when another list is on screen.
+    """
+    try:
+        lines = _osascript(LIST_SUMMARY, timeout=5).splitlines()
+    except AppError:
+        return None
+    return next((line.strip() for line in lines if TRACK_COUNT.match(line.strip())), None)
+
+
+def track_count(summary: str | None) -> int | None:
+    match = TRACK_COUNT.match(summary or "")
+    if not match:
+        return None
+    digits = re.sub(r"\D", "", match[1])
+    return int(digits) if digits else None
+
+
 def same_name(a: str | None, b: str | None) -> bool:
     """Playlist names compare equal however their accents were composed."""
     import unicodedata
@@ -504,6 +536,9 @@ def same_name(a: str | None, b: str | None) -> bool:
 MIN_REPROBE_SECONDS = 2.0
 # Look at the selection only once the user has paused this long, never mid-click.
 SETTLE_SECONDS = 0.6
+# Another list on screen is passed over without a look for this long; after that it is
+# looked at once anyway, in case rekordbox left a file out of the playlist it imported.
+OTHER_LIST_SECONDS = 8.0
 STATE_EVERY_SECONDS = 60.0
 NOTIFY_EVERY_SECONDS = 180.0
 # Menu hiccups while the user clicks around rekordbox; worth waiting through.
@@ -522,6 +557,7 @@ def waiting_reason(state: str, device: str, selected: str | None = None) -> str:
         "Playlist; is the stick plugged in and shown under Devices in rekordbox?",
         "no_playlist_selected": "no playlist is selected in rekordbox",
         "wrong_playlist": f"“{selected or 'something else'}” is selected instead",
+        "other_list_selected": f"another list is on screen ({selected or 'a different size'})",
         "busy": "rekordbox's menus are busy; a dialog may be open",
     }.get(state, state)
 
@@ -533,6 +569,7 @@ def wait_for_selection(
     on_wrong=None,
     on_state=None,
     before_export=None,
+    expected_tracks: int | None = None,
 ) -> None:
     """Wait until the user selects ``target`` in rekordbox, then export it to ``device``.
 
@@ -543,7 +580,9 @@ def wait_for_selection(
     rekordbox's own menu. Menu hiccups while the user clicks around are waited through.
 
     ``on_state(state, seconds_left, selected)`` hears why it is still waiting, on each change
-    and every minute; ``before_export()`` runs just before the export is clicked.
+    and every minute; ``before_export()`` runs just before the export is clicked. With
+    ``expected_tracks``, a list of another size on screen is reported without opening the
+    dialog, and a list of the right size is looked at as soon as it appears.
     """
     instruction = f"Click “{target}” in rekordbox's playlist list to put it on {device}."
     bring_to_front()
@@ -551,15 +590,19 @@ def wait_for_selection(
     started = time.monotonic()
     deadline = started + timeout
     last_wrong, probed_at = None, None
+    shown, shown_at, probed_summary = None, started, None
     state, reported, reported_at, notified_at = "starting", None, started, started
+    detail = None
 
-    def report(new_state: str) -> None:
-        nonlocal state, reported, reported_at
-        state = new_state
+    def report(new_state: str, about: str | None = None) -> None:
+        nonlocal state, reported, reported_at, detail
+        state, detail = new_state, about if about is not None else last_wrong
         now = time.monotonic()
-        if on_state is not None and (state != reported or now - reported_at >= STATE_EVERY_SECONDS):
-            on_state(state, max(0, round(deadline - now)), last_wrong)
-            reported, reported_at = state, now
+        if on_state is not None and (
+            (state, detail) != reported or now - reported_at >= STATE_EVERY_SECONDS
+        ):
+            on_state(state, max(0, round(deadline - now)), detail)
+            reported, reported_at = (state, detail), now
 
     while time.monotonic() < deadline:
         if time.monotonic() - notified_at >= NOTIFY_EVERY_SECONDS:
@@ -578,13 +621,27 @@ def wait_for_selection(
             report("stick_not_in_rekordbox" if menu == "missing" else "no_playlist_selected")
             time.sleep(0.4)
             continue
-        # Reading the selection briefly opens a dialog. After a wrong answer, look again only
-        # once the user has clicked or typed since (djlib's own menu actions are not input),
-        # so browsing other playlists is not interrupted.
+        # Reading the selection briefly opens a dialog, so it is read only when worth it: a new
+        # list of the right size came on screen, or (when that line can't be read) the user
+        # has clicked or typed since the last look; djlib's own menu actions are not input.
         idle = idle_seconds()
+        summary = list_summary()
+        if summary != shown:
+            shown, shown_at = summary, time.monotonic()
+        count = track_count(summary)
+        if (
+            expected_tracks is not None
+            and count is not None
+            and count != expected_tracks
+            and time.monotonic() - shown_at < OTHER_LIST_SECONDS
+        ):
+            report("other_list_selected", summary)
+            time.sleep(0.4)
+            continue
         if probed_at is not None:
+            new_list = summary is not None and summary != probed_summary
             since = time.monotonic() - probed_at
-            if since < MIN_REPROBE_SECONDS or idle >= since:
+            if not new_list and (since < MIN_REPROBE_SECONDS or idle >= since):
                 time.sleep(0.4)
                 continue
         if idle < SETTLE_SECONDS:
@@ -592,7 +649,7 @@ def wait_for_selection(
             continue
         try:
             chosen = selected_playlist()
-            probed_at = time.monotonic()
+            probed_at, probed_summary = time.monotonic(), summary
             if same_name(chosen, target):
                 if before_export is not None:
                     before_export()
@@ -617,7 +674,7 @@ def wait_for_selection(
     raise AppError(
         "APP_SELECTION_TIMEOUT",
         f"“{target}” was not selected in rekordbox in time "
-        f"({waiting_reason(state, device, last_wrong)}); nothing was exported.",
+        f"({waiting_reason(state, device, detail)}); nothing was exported.",
         retryable=True,
         details={"last_state": state, "selected": last_wrong},
     )

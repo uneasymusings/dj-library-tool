@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dj-library-tool"
-version = "0.1.0a14"
+version = "0.1.0a15"
 description = "From a DJ set's tracklist to a rekordbox playlist and a verified USB stick, using the music you own. CLI and MCP tools."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -36,6 +36,8 @@ djlib = "djlib.interfaces.cli:main"
 
 [project.optional-dependencies]
 download = ["yt-dlp[default]>=2026.1.1"]
+# Song recognition of DJ sets; pydub (via shazamio) needs the audioop backport on 3.13+.
+recognize = ["shazamio>=0.8.1,<0.9", "audioop-lts>=0.2.1; python_version >= '3.13'"]
 
 [project.urls]
 Repository = "https://github.com/uneasymusings/dj-library-tool"
@@ -43,6 +45,15 @@ Issues = "https://github.com/uneasymusings/dj-library-tool/issues"
 
 [dependency-groups]
 dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
+
+[tool.uv]
+# shazamio 0.8.1 pins shazamio-core 1.1.2, which has macOS and Windows wheels only up to Python
+# 3.12 (building it needs Rust), so tool installs with the recognize extra use --python 3.12 and
+# get exactly what 3.12 locks here. On 3.13, development uses 2.x: same API, wheels everywhere.
+override-dependencies = [
+  "shazamio-core==1.1.2; python_version < '3.13'",
+  "shazamio-core>=2.0.0,<3; python_version >= '3.13'",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/djlib"]

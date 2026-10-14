@@ -1,5 +1,21 @@
 # Implementation status
 
+## 0.1.0a15
+
+Adds set identification (`djlib identify LINK`, `djlib_identify_set`, and `djlib set LINK` listening when a set's tracklist is missing or has IDs), automatic MixesDB tracklists, and Shazam history (`djlib set shazam[:new|DATE|apple-music|PATH]`, `djlib shazam status|list`, `djlib_shazam_history`), with song recognition installed by default on Python 3.12. See the [changelog](../CHANGELOG.md#010a15).
+
+Live on 2026-10-13, from a wheel installed the way the installer does (`uv tool install --python 3.12 'dj-library-tool[download,recognize] @ …'`) into a scratch workspace with its own background service:
+- **Keinemusik radio show (YouTube, 62 minutes, tracklist with times in the description).** 13 of 13 rows, every named song right: 8 confirmed, 3 likely (in the description, not heard), the opening ID unidentified, and the ID at 48:30 weak with Chris Fortier & Neil Kolo – All I Got as its first candidate. Confirmed songs start within 24 s of the answer key's times (12.8 s on average). 157 windows every 30 s took 7:23. With windows every minute (the spacing a timed tracklist now gets), 93 windows gave the same 13 rows and counts, but took 32 minutes: Shazam kept asking djlib to slow down after a day of testing.
+- **Kaytranada at Boiler Room Montreal (SoundCloud, 42 minutes, no tracklist in the description).** MixesDB's page was found automatically (by title and length) and named in the result. 22 of 22 rows, every label the answer key's or Shazam's spelling. 115 windows every 30 s took 25:42 under almost continuous rate limiting (12 confirmed, 10 likely); 63 windows every minute took 6:52 (9 confirmed, 13 likely). Audio alone found 13 of the 22 songs.
+- **`djlib set LINK`** reused both identifications (3.8 s and 14 s, most of it reading the page again), with each request item's time, confidence and evidence.
+- **MCP** (`djlib mcp serve` over stdio): 22 tools; `djlib_identify_set` reused the Keinemusik result in 2 s; `djlib_shazam_history` without history answers `SHAZAM_HISTORY_NOT_FOUND` with the iCloud steps and alternatives.
+- **Stopping.** Ctrl-C and `djlib jobs control JOB cancel` during a listen keep what was heard; `--again` kept the earlier tracklist until a new one was made.
+- **Shazam history** without any history on the Mac: `djlib set shazam` and `djlib shazam status` explain the iCloud steps; a 3-row Shazam CSV became a set.
+
+Before release, four independent reviews (runtime, output, security, accuracy) reproduced 48 findings against fakes, a real coordinator and the recorded live listens; the high and medium ones are fixed (see the changelog), with tests. Not verified: AudD and ACRCloud against their real services, a set longer than two hours, Shazam history on a Mac that has it (the test Mac has none), and how Shazam's limits behave for one set a day rather than dozens.
+
+Local validation: the full suite passes on macOS with five Windows-only skips; Ruff is clean.
+
 ## 0.1.0a14
 
 Fixes from a second end-to-end plugin test on the user's Mac (rekordbox 7.2.19, stick RICARDO_AM), whose USB step timed out three times, imported a duplicate “Name (3)” playlist and then stopped on `APP_MENU_DISABLED`; `--fetch` chose the official Phoenix – Lasso upload, which had become DRM-only, and did not fall back; and the assistant's MCP tools broke after an engine update. Root causes and fixes are in the [changelog](../CHANGELOG.md#010a14). Live on 2026-10-07 with the 0.1.0a14 code:
@@ -174,6 +190,6 @@ Do not call the milestone ready for unattended personal-library use until the de
 
 ## Still planned
 
-Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation/acoustic recognition; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
+Soulseek via slskd; provider discovery/ranking and quality policies; artist catalog enumeration; full set timeline reconciliation (blends, repeats, edits) beyond the unreleased set identification; upgrade policies and acquisition integration for the request ledger; genre/BPM/key/energy analysis; general native app reconciliation and automation; independently verified player-ready device export; standalone conversational CLI; early-web public home and optional local browser UX.
 
 See [PLAN.md](../PLAN.md) for full scope and milestone acceptance criteria. No frontend has started.

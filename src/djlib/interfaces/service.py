@@ -32,6 +32,7 @@ from djlib.domain.contracts import (
     DeviceRequest,
     DownloadRequest,
     ExportRequest,
+    IdentifyRequest,
     ResolveRequest,
     ScanRequest,
     SourceRequest,
@@ -112,8 +113,15 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app):
+        from djlib.application.identification import IdentifyRunner
+
+        # The worker starts first: its recovery hands interrupted jobs of every kind back.
         tasks = (
-            [asyncio.create_task(Worker(application).run()), asyncio.create_task(housekeeping())]
+            [
+                asyncio.create_task(Worker(application).run()),
+                asyncio.create_task(IdentifyRunner(application).run()),
+                asyncio.create_task(housekeeping()),
+            ]
             if run_worker
             else []
         )
@@ -228,13 +236,26 @@ def create_app(
 
     @app.post("/sources/inspect")
     async def source(body: SourceRequest):
-        result = await inspect_source(body.url, body.comments)
-        if body.comments:
-            from djlib.interfaces.set_sources import comment_list
+        from djlib.application.identification import mixesdb_tracklist, remember_page
+        from djlib.interfaces.set_sources import comment_list, page_tracklist
 
+        result = await inspect_source(body.url, body.comments)
+        if body.mixesdb:
+            listed = await asyncio.to_thread(page_tracklist, result)
+            result["mixesdb"] = None if listed else await mixesdb_tracklist(result)
+        # `djlib set` reads the page first; an identification it starts then reuses it.
+        remember_page(result, body.comments)
+        if body.comments:
             # What listeners named, in set order: the useful part of hundreds of comments.
-            result["named_in_comments"] = comment_list(result.get("comments") or [])
+            comments = result.get("comments") or []
+            result["named_in_comments"] = await asyncio.to_thread(comment_list, comments)
         return envelope(result)
+
+    @app.post("/identifications")
+    async def identify(body: IdentifyRequest):
+        from djlib.application.identification import submit
+
+        return envelope(await asyncio.to_thread(submit, application, body))
 
     @app.post("/sources/search")
     async def source_search(body: SourceSearch):

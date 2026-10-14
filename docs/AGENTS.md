@@ -46,7 +46,7 @@ The output folder must not exist. It gets both skill copies, an explicit `mcp.js
 
 ## Tools
 
-The server serves the core tools by default: capabilities, library, folders, scans, request lists, crates, set links (`djlib_source_inspect`), web search (`djlib_find_sources`), downloads, jobs and rekordbox analysis. Set `DJLIB_MCP_TOOLS=full` in the server's environment to add plans, exports, reviews, notes and filters, reconciliation and working-copy deliveries:
+The server serves the core tools by default: capabilities, library, folders, scans, request lists, crates, set links (`djlib_source_inspect`), set identification (`djlib_identify_set`), Shazam history (`djlib_shazam_history`), web search (`djlib_find_sources`), downloads, jobs (`djlib_control` stops one, such as an identification) and rekordbox analysis. Set `DJLIB_MCP_TOOLS=full` in the server's environment to add plans, exports, reviews, notes and filters, reconciliation and working-copy deliveries:
 
 ```bash
 claude mcp add --scope user --transport stdio djlib -e DJLIB_MCP_TOOLS=full -- "$(command -v djlib)" mcp serve
@@ -55,17 +55,18 @@ codex mcp add djlib --env DJLIB_MCP_TOOLS=full -- "$(command -v djlib)" mcp serv
 
 - Every tool returns the CLI's JSON envelope. Check `ok` and `error`, even when the host reports the call as successful. Text content is the same JSON as `structuredContent`, compact.
 - The server starts without a workspace; its tools then answer `WORKSPACE_REQUIRED` with the `djlib init` command to run.
-- Mutating tools take idempotency keys, and revisions guard stale choices. Download tools contact YouTube, SoundCloud or Bandcamp. No tool changes rekordbox's database or a USB device.
+- Mutating tools take idempotency keys, and revisions guard stale choices. Download tools contact YouTube, SoundCloud or Bandcamp. `djlib_identify_set` downloads a set's audio and sends short windows of it to the song recognition service (Shazam by default); it returns a job to poll with `djlib_job`. `djlib_shazam_history` only reads. No tool changes rekordbox's database or a USB device.
 - **rekordbox and USB steps are CLI-only** (`djlib set`, `djlib rekordbox push|usb|pull`, macOS). The skill tells the assistant to run them in the background and to tell you which playlist to click. In JSON mode the click prompt also appears on stderr as `{"event": "select_playlist", …}`.
 - On Windows, start the service with `djlib service start` in an ordinary terminal before connecting; see [troubleshooting](TROUBLESHOOTING.md#windows-and-mcp).
 
 ## Example requests
 
 - “Here's tonight's tracklist. Check what I own, tell me what's missing and which other versions I have, and put the set on my USB through rekordbox.”
-- “Here's a SoundCloud set. Get its tracklist, tell me what listeners said about the IDs, and download the missing songs you're sure about.”
+- “Here's a SoundCloud set. Find every song in it, tell me how sure you are about each, and download the missing songs you're sure about.”
+- “Make a set of what I Shazamed last weekend and tell me which songs I already own.”
 - “Put my Friday crate into rekordbox once I've stepped away from the computer.”
 - “Find my saved Warm Groove crates and tell me which ones are on my stick.”
 
-The assistant should report owned and missing songs, other versions you own, unknown IDs with listeners' guesses, download quality, and what the USB check found. Listener comments and publisher text are hints, not identifications, and no djlib tool recognizes audio.
+The assistant should report owned and missing songs, other versions you own, unknown IDs with listeners' guesses, download quality, and what the USB check found. For a set djlib listened to, it should say how much of the set was named and how sure djlib is about each song. An ID stays an ID: what djlib heard there and what listeners wrote are candidates, never its name, until you name it.
 
 The host's own permissions still apply. The service is a local single-user tool; see the [security model](../SECURITY.md).

@@ -12,16 +12,37 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
+import httpx
+
+from djlib.domain.contracts import safe_text
 from djlib.domain.errors import AppError
 from djlib.sources.runtimes import javascript_runtimes
 from djlib.workspace import atomic_json
 
 DOMAINS = ("youtube.com", "youtu.be", "soundcloud.com", "bandcamp.com")
+# SoundCloud's players take any address in ?url= and yt-dlp would fetch it.
+PLAYER_HOSTS = frozenset({"w.soundcloud.com", "p.soundcloud.com", "player.soundcloud.com"})
+# Only these yt-dlp extractors run (never its generic one, which fetches any address).
+EXTRACTORS = r"youtube(?::.*)?,youtubeytbe,soundcloud(?::.*)?,bandcamp(?::.*)?"
+SHORT_HOST = "on.soundcloud.com"
+SOUNDCLOUD_HOSTS = frozenset({"soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"})
 MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
+
+
+def _carries_link(query: str) -> bool:
+    """Whether a query passes on another address ("?url=http://…", "?u=//host/…")."""
+    for _, value in parse_qsl(query, keep_blank_values=True):
+        value = unquote(value).strip().lower()
+        if "://" in value or value.startswith("//"):
+            return True
+    return False
 
 
 def validate_url(value: str) -> str:
@@ -32,10 +53,12 @@ def validate_url(value: str) -> str:
         if (
             parts.scheme != "https"
             or not allowed
+            or host in PLAYER_HOSTS
             or parts.username
             or parts.password
             or parts.port not in {None, 443}
-            or any(ord(c) < 32 for c in value)
+            or any(ord(c) < 32 or ord(c) == 127 for c in value)
+            or _carries_link(parts.query)
         ):
             raise ValueError
     except ValueError as exc:
@@ -43,6 +66,53 @@ def validate_url(value: str) -> str:
             "SOURCE_UNSUPPORTED", "Use a public HTTPS YouTube, SoundCloud, or Bandcamp URL."
         ) from exc
     return value
+
+
+def resolve_link(url: str, transport: httpx.BaseTransport | None = None) -> str:
+    """A SoundCloud short link (on.soundcloud.com/…) as the full link it stands for; any
+    other link as given. One request, redirects not followed: the answer must point at
+    soundcloud.com, and its tracking parameters are dropped."""
+    try:
+        parts = urlsplit(str(url).strip())
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return url
+    if host != SHORT_HOST:
+        return url
+    validate_url(f"https://{SHORT_HOST}{parts.path}")
+    try:
+        with httpx.Client(transport=transport, timeout=15, follow_redirects=False) as client:
+            response = client.get(f"https://{SHORT_HOST}{parts.path}")
+    except httpx.HTTPError as exc:
+        raise AppError(
+            "SOURCE_FAILED",
+            "SoundCloud did not open this short link just now; try again, or use the set's "
+            "full link.",
+            502,
+            True,
+        ) from exc
+    try:
+        target = urlsplit(response.headers.get("location") or "")
+        target_host = (target.hostname or "").lower()
+    except ValueError:
+        target, target_host = None, ""
+    if (
+        target is None
+        or response.status_code not in {301, 302, 303, 307, 308}
+        or target.scheme != "https"
+        or target_host not in SOUNDCLOUD_HOSTS
+        or not target.path.strip("/")
+    ):
+        raise AppError(
+            "SOURCE_UNSUPPORTED",
+            "This SoundCloud short link doesn't lead to a set; use the set's full link.",
+        )
+    return validate_url(f"https://soundcloud.com{target.path}")
+
+
+async def resolved(url: str) -> str:
+    """``resolve_link`` without blocking, then checked (``validate_url``)."""
+    return validate_url(await asyncio.to_thread(resolve_link, url))
 
 
 def command() -> list[str]:
@@ -62,6 +132,8 @@ def command() -> list[str]:
         "--retries",
         "2",
         "--no-progress",
+        "--use-extractors",
+        EXTRACTORS,
     ]
     # An old Deno on PATH must not hide a supported Node installation.
     # EJS is installed by the download extra; no remote component flag is enabled.
@@ -123,15 +195,29 @@ def provider_error(stderr: bytes) -> AppError:
 
 
 async def run(
-    args: list[str], *, timeout: int, output_limit: int, download_dir: Path | None = None
+    args: list[str],
+    *,
+    timeout: int,
+    output_limit: int,
+    download_dir: Path | None = None,
+    max_bytes: int | None = None,
+    stall_seconds: float | None = None,
+    on_start: Callable[[int], object] | None = None,
 ) -> bytes:
-    """Bound streams, runtime, and growth; cancellation also terminates decoder children."""
+    """Bound streams, runtime, and growth; cancellation also terminates decoder children.
+
+    ``download_dir`` may hold at most ``max_bytes`` (MAX_DOWNLOAD_BYTES by default), and with
+    ``stall_seconds`` it must grow at least that often. ``on_start`` gets the process ID,
+    which is also its process group on POSIX.
+    """
     process = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         start_new_session=os.name == "posix",
     )
+    if on_start is not None:
+        on_start(process.pid)
     output = bytearray()
     diagnostics = bytearray()
 
@@ -151,13 +237,26 @@ async def run(
             del diagnostics[:-65536]
 
     async def monitor() -> None:
+        limit = max_bytes or MAX_DOWNLOAD_BYTES
+        size, grew = -1, time.monotonic()
         while process.returncode is None:
-            if (
-                download_dir
-                and sum(p.stat().st_size for p in download_dir.iterdir() if p.is_file())
-                > MAX_DOWNLOAD_BYTES
-            ):
-                raise AppError("DOWNLOAD_SIZE_LIMIT", "The selected audio exceeded 500 MiB.")
+            if download_dir:
+                now, current = time.monotonic(), _folder_bytes(download_dir)
+                if current > limit:
+                    raise AppError(
+                        "DOWNLOAD_SIZE_LIMIT",
+                        f"The selected audio exceeded {limit // (1024 * 1024)} MiB.",
+                    )
+                if current != size:
+                    size, grew = current, now
+                elif stall_seconds and now - grew > stall_seconds:
+                    raise AppError(
+                        "SOURCE_TIMEOUT",
+                        "The download stopped making progress; what arrived is kept, so trying "
+                        "again continues it.",
+                        504,
+                        True,
+                    )
             await asyncio.sleep(0.25)
 
     reader = asyncio.create_task(read())
@@ -207,13 +306,26 @@ async def run(
     return bytes(output)
 
 
+def _folder_bytes(folder: Path) -> int:
+    """Bytes in the folder's files; yt-dlp's fragment and part files come and go meanwhile."""
+    total = 0
+    with os.scandir(folder) as entries:
+        for entry in entries:
+            try:
+                if entry.is_file():
+                    total += entry.stat().st_size
+            except FileNotFoundError:
+                continue
+    return total
+
+
 async def inspect_source(url: str, comments: int = 0) -> dict:
     """A set's published description and chapters, plus up to ``comments`` listener comments.
 
     SoundCloud comments carry their position in the set (``start_time``); YouTube comments
     often write timestamps in their text. Both are untrusted evidence, not identification.
     """
-    validate_url(url)
+    url = await resolved(url)
     extra = []
     if comments:
         extra = [
@@ -239,19 +351,20 @@ async def inspect_source(url: str, comments: int = 0) -> dict:
     chapters = data.get("chapters") or []
     if not isinstance(chapters, list) or any(not isinstance(c, dict) for c in chapters[:500]):
         raise AppError("SOURCE_INVALID", "The source returned invalid chapter metadata.")
+    # Publisher and listener text is cleaned where it enters djlib (see safe_text).
     return {
         "url": url,
         "provider": data.get("extractor_key"),
         "source_id": data.get("id"),
-        "title": str(data.get("title") or "")[:2000],
-        "description": str(data.get("description") or "")[:30000],
+        "title": safe_text(data.get("title"))[:2000],
+        "description": safe_text(data.get("description"), lines=True)[:30000],
         "duration_seconds": data.get("duration"),
-        "uploader": str(data.get("uploader") or "")[:1000],
+        "uploader": safe_text(data.get("uploader"))[:1000],
         "chapters": [
             {
                 "start_time": c.get("start_time"),
                 "end_time": c.get("end_time"),
-                "title": str(c.get("title") or "")[:1000],
+                "title": safe_text(c.get("title"))[:1000],
             }
             for c in chapters[:500]
         ],
@@ -266,7 +379,7 @@ AUDIO_NAMES = ("audio.mp3", "audio.flac")  # MP3 since a11; FLAC receipts from e
 
 async def download(url: str, destination: Path) -> tuple[Path, dict]:
     """Fetch one selected recording as an MP3 (copied when the source already is one)."""
-    validate_url(url)
+    url = await resolved(url)
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise AppError("DEPENDENCY_REQUIRED", "Web audio acquisition requires FFmpeg and ffprobe.")
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -328,6 +441,134 @@ async def download(url: str, destination: Path) -> tuple[Path, dict]:
     return path, receipt
 
 
+SET_AUDIO_BYTES = 2200 * 1024 * 1024  # yt-dlp stops at 2 GiB; the rest is room for part files
+SET_FIELDS = "%(.{id,title,uploader,duration,extractor_key,filepath})j"
+# A six-hour set over a slow link takes a while; a download that stops growing fails sooner.
+SET_DOWNLOAD_SECONDS = 4 * 3600
+SET_STALL_SECONDS = 300
+
+
+async def fetch_set_audio(url: str, destination: Path) -> dict:
+    """A whole DJ set's audio, for song recognition only; it never enters the catalog.
+
+    The provider's audio is kept as published (FFmpeg reads WebM, M4A and Opus). A receipt
+    beside it lets a later scan of the same set reuse the file, and an interrupted download
+    of the same set resumes.
+    """
+    url = await resolved(url)
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if cached := _saved_set(destination, url):
+        return cached
+    pending = destination / "fetching.json"
+    state = _json_file(pending)
+    if state.get("url") != url:
+        # yt-dlp keeps and resumes files already there, so another set's audio must go first.
+        for stale in destination.glob("set.*"):
+            stale.unlink(missing_ok=True)
+        (destination / "receipt.json").unlink(missing_ok=True)
+        atomic_json(pending, {"url": url})
+    else:
+        # A download left running by a service that was killed would write into the same
+        # part file as this one.
+        _stop_orphan(state.get("pid"), destination)
+
+    def started(pid: int) -> None:
+        atomic_json(pending, {"url": url, "pid": pid})
+
+    # Stable output names cannot be influenced by a publisher's title or template.
+    raw = await run(
+        [
+            *command(),
+            "--format",
+            "bestaudio/best",
+            "--max-filesize",
+            "2G",
+            # A missing piece would shorten the set and shift every later time; failing lets
+            # a retry fetch it.
+            "--abort-on-unavailable-fragments",
+            # One set: a playlist or channel page saves nothing (and is not walked).
+            "--playlist-items",
+            "1",
+            "--match-filters",
+            "duration <= 21600 & !is_live & !playlist_id",
+            "--print",
+            f"after_move:{SET_FIELDS}",
+            "--output",
+            str(destination / "set.%(ext)s"),
+            "--",
+            url,
+        ],
+        timeout=SET_DOWNLOAD_SECONDS,
+        output_limit=1024 * 1024,
+        download_dir=destination,
+        max_bytes=SET_AUDIO_BYTES,
+        stall_seconds=SET_STALL_SECONDS,
+        on_start=started,
+    )
+    lines = [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()]
+    try:
+        info = json.loads(lines[-1]) if lines else {}
+        if not isinstance(info, dict):
+            raise ValueError("A metadata object is required.")
+    except ValueError as exc:
+        raise AppError("SOURCE_INVALID", "The source returned invalid metadata.") from exc
+    path = destination / Path(str(info.get("filepath") or "")).name
+    if not path.name.startswith("set.") or not path.is_file():
+        raise AppError(
+            "DOWNLOAD_UNAVAILABLE",
+            "No audio was saved; the set may be live, longer than six hours or over 2 GB. "
+            "Select one set, not a playlist or channel page.",
+        )
+    duration = info.get("duration")
+    receipt = {
+        "url": url,
+        "provider": info.get("extractor_key"),
+        "source_id": info.get("id"),
+        "title": safe_text(info.get("title"))[:2000],
+        "uploader": safe_text(info.get("uploader"))[:1000],
+        "duration_seconds": float(duration) if isinstance(duration, int | float) else None,
+        "path": str(path),
+    }
+    atomic_json(destination / "receipt.json", receipt)
+    pending.unlink(missing_ok=True)
+    return receipt
+
+
+def _stop_orphan(pid: object, destination: Path) -> None:
+    """Stop a yt-dlp that still writes this set's audio after the service that ran it died."""
+    if os.name != "posix" or not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return
+    try:
+        reply = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    # The set's own output path, as fetch_set_audio passes it.
+    if "yt_dlp" in reply.stdout and str(destination / "set.%(ext)s") in reply.stdout:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signal.SIGKILL)
+
+
+def _saved_set(destination: Path, url: str) -> dict | None:
+    receipt = _json_file(destination / "receipt.json")
+    if receipt.get("url") != url:
+        return None
+    path = destination / Path(str(receipt.get("path") or "")).name
+    if not path.name.startswith("set.") or not path.is_file():
+        return None
+    return {**receipt, "path": str(path)}
+
+
+def _json_file(path: Path) -> dict:
+    """A small cache file's object; an unreadable one counts as missing."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 SEARCH_PREFIX = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 
 
@@ -368,10 +609,12 @@ async def search(provider: str, query: str, limit: int = 8) -> list[dict]:
             {
                 "provider": provider,
                 "url": link,
-                "title": str(entry.get("title") or "")[:500],
-                "uploader": str(entry.get("uploader") or entry.get("channel") or "")[:300],
+                "title": safe_text(entry.get("title"))[:500],
+                "uploader": safe_text(entry.get("uploader") or entry.get("channel"))[:300],
                 # SoundCloud uploads carry the publisher's artist credit.
-                "artists": [str(name)[:300] for name in artists[:10] if isinstance(name, str)],
+                "artists": [
+                    safe_text(name)[:300] for name in artists[:10] if isinstance(name, str)
+                ],
                 "duration": float(duration) if isinstance(duration, int | float) else None,
                 "view_count": entry.get("view_count")
                 if isinstance(entry.get("view_count"), int)
@@ -387,7 +630,7 @@ GONE = frozenset({"SOURCE_UNAVAILABLE", "SOURCE_AUTH_REQUIRED"})
 
 async def probe(url: str) -> dict:
     """Whether a recording can be fetched now: yt-dlp picks its audio without downloading."""
-    validate_url(url)
+    url = await resolved(url)
     raw = await run(
         [
             *command(),
@@ -441,10 +684,10 @@ def _comments(data: dict, limit: int) -> list[dict]:
         likes = comment.get("like_count")
         comments.append(
             {
-                "text": str(comment["text"])[:2000],
+                "text": safe_text(comment["text"], lines=True)[:2000],
                 "start_time": float(start) if isinstance(start, int | float) else None,
                 "like_count": likes if isinstance(likes, int) else None,
-                "author": str(comment.get("author") or "")[:200],
+                "author": safe_text(comment.get("author"))[:200],
             }
         )
     return comments

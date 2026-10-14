@@ -111,6 +111,35 @@ class DownloadRequest(Contract):
 class SourceRequest(Contract):
     url: str = Field(min_length=1, max_length=4096)
     comments: int = Field(default=0, ge=0, le=2000)
+    # Also look the set up on MixesDB when its description and chapters list no tracklist.
+    mixesdb: bool = False
+
+
+class IdentifyTracklist(Contract):
+    """A tracklist to merge with what djlib hears, e.g. text copied from 1001Tracklists."""
+
+    # 1001tracklists, mixesdb, file or comments; anything else is a tracklist file.
+    source: str = Field(default="file", max_length=40)
+    text: str = Field(min_length=1, max_length=200_000)
+
+    @field_validator("source")
+    @classmethod
+    def known_source(cls, value: str) -> str:
+        name = value.strip().lower()
+        return name if name in {"1001tracklists", "mixesdb", "file", "comments"} else "file"
+
+
+class IdentifyRequest(Contract):
+    """Track down every song in a YouTube or SoundCloud set (a background job)."""
+
+    url: str = Field(min_length=1, max_length=4096)
+    # Given tracklists are remembered for the set; giving tracklists again replaces them.
+    tracklists: list[IdentifyTracklist] = Field(default_factory=list, max_length=5)
+    recognizer: Literal["shazam", "audd", "acrcloud"] | None = None
+    # Listen again even when this set was identified before.
+    again: bool = False
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    idempotency_key: str = Field(min_length=1, max_length=200)
 
 
 class SourceSearch(Contract):
@@ -218,6 +247,32 @@ class DeliveryNativeXMLRequest(Contract):
     path: str = Field(min_length=1, max_length=4096)
 
 
+# Invisible marks that reorder or hide text (U+202E before "olaH" shows "Halo"): zero-width space,
+# direction marks, embeddings and overrides, isolates, and a stray byte-order mark.
+HIDDEN = frozenset(
+    chr(code) for code in (0x200B, 0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A))
+) | {"\ufeff"}
+
+
+def safe_text(value: object, *, lines: bool = False) -> str:
+    """Publisher or listener text made safe to show and store: no control characters (escape
+    sequences would reach the terminal), whitespace ones turned into spaces, and no hidden
+    marks. With ``lines``, newlines and tabs stay."""
+    text = value if isinstance(value, str) else str(value or "")
+    kept = []
+    for c in text:
+        if c in HIDDEN:
+            continue
+        if lines and c in "\n\t":
+            kept.append(c)
+        elif unicodedata.category(c) == "Cc":
+            if c.isspace():
+                kept.append(" ")
+        else:
+            kept.append(c)
+    return "".join(kept)
+
+
 def normalize(value: str) -> str:
     """Normalize labels for conservative text matching, retaining mix qualifiers."""
     value = unicodedata.normalize("NFKC", value).casefold()
@@ -289,10 +344,10 @@ def related_prefixes(artist: str, title: str) -> list[str]:
     return [base, base.removesuffix("|") + " "]
 
 
-# Credit separators between artist names: "A, B", "A & B", "A x B", "A feat. B", "A vs B".
-# A lowercase "x" only, so a capital X inside a name is left alone.
+# Credit separators between artist names: "A, B", "A & B", "A x B" or "A X B" (as tracklists
+# write collaborations: "Busta Rhymes X Janet Jackson"), "A feat. B", "A vs B".
 CREDIT_SEPARATOR = re.compile(
-    r"\s*[,;/]\s*|\s+&\s+|\s+x\s+|\s+(?i:featuring|feat\.?|ft\.?|vs\.?)\s+"
+    r"\s*[,;/]\s*|\s+&\s+|\s+(?i:x)\s+|\s+(?i:featuring|feat\.?|ft\.?|vs\.?)\s+"
 )
 _FEATURING = r"(?i:featuring\s+|feat(?:\.\s*|\s+)|ft(?:\.\s*|\s+))"
 # "Title (feat. X)" / "Title [ft. X]" anywhere in the title, or a bare "Title feat. X" that
@@ -349,6 +404,12 @@ def credit_form(artist: str, title: str, version: str = "") -> tuple[tuple[str, 
     title, version = plain_labels(title, version)
     title, featured = split_featured(title)
     return artist_names(artist, *featured), label_form("", title, version)[1]
+
+
+def equivalent_labels(first: tuple[str, str, str], second: tuple[str, str, str]) -> bool:
+    """Whether two artist/title/version labels name the same song and version, as request
+    matching compares them: as written (``label_form``) or by credited names (``credit_form``)."""
+    return label_form(*first) == label_form(*second) or credit_form(*first) == credit_form(*second)
 
 
 def credit_base_form(artist: str, title: str) -> tuple[tuple[str, ...], str]:

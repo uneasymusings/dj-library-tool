@@ -134,6 +134,16 @@ def test_upgrade_says_which_sessions_and_plugin_still_run_the_old_djlib(
     assert reply.exit_code == 0, reply.output
     envelope = json.loads(reply.stdout)
     assert envelope["result"]["updated"] is True and len(installs) == 1
+    # Song recognition (shazamio) has macOS and Windows wheels for Python 3.12, not 3.13.
+    assert installs[0] == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        "3.12",
+        "dj-library-tool[download,recognize] @ https://e/w.whl",
+    ]
     assert envelope["result"]["assistant_sessions"] == sessions
     warnings = envelope["warnings"]
     assert len(warnings) == 1 + bool(sessions)
@@ -152,6 +162,7 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade_cli.shutil, "which", lambda name: f"/usr/local/bin/{name}")
     monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
     monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 0)
+    monkeypatch.setattr(upgrade_cli, "recognition_installed", lambda: True)
     monkeypatch.setattr(LocalClient, "discover", lambda self: None)
     commands = []
 
@@ -192,3 +203,45 @@ def test_upgrade_brings_the_claude_code_plugin_along(tmp_path, monkeypatch):
     assert "plugin_updated" not in failed["result"]
     assert "(Marketplace not found)" in failed["warnings"][-1]
     assert upgrade_cli.PLUGIN_UPDATE in failed["warnings"][-1]
+
+
+def test_the_installer_installs_song_recognition_on_python_3_12():
+    from pathlib import Path
+
+    script = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
+    [install] = [line for line in script.splitlines() if line.startswith("uv tool install")]
+    assert (
+        "--python 3.12" in install and '"dj-library-tool[download,recognize] @ $wheel"' in install
+    )
+
+
+def test_upgrade_repairs_song_recognition_an_earlier_upgrade_left_out(tmp_path, monkeypatch):
+    """0.1.0a14's upgrade installed newer releases without the recognize extra, on Python
+    3.13; rerunning upgrade on the newest release installs it again with song recognition."""
+    latest = {"version": __version__, "tag": "v", "url": "https://e/w.whl", "notes": "n"}
+    monkeypatch.setattr(upgrade_cli, "latest_release", lambda: latest)
+    monkeypatch.setattr(
+        upgrade_cli.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None
+    )
+    monkeypatch.setattr(upgrade_cli, "installed_by_uv", lambda: True)
+    monkeypatch.setattr(upgrade_cli, "assistant_sessions", lambda: 0)
+    monkeypatch.setattr(upgrade_cli, "recognition_installed", lambda: False)
+    monkeypatch.setattr(LocalClient, "discover", lambda self: None)
+    installs = []
+
+    def uv(command, **kwargs):
+        installs.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(upgrade_cli.subprocess, "run", uv)
+    workspace = ["--workspace", str(tmp_path / "w")]
+    checked = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade", "--check"]).stdout)
+    assert checked["result"]["recognition_installed"] is False and installs == []
+    reply = json.loads(CliRunner().invoke(cli_app, [*workspace, "upgrade"]).stdout)["result"]
+    assert reply["updated"] is True and reply["repaired"] == "song recognition"
+    assert reply["update_available"] is False
+    assert installs[0][-3:] == [
+        "--python",
+        "3.12",
+        "dj-library-tool[download,recognize] @ https://e/w.whl",
+    ]

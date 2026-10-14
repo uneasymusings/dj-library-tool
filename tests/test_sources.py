@@ -40,12 +40,50 @@ def test_supported_urls(url):
         "https://evil.test/x",
         "https://youtube.com/x\n",
         "",
+        # SoundCloud's players pass ?url= on, and yt-dlp would fetch any address.
+        "https://w.soundcloud.com/player/?url=http://127.0.0.1:8080/private",
+        "https://p.soundcloud.com/player?url=https%3A%2F%2Fsoundcloud.com%2Fa%2Fb",
+        "https://soundcloud.com/-/t/click/x?url=http%3A%2F%2F192.168.1.1%2F",
+        "https://www.youtube.com/redirect?q=%2F%2F127.0.0.1%2F",
     ],
 )
 def test_unsupported_urls(url):
     with pytest.raises(AppError) as error:
         web.validate_url(url)
     assert error.value.code == "SOURCE_UNSUPPORTED"
+
+
+def test_only_youtube_soundcloud_and_bandcamp_extractors_run(monkeypatch):
+    """Never yt-dlp's generic extractor, which would fetch any address a page points at."""
+    import re
+
+    from yt_dlp.extractor import gen_extractor_classes
+
+    monkeypatch.setattr(web, "javascript_runtimes", lambda: {"selected": None})
+    args = web.command()
+    patterns = args[args.index("--use-extractors") + 1].split(",")
+    names = [ie.IE_NAME.lower() for ie in gen_extractor_classes()]
+    allowed = {name for name in names if any(re.fullmatch(p, name, re.I) for p in patterns)}
+    assert {"youtube", "youtube:search", "soundcloud", "soundcloud:search", "bandcamp"} <= allowed
+    assert not allowed & {"generic", "soundcloudembed", "html5mediaembed"}
+
+
+def test_soundcloud_short_links_resolve_to_the_set_on_soundcloud():
+    import httpx
+
+    def answer(location):
+        return httpx.MockTransport(
+            lambda request: httpx.Response(302, headers={"location": location})
+        )
+
+    full = "https://soundcloud.com/lumen/friday-set?si=abc&utm_source=clipboard"
+    resolved = web.resolve_link("https://on.soundcloud.com/AbC123", answer(full))
+    assert resolved == "https://soundcloud.com/lumen/friday-set"
+    for elsewhere in ("http://127.0.0.1/admin", "https://evil.test/x", "https://soundcloud.com/"):
+        with pytest.raises(AppError) as refused:
+            web.resolve_link("https://on.soundcloud.com/AbC123", answer(elsewhere))
+        assert refused.value.code == "SOURCE_UNSUPPORTED"
+    assert web.resolve_link("https://youtu.be/abc") == "https://youtu.be/abc"  # no request
 
 
 async def test_subprocess_output_and_exit():
@@ -391,3 +429,27 @@ async def test_availability_checks_at_once_and_keeps_unknowns_unknown(monkeypatc
     }
     assert "DRM" in checked["https://soundcloud.com/phoenix/lasso"]["reason"]
     assert await web.availability([]) == {}
+
+
+async def test_publisher_and_listener_text_arrives_without_control_characters(monkeypatch):
+    page = {
+        "id": "x",
+        "title": "Friday\x1b[2J Set\x1b]8;;https://evil.example/\x1b\\",
+        "uploader": "Lumen\u202e",
+        "description": "Tracklist:\n01:40 NOTE\x1b[2J - Song\r\n02:00 Ana - Rain\x9b",
+        "chapters": [{"start_time": 0, "title": "Intro\x07"}],
+        "comments": [{"text": "01:45 Evil\x1b[2J - Song", "author": "x\x1b", "like_count": 1}],
+    }
+
+    async def yt_dlp(args, **options):
+        return json.dumps(page).encode()
+
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp)
+    found = await web.inspect_source("https://www.youtube.com/watch?v=x", 10)
+    shown = json.dumps(found, ensure_ascii=False)
+    for unsafe in ("\x1b", "\x07", "\x9b", "\u202e", "\r"):
+        assert unsafe not in shown
+    assert found["title"] == "Friday[2J Set]8;;https://evil.example/\\"
+    assert found["description"].splitlines()[1:] == ["01:40 NOTE[2J - Song ", "02:00 Ana - Rain"]
+    assert found["comments"][0]["text"] == "01:45 Evil[2J - Song"

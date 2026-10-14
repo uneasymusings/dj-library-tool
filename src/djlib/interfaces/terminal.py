@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
+from rich import control
 from rich.console import Console
 from rich.padding import Padding
 from rich.progress import (
@@ -32,6 +33,21 @@ from rich.theme import Theme
 
 OUTPUT_ENV = "DJLIB_OUTPUT"
 META_KEY = "djlib.terminal"
+
+# Text from set pages, comments, MixesDB and Shazam exports is shown here. Rich drops only a
+# few control codes from text; drop every one but newline and tab (an escape sequence could
+# clear the screen or forge a link), and the marks that reorder or hide text.
+UNSAFE_CODEPOINTS = (
+    *range(0x00, 0x09),
+    *range(0x0B, 0x20),
+    *range(0x7F, 0xA0),
+    0x200B,
+    0x200E,
+    0x200F,
+    *range(0x202A, 0x202F),
+    *range(0x2066, 0x206A),
+)
+control._CONTROL_STRIP_TRANSLATE.update(dict.fromkeys(UNSAFE_CODEPOINTS))
 
 # Named ANSI colors follow the user's terminal theme on light and dark backgrounds;
 # only the brand amber is fixed, and Rich downgrades it on 256-color terminals.
@@ -90,6 +106,7 @@ JOB_LABELS = {
     "organize": "Organizing collection",
     "organization": "Organizing collection",
     "reconcile": "Reconciling changed files",
+    "identify": "Identifying a set",
 }
 
 
@@ -360,6 +377,14 @@ ERROR_TITLES = {
     "SOURCE_UNAVAILABLE": "That recording isn't available",
     "SOURCE_FAILED": "Couldn't read that page",
     "TRACKLIST_NOT_FOUND": "No tracklist on that page",
+    "SINGLE_SOURCE_REQUIRED": "Use the link of one set",
+    "SET_PREVIEW_ONLY": "Only a preview of that set plays",
+    "RECOGNITION_RATE_LIMITED": "Song recognition is turning requests away",
+    "RECOGNITION_UNAVAILABLE": "Song recognition can't be reached",
+    "RECOGNIZER_NOT_CONFIGURED": "Song recognition isn't set up",
+    "RECOGNIZER_REJECTED": "The recognition service refused djlib's key",
+    "JOB_CANCELLED": "Stopped",
+    "JOB_PAUSED": "Paused",
     "DEPENDENCY_REQUIRED": "Something needs installing",
     "JAVASCRIPT_RUNTIME_REQUIRED": "Something needs installing",
     "COLLECTION_EMPTY": "Nothing to put in the crate",
@@ -375,6 +400,15 @@ ERROR_TITLES = {
     "DELIVERY_STALE": "The delivery changed since you last looked",
     "REVIEW_STALE": "The review changed since you last looked",
     "PLAN_STALE": "The plan is out of date",
+    "SHAZAM_HISTORY_NOT_FOUND": "No Shazam history found",
+    "SHAZAM_ACCESS_DENIED": "djlib can't open your Shazam history yet",
+    "SHAZAM_HISTORY_UNREADABLE": "That Shazam library can't be read",
+    "SHAZAM_BACKUP_ENCRYPTED": "That iPhone backup is encrypted",
+    "SHAZAM_NOTHING_NEW": "Nothing new Shazamed",
+    "SHAZAM_MUSIC_NOT_ALLOWED": "macOS hasn't allowed djlib to control Music yet",
+    "SHAZAM_MUSIC_UNSUPPORTED": "Reading Apple Music needs a Mac",
+    "SHAZAM_MUSIC_FAILED": "Music didn't respond",
+    "SHAZAM_PLAYLIST_NOT_FOUND": "Music has no “My Shazam Tracks” playlist",
 }
 ACCESSIBILITY_SETTINGS = (
     'open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"'
@@ -414,7 +448,22 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
         None,
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
-    "SOURCE_BROWSER_ONLY": ("Paste the tracklist into a text file, then", ("set", "FILE")),
+    "SOURCE_BROWSER_ONLY": ("Copy the tracklist into a text file, then", ("set", "FILE")),
+    "SET_PREVIEW_ONLY": ("Paste the set's tracklist into a text file, then", None),
+    "TRACKLIST_NOT_FOUND": (
+        "Paste the set's tracklist (e.g. from 1001Tracklists) into a file",
+        None,
+    ),
+    "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
+    "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
+    "RECOGNITION_FAILING": ("Run the same command later; it continues", None),
+    "RECOGNIZER_REJECTED": ("Try again later; or see other services", ("doctor",)),
+    "DISK_FULL": ("Free some space, then run the same command again; it continues", None),
+    "RECOGNIZER_NOT_CONFIGURED": (
+        "Restart the background service so it reads your settings",
+        ("service", "stop"),
+    ),
+    "SHAZAM_HISTORY_NOT_FOUND": ("See how to turn on Shazam sync", ("shazam", "status")),
 }
 
 
@@ -438,6 +487,11 @@ def render_error(term: Terminal, error: dict) -> None:
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
     term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    if isinstance(details.get("next"), str) and details["next"]:
+        # The exact command for this error, unbroken under its label.
+        label = details.get("next_label") or (hint[0] if hint else "Next")
+        hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
     if hint:
@@ -516,6 +570,13 @@ def follow(term: Terminal, client, job: dict, timeout: float | None = None) -> F
                     detail = "queued · " + detail if term.unicode else "queued, " + detail
                 if failed:
                     detail = f"{failed} failed"
+                steps = (job.get("result") or {}).get("progress") or {}
+                if job.get("kind") == "identify" and steps:
+                    # An identification has no items; its listening windows show how far it got.
+                    from djlib.interfaces.identify_cli import progress_line
+
+                    done, total = steps.get("windows_done") or 0, steps.get("windows_total") or 0
+                    detail = progress_line(job)
                 progress.update(task, total=total or None, completed=done, detail=detail)
                 if job.get("state") not in ACTIVE_STATES:
                     return Followed(job)

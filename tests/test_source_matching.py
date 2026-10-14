@@ -690,6 +690,17 @@ def test_trailing_times_move_to_the_front_and_empty_sources_give_nothing():
     assert tracklist_from_source("Thanks for listening! https://example.test", []) == ""
 
 
+def test_a_list_that_times_only_its_ids_keeps_every_track():
+    """The live Keinemusik description: plain lines, and a time on its two IDs only."""
+    from pathlib import Path
+
+    description = (Path(__file__).parent / "data" / "keinemusik-description.txt").read_text()
+    lines = tracklist_from_source(description, []).splitlines()
+    assert len(lines) == 13
+    assert lines[:2] == ["[00:00] ID - ID", "Antdot - Mirage"]
+    assert lines[10] == "[48:30] ID - ID"
+
+
 def test_audio_uploads_rank_above_music_videos_of_the_same_song():
     requested = {"artist": "Four Tet", "title": "Baby", "version": ""}
     ranked = rank_sources(

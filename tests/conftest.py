@@ -25,9 +25,11 @@ REAL_PROBE = web.probe
 
 @pytest.fixture(autouse=True)
 def isolated_user_config(tmp_path_factory, monkeypatch):
-    """Never read or write the developer's real ~/.config/djlib or ~/.claude during tests."""
+    """Never read or write the developer's real ~/.config/djlib, ~/.claude or ~/Library."""
     monkeypatch.setenv("DJLIB_CONFIG_DIR", str(tmp_path_factory.mktemp("djlib-config")))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-config")))
+    # Nor the real Shazam history in ~/Library (djlib doctor and djlib set shazam read it).
+    monkeypatch.setenv("DJLIB_SHAZAM_HOME", str(tmp_path_factory.mktemp("shazam-home")))
     monkeypatch.delenv("DJLIB_WORKSPACE", raising=False)
     monkeypatch.delenv("DJLIB_MCP_TOOLS", raising=False)
 
@@ -41,6 +43,38 @@ def offline_probes(monkeypatch):
         return {"url": url, "duration": None}
 
     monkeypatch.setattr(web, "probe", probe)
+
+
+@pytest.fixture(autouse=True)
+def no_song_recognition(monkeypatch):
+    """Tests never reach Shazam, AudD or ACRCloud: song recognition counts as not installed
+    (as in CI) unless a test supplies a recognizer (see tests/test_identification.py)."""
+    from djlib.application import identification
+    from djlib.sources import recognition
+
+    def missing(name=None):
+        raise AppError(
+            "DEPENDENCY_REQUIRED", recognition.INSTALL, details=recognition.INSTALL_DETAILS
+        )
+
+    monkeypatch.setattr(identification, "recognizer", missing)
+    monkeypatch.setattr(identification, "shazam_installed", lambda: False)
+    monkeypatch.setattr(identification, "PAGES", {})
+    monkeypatch.delenv("DJLIB_RECOGNIZER", raising=False)
+    monkeypatch.delenv("DJLIB_KEEP_SET_AUDIO", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def offline_mixesdb(monkeypatch):
+    """Set pages are never looked up on mixesdb.com: MixesDB has no page for any set unless a
+    test answers with recorded replies (tests/data/mixesdb, see tests/test_mixesdb.py)."""
+    from djlib.application import identification
+
+    async def nothing(**wanted):
+        return None
+
+    monkeypatch.setattr(identification, "mixesdb_lookup", nothing)
+    monkeypatch.setattr(identification, "MIXESDB_LOOKUPS", {})
 
 
 @pytest.fixture
@@ -113,7 +147,11 @@ def library_http(application, monkeypatch):
             if not reply["ok"]:
                 error = reply["error"]
                 raise AppError(
-                    error["code"], error["message"], response.status_code, error["retryable"]
+                    error["code"],
+                    error["message"],
+                    response.status_code,
+                    error["retryable"],
+                    error.get("details"),
                 )
             return reply
 

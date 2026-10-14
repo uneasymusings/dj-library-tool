@@ -60,11 +60,17 @@ DISCOVERY_TOOLS = frozenset(
         "djlib_reconcile",
     }
 )
-TOOL_NAMES = CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS | DISCOVERY_TOOLS | PREP_TOOLS
+# Every song in a set link, and the songs the user Shazamed.
+SET_TOOLS = frozenset({"djlib_identify_set", "djlib_shazam_history"})
+TOOL_NAMES = (
+    CORE_TOOLS | DELIVERY_TOOLS | LIBRARY_WORKFLOW_TOOLS | DISCOVERY_TOOLS | PREP_TOOLS | SET_TOOLS
+)
 
-# What `djlib mcp serve` exposes by default: tracklist → owned/missing → crate, set links,
-# web sources and rekordbox analysis. DJLIB_MCP_TOOLS=full adds delivery, organization,
-# plans, exports and reconciliation (TOOL_NAMES).
+# What `djlib mcp serve` exposes by default: tracklist → owned/missing → crate, set links and
+# their identification, Shazam history, web sources, rekordbox analysis, and job control (to
+# stop an identification).
+# DJLIB_MCP_TOOLS=full adds delivery, organization, plans, exports and reconciliation
+# (TOOL_NAMES).
 PROFILE_ENV = "DJLIB_MCP_TOOLS"
 CORE_PROFILE = frozenset(
     {
@@ -82,10 +88,13 @@ CORE_PROFILE = frozenset(
         "djlib_collection",
         "djlib_collections",
         "djlib_source_inspect",
+        "djlib_identify_set",
+        "djlib_shazam_history",
         "djlib_find_sources",
         "djlib_download",
         "djlib_job",
         "djlib_items",
+        "djlib_control",
         "djlib_import_rekordbox_analysis",
     }
 )

@@ -180,7 +180,8 @@ async def test_different_version_is_only_a_candidate_and_cannot_be_selected(
         ("Max Dean, Luke Dean & Jamie Jones", ("jamie jones", "luke dean", "max dean")),
         ("A; B / C", ("a", "b", "c")),
         ("A x B", ("a", "b")),
-        ("A X B", ("a x b",)),  # only a lowercase "x" separates credits
+        ("Busta Rhymes X Janet Jackson", ("busta rhymes", "janet jackson")),
+        ("Malcolm X", ("malcolm x",)),  # an X that ends a name is part of it
         ("A feat. B", ("a", "b")),
         ("A Ft B", ("a", "b")),
         ("A featuring B", ("a", "b")),
@@ -660,3 +661,23 @@ async def test_original_mix_means_no_special_version(ledger_app, audio_factory):
     assert states == ["satisfied", "satisfied", "satisfied", "missing"]
     lumen = result["items"][3]["candidates"]
     assert [c["identity_match"] for c in lumen] == ["different_version"]
+
+
+def test_tracklist_lines_with_control_characters_or_hidden_marks_still_read():
+    """Mojibake ("\\x80\\x99" for "’") or an escape code in a pasted or published line loses no
+    track and never fails the set; marks that reorder text can't disguise a name."""
+    from djlib.application.tracklists import parse_tracklist
+
+    text = (
+        "01:40 ID - ID (Bicep\x80\x99s edit)\n"
+        "02:00 Lumen - \u202eolaH\u202c\n"
+        "03:00 Ana\x1b[2J - Rain"
+    )
+    items, skipped = parse_tracklist(text)
+    assert skipped == []
+    assert [(i.kind, i.label or i.title) for i in items] == [
+        ("unknown", "ID - ID (Biceps edit)"),
+        ("named", "olaH"),
+        ("named", "Rain"),
+    ]
+    assert items[2].artist == "Ana[2J"

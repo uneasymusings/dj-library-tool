@@ -709,6 +709,101 @@
       "title": "ExportRequest",
       "type": "object"
     },
+    "IdentifyRequest": {
+      "$defs": {
+        "IdentifyTracklist": {
+          "additionalProperties": false,
+          "description": "A tracklist to merge with what djlib hears, e.g. text copied from 1001Tracklists.",
+          "properties": {
+            "source": {
+              "default": "file",
+              "maxLength": 40,
+              "minLength": 1,
+              "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+              "title": "Source",
+              "type": "string"
+            },
+            "text": {
+              "maxLength": 200000,
+              "minLength": 1,
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "title": "IdentifyTracklist",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Track down every song in a YouTube or SoundCloud set (a background job).",
+      "properties": {
+        "again": {
+          "default": false,
+          "title": "Again",
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "recognizer": {
+          "anyOf": [
+            {
+              "enum": [
+                "shazam",
+                "audd",
+                "acrcloud"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recognizer"
+        },
+        "tracklists": {
+          "items": {
+            "$ref": "#/$defs/IdentifyTracklist"
+          },
+          "maxItems": 5,
+          "title": "Tracklists",
+          "type": "array"
+        },
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "idempotency_key"
+      ],
+      "title": "IdentifyRequest",
+      "type": "object"
+    },
     "OrganizationRequest": {
       "$defs": {
         "OrganizationFilters": {
@@ -1285,6 +1380,11 @@
           "minimum": 0,
           "title": "Comments",
           "type": "integer"
+        },
+        "mixesdb": {
+          "default": false,
+          "title": "Mixesdb",
+          "type": "boolean"
         },
         "url": {
           "maxLength": 4096,
