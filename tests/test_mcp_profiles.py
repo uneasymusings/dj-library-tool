@@ -49,6 +49,41 @@ async def test_instructions_send_rekordbox_and_usb_to_the_cli(application):
     assert "dj-library skill" in instructions
     assert "djlib rekordbox push|usb" in instructions and "background" in instructions
     assert "untrusted" in instructions
+    # A shell runs the whole set check in one go; without one, poll as the job says.
+    assert "djlib set 'URL' --no-rekordbox" in instructions
+    assert "every next_poll_after_seconds" in instructions
+
+
+async def test_tool_inputs_stay_as_they_were_with_plain_descriptions(application, monkeypatch):
+    monkeypatch.setenv("DJLIB_MCP_TOOLS", "full")
+    async with Client(mcp_server.build_server(application.workspace)) as client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+    identify = tools["djlib_identify_set"].input_schema
+    assert set(identify["properties"]) == {
+        "url",
+        "idempotency_key",
+        "tracklist_text",
+        "tracklist_source",
+        "again",
+    }
+    assert set(identify["required"]) == {"url", "idempotency_key"}
+    # A pasted tracklist is a plain file unless the assistant says where it came from.
+    assert identify["properties"]["tracklist_source"]["default"] == "file"
+    assert set(tools["djlib_job"].input_schema["properties"]) == {"job_id"}
+    for name in ("djlib_library", "djlib_collections", "djlib_requests"):
+        assert set(tools[name].input_schema["properties"]) == {"query", "limit", "after"}
+    assert set(tools["djlib_collection"].input_schema["properties"]) == {
+        "collection_id",
+        "after",
+        "limit",
+    }
+    described = {name: tool.description for name, tool in tools.items()}
+    assert described["djlib_library"].startswith("Search the user's music: every word must")
+    assert described["djlib_requests"] == "Find saved sets (each `djlib set` saves one) by name."
+    assert described["djlib_collections"] == "Find saved crates by name."
+    assert described["djlib_collection"] == "Read a crate's songs in set order."
+    assert described["djlib_create_request"].startswith("Check a tracklist against the user's")
+    assert "5–10 minutes" in described["djlib_identify_set"]
 
 
 async def test_text_content_is_compact_and_structured_content_is_unchanged(
