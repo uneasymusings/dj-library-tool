@@ -35,9 +35,21 @@ def all_items(local, result: dict) -> list[dict]:
 def tracklist_request(
     text: Path, name: str | None, source: str | None
 ) -> tuple[RequestCreate, list[str]]:
-    """A request list from a plain tracklist file, plus warnings for skipped lines."""
-    from djlib.interfaces.identify_cli import read_text_file
+    """A request list from a plain tracklist file (or paste, or - for stdin), plus warnings
+    for skipped lines."""
+    from djlib.interfaces.identify_cli import (
+        pasted_name,
+        read_text_file,
+        read_typed,
+        tracklist_wanted,
+        typed,
+    )
 
+    if kind := typed(text):
+        link, content = read_typed(kind)
+        if link is not None:
+            raise tracklist_wanted(kind)
+        return text_request(content, name, pasted_name(content), source)
     return text_request(read_text_file(text), name, text.stem, source)
 
 
@@ -65,6 +77,56 @@ def text_request(
     # differently (edited, or by a newer djlib) becomes a new list instead of a conflict.
     parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
     digest = hashlib.sha256(f"{title}\n{source}\n{parsed}".encode()).hexdigest()[:16]
+    body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
+    return body, warnings
+
+
+def song_lines(rows: list[dict]) -> str:
+    """A song list's rows as “Artist - Title (Mix)” lines, for what djlib hears to merge."""
+    lines = []
+    for row in rows:
+        mix = f" ({row['version']})" if row["version"] else ""
+        lines.append(f"{row['artist']} - {row['title']}{mix}\n")
+    return "".join(lines)
+
+
+def song_list_request(
+    rows: list[dict], name: str | None, fallback: str
+) -> tuple[RequestCreate, list[str]]:
+    """A request list from a spreadsheet's Artist and Title (and Mix) columns, in its order;
+    ``fallback`` names it. Versions read as in a Shazam CSV: "Rain (Extended Mix)" has one."""
+    from djlib.domain.contracts import safe_text
+    from djlib.domain.request_contracts import RequestItem
+    from djlib.interfaces.shazam_cli import MAX_SONGS, labels
+    from djlib.interfaces.terminal import plural
+
+    items, left_out = [], 0
+    for row in rows:
+        artist, title, version = labels(row)
+        try:
+            items.append(
+                RequestItem(
+                    artist=artist[:500] or None,
+                    title=title[:1000] or None,
+                    version=(row["version"] or version)[:300],
+                )
+            )
+        except ValueError:
+            left_out += 1
+    if not items:
+        raise AppError("INPUT_INVALID", "No row has both an artist and a title.")
+    warnings = []
+    if left_out:
+        warnings.append(f"Left out {plural(left_out, 'row')} without an artist or title.")
+    if len(items) > MAX_SONGS:
+        warnings.append(
+            f"A list holds {MAX_SONGS} songs, so this one leaves out the last "
+            f"{len(items) - MAX_SONGS}."
+        )
+        items = items[:MAX_SONGS]
+    title = name or " ".join(safe_text(fallback).split())[:300]
+    parsed = json.dumps([item.model_dump(mode="json") for item in items], sort_keys=True)
+    digest = hashlib.sha256(f"{title}\nNone\n{parsed}".encode()).hexdigest()[:16]
     body = RequestCreate(name=title, items=items, idempotency_key=f"tracklist:{digest}")
     return body, warnings
 

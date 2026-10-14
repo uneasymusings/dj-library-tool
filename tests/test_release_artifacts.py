@@ -2,6 +2,10 @@
 
 import hashlib
 import json
+import os
+import shutil
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from zipfile import ZipFile
@@ -75,3 +79,48 @@ def test_skill_archive_is_complete_reproducible_and_allowlisted(tmp_path):
     assert "old.whl" not in manifest
     release_assets(tmp_path)
     assert archive.read_bytes() == original
+
+
+INSTALLER = Path(__file__).resolve().parent.parent / "install.sh"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None, reason="the installer runs in sh"
+)
+@pytest.mark.parametrize(
+    "answer",
+    ["/tmp/x/My\\ Music ", "'/tmp/x/My Music'", '"/tmp/x/My Music"', "  /tmp/x/My Music\t"],
+)
+def test_the_installer_takes_a_folder_dragged_into_terminal(answer):
+    """Terminal types a dragged folder as /Volumes/DJ\\ Drive/Music with a trailing space."""
+    assert installer_folder(answer) == "/tmp/x/My Music"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None, reason="the installer runs in sh"
+)
+def test_the_installer_expands_home_and_keeps_skip_and_quotes_in_names():
+    assert installer_folder("~/Music", home="/Users/dj") == "/Users/dj/Music"
+    assert installer_folder("'~/Music'", home="/Users/dj") == "/Users/dj/Music"
+    assert installer_folder("~", home="/Users/dj") == "/Users/dj"
+    assert installer_folder("skip") == "skip" and installer_folder("   ") == ""
+    assert installer_folder("/Volumes/Rock\\'n\\'Roll/DJ") == "/Volumes/Rock'n'Roll/DJ"
+    script = INSTALLER.read_text(encoding="utf-8")
+    assert "Drag the folder here, Enter for ~/Music, or type skip: " in script
+    # The way to do it later names the folder the DJ gave, in the form init takes now.
+    assert """Later: djlib init "%s" && djlib scan""" in script
+
+
+def installer_folder(answer: str, home: str = "/Users/dj") -> str:
+    """The installer's own folder_answer function, run in sh on one answer."""
+    lines = INSTALLER.read_text(encoding="utf-8").splitlines()
+    start = lines.index("folder_answer() {")
+    function = "\n".join(lines[start : lines.index("}", start) + 1])
+    done = subprocess.run(
+        ["sh", "-c", f'{function}\nfolder_answer "$1"', "sh", answer],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"HOME": home, "PATH": os.environ.get("PATH", "")},
+    )
+    return done.stdout.removesuffix("\n")

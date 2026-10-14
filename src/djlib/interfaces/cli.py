@@ -44,12 +44,11 @@ SETTINGS = "Settings"
 AGENTS = "Assistants"
 MORE = "More"
 
+ADVANCED_URL = "https://github.com/uneasymusings/dj-library-tool/blob/main/docs/ADVANCED.md"
 EPILOG = (
-    "[bold]New here?[/]\n"
-    "[bold]djlib init --allow-root ~/Music[/] → [bold]djlib scan[/] → "
-    "[bold]djlib set tracklist.txt[/]\n\n"
-    "Advanced commands (delivery, organize, plan, export…) still work and are listed in "
-    "docs/ADVANCED.md. Output is JSON when piped or with [bold]--json[/]."
+    "[bold]New here?[/]  [bold]djlib set 'LINK'[/]  ·  [bold]djlib shazam status[/]  ·  "
+    "[bold]djlib set paste[/]\n\n"
+    f"More commands: {ADVANCED_URL}"
 )
 
 # Help lists panels in command order, so keep the journey order explicit.
@@ -100,8 +99,8 @@ def print_version(value: bool) -> None:
 app = typer.Typer(
     cls=JourneyGroup,
     help=(
-        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]  From a tracklist to rekordbox and a verified USB, "
-        "using the music you own."
+        "[bold #f59f00]⣠⣴⣿⣦⣄ djlib[/]\n\n"
+        "Every track in a set, checked against your music, into rekordbox and onto USB."
     ),
     epilog=EPILOG,
     no_args_is_help=True,
@@ -277,15 +276,28 @@ def configure(
 @handled
 def init(
     ctx: typer.Context,
+    folders: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            metavar="FOLDER...",
+            help="Your music folders, e.g. ~/Music; drag a folder in to type it.",
+        ),
+    ] = None,
     allow_root: list[Path] = typer.Option(
-        None, "--allow-root", help="A music folder djlib may read; repeatable."
+        None, "--allow-root", help="Same as a folder argument; repeatable."
     ),
 ) -> None:
-    """Create a workspace and allow your music folders.
+    """Set up djlib and allow your music folders.
 
     djlib only reads inside these folders and never moves or retags your music.
+
+    Run it again with another folder to add that one.
     """
-    config = ctx.obj.initialize(allow_root)
+    folders = [*(folders or []), *(allow_root or [])]
+    # On an existing workspace the folders are added; say which ones are new.
+    before = ctx.obj.config().allowed_roots if ctx.obj.config_path.is_file() else None
+    config = ctx.obj.initialize(folders)
+    added = [root for root in config.allowed_roots if before is None or root not in before]
     # The first workspace becomes the default, so later commands need no --workspace.
     remembered = False
     if not os.environ.get("DJLIB_WORKSPACE") and remembered_workspace() is None:
@@ -296,6 +308,8 @@ def init(
             "workspace": str(ctx.obj.root),
             "config": config.model_dump(mode="json"),
             "default_workspace": remembered or ctx.obj.root == Workspace(default_workspace()).root,
+            "created": before is None,
+            "added": added,
         }
     )
     reply["warnings"] = media_tool_warnings()

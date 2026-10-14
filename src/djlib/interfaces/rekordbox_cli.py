@@ -594,7 +594,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             str, typer.Argument(help="The crate: name, ID or its first characters, or 'last'.")
         ],
         device: Path | None = typer.Option(
-            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+            None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
         ),
         timeout: int = typer.Option(
             600, min=10, help="Seconds to wait for you to select the playlist in rekordbox."
@@ -640,13 +640,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def set_command(
         ctx: typer.Context,
         tracklist: Annotated[
-            str,
+            str | None,
             typer.Argument(
-                help="Text file with one “Artist - Title (Mix)” per line, a YouTube or "
-                "SoundCloud set link, or shazam for the songs you Shazamed (shazam:new, "
-                "shazam:2026-10-01, shazam:apple-music, shazam:FILE)."
+                metavar="TRACKLIST",
+                help="A YouTube or SoundCloud set link in single quotes; paste for a tracklist "
+                "or link you copied (- reads it from a pipe); a text file with one “Artist - "
+                "Title (Mix)” per line; or shazam for the songs you Shazamed (shazam:new, "
+                "shazam:2026-10-01, shazam:apple-music, shazam:FILE).",
             ),
-        ],
+        ] = None,
         name: str | None = typer.Option(
             None, help="Set name; defaults to the tracklist's heading, file name or upload title."
         ),
@@ -679,7 +681,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "--no-rekordbox only builds the crate.",
         ),
         device: Path | None = typer.Option(
-            None, "--device", help="Mounted USB, e.g. /Volumes/RICARDO_AM (found automatically)."
+            None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
         ),
         timeout: int = typer.Option(
             600, min=10, help="With --usb: seconds to wait for you to click the playlist."
@@ -693,13 +695,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         tracklists: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="With a link or --source: a tracklist for the set (e.g. copied from "
-            "1001Tracklists), merged with what djlib hears; repeatable.",
+            help="With a link or --source: a tracklist for the set (e.g. from 1001Tracklists: "
+            "a text file, or paste for the one you copied), merged with what djlib hears; "
+            "repeatable.",
         ),
     ) -> None:
         """Tracklist → owned songs → rekordbox playlist → USB.
 
-        Takes a text file, or a YouTube/SoundCloud set link.
+        Takes a YouTube/SoundCloud set link, a text file, or paste for what you copied.
 
         A set link whose tracklist is missing or has IDs is listened to (see djlib identify).
 
@@ -717,11 +720,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             all_items,
             created,
             finish_checks,
+            song_lines,
+            song_list_request,
             text_request,
-            tracklist_request,
         )
         from djlib.native import rekordbox_mac as ui
+        from djlib.sources import shazam_history
 
+        if tracklist is None:
+            raise identify_cli.nothing_given("set")
         if usb and not use_rekordbox:
             raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
         if yes and not fetch:
@@ -743,7 +750,23 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
         page = shazam = identified = listing = listen_fix = None
-        if shazam_cli.is_spec(tracklist):
+        tracklist = identify_cli.unquoted(tracklist)
+        # paste or -: a link in it is used as typed, anything else is the tracklist's text.
+        pasted = columns = None
+        if kind := identify_cli.typed(tracklist):
+            link, pasted = identify_cli.read_typed(kind)
+            if link:
+                identify_cli.say_link(kind, link)
+            tracklist, pasted = (link, None) if link else (kind, pasted)
+        else:
+            # A .csv or .tsv: Shazam's export reads as your Shazams; any other file with
+            # Artist and Title columns (a DJ's spreadsheet) is a song list named after it.
+            columns = shazam_history.csv_kind(Path(tracklist).expanduser())
+            if columns == "shazam" and not (source or identify or tracklists):
+                tracklist = f"shazam:{Path(tracklist).expanduser()}"
+                if not term.json:
+                    term.err.print("Read as a Shazam export.", style="muted")
+        if pasted is None and shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
                     "INPUT_INVALID", "--source only applies to a tracklist file; leave it out."
@@ -761,8 +784,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 raise AppError(
                     "INPUT_INVALID",
                     "--tracklist is merged with what djlib hears; leave out --no-identify, or "
-                    "give the file itself with --source.",
-                    details={"next": f"djlib set FILE --source {shlex.quote(tracklist)}"},
+                    "give the tracklist itself with --source.",
+                    details={
+                        "next": f"djlib set {shlex.quote(str(tracklists[0]))} "
+                        f"--source {shlex.quote(tracklist)}"
+                    },
                 )
             given = identify_cli.read_tracklists(tracklists)
             with status("Reading the set's description and listener comments…"):
@@ -814,13 +840,34 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     "--identify and --tracklist listen to the set: give its link with "
                     "--source LINK.",
                 )
-            body, warnings = tracklist_request(path, name, source)
+            if pasted is None:
+                content = identify_cli.read_text_file(path, given=tracklist)
+            else:
+                content = pasted
+            # Rows under an Artist and Title header: a spreadsheet saved as CSV, or its cells
+            # copied (they paste with tabs between them).
+            rows = None
+            if columns == "songs" or (pasted is not None and "\t" in content):
+                rows = shazam_history.song_rows(content)
+            if rows is not None:
+                if not term.json:
+                    term.err.print("Read as a song list (Artist and Title columns).", style="muted")
+                content = song_lines(rows)
+            fallback = path.stem if pasted is None else identify_cli.pasted_name(content)
+            try:
+                if rows is None:
+                    body, warnings = text_request(content, name, fallback, source)
+                else:
+                    body, warnings = song_list_request(rows, name, fallback)
+            except AppError as error:
+                if pasted is None or error.code != "INPUT_INVALID":
+                    raise
+                raise identify_cli.nothing_in(kind, pasted) from error
             # A set identified before costs nothing: its file merges with what djlib heard.
             free = identify is None and source and identification.finished(workspace, source)
             if identify or tracklists or free:
-                listing = path.read_text(encoding="utf-8")
                 given = [
-                    {"source": identify_cli.tracklist_source(path, listing), "text": listing},
+                    {"source": identify_cli.tracklist_source(path, content), "text": content},
                     *identify_cli.read_tracklists(tracklists),
                 ]
                 try:

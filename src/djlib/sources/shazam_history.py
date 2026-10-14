@@ -524,6 +524,76 @@ def csv_header(table: list[list[str]]) -> tuple[int, dict | None]:
     return 0, None
 
 
+# Columns only Shazam's own export has; a DJ's spreadsheet has Artist and Title too.
+SHAZAM_ONLY = frozenset({"tagtime", "trackkey", "shazamkey", "shazamid"})
+# A spreadsheet's Mix column keeps the version exact.
+VERSION_COLUMNS = ("version", "mix", "remix", "mixname", "versionmix")
+
+
+def rows_of(text: str) -> list[list[str]]:
+    """A CSV, TSV or copied spreadsheet's rows, its delimiter sniffed from the first lines."""
+    lines = text.splitlines()
+    head = "\n".join(lines[:20])
+    try:
+        dialect = csv.Sniffer().sniff(head, delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel_tab if "\t" in head else csv.excel
+    try:
+        return list(csv.reader(lines, dialect))
+    except csv.Error:
+        return []
+
+
+def csv_kind(path: Path) -> str | None:
+    """What `djlib set FILE` makes of a .csv or .tsv file: "shazam" for Shazam's export (a
+    "Shazam Library" line above the header, or its TagTime or TrackKey column), "songs" for
+    any other file with Title and Artist columns, else None (a tracklist)."""
+    if path.suffix.lower() not in {".csv", ".tsv"}:
+        return None
+    try:
+        if not path.is_file():
+            return None
+        with path.open("rb") as stream:
+            head = stream.read(64_000).decode("utf-8-sig", errors="replace")
+    except OSError:
+        return None
+    lines = head.splitlines()[:20]
+    if lines and header_key(lines[0]) == "shazamlibrary":
+        return "shazam"
+    table = rows_of("\n".join(lines))
+    index, columns = csv_header(table)
+    if columns is None:
+        return None
+    return "shazam" if SHAZAM_ONLY & {header_key(cell) for cell in table[index]} else "songs"
+
+
+def song_rows(text: str) -> list[dict] | None:
+    """{artist, title, version} for each row under an Artist and Title header, in order (a
+    Mix or Version column gives the version); None when there is no such header."""
+    table = rows_of(text)
+    index, columns = csv_header(table)
+    if columns is None:
+        return None
+    keys = [header_key(cell) for cell in table[index]]
+    version = next((keys.index(name) for name in VERSION_COLUMNS if name in keys), None)
+
+    def cell(cells: list[str], column: int | None) -> str:
+        if column is None or column >= len(cells):
+            return ""
+        return " ".join(cells[column].split())
+
+    rows = []
+    for cells in table[index + 1 :]:
+        row = {
+            "artist": cell(cells, columns["artist"]),
+            "title": cell(cells, columns["title"]),
+            "version": cell(cells, version),
+        }
+        if row["artist"] or row["title"]:
+            rows.append(row)
+    return rows
+
+
 def read_csv(path: Path) -> list[dict]:
     """The old shazam.com export ("Index,TagTime,Title,Artist,URL,TrackKey") or any CSV with
     title and artist columns; a "Shazam Library" line above the header is skipped."""
