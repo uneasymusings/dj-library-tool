@@ -238,6 +238,7 @@ def saved(app, kind, query="", limit=20, after=None):
             model.revision,
             model.updated_at,
             func.json_array_length(model.items).label("total_items"),
+            model.items.label("items"),
         ]
     elif kind == "deliveries":
         columns += [
@@ -283,7 +284,29 @@ def saved(app, kind, query="", limit=20, after=None):
             )
         if kind == "collections":
             row.update(app_state="not_tracked_here", device_state="not_tracked_here")
+        if kind == "requests":
+            row["counts"] = request_counts(row.pop("items"))
     return _result(kind, rows, total, limit, context, lambda r: [r["created_at"], r[identifier]])
+
+
+def request_counts(items: list[dict] | None) -> dict:
+    """A saved set's tally in DJ words. Owned is what goes into the crate; a song you only
+    have in another mix is other_mix; anything else not owned counts as missing."""
+    counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0}
+    for item in items or []:
+        state = item.get("state")
+        if state == "satisfied":
+            counts["owned"] += 1
+        elif state == "unknown":
+            counts["ids"] += 1
+        elif state == "missing" and any(
+            candidate.get("identity_match") == "different_version"
+            for candidate in item.get("candidates") or []
+        ):
+            counts["other_mix"] += 1
+        else:
+            counts["missing"] += 1
+    return counts
 
 
 def summary(app, recent: int = 5) -> dict:
