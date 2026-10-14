@@ -411,7 +411,7 @@ def test_status_pairs_each_crate_with_the_set_it_came_from(
     assert crates["Shazam"]["request_id"] == old["request_id"]
     assert crates["Owned"]["request_id"] is None  # not collected from a set
     sets = {row["request_id"]: row for row in summary["recent_requests"]}
-    tally = {"owned": 1, "missing": 1, "other_mix": 1, "ids": 1, "to_check": 0}
+    tally = {"owned": 1, "missing": 1, "other_mix": 1, "ids": 1, "to_check": 0, "maybe": 0}
     assert sets[new["request_id"]]["counts"] == tally
     assert sets[new["request_id"]]["owned"] == 1 and sets[new["request_id"]]["songs"] == 4
 

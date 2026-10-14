@@ -1176,7 +1176,7 @@ def set_counts(row: dict) -> dict:
     counts = row.get("counts") if isinstance(row.get("counts"), dict) else {}
     found = {
         key: int(counts.get(key) or 0)
-        for key in ("owned", "missing", "other_mix", "ids", "to_check")
+        for key in ("owned", "missing", "other_mix", "ids", "to_check", "maybe")
     }
     if not counts:
         found.update(owned=int(row.get("owned") or 0), missing=int(row.get("missing") or 0))
@@ -1226,6 +1226,7 @@ def status_tally(term: Terminal, counts: dict) -> list[Text]:
     parts = [Text(f"{owned} of {counts['songs']} owned")]
     for key, label, style in (
         ("to_check", "to check", "warn"),
+        ("maybe", "maybe yours", "warn"),
         ("missing", "missing", "warn"),
         ("other_mix", "in another mix", "warn"),
         ("ids", "IDs", "muted"),
@@ -2203,6 +2204,10 @@ def set_view(term: Terminal, result: dict) -> None:
         steps.append(("See the crate", ("crate", crate)))
     elif crate and not usb:
         steps.append(("Put it on your USB", ("rekordbox", "usb", crate)))
+    maybe = sum(1 for track in tracks if track.get("own") == "maybe")
+    if maybe:
+        # Owned only once the DJ says the file is the song: Use this on the review page.
+        steps.append((f"Check the songs that may be yours ({maybe})", ("ui",)))
     to_buy = sum(1 for track in tracks if track.get("own") == "missing")
     if to_buy:
         report = ("requests", "report", result.get("request_id", ""))
@@ -2232,6 +2237,7 @@ def set_tally(term: Terminal, result: dict, tracks: list[dict]) -> Text:
     text = Text(f"{owned} of {songs} owned", style="heading")
     for amount, label, style in (
         (len(waiting(tracks)), "to check", "warn"),
+        (own["maybe"], "maybe yours", "warn"),
         (own["other_mix"], "in another mix", "warn"),
         (own["missing"], "missing", "bad"),
         (own["id"], "ID" if own["id"] == 1 else "IDs", "muted"),
@@ -2299,6 +2305,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         )
         term.out.print(line, soft_wrap=True)
     spellings(term, shown)
+    maybe_yours(term, shown)
     reasons(
         term,
         [
@@ -2321,6 +2328,20 @@ def spellings(term: Terminal, tracks: list[dict]) -> None:
     if found:
         term.out.print()
         note(term, "Owned under another spelling: " + f" {term.glyph('dot')} ".join(found))
+
+
+def maybe_yours(term: Terminal, tracks: list[dict]) -> None:
+    """ "Maybe yours under another name: #2 Robert Glasper - Move Love (Kaytranada Edition)":
+    a file with the same title and mix whose artist credit is shorter or longer. Not owned
+    until the DJ says so (Use this on the review page)."""
+    found = [
+        f"#{track.get('position')} {track['maybe_owned']}"
+        for track in tracks
+        if track.get("own") == "maybe" and track.get("maybe_owned")
+    ]
+    if found:
+        term.out.print()
+        note(term, "Maybe yours under another name: " + f" {term.glyph('dot')} ".join(found))
 
 
 def set_time(clock: str | None, url: str | None) -> Text:
@@ -2369,6 +2390,8 @@ def own_cell(term: Terminal, track: dict) -> Text:
     if own == "other_mix":
         mixes = owned_mixes(track.get("you_own") or [], track.get("title"))
         return marked(term, "other", mixes, "warn")
+    if own == "maybe":
+        return marked(term, "maybe", "maybe yours", "warn")
     if own == "missing":
         return marked(term, "bad", "missing")
     return Text("")
@@ -2856,12 +2879,13 @@ def request_report(term: Terminal, result: dict) -> None:
         fields(term, [("Report", path_text(result.get("report_path")))])
         return
     others = result.get("other_mixes") or []
+    maybe = result.get("maybe_yours") or []
     dash = "—" if term.unicode else "-"
     if to_buy:
         status_line(term, "ok", f"{result.get('name') or 'Set'} {dash} {len(to_buy)} to buy")
     else:
         status_line(term, "ok", result.get("name") or "Set", "nothing to buy")
-    width = max((cell_len(song_moment(song)) for song in [*to_buy, *others]), default=0)
+    width = max((cell_len(song_moment(song)) for song in [*to_buy, *others, *maybe]), default=0)
     if to_buy:
         term.out.print()
     for song in to_buy[:BIG_ROWS]:
@@ -2879,6 +2903,15 @@ def request_report(term: Terminal, result: dict) -> None:
         line = Text(f"  {'…' if term.unicode else '...'} and {more} more in ", style="muted")
         line.append(short_path(result.get("shopping_list")) or "the report", style="path")
         term.out.print(line, soft_wrap=True)
+    if maybe:
+        term.out.print()
+        heading = f"Maybe yours already: check before you buy ({len(maybe)})"
+        term.out.print(Text(heading, style="heading"))
+        for song in maybe:
+            body = Text(str(song.get("label") or ""))
+            body.append(f" {dash} you have: {song.get('maybe_owned') or ''}", style="warn")
+            lead = Text(f"{song_moment(song):>{width}} ", style="muted")
+            hanging(term.out, lead, body, indent=2)
     if others:
         term.out.print()
         term.out.print(Text(f"You own another mix ({len(others)})", style="heading"))
@@ -2898,17 +2931,19 @@ def request_report(term: Terminal, result: dict) -> None:
         line = Text.assemble("  ", ("Saved to", "label"), "  ")
         line.append(short_path(result["shopping_list"]), style="path")
         term.out.print(line, soft_wrap=True)
+    steps: list[Step] = []
+    if maybe:
+        steps.append(("If one is the same song, use it", ("ui",)))
     if to_buy:
         term.out.print()
         note(term, "Store searches: check it's the mix you want before you buy.")
         request_id = result.get("request_id", "")
-        next_steps(
-            term,
-            [
-                ("After you buy them, index the new music", ("scan",)),
-                ("Then check the set again", ("requests", "refresh", request_id)),
-            ],
-        )
+        steps += [
+            ("After you buy them, index the new music", ("scan",)),
+            ("Then check the set again", ("requests", "refresh", request_id)),
+        ]
+    if steps:
+        next_steps(term, steps)
 
 
 def song_moment(song: dict) -> str:
@@ -3186,8 +3221,20 @@ REQUEST_STATES = {
     "unavailable": ("warn", "warn", "file unavailable"),
     "source_selected": ("run", "info", "source picked"),
     "to_check": ("warn", "warn", "to check"),
+    "maybe": ("maybe", "warn", "maybe yours"),
 }
 ID_LABEL = re.compile(r"^\s*(?:id\s*-\s*)?id\s*$", re.IGNORECASE)  # "ID - ID" is an ID
+
+
+def maybe_file(item: dict) -> dict | None:
+    """A missing song's file under a shorter or longer artist credit, the same title and mix
+    (``similar_credits``): maybe yours, once the DJ says so."""
+    if item.get("state") != "missing" or (item.get("input") or {}).get("kind") == "unknown":
+        return None
+    return next(
+        (c for c in item.get("candidates") or [] if c.get("identity_match") == "similar_credits"),
+        None,
+    )
 
 
 def other_mix(item: dict) -> bool:
@@ -3195,6 +3242,7 @@ def other_mix(item: dict) -> bool:
     return (
         item.get("state") == "missing"
         and (item.get("input") or {}).get("kind") != "unknown"
+        and maybe_file(item) is None
         and any(
             c.get("identity_match") == "different_version" for c in item.get("candidates") or []
         )
@@ -3216,6 +3264,8 @@ def requests_list(term: Terminal, result: dict) -> None:
     counted = any(isinstance(row.get("counts"), dict) for row in rows)
     # Owned songs waiting on a pick or a file: counted as `djlib set` counts them.
     checking = counted and any(set_counts(row)["to_check"] for row in rows)
+    # Files under other artist credits the DJ can confirm.
+    maybe = counted and any(set_counts(row)["maybe"] for row in rows)
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         *(
@@ -3226,6 +3276,7 @@ def requests_list(term: Terminal, result: dict) -> None:
                     if checking
                     else []
                 ),
+                *([("Maybe", {"justify": "right", "style": "warn", "drop": 4})] if maybe else []),
                 ("Missing", {"justify": "right", "style": "warn"}),
                 ("Other mix", {"justify": "right", "style": "warn", "drop": 3}),
                 ("IDs", {"justify": "right", "style": "muted", "drop": 2}),
@@ -3242,6 +3293,7 @@ def requests_list(term: Terminal, result: dict) -> None:
             [
                 f"{counts['owned'] - counts['to_check']} of {counts['songs']}",
                 *([str(counts["to_check"] or "")] if checking else []),
+                *([str(counts["maybe"] or "")] if maybe else []),
                 str(counts["missing"] or ""),
                 str(counts["other_mix"] or ""),
                 str(counts["ids"] or ""),
@@ -3307,13 +3359,15 @@ def request_view(term: Terminal, result: dict) -> None:
     # Songs you own in another mix, counted apart from the missing ones when all are here.
     if result.get("next_offset") is None and not result.get("offset"):
         counts["other_mix"] = sum(1 for item in result.get("items") or [] if other_mix(item))
-        counts["missing"] = int(counts.get("missing", 0)) - counts["other_mix"]
+        counts["maybe"] = sum(1 for item in result.get("items") or [] if maybe_file(item))
+        counts["missing"] = int(counts.get("missing", 0)) - counts["other_mix"] - counts["maybe"]
     # Owned songs waiting on a pick or a file read "to check", as `djlib set` says it.
     counts["to_check"] = int(counts.pop("ambiguous", 0)) + int(counts.pop("unavailable", 0))
     summary = Text()
     for state in (
         "satisfied",
         "to_check",
+        "maybe",
         "other_mix",
         "missing",
         "unknown",
@@ -3345,6 +3399,9 @@ def request_view(term: Terminal, result: dict) -> None:
             glyph, tone, label = "todo", "muted", "not checked"
         if other_mix(item):
             glyph, tone, label = "other", "warn", "other mix"
+        maybe = maybe_file(item)
+        if maybe:
+            glyph, tone, label = "maybe", "warn", "maybe yours"
         if source.get("kind") == "unknown":
             label_text = str(source.get("label") or "ID")
             requested = Text("ID" if ID_LABEL.match(label_text) else label_text, style="muted")
@@ -3362,6 +3419,11 @@ def request_view(term: Terminal, result: dict) -> None:
                 match.append(f"  as {spelling}", style="muted")
         elif len(exact) > 1:
             match = Text(f"{len(exact)} copies; pick one", style="warn")
+        elif maybe:
+            credit = f"{maybe.get('artist') or ''} - {maybe.get('title') or ''}"
+            if maybe.get("version"):
+                credit += f" ({maybe['version']})"
+            match = Text(f"maybe as {credit}", style="warn")
         elif others and item.get("state") == "missing":
             versions = owned_mixes([mix_name(c) for c in others], source.get("title"))
             match = Text(f"you own: {versions}", style="warn")
@@ -3395,6 +3457,8 @@ def request_view(term: Terminal, result: dict) -> None:
     size = in_crate(items) if whole else owned
     if any(item.get("state") == "ambiguous" for item in result.get("items") or []):
         steps.append(("Pick which copy to use", ("ui",)))
+    if any(maybe_file(item) for item in result.get("items") or []):
+        steps.append(("Check the songs that may be yours", ("ui",)))
     if owned and crate.get("tracks") == size:
         # Collecting again would only find this same crate.
         steps.append(("See the crate", ("crate", crate["collection_id"])))

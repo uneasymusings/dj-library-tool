@@ -87,6 +87,7 @@ _GLYPHS = {
     "pause": ("‖", "="),
     "skip": ("–", "-"),
     "other": ("≈", "~"),  # you own another mix of the song
+    "maybe": ("?", "?"),  # maybe yours: the same mix under other artist credits
     "arrow": ("→", ">"),
     "dot": ("·", "|"),
     "mark": ("⣠⣴⣿⣦⣄", "::"),

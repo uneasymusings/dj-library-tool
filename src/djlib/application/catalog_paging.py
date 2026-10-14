@@ -371,16 +371,21 @@ OWNED_STATES = frozenset({"satisfied", "ambiguous", "unavailable"})
 
 def request_counts(items: list[dict] | None) -> dict:
     """A saved set's tally in DJ words, the same as `djlib set`'s own column: owned (the exact
-    mix), ids, other_mix (only another mix of it) and missing. Only satisfied songs go into the
-    crate; an owned song with two copies or an unreadable file waits until that is sorted, and
-    ``to_check`` counts those (they are in ``owned`` too)."""
-    counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0}
+    mix), ids, other_mix (only another mix of it), maybe (a file under other credits the DJ can
+    confirm) and missing. Only satisfied songs go into the crate; an owned song with two copies
+    or an unreadable file waits until that is sorted, and ``to_check`` counts those (they are
+    in ``owned`` too)."""
+    counts = {"owned": 0, "missing": 0, "other_mix": 0, "ids": 0, "to_check": 0, "maybe": 0}
     for item in items or []:
+        matches = {candidate.get("identity_match") for candidate in item.get("candidates") or []}
         if item.get("state") in OWNED_STATES:
             counts["owned"] += 1
             counts["to_check"] += item.get("state") != "satisfied"
         elif (item.get("input") or {}).get("kind") == "unknown":
             counts["ids"] += 1
+        elif "similar_credits" in matches:
+            # A file with the same title and mix under a shorter or longer artist credit.
+            counts["maybe"] += 1
         elif any(
             candidate.get("identity_match") == "different_version"
             for candidate in item.get("candidates") or []

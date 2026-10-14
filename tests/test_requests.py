@@ -27,7 +27,7 @@ from djlib.domain.request_contracts import (
     RequestRefresh,
     RequestResolution,
 )
-from djlib.interfaces.rekordbox_cli import set_item
+from djlib.interfaces.rekordbox_cli import set_item, set_track
 from djlib.interfaces.views import spelled_as
 from djlib.persistence.models import Job
 from djlib.persistence.request_models import RequestLedger
@@ -279,9 +279,10 @@ async def test_same_credits_in_any_order_or_separator_are_owned(
 @pytest.mark.parametrize(
     ("catalog", "requested", "hints"),
     [
-        (("A, B", "Original Tone"), ("A", "Original Tone"), []),
-        (("A feat. B", "Original Tone"), ("A", "Original Tone"), []),
-        (("A", "Original Tone"), ("A & B", "Original Tone"), []),
+        # Not owned: offered as maybe yours, for the DJ to confirm.
+        (("A, B", "Original Tone"), ("A", "Original Tone"), ["similar_credits"]),
+        (("A feat. B", "Original Tone"), ("A", "Original Tone"), ["similar_credits"]),
+        (("A", "Original Tone"), ("A & B", "Original Tone"), ["similar_credits"]),
         # Already shown as another version before credits were compared; still not owned.
         (("A", "Original Tone (feat. B)"), ("A", "Original Tone"), ["different_version"]),
     ],
@@ -695,6 +696,9 @@ GLASPER = {
 }
 
 
+GLASPER_LABELS = ("Robert Glasper Experiment", "Move Love", "Kaytranada Edition")
+
+
 def listed_as(**changes):
     """MixesDB's spelling of the song Shazam heard as GLASPER."""
     return {
@@ -739,6 +743,56 @@ async def test_each_listings_spelling_is_tried_in_turn(ledger_app, audio_factory
     assert item["accepted"]["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
     assert item["accepted"]["matched_as_source"] == "mixesdb"
     assert spelled_as(item) == "Robert Glasper"
+
+
+async def test_a_shazam_song_filed_under_a_shorter_credit_is_maybe_yours(ledger_app, audio_factory):
+    """A Shazam list has no listing to spell "Robert Glasper": the file with the same title and
+    mix is offered as maybe yours, kept off the shopping list, and owned once the DJ says so."""
+    from djlib.application.catalog_paging import request_counts
+
+    track = await owned(
+        ledger_app, audio_factory, artist="Robert Glasper", title="Move Love (Kaytranada Edition)"
+    )
+    result = create(ledger_app, [named(**GLASPER)])
+    item = result["items"][0]
+    assert item["state"] == "missing" and item["accepted"] is None
+    maybe = [c for c in item["candidates"] if c["identity_match"] == "similar_credits"]
+    assert [c["recording_id"] for c in maybe] == [track["recording_id"]]
+    shown = set_track(item)
+    assert shown["own"] == "maybe"
+    assert shown["maybe_owned"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert request_counts(result["items"])["maybe"] == 1
+    assert request_counts(result["items"])["missing"] == 0
+    # The DJ confirms it (Use this on the review page): owned, and says under which name.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=track["recording_id"],
+        asset_revision_id=track["asset_revision_id"],
+        notes="The DJ says it is the same song",
+    )
+    accepted = chosen["items"][0]["accepted"]
+    assert chosen["items"][0]["state"] == "satisfied"
+    assert accepted["matched_as"] == "Robert Glasper - Move Love (Kaytranada Edition)"
+    assert accepted["matched_as_source"] == "you"
+
+
+@pytest.mark.parametrize(
+    ("file", "requested", "maybe"),
+    [
+        (("Kaytranada", "Lite Spots", ""), ("Kaytranada feat. Syd", "Lite Spots", ""), True),
+        (("Robert Glasper", "Move Love", "Kaytranada Edition"), GLASPER_LABELS, True),
+        # Another mix, or another artist, is never maybe the song.
+        (("Robert Glasper", "Move Love", "Radio Edit"), GLASPER_LABELS, False),
+        (("Common", "Full Moon", ""), ("Armand Van Helden", "Full Moon", ""), False),
+        (("The Martinez", "Rain", ""), ("The Martinez Brothers", "Rain", ""), True),
+        (("The", "Rain", ""), ("The Martinez Brothers", "Rain", ""), False),
+    ],
+)
+def test_maybe_yours_needs_the_same_title_and_mix_and_overlapping_artists(file, requested, maybe):
+    labels = dict(zip(("artist", "title", "version"), requested, strict=True))
+    assert requests.similar_credits(file, labels) is maybe
 
 
 async def test_another_spelling_never_loosens_the_mix(ledger_app, audio_factory):
