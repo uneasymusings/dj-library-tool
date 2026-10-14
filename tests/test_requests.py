@@ -1084,6 +1084,34 @@ async def test_last_is_the_set_checked_most_recently_and_its_crate(ledger_app, a
     assert made_from[second_crate] == second["request_id"]
 
 
+async def test_a_set_checked_again_keeps_its_older_crate_on_the_home_screen(
+    ledger_app, audio_factory
+):
+    """Status lists the newest crates; a set checked again comes first while its crate is older
+    than those. Its crate still comes with it, so status doesn't ask for a new one."""
+    from djlib.application.catalog_paging import summary
+
+    await owned(ledger_app, audio_factory)
+
+    async def crate(result):
+        job = requests.collect_request(ledger_app, result["request_id"], result["revision"])
+        return (await execute(ledger_app, job["job_id"]))["result"]["collection_id"]
+
+    first = same_list(ledger_app, [named()], "a")
+    first_crate = await crate(first)
+    second = requests.create_request(
+        ledger_app,
+        RequestCreate(name="Tuesday", items=[named()], idempotency_key="b"),
+        same_list=True,
+    )
+    await crate(second)
+    same_list(ledger_app, [named()], "a")  # Friday checked again
+    home = summary(ledger_app, recent=1)
+    assert [row["request_id"] for row in home["recent_requests"]] == [first["request_id"]]
+    shown = {row["collection_id"]: row["request_id"] for row in home["recent_collections"]}
+    assert shown[first_crate] == first["request_id"] and len(shown) == 2
+
+
 def test_a_set_checked_again_with_nothing_new_still_comes_first(ledger_app):
     """The usual re-check finds nothing new: set A still comes first and is `last`, and keeps
     its revision, so the commands printed for it still work."""

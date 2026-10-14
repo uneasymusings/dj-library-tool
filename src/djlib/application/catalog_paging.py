@@ -461,6 +461,14 @@ def summary(app, recent: int = 5) -> dict:
                     "counts": request_counts(ledger.items),
                 }
             )
+        # A set checked again comes back to the top while its crate may be older than the
+        # newest five: its line still shows that crate, rather than asking for a new one.
+        listed = {row["collection_id"] for row in collections}
+        for row in requests:
+            crate = crate_of(session, row["request_id"])
+            if crate is not None and crate["collection_id"] not in listed:
+                listed.add(crate["collection_id"])
+                collections.append({**crate, "request_id": row["request_id"]})
         counts = {
             "collections": session.scalar(select(func.count()).select_from(Collection)) or 0,
             "request_lists": session.scalar(select(func.count()).select_from(RequestLedger)) or 0,
