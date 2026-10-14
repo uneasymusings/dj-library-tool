@@ -730,7 +730,7 @@ def test_set_refuses_1001tracklists_links_with_a_way_forward(application, monkey
     )
     assert reply.exit_code == 2
     error = json.loads(reply.stdout)["error"]
-    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set FILE"
+    assert error["code"] == "SOURCE_BROWSER_ONLY" and error["details"]["next"] == "djlib set paste"
 
 
 @pytest.mark.parametrize("flag", ["--no-rekordbox", None])

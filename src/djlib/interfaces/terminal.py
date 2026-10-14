@@ -448,12 +448,9 @@ ERROR_HINTS: dict[str, tuple[str, tuple | str | None]] = {
         None,
     ),
     "DEVICE_REQUIRED": ("Name the stick, e.g. --device /Volumes/NAME", None),
-    "SOURCE_BROWSER_ONLY": ("Copy the tracklist into a text file, then", ("set", "FILE")),
+    "SOURCE_BROWSER_ONLY": ("Copy the tracklist on the page, then", ("set", "paste")),
     "SET_PREVIEW_ONLY": ("Paste the set's tracklist into a text file, then", None),
-    "TRACKLIST_NOT_FOUND": (
-        "Paste the set's tracklist (e.g. from 1001Tracklists) into a file",
-        None,
-    ),
+    "TRACKLIST_NOT_FOUND": ("Copy the set's tracklist (e.g. from 1001Tracklists), then", None),
     "RECOGNITION_RATE_LIMITED": ("Run the same command in an hour or so; it continues", None),
     "RECOGNITION_UNAVAILABLE": ("Check the connection, then run the same command again", None),
     "RECOGNITION_FAILING": ("Run the same command later; it continues", None),
@@ -482,27 +479,48 @@ def needs_ffmpeg(error: dict) -> bool:
 def render_error(term: Terminal, error: dict) -> None:
     code = str(error.get("code") or "REQUEST_FAILED")
     message = str(error.get("message") or "The request failed.")
-    title = Text.assemble((ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    # An error may name its own title ("Can't read that tracklist") within its code.
+    heading = details.get("title") if isinstance(details.get("title"), str) else None
+    title = Text.assemble((heading or ERROR_TITLES.get(code) or humanize(code.lower()), "bold bad"))
     title.append(f"  ({code})", style="muted")
     hanging(term.err, Text(term.glyph("bad"), style="bad"), title)
     term.err.print(indented(Text(message)))
     hint = ERROR_HINTS.get(code)
-    details = error.get("details") if isinstance(error.get("details"), dict) else {}
     if isinstance(details.get("next"), str) and details["next"]:
         # The exact command for this error, unbroken under its label.
         label = details.get("next_label") or (hint[0] if hint else "Next")
         hint = (str(label), details["next"])
     if needs_ffmpeg(error) and ffmpeg_install():
         hint = ("Install FFmpeg, then retry", ffmpeg_install())
-    if hint:
-        label, parts = hint
-        line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), (label, ""))
-        if parts:
-            command = parts if isinstance(parts, str) else term.command(*parts)
-            line.append("  " if len(label) + len(command) + 8 <= term.err.width else "\n    ")
+    # More than one way forward: each on its own line, commands lined up.
+    hints = [
+        (str(step.get("label") or "Next"), str(step["command"]))
+        for step in details.get("next_steps") or []
+        if isinstance(step, dict) and step.get("command")
+    ] or ([hint] if hint else [])
+    lines = [
+        (label, "" if not parts else parts if isinstance(parts, str) else term.command(*parts))
+        for label, parts in hints
+    ]
+
+    def fits(label_width: int, command: str) -> bool:
+        return label_width + len(command) + 8 <= term.err.width
+
+    # Commands line up after the longest label whose line fits; the rest go under their label.
+    width = max((len(label) for label, command in lines if fits(len(label), command)), default=0)
+    for label, command in lines:
+        if command and fits(len(label), command) and fits(width, command):
+            line = Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), label)
+            line.append(" " * (width - len(label) + 2))
             line.append(command, style="cmd")
-        term.err.print(line, soft_wrap=True)
-    elif error.get("retryable"):
+            term.err.print(line, soft_wrap=True)
+            continue
+        # A long label wraps under itself; the command stays in one piece for copying.
+        hanging(term.err, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
+        if command:
+            term.err.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+    if not hints and error.get("retryable"):
         term.err.print(
             Text.assemble("  ", (f"{term.glyph('arrow')} ", "accent"), "This is safe to retry.")
         )

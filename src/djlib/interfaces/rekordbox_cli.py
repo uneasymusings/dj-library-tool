@@ -591,13 +591,15 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def set_command(
         ctx: typer.Context,
         tracklist: Annotated[
-            str,
+            str | None,
             typer.Argument(
-                help="Text file with one “Artist - Title (Mix)” per line, a YouTube or "
-                "SoundCloud set link, or shazam for the songs you Shazamed (shazam:new, "
-                "shazam:2026-10-01, shazam:apple-music, shazam:FILE)."
+                metavar="TRACKLIST",
+                help="A YouTube or SoundCloud set link in single quotes; paste for a tracklist "
+                "or link you copied (- reads it from a pipe); a text file with one “Artist - "
+                "Title (Mix)” per line; or shazam for the songs you Shazamed (shazam:new, "
+                "shazam:2026-10-01, shazam:apple-music, shazam:FILE).",
             ),
-        ],
+        ] = None,
         name: str | None = typer.Option(
             None, help="Set name; defaults to the tracklist's heading, file name or upload title."
         ),
@@ -644,13 +646,14 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         tracklists: list[Path] = typer.Option(
             None,
             "--tracklist",
-            help="With a link or --source: a tracklist for the set (e.g. copied from "
-            "1001Tracklists), merged with what djlib hears; repeatable.",
+            help="With a link or --source: a tracklist for the set (e.g. from 1001Tracklists: "
+            "a text file, or paste for the one you copied), merged with what djlib hears; "
+            "repeatable.",
         ),
     ) -> None:
         """Tracklist → owned songs → rekordbox playlist → USB.
 
-        Takes a text file, or a YouTube/SoundCloud set link.
+        Takes a YouTube/SoundCloud set link, a text file, or paste for what you copied.
 
         A set link whose tracklist is missing or has IDs is listened to (see djlib identify).
 
@@ -669,10 +672,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             created,
             finish_checks,
             text_request,
-            tracklist_request,
         )
         from djlib.native import rekordbox_mac as ui
 
+        if tracklist is None:
+            raise identify_cli.nothing_given("set")
         if usb and not use_rekordbox:
             raise AppError("INPUT_INVALID", "--usb exports through rekordbox; drop --no-rekordbox.")
         if yes and not fetch:
@@ -694,7 +698,12 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         local, workspace = client(ctx), ctx.obj
         term = terminal.current()
         page = shazam = identified = listing = listen_fix = None
-        if shazam_cli.is_spec(tracklist):
+        # paste or -: a link in it is used as typed, anything else is the tracklist's text.
+        pasted = None
+        if kind := identify_cli.typed(tracklist):
+            link, pasted = identify_cli.read_typed(kind)
+            tracklist, pasted = (link, None) if link else (kind, pasted)
+        if pasted is None and shazam_cli.is_spec(tracklist):
             if source:
                 raise AppError(
                     "INPUT_INVALID", "--source only applies to a tracklist file; leave it out."
@@ -712,8 +721,11 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 raise AppError(
                     "INPUT_INVALID",
                     "--tracklist is merged with what djlib hears; leave out --no-identify, or "
-                    "give the file itself with --source.",
-                    details={"next": f"djlib set FILE --source {shlex.quote(tracklist)}"},
+                    "give the tracklist itself with --source.",
+                    details={
+                        "next": f"djlib set {shlex.quote(str(tracklists[0]))} "
+                        f"--source {shlex.quote(tracklist)}"
+                    },
                 )
             given = identify_cli.read_tracklists(tracklists)
             with status("Reading the set's description and listener comments…"):
@@ -765,13 +777,27 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     "--identify and --tracklist listen to the set: give its link with "
                     "--source LINK.",
                 )
-            body, warnings = tracklist_request(path, name, source)
+            if pasted is None:
+                content, fallback = identify_cli.read_text_file(path), path.stem
+            else:
+                content, fallback = pasted, identify_cli.pasted_name()
+            try:
+                body, warnings = text_request(content, name, fallback, source)
+            except AppError as error:
+                if pasted is None or error.code != "INPUT_INVALID":
+                    raise
+                where = "the clipboard" if kind == identify_cli.PASTE else "the text piped in"
+                raise AppError(
+                    "INPUT_INVALID",
+                    f"There's no set link and no “Artist - Title” line in {where}. Copy the "
+                    "set's link or its tracklist, then run this again.",
+                    details={"title": f"No set or tracklist in {where}"},
+                ) from error
             # A set identified before costs nothing: its file merges with what djlib heard.
             free = identify is None and source and identification.finished(workspace, source)
             if identify or tracklists or free:
-                listing = path.read_text(encoding="utf-8")
                 given = [
-                    {"source": identify_cli.tracklist_source(path, listing), "text": listing},
+                    {"source": identify_cli.tracklist_source(path, content), "text": content},
                     *identify_cli.read_tracklists(tracklists),
                 ]
                 try:
@@ -922,7 +948,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             "source": {k: page.get(k) for k in ("url", "provider", "title", "uploader")},
             # Listeners' guesses, in set order: a starting point, not a tracklist.
             "named_in_comments": set_sources.comment_list(comments),
-            "tracklist_next": f"djlib set FILE --source {shlex.quote(url)}",
+            "tracklist_next": f"djlib set paste --source {shlex.quote(url)}",
         }
         if fix:
             details.update(next=fix, next_label="Fix it so djlib can listen, then run it again")

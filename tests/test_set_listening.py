@@ -126,7 +126,7 @@ def test_without_song_recognition_set_falls_back_or_says_how_to_install_it(
         "tracklist in its description or chapters, and none on MixesDB."
     )
     assert missing["details"]["next"] == identification.INSTALLER
-    assert missing["details"]["tracklist_next"] == f"djlib set FILE --source '{URL}'"
+    assert missing["details"]["tracklist_next"] == f"djlib set paste --source '{URL}'"
 
 
 def test_set_merges_a_1001tracklists_file_with_what_it_hears(
