@@ -290,7 +290,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Fixed strip and tally columns, so every set's strip lines up with the next. */
 .set {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 30%) 23em;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 22%) 23em;
   align-items: center;
   gap: 8px 28px;
   padding: 15px 20px;
@@ -305,7 +305,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 15.5px;
   line-height: 1.3;
   letter-spacing: -0.005em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -423,7 +423,9 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
 
 .sure-word { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .sure-word .g { font-family: var(--mono); font-weight: 700; }
+.sure-word.confirmed { color: var(--muted); font-weight: 500; }
 .sure-word.likely { color: var(--muted); }
+.nowrap { white-space: nowrap; }
 .sure-word.weak { color: var(--warn); }
 .sure-word.conflict { color: var(--bad); }
 
@@ -548,19 +550,19 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
   .t-set tbody td:first-child { box-shadow: none; }
   .t-set tr { box-shadow: inset 3px 0 0 var(--edge, transparent); }
   .t-set.timed tr { grid-template-columns: 4.4em minmax(0, 1fr) auto; }
-  .t-set.sure tr { grid-template-areas: "time track own" "sure track own" ". extra extra"; }
+  /* How sure goes under the track, its word beside its mark. */
+  .t-set.sure tr { grid-template-areas: "time track own" ". sure sure" ". extra extra"; }
   .t-set td.c-time { grid-area: time; }
-  .t-set.sure td.c-time { align-self: end; }
-  .t-set td.c-sure { grid-area: sure; align-self: start; padding-top: 4px; }
+  .t-set td.c-sure { grid-area: sure; padding-top: 3px; }
   .t-set td.c-track { grid-area: track; }
   .t-set td.c-own { display: contents; }
   .t-set .c-own .pill { grid-area: own; }
   .t-set .c-own .own-note, .t-set .c-own .candidates { grid-area: extra; max-width: none; margin-top: 4px; }
   .t-set .note { -webkit-line-clamp: 3; }
-  .buy { display: none; }
+  .t-set .c-own .buy { grid-area: extra; display: block; margin: 4px 0 0; }
   .pill { width: 28px; height: 28px; padding: 0; justify-content: center; font-size: 14px; }
-  .pill .l, .sure-word .l { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .sure-word { font-size: 14px; }
+  .pill .l { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sure-word { font-size: 12.5px; }
 
   /* Library and crate rows: title over artist, readouts on the right. */
   .t-lib tr {

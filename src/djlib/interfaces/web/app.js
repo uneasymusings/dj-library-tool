@@ -338,9 +338,11 @@ function listenUrl(sourceUrl, seconds) {
   return null;
 }
 
+// The terminal's three stores, in its order.
 const STORES = [
   ["Beatport", "www.beatport.com", (query) => `https://www.beatport.com/search?q=${query}`],
   ["Bandcamp", "bandcamp.com", (query) => `https://bandcamp.com/search?q=${query}&item_type=t`],
+  ["Traxsource", "www.traxsource.com", (query) => `https://www.traxsource.com/search?term=${query}`],
 ];
 
 // Search words without the noise stores trip over: featured artists, (Original Mix), [LABEL].
@@ -560,9 +562,10 @@ function sourceBadge(source) {
   return source ? h("span", { class: `src ${source.kind}` }, SOURCE_NAMES[source.kind]) : null;
 }
 
-// How sure djlib is, in the terminal's words. A confirmed line needs no word, and an ID says
-// "ID" in its Own column; the lines worth a listen before you play them stand out.
+// How sure djlib is, in the terminal's words: a confirmed line quietly, and an ID says "ID"
+// in its Own column; the lines worth a listen before you play them stand out.
 const SURE = {
+  confirmed: ["✓", "confirmed", "Confirmed: the audio bears it out"],
   likely: ["◐", "likely", "Likely: one good source, such as a tracklist. Worth a listen"],
   weak: ["!", "weak", "Weak: heard once, or a listener's guess. Listen before you play it"],
   conflict: ["✗", "conflict", "Conflict: listed as one song, heard as another"],
@@ -576,7 +579,7 @@ function sureWord(confidence) {
     h("span", { class: "g", "aria-hidden": "true" }, glyph), h("span", { class: "l" }, label));
 }
 
-const UNSURE = new Set(Object.keys(SURE));
+const UNSURE = new Set(["likely", "weak", "conflict"]);
 
 // "possibly X (Shazam heard it at 50:09 (3×))" or a15's "(Shazam, 1 window at 51:09)": one
 // guess per "; " part, so a match never runs into the next guess.
@@ -774,7 +777,13 @@ async function eachLimited(values, limit, work) {
 
 const GLANCE_ITEMS = 100;
 
-function setRow(row) {
+// A set's name, its dates kept whole ("2013-09-27" never breaks at a hyphen).
+function setName(name) {
+  const parts = String(name || "").split(/(\d{4}-\d{2}-\d{2})/);
+  return parts.map((part, index) => (index % 2 ? h("span", { class: "nowrap" }, part) : part));
+}
+
+function setRow(row, { twin = false } = {}) {
   const href = `#/sets/${encodeURIComponent(row.request_id)}`;
   const badge = h("span", { class: "src-slot", hidden: true });
   const bar = h("div", { class: "strip compact loading-strip", "aria-hidden": "true" });
@@ -784,8 +793,10 @@ function setRow(row) {
   const node = h("li", null,
     h("a", { class: "set", href },
       h("div", { class: "set-name" },
-        h("span", { class: "name", title: row.name }, row.name),
-        h("span", { class: "meta" }, badge, plural(row.total_items, "track"), when ? ` · ${when}` : null)),
+        h("span", { class: "name", title: row.name }, ...setName(row.name)),
+        // Two sets of one name (pastes of one tracklist): the code tells them apart.
+        h("span", { class: "meta" }, badge, plural(row.total_items, "track"), when ? ` · ${when}` : null,
+          twin ? ` · ${shortId(row.request_id)}` : null)),
       bar,
       counts));
   // The first page of tracks is enough for the badge; a longer list's strip comes from
@@ -818,8 +829,10 @@ async function setsList() {
   const view = h("section", null,
     pageHead("Sets", `${plural(first.total, "set")}, last checked first. Owned tracks are in a crate, in set order.`),
     list, more);
+  const names = new Map();
   const show = (reply) => {
-    const rows = reply.requests.map(setRow);
+    for (const row of reply.requests) names.set(row.name, (names.get(row.name) || 0) + 1);
+    const rows = reply.requests.map((row) => setRow(row, { twin: names.get(row.name) > 1 }));
     list.append(...rows.map((row) => row.node));
     more.replaceChildren(reply.next_cursor
       ? h("button", {
@@ -1076,7 +1089,7 @@ async function requestDetail(requestId) {
     }
     return [
       pill("bad", "✗", "Missing"),
-      // Plain words, not a store link: they stay on a phone, where store links don't fit.
+      // On a phone the store links go on the line under the track.
       unreleased(item.input) ? h("div", { class: "own-note" }, "Not in stores yet") : storeLinksNode(item),
     ];
   };

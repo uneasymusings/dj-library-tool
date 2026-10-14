@@ -219,11 +219,16 @@ def test_page_links_only_to_the_set_and_store_searches():
         f"storeLinks({json.dumps({'input': song})})",
         f"storeLinks({json.dumps({'input': song, 'shop': shop})})",
     )
+    # The terminal's three stores.
     assert built == [
         ["Beatport", "https://www.beatport.com/search?q=Antdot%20Inner%20Wars"],
         ["Bandcamp", "https://bandcamp.com/search?q=Antdot%20Inner%20Wars&item_type=t"],
+        ["Traxsource", "https://www.traxsource.com/search?term=Antdot%20Inner%20Wars"],
     ]
-    assert given == [built[0], ["Bandcamp", "https://bandcamp.com/search?q=x"]]
+    assert given == [built[0], ["Bandcamp", "https://bandcamp.com/search?q=x"], built[2]]
+    # A confirmed line says so quietly; only the others are worth a listen.
+    sure = run_page("SURE.confirmed[1]", 'UNSURE.has("confirmed")', 'UNSURE.has("likely")')
+    assert sure == ["confirmed", False, True]
 
 
 @needs_node
