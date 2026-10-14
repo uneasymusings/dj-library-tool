@@ -374,6 +374,8 @@ def register_commands(app, client, emit, handled, panel=None):
         help="Add DJ notes to tracks and build ordered collections.", no_args_is_help=True
     )
     app.add_typer(requests, name="requests", rich_help_panel=panel)
+    # Every screen calls them sets: `djlib sets`, `djlib sets get last` work too.
+    app.add_typer(requests, name="sets", hidden=True)
     app.add_typer(organize, name="organize", hidden=True)
     request_help = "Set name, ID start (6+ characters) or last."
     # --revision is for scripts and assistants (the JSON has it); a DJ never needs it.

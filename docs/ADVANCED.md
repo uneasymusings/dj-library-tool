@@ -167,6 +167,7 @@ Retry keeps successful items, and cancelling keeps accepted files. Stopping the 
 ## Other hidden commands
 
 - `djlib collections` and `djlib collection CRATE`: the old names of `djlib crates` and `djlib crate`.
+- `djlib sets`: another name for `djlib requests`, as in `djlib sets get last` and `djlib sets report last`.
 - `djlib source-inspect 'LINK'`: read a set's description and chapters.
 - `djlib demo`: try the whole workflow on three generated tones: `djlib --workspace ./demo demo`, then add `--workspace ./demo` to the commands it suggests.
 - `djlib schemas`: print the JSON input schemas.

@@ -30,7 +30,7 @@ PANELS = {
 HIDDEN = [
     *("plan", "start", "export", "import-rekordbox", "usb-preflight", "delivery", "organize"),
     *("reconcile", "download", "source-inspect", "schemas", "capabilities", "version"),
-    *("collections", "collection", "demo", "completion"),
+    *("collections", "collection", "demo", "completion", "sets"),
 ]
 
 
@@ -101,6 +101,19 @@ def test_hidden_commands_still_work(command):
     reply = run(command, "--help")
     assert reply.exit_code == 0, reply.output
     assert "Usage:" in reply.output
+
+
+def test_sets_is_another_name_for_requests(tmp_path):
+    """Every screen calls them sets; `djlib sets` lists them as `djlib requests` does."""
+    workspace = tmp_path / "w"
+    assert run("init", workspace=workspace).exit_code == 0
+    listed = json.loads(run("sets", workspace=workspace).stdout)["result"]
+    same = json.loads(run("requests", "list", workspace=workspace).stdout)["result"]
+    assert {**listed, "snapshot_at": None} == {**same, "snapshot_at": None}
+    pretty = run("sets", pretty=True, workspace=workspace).stdout
+    assert pretty == run("requests", pretty=True, workspace=workspace).stdout
+    assert "No sets checked yet" in pretty
+    assert run("sets", "get", "--help").exit_code == 0
 
 
 def test_advanced_doc_lists_every_hidden_command():
