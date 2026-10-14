@@ -21,6 +21,7 @@ from djlib.application.source_matching import comment_hints, fold
 from djlib.application.tracklists import FEATURING_LABEL, VERSION_WORDS, parse_tracklist
 from djlib.domain.contracts import (
     artist_names,
+    credit_form,
     plain_labels,
     safe_text,
     split_featured,
@@ -1507,7 +1508,7 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
 
     IDs stay unknown items labelled "ID", in their place even without a time; a likely
     identity goes in the notes only. A confirmed song shown under the credits the audio heard
-    also counts as owned under the listing's spelling (``also``).
+    also counts as owned under the listing's spelling of them (``also``), in the mix shown.
     """
     items = []
     for track in tracklist.get("tracks") or []:
@@ -1524,10 +1525,16 @@ def request_items(tracklist: dict, source_url: str | None = None) -> list[dict]:
                 "confidence": track["status"],
             }
             listed = track.get("also_named") or {}
+            title, version = listed.get("title") or "", listed.get("version") or ""
+            shown = credit_form("", item["title"], item["version"])[1]
+            if credit_form("", title, version)[1] != shown:
+                # The repair is about credits: a mix the listing names but the audio did not
+                # hear ("Kaytranada Edition" for a "Kaytranada Remix") is another recording.
+                title, version = item["title"], item["version"]
             credit = {
                 "artist": _clean(listed.get("artist"))[:500],
-                "title": _clean(listed.get("title"))[:1000],
-                "version": _clean(listed.get("version"))[:300],
+                "title": _clean(title)[:1000],
+                "version": _clean(version)[:300],
                 "source": _clean(listed.get("source"))[:40],
             }
             # Only where the audio's spelling replaced the listing's (``_repairs``).
