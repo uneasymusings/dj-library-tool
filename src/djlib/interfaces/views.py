@@ -132,19 +132,31 @@ TONE_STYLES = {
 }
 
 
-# "line 6 skipped (no “Artist - Title” separator): “SELF RELEASED”", or "MixesDB, line 6 …".
-SKIPPED_LINE = re.compile(r"^(?:[^,]+, )?line \d+ skipped \(")
+# "line 6 skipped (no “Artist - Title” separator): “SELF RELEASED”", or "MixesDB, line 6 …": a
+# label, heading or note. Lines skipped for another reason (unreadable characters, a list cut
+# short) and lines with a loose dash ("Artist -Title") may be songs, so each still prints.
+SKIPPED_LINE = re.compile(
+    r"^(?:[^,]+, )?line \d+ skipped \((?:no “Artist - Title” separator|looks like a heading)\)"
+    r": (?P<line>.*)$"
+)
+LOOSE_DASH = re.compile(r"\w(?:\s[-–—]|[-–—]\s)\S")
 QUOTED_SKIPS = 3
 
 
+def _label_skip(warning: str) -> bool:
+    match = SKIPPED_LINE.match(warning)
+    return bool(match) and not LOOSE_DASH.search(match["line"])
+
+
 def skipped_once(warnings: list[str]) -> list[str]:
-    """More than three tracklist lines skipped read as one line (JSON keeps each one)."""
-    skipped = [warning for warning in warnings if SKIPPED_LINE.match(warning)]
+    """More than three label lines skipped from a tracklist read as one line (JSON keeps each
+    one); any other skipped line is still quoted on its own."""
+    skipped = [warning for warning in warnings if _label_skip(warning)]
     if len(skipped) <= QUOTED_SKIPS:
         return warnings
     summary = f"{len(skipped)} lines without “Artist - Title” skipped (labels, headings, notes)"
     first = warnings.index(skipped[0])
-    kept = [warning for warning in warnings if not SKIPPED_LINE.match(warning)]
+    kept = [warning for warning in warnings if not _label_skip(warning)]
     return [*kept[:first], summary, *kept[first:]]
 
 
