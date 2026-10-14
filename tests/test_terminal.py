@@ -162,6 +162,23 @@ def test_terminal_scan_defaults_to_the_only_root_and_follows_the_job(local_http,
     assert "done" in jobs.stdout and "Scan" in jobs.stdout
 
 
+def test_a_second_copy_of_a_song_is_no_new_track(local_http, audio_factory):
+    """A scan counts songs as the library does: another copy of a song you have is one more
+    file, not a new track."""
+    audio_factory("night bus.wav", frequency=330, artist="Velvet Static", title="Night Bus")
+    assert "✓ 2 tracks indexed" in invoke("scan", pretty=True, workspace=local_http.root).stdout
+    audio_factory("night bus 2.wav", frequency=331, artist="Velvet Static", title="Night Bus")
+    again = invoke("scan", pretty=True, workspace=local_http.root)
+    assert "✓ 2 tracks, 0 new" in again.stdout
+    jobs = json.loads(invoke("jobs", "list", workspace=local_http.root).stdout)["result"]["jobs"]
+    # The file is new; the song isn't.
+    assert {"new_tracks": 1, "recordings": 2, "new_recordings": 0}.items() <= jobs[0][
+        "result"
+    ].items()
+    status = invoke("status", pretty=True, workspace=local_http.root).stdout
+    assert "Library  2 tracks" in status
+
+
 def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_path, monkeypatch):
     import shutil
 
@@ -188,8 +205,9 @@ def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_pat
 
     pretty = invoke("scan", pretty=True, workspace=local_http.root)
     assert pretty.exit_code == 0, pretty.output
-    # Scanned again: nothing is new.
-    assert pretty.stdout.count("✓ 1 track, 0 new") == 2
+    # Scanned again: nothing is new, said once for both folders, with one Next block.
+    assert pretty.stdout.startswith("✓ 2 tracks in 2 folders, 0 new\n")
+    assert pretty.stdout.count("✓") == 1 and pretty.stdout.count("Next") == 1
     assert "unplugged drive?" in pretty.stderr
 
 

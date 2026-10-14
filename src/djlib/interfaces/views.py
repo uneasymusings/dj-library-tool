@@ -1,5 +1,6 @@
 """Readable terminal views for djlib results, keyed by CLI command path."""
 
+import contextlib
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from rich.text import Text
 
 from djlib import __version__
 from djlib.domain.contracts import TRAILING_VERSION, credit_form
+from djlib.domain.errors import AppError
 from djlib.interfaces.client import version_key
 from djlib.interfaces.terminal import (
     ACCESSIBILITY_SETTINGS,
@@ -564,10 +566,10 @@ def job_headline(kind: str, job: dict) -> str:
     result = job.get("result") if isinstance(job.get("result"), dict) else {}
     succeeded = int(counts.get("succeeded", 0))
     if kind == "scan":
-        new = result.get("new_tracks")
-        message = f"{plural(succeeded, 'track')} indexed"
-        if isinstance(new, int) and new < succeeded:
-            message = f"{plural(succeeded, 'track')}, {new} new"
+        tracks, new = scanned_songs(job)
+        message = f"{plural(tracks, 'track')} indexed"
+        if isinstance(new, int) and new < tracks:
+            message = f"{plural(tracks, 'track')}, {number(new)} new"
     elif kind in CRATE_JOBS:
         tracks = result.get("selected_count")
         message = f"Crate built: {plural(int(succeeded if tracks is None else tracks), 'track')}"
@@ -584,6 +586,65 @@ def job_headline(kind: str, job: dict) -> str:
         gaps = [f"{counts[state]} {state}" for state in ("failed", "skipped") if counts.get(state)]
         message += ", " + (" and ".join(gaps) if gaps else "with gaps")
     return message
+
+
+def scanned_songs(job: dict) -> tuple[int, int | None]:
+    """A scan's songs and new songs, as the library counts them: a second copy of a song is
+    no new track. Services before 0.1.0a16 count files."""
+    counts = job.get("counts") or {}
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    if isinstance(result.get("recordings"), int) and isinstance(result.get("new_recordings"), int):
+        return result["recordings"], result["new_recordings"]
+    new = result.get("new_tracks")
+    return int(counts.get("succeeded", 0)), new if isinstance(new, int) else None
+
+
+def follow_scans(term: Terminal, client, jobs: list[dict]) -> None:
+    """`djlib scan` over several music folders: each folder's scan followed in turn, then one
+    result ("✓ 23 tracks in 2 folders, 0 new") and one Next block. A scan that failed or left
+    files out keeps its own card. Exits with the worst outcome, as `jobs wait` would."""
+    done = []
+    for job in jobs:
+        followed = follow(term, client, job)
+        if followed.detached:
+            job_card(term, followed.job, detached=True)
+            exit_for_job(followed.job, detached=True)
+        done.append(followed.job)
+    troubled = [
+        job
+        for job in done
+        if job.get("state") != "completed" or job.get("outcome") == "completed_with_gaps"
+    ]
+    clean = [job for job in done if job not in troubled]
+    if clean:
+        songs = [scanned_songs(job) for job in clean]
+        tracks = sum(count for count, _ in songs)
+        new = [fresh for _, fresh in songs]
+        if len(clean) == len(done):
+            # A song in two folders is one track, as the library counts it.
+            with contextlib.suppress(AppError, KeyError, TypeError, ValueError):
+                tracks = int(client.request("GET", "/summary")["result"]["tracks"])
+        where = plural(len(clean), "folder")
+        message = f"{plural(tracks, 'track')} indexed in {where}"
+        if all(isinstance(n, int) for n in new) and sum(new) < tracks:
+            message = f"{plural(tracks, 'track')} in {where}, {number(sum(new))} new"
+        status_line(term, "ok", message)
+        skipped: Counter = Counter()
+        for job in clean:
+            skipped.update((job.get("result") or {}).get("skipped_files") or {})
+        fields(term, job_result_rows(term, "scan", {"skipped_files": dict(skipped)}))
+    for job in troubled:
+        job_card(term, job)
+    if not troubled:
+        next_steps(term, job_next_steps(term, done[-1]))
+    codes = [0]
+    for job in done:
+        try:
+            exit_for_job(job)
+        except typer.Exit as exited:
+            codes.append(exited.exit_code)
+    if max(codes):
+        raise typer.Exit(max(codes))
 
 
 def job_card(term: Terminal, job: dict, *, detached: bool = False, timed_out: bool = False):

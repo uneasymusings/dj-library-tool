@@ -791,17 +791,10 @@ def scan(
     if len(replies) == 1:
         emit(replies[0])
         return
-    # In a terminal, follow each folder's scan in turn and exit with the worst outcome.
-    code = 0
-    for reply in replies:
-        try:
-            emit(reply)
-        except typer.Exit as exited:
-            if exited.exit_code == 130:
-                raise
-            code = max(code, exited.exit_code)
-    if code:
-        raise typer.Exit(code)
+    # In a terminal, follow each folder's scan in turn, then say it once: one result and one
+    # Next block, exiting with the worst outcome.
+    print_warnings(term, [warning for reply in replies for warning in reply.get("warnings", [])])
+    views.follow_scans(term, local, [reply["result"] for reply in replies])
 
 
 @app.command(hidden=True)
