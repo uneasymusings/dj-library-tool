@@ -30,18 +30,13 @@ The set (22)
 
   Owned under another spelling: #2 Robert Glasper · …
 
-  From MixesDB: #3, #5, #8, #9, #10, #11, #13, #15, #16, #17, #18, #21, #22
-
-  Likely and weak lines are worth a listen before you play them.
-  You own another mix of 1 song; djlib only counts the exact mix.
-
 Next
   → Put it in rekordbox        djlib rekordbox push ab33dc73
   → Or straight onto your USB  djlib rekordbox usb ab33dc73
   → Your shopping list (7)     djlib requests report 7d3a8f2d
 ```
 
-Real output, trimmed (rows 5–15 and 17–21, and a few long lines).
+Real output, trimmed.
 
 ## Three ways in
 
@@ -58,25 +53,25 @@ Leave out `--no-rekordbox` and djlib also makes the rekordbox playlist; add `--u
 | You have | Run | You get |
 | --- | --- | --- |
 | **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing or has IDs. |
-| **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command to check them (your last 30 days first, when you have more than 100). |
-| **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line. From 1001Tracklists: type `djlib set 'LINK' --tracklist paste` with the set's YouTube or SoundCloud link, then copy the tracklist on the 1001Tracklists page and press Enter. |
-| **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads web copies after asking: stream quality, so buy the real file for the club. |
+| **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command to check them, last 30 days first. |
+| **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line, copied from anywhere. From 1001Tracklists, add the set's link: `djlib set 'LINK' --tracklist paste`. |
+| **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads stream-quality web copies after asking; buy the real file for the club. |
 | **rekordbox and USB** (Mac) | `djlib set 'LINK' --usb` | A rekordbox playlist in set order. You click it once; rekordbox exports it, and djlib reads the stick back to check every track, in order, byte for byte. |
 
-`≈ Radio Edit` means you own another mix. djlib counts only the exact mix, so it stays out of the crate; drag yours in if you play it. `? maybe yours` means you have a file with the same title and mix under another artist name (Robert Glasper for Robert Glasper Experiment, common with Shazams). It stays off the shopping list; if it's the song, pick Use this on the review page.
+`≈ Radio Edit`: you own another mix. Only the exact mix goes in the crate; drag yours in if you play it. `? maybe yours`: a file with the same title and mix under another artist name, common with Shazams. It stays off the shopping list; if it's the song, pick Use this on the review page.
 
 ### How djlib drives rekordbox
 
 - **Only its own menus.** djlib never touches rekordbox's database, and stops if the right dialog isn't in front.
 - **One click for USB.** You pick the playlist; djlib checks it's the right one.
 - **Your screen stays yours.** `--when-idle 60` waits until you step away.
-- **Read back, not trusted.** djlib checks the stick's own library, the one CDJs load. rekordbox writes the stick; djlib never does.
+- **Read back, not trusted.** djlib checks the stick's own library, the one CDJs load; it never writes the stick.
 
 First time: allow the app you run djlib in under System Settings → Privacy & Security → Accessibility.
 
 ### In your browser
 
-`djlib ui` opens a private page with your sets, crates and library. Times open the set at that moment, and a set's crate is one click away.
+`djlib ui` opens a private page with your sets, crates and library; times open the set at that moment.
 
 ![djlib's review page: a set with times, how sure, and what you own](docs/images/review-page-set.png)
 
