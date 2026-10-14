@@ -125,7 +125,8 @@ def register_mcp(server, request, read, write, intent):
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_request(request_id: str, after: int = 0, limit: int = 100) -> ResponseEnvelope:
-        """Page through durable song-request coverage; source selection is not acquisition."""
+        """Read a saved set's songs page by page: owned, missing, another mix the user owns,
+        maybe theirs, or an ID, with candidates. A picked source is not a download."""
         return await request(
             "GET", f"/requests/{request_id}", params={"after": after, "limit": limit}
         )
@@ -134,7 +135,8 @@ def register_mcp(server, request, read, write, intent):
     async def djlib_refresh_request(
         request_id: str, revision: int, item_ids: list[str] | None = None
     ) -> ResponseEnvelope:
-        """Refresh owned matches and availability against the current ledger revision."""
+        """Check a saved set against the user's music again (after a scan or download).
+        revision: the set's current revision, from djlib_request."""
         body = {"revision": revision}
         if item_ids is not None:
             body["item_ids"] = item_ids
@@ -144,24 +146,24 @@ def register_mcp(server, request, read, write, intent):
     async def djlib_resolve_request(
         request_id: str, item_id: str, resolution: RequestResolution
     ) -> ResponseEnvelope:
-        """Select a source or explicitly satisfy a request with exact catalog identity evidence."""
+        """Pick the file (exact catalog IDs) or the source for one song in a saved set."""
         return await request(
             "POST", f"/requests/{request_id}/items/{item_id}", resolution.model_dump(mode="json")
         )
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_request_report(request_id: str, revision: int) -> ResponseEnvelope:
-        """Save a revision-specific missing-track report inside the workspace; no downloads."""
+        """Save the report of a saved set's missing songs in djlib's folder; no downloads."""
         return await request("POST", f"/requests/{request_id}/report", {"revision": revision})
 
     @server.tool(structured_output=True, annotations=write)
     async def djlib_collect_request(
         request_id: str, revision: int, name: str | None = None
     ) -> ResponseEnvelope:
-        """Queue an ordered collection of the request list's owned tracks, in list order.
+        """Make the crate: a saved set's owned songs, in set order.
 
-        Missing, ambiguous and unknown songs stay in the request. Wait for the returned job,
-        then use its collection_id.
+        Missing songs, IDs and owned songs still to check (two copies, a file not found) stay
+        out. Wait for the returned job, then use its collection_id (the crate).
         """
         body = {"revision": revision}
         if name is not None:

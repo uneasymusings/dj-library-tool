@@ -321,18 +321,17 @@ def build_server(workspace: Workspace) -> MCPServer:
     ) -> ResponseEnvelope:
         """List the songs the user Shazamed, newest first, with the total (read-only).
 
-        For recent songs ("this month"), check them with `djlib set SPEC --no-rekordbox` in
-        the shell, SPEC being result.recent_spec (the last 30 days, e.g. shazam:2026-09-13) or
-        shazam:START-DATE. `djlib set shazam` alone is the whole history, oldest first, 1,000
-        songs at a time; its result.shazam.next_spec brings the rest.
-
         By default from this Mac's Music Recognition history (which holds the iPhone's Shazams
         when Shazam syncs with iCloud). source: apple-music (opens Music) or the path of an
         iPhone backup folder, ShazamDataModel.sqlite or a CSV export. since: a date such as
-        2026-10-01, or new for those since the last `djlib set shazam:new`. To check them
-        against the user's music, run `djlib set SPEC --no-rekordbox` in the shell with the
-        result's spec (e.g. shazam:2026-10-01); without --no-rekordbox it also makes a rekordbox
-        playlist.
+        2026-10-01, or new for those since the last import from this Mac.
+
+        To check them against the user's music, run `djlib set SPEC --no-rekordbox` in the
+        shell, SPEC being the result's spec, or result.recent_spec for the last 30 days (e.g.
+        shazam:2026-09-13); without --no-rekordbox it also makes a rekordbox playlist. `djlib
+        set shazam` alone is the whole history, oldest first, 1,000 songs at a time; its
+        result.shazam.next_spec brings the rest. Without a shell, send the songs to
+        djlib_create_request.
         """
         from djlib.interfaces import shazam_cli
         from djlib.sources import shazam_history
@@ -355,7 +354,7 @@ def build_server(workspace: Workspace) -> MCPServer:
 
     @server.tool(structured_output=True, annotations=read)
     async def djlib_job(job_id: str) -> ResponseEnvelope:
-        """Read state, counts, partial outcome and export paths without blocking.
+        """Read a job's state, counts, result so far and the files it wrote, without waiting.
 
         An identify job shows result.progress while it runs, then the tracklist: tracks with
         status, evidence and ID candidates (tracklist_json has the full evidence). Its labels,
