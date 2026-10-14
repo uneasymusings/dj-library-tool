@@ -283,6 +283,7 @@ def note(term: Terminal, message: str) -> None:
 MIN_FLEX = 6
 READABLE_FLEX = 12  # optional columns drop before flexible text gets narrower than this
 TITLE_WIDTH = 24  # ... or a title or name narrower than this; the mix name tells versions apart
+NAME_WIDTH = 40  # a set's name ("Kaytranada @ Boiler Room Montreal 2013-09-27") before its code
 GUTTER = 3  # cell padding on both sides plus SIMPLE_HEAD's blank divider
 
 
@@ -335,11 +336,13 @@ class Grid:
                 for cell in (row[index] for row in self.rows)
             )
 
-        # An optional column with nothing in it ("You own" when nothing is owned) takes no room.
+        # An optional column with nothing in it ("You own" when nothing is owned) takes no room;
+        # a ``hide_blank`` one goes only then, never for want of room (a count column, so the
+        # counts still add up).
         active = [
             index
             for index, (_, spec) in enumerate(self.columns)
-            if not ("drop" in spec and self.rows and blank(index))
+            if not (("drop" in spec or spec.get("hide_blank")) and self.rows and blank(index))
         ]
         # Titles and names keep about 24 cells; optional columns go first.
         floor = [
@@ -3346,38 +3349,36 @@ def requests_list(term: Terminal, result: dict) -> None:
         return
     # Services before 0.1.0a16 say only how many songs each set has.
     counted = any(isinstance(row.get("counts"), dict) for row in rows)
-    # Owned songs waiting on a pick or a file: counted as `djlib set` counts them.
-    checking = counted and any(set_counts(row)["to_check"] for row in rows)
-    # Files under other artist credits the DJ can confirm.
-    maybe = counted and any(set_counts(row)["maybe"] for row in rows)
+    # A count column shows whenever a set has that count, so each row's counts add up; one
+    # nobody has goes. The name keeps its room before when it was checked and its code do.
+    count = {"justify": "right", "hide_blank": True}
     grid = table(
-        ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
+        ("Name", {"style": "heading", "overflow": "ellipsis", "readable": NAME_WIDTH}),
         *(
             [
                 ("Owned", {"justify": "right"}),
-                *(
-                    [("To check", {"justify": "right", "style": "warn", "drop": 4})]
-                    if checking
-                    else []
-                ),
-                *([("Maybe", {"justify": "right", "style": "warn", "drop": 4})] if maybe else []),
-                ("Other mix", {"justify": "right", "style": "warn", "drop": 3}),
-                ("Missing", {"justify": "right", "style": "warn"}),
-                ("IDs", {"justify": "right", "style": "muted", "drop": 2}),
+                ("To check", {**count, "style": "warn"}),
+                ("Maybe", {**count, "style": "warn"}),
+                ("Other mix", {**count, "style": "warn"}),
+                ("Missing", {**count, "style": "warn"}),
+                ("IDs", {**count, "style": "muted"}),
             ]
             if counted
             else [("Songs", {"justify": "right"})]
         ),
         ("Checked", {"style": "muted", "drop": 1}),
-        ("ID", {"style": "muted"}),
+        # A set's short code, for `djlib requests get CODE`; "ID" would read as an unknown song.
+        ("Code", {"style": "muted", "drop": 2}),
+        gutter=2,
     )
+    names = Counter(row.get("name") or "" for row in rows)
     for row in rows:
         counts = set_counts(row)
         cells = (
             [
                 f"{number(counts['owned'] - counts['to_check'])} of {number(counts['songs'])}",
-                *([number(counts["to_check"] or "")] if checking else []),
-                *([number(counts["maybe"] or "")] if maybe else []),
+                number(counts["to_check"] or ""),
+                number(counts["maybe"] or ""),
                 number(counts["other_mix"] or ""),
                 number(counts["missing"] or ""),
                 number(counts["ids"] or ""),
@@ -3385,13 +3386,20 @@ def requests_list(term: Terminal, result: dict) -> None:
             if counted
             else [str(row.get("total_items", ""))]
         )
-        grid.add_row(
-            row.get("name") or "",
-            *cells,
-            ago(row.get("updated_at") or row.get("created_at")),
-            short_id(row.get("request_id")),
-        )
+        checked = ago(row.get("updated_at") or row.get("created_at"))
+        code = short_id(row.get("request_id"))
+        name: Text | Group = Text(row.get("name") or "")
+        if names[row.get("name") or ""] > 1:
+            # Two sets under one name (pastes of one tracklist): when, and the code, tell them
+            # apart, whichever columns fit.
+            when = Text(
+                f"checked {checked} · {code}", style="muted", overflow="fold", no_wrap=False
+            )
+            name = Group(name, when)
+        grid.add_row(name, *cells, checked, code)
     term.out.print(grid)
+    if counted and "Code" not in grid.shown:
+        note(term, "Open one: djlib requests get last, or its name in quotes")
     page_hint(term, result, "set", len(rows))
 
 
