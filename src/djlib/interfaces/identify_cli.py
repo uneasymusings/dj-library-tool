@@ -2,7 +2,7 @@
 
 The background service does the listening (an identify job); this command shows how far it
 got and then the tracklist. `djlib set LINK` uses the same identification when a set's own
-tracklist is missing or has IDs.
+tracklist is missing, has IDs or names too few songs for the set.
 """
 
 import codecs
@@ -43,6 +43,9 @@ TRACKLIST_BYTES = 1_000_000
 LISTEN_TIME = "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy"
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
+# A published tracklist names a song for every 12 minutes of a set at least (an hour of house
+# has 12 to 20); fewer leaves most of the set out, so `djlib set LINK` listens.
+MINUTES_PER_SONG = 12
 
 
 class Recognizer(StrEnum):
@@ -656,12 +659,31 @@ def listen_fix(error: AppError) -> str | None:
     return INSTALLER
 
 
+def too_few(text: str, url: str, duration=None) -> int | None:
+    """How many songs a published tracklist names when that is too few for the set (one, or
+    fewer than one per ``MINUTES_PER_SONG`` minutes of ``duration`` seconds), else None."""
+    from djlib.application.tracklists import parse_tracklist
+
+    songs = len(parse_tracklist(text, url)[0]) if text.strip() else 0
+    if not songs:
+        return None
+    length = duration if isinstance(duration, int | float) and duration > 0 else 0
+    return songs if songs == 1 or songs * MINUTES_PER_SONG * 60 < length else None
+
+
 def listen_reason(
-    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True
+    choice: bool | None,
+    text: str,
+    url: str,
+    workspace,
+    *,
+    complete: bool = True,
+    duration=None,
 ) -> str | None:
     """Why `djlib set LINK` listens to the set, or None when it doesn't: "asked" (--identify),
     or by default "no_tracklist", "incomplete" (MixesDB marks some tracklists so), "ids" when
-    the tracklist has IDs, or "identified_before" (that costs nothing)."""
+    the tracklist has IDs, "sparse" when it names too few songs for the set's ``duration``
+    (``too_few``), or "identified_before" (that costs nothing)."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
@@ -674,17 +696,25 @@ def listen_reason(
     items, _ = parse_tracklist(text, url)
     if any(item.kind == "unknown" for item in items):
         return "ids"
+    if too_few(text, url, duration):
+        return "sparse"
     return "identified_before" if finished(workspace, url) is not None else None
 
 
-def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
+def wanted(
+    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True, duration=None
+) -> bool:
     """Whether `djlib set LINK` listens to the set (see ``listen_reason``)."""
-    return listen_reason(choice, text, url, workspace, complete=complete) is not None
+    found = listen_reason(choice, text, url, workspace, complete=complete, duration=duration)
+    return found is not None
 
 
-def listening_notice(reason: str | None, text: str, url: str, workspace) -> str | None:
+def listening_notice(
+    reason: str | None, text: str, url: str, workspace, *, mixesdb: bool = False
+) -> str | None:
     """What `djlib set LINK` says before it listens: why, and how long that takes. None when
-    there is nothing new to hear (a set identified before shows at once)."""
+    there is nothing new to hear (a set identified before shows at once). ``mixesdb`` says the
+    tracklist is MixesDB's, not the description's."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
@@ -704,9 +734,26 @@ def listening_notice(reason: str | None, text: str, url: str, workspace) -> str 
         )
     elif reason == "incomplete":
         why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
+    elif reason == "sparse":
+        names = "MixesDB lists" if mixesdb else "The description names"
+        songs = plural(len(parse_tracklist(text, url)[0]), "song")
+        why = f"{names} only {songs}, so djlib is listening to the set to find the rest."
     else:
         return f"djlib is listening to the set. {LISTEN_TIME}; {carry_on}."
     return f"{why} {LISTEN_TIME}; --no-identify skips it."
+
+
+def sparse_warning(text: str, url: str, duration=None, *, mixesdb: bool = False) -> str | None:
+    """What `djlib set LINK` says when it uses a tracklist with too few songs for the set
+    (``too_few``) without listening, else None."""
+    songs = too_few(text, url, duration)
+    if songs is None:
+        return None
+    names = "MixesDB lists" if mixesdb else "The description names"
+    length = ""
+    if isinstance(duration, int | float) and duration >= 60:
+        length = f" for this {round(duration / 60)}-minute set"
+    return f"{names} only {plural(songs, 'song')}{length}: songs may be missing."
 
 
 def listen(
