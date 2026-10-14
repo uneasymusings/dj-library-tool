@@ -90,7 +90,8 @@ def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     assert cli.ADVANCED_URL.startswith("https://github.com/")
     tagline = "Every track in a set, checked against your music, into rekordbox and onto USB."
     lines = [line.strip() for line in reply.output.splitlines()]
-    assert "⣠⣴⣿⣦⣄ djlib" in lines and tagline in lines
+    # Windows runners draw Rich one column narrower (no VT console), so it may wrap there.
+    assert "⣠⣴⣿⣦⣄ djlib" in lines and tagline in epilog
     assert max(len(line) for line in reply.output.splitlines()) <= 80
 
 
@@ -362,7 +363,7 @@ def test_lookups_and_groups_do_the_obvious_thing(application, library_http, audi
         assert [t["title"] for t in json.loads(reply.stdout)["result"]["tracks"]] == ["Mirage"]
     nothing = run("library", "daft", "punk", pretty=True, workspace=root)
     assert nothing.exit_code == 0 and 'No tracks match  "daft punk"' in nothing.stdout
-    assert "search" not in run("--help").output.split("Your library", 1)[1].split("─╯", 1)[0]
+    assert all("search" not in names for names in visible_panels().values())
     # `djlib crate` is the newest crate.
     crate = run("crate", workspace=root)
     assert crate.exit_code == 0, crate.output

@@ -149,6 +149,7 @@ def run_page(*expressions):
         ["node", "-e", HARNESS, str(WEB.joinpath("app.js")), json.dumps(expressions)],
         capture_output=True,
         text=True,
+        encoding="utf-8",  # node writes UTF-8; Windows would read cp1252
         timeout=60,
         check=True,
     )

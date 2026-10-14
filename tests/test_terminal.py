@@ -106,7 +106,7 @@ def test_pretty_errors_use_stderr_with_a_recovery_hint(tmp_path):
     assert "Tell it where your music is" in reply.stderr
     assert "no djlib workspace" not in reply.stderr
     # The command to paste, as doctor gives it: no placeholder to fill in.
-    assert "init ~/Music" in reply.stderr or "init /" in reply.stderr
+    assert f"init {terminal.shell_path(Path.home() / 'Music')}" in reply.stderr
     assert "--allow-root" not in reply.stderr and "PATH" not in reply.stderr
     assert "scan" in reply.stderr
     captured = invoke("library", workspace=tmp_path / "missing")

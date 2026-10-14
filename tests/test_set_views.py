@@ -407,6 +407,7 @@ def test_times_link_to_that_moment_where_the_terminal_can():
         file=io.StringIO(),
         force_terminal=True,
         color_system="truecolor",
+        legacy_windows=False,  # a Windows runner's stdout is no VT console
         width=120,
         theme=terminal.THEME,
     )
@@ -774,7 +775,8 @@ def test_errors_suggest_the_real_folder_and_the_first_step(application, tmp_path
     assert f"djlib roots add {terminal.shell_path(outside.resolve())}" in err
     terminal.render_error(sized(200), {"code": "WORKSPACE_REQUIRED", "message": "Not yet."})
     err = capsys.readouterr().err
-    assert "djlib init ~/Music" in err and "djlib scan" in err and "PATH" not in err
+    first = f"djlib init {terminal.shell_path(Path.home() / 'Music')}"  # ~/Music off Windows
+    assert first in err and "djlib scan" in err and "PATH" not in err
 
 
 def test_listening_to_nothing_named_suggests_pasting_a_tracklist():
