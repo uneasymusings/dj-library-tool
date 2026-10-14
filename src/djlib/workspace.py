@@ -63,14 +63,13 @@ class Workspace:
     def initialize(self, allowed_roots: list[Path] | None = None) -> WorkspaceConfig:
         if self.config_path.exists():
             config = self.config()
+            # Adding a folder only lets djlib read it, so init with a new one just adds it.
+            # (ROOTS_NOT_UPDATED, which earlier releases raised here, is no longer used.)
             if allowed_roots and any(
                 str(p.expanduser().resolve()) not in config.allowed_roots for p in allowed_roots
             ):
-                raise AppError(
-                    "ROOTS_NOT_UPDATED",
-                    "This workspace exists. Use 'roots add PATH' to explicitly add folders.",
-                    409,
-                )
+                self.add_roots(allowed_roots)
+                return self.config()
             return config
         if self.root.exists() and any(self.root.iterdir()):
             raise AppError("WORKSPACE_NOT_EMPTY", "Choose an empty directory for a new workspace.")

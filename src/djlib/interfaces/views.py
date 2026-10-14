@@ -986,6 +986,20 @@ def version_view(term: Terminal, result: dict) -> None:
 def init_view(term: Terminal, result: dict) -> None:
     config = result.get("config") or {}
     allowed = config.get("allowed_roots") or []
+    added = result.get("added") or []
+    if result.get("created") is False and added:
+        # init on an existing setup: the new folders are what changed.
+        headline = f"Added {short_path(added[0])} to your music folders"
+        if len(added) == 1 and cell_len(headline) + 2 <= term.out.width:
+            status_line(term, "ok", headline)
+        else:
+            # Several folders, or one long path: each on its own line.
+            many = f"Added {len(added)} music folders"
+            status_line(term, "ok", many if len(added) > 1 else "Added to your music folders")
+            for root in added:
+                term.out.print(indented(path_text(root)))
+        next_steps(term, [("Index the new music", ("scan",))])
+        return
     header(
         term, "Workspace ready", "set as your default" if result.get("default_workspace") else ""
     )
@@ -997,9 +1011,9 @@ def init_view(term: Terminal, result: dict) -> None:
         ],
     )
     steps = (
-        [("Index your music", ("scan",) if len(allowed) == 1 else ("scan", "PATH"))]
+        [("Index your music", ("scan",))]
         if allowed
-        else [("Allow a music folder", ("roots", "add", "PATH"))]
+        else [("Add your music folder", ("init", Path.home() / "Music"))]
     )
     steps.append(("Check your setup", ("doctor",)))
     next_steps(term, steps)

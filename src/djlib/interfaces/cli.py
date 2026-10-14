@@ -277,15 +277,28 @@ def configure(
 @handled
 def init(
     ctx: typer.Context,
+    folders: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            metavar="FOLDER...",
+            help="Your music folders, e.g. ~/Music; drag a folder in to type it.",
+        ),
+    ] = None,
     allow_root: list[Path] = typer.Option(
-        None, "--allow-root", help="A music folder djlib may read; repeatable."
+        None, "--allow-root", help="Same as a folder argument; repeatable."
     ),
 ) -> None:
-    """Create a workspace and allow your music folders.
+    """Set up djlib and allow your music folders.
 
     djlib only reads inside these folders and never moves or retags your music.
+
+    Run it again with another folder to add that one.
     """
-    config = ctx.obj.initialize(allow_root)
+    folders = [*(folders or []), *(allow_root or [])]
+    # On an existing workspace the folders are added; say which ones are new.
+    before = ctx.obj.config().allowed_roots if ctx.obj.config_path.is_file() else None
+    config = ctx.obj.initialize(folders)
+    added = [root for root in config.allowed_roots if before is None or root not in before]
     # The first workspace becomes the default, so later commands need no --workspace.
     remembered = False
     if not os.environ.get("DJLIB_WORKSPACE") and remembered_workspace() is None:
@@ -296,6 +309,8 @@ def init(
             "workspace": str(ctx.obj.root),
             "config": config.model_dump(mode="json"),
             "default_workspace": remembered or ctx.obj.root == Workspace(default_workspace()).root,
+            "created": before is None,
+            "added": added,
         }
     )
     reply["warnings"] = media_tool_warnings()
