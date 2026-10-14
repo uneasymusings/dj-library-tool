@@ -801,6 +801,51 @@ async def test_and_for_ampersand_and_a_remixers_country_tag_still_match(
 
 
 @pytest.mark.parametrize(
+    ("artist", "spellings"),
+    [
+        ("De La Soul", ("Me, Myself & I", "Me Myself and I")),
+        ("Fahlberg", ("Bad Love (Antdot & Maz Remix)", "Bad Love (Antdot & Maz (BR) Remix)")),
+    ],
+)
+async def test_a_file_spelled_as_asked_wins_over_a_folded_spelling(
+    ledger_app, audio_factory, artist, spellings
+):
+    """A DJ with both a Beatport and a Bandcamp copy keeps the song in the crate: the copy
+    spelled as asked is the match, as before "and" and country tags were folded."""
+    tracks = [
+        await owned(
+            ledger_app,
+            audio_factory,
+            name=f"copy{n}",
+            frequency=300 + 200 * n,
+            artist=artist,
+            title=title,
+        )
+        for n, title in enumerate(spellings)
+    ]
+    result = create(ledger_app, [named(artist=artist, title=title) for title in spellings])
+    for item, track, other in zip(result["items"], tracks, reversed(tracks), strict=True):
+        assert item["state"] == "satisfied"
+        assert item["accepted"]["recording_id"] == track["recording_id"]
+        assert item["accepted"]["identity_match"] == "exact_labels"
+        # The other spelling is still listed, but not checked or counted as a second copy.
+        (folded,) = [c for c in item["candidates"] if c["recording_id"] == other["recording_id"]]
+        assert folded["identity_match"] == "equivalent_labels"
+        assert folded["availability"] == "not_checked"
+    # The DJ may still pick the other copy.
+    chosen = resolve(
+        ledger_app,
+        result,
+        action="satisfy",
+        recording_id=tracks[1]["recording_id"],
+        asset_revision_id=tracks[1]["asset_revision_id"],
+        notes="The DJ prefers this copy",
+    )["items"][0]
+    assert chosen["state"] == "satisfied"
+    assert chosen["accepted"]["asset_revision_id"] == tracks[1]["asset_revision_id"]
+
+
+@pytest.mark.parametrize(
     ("catalog", "requested", "you_own"),
     [
         (("Lumen", "Rain"), ("Lumen", "Rain (VIP)"), ["Rain"]),
