@@ -151,7 +151,7 @@ def _load(app, request_id):
 def _revision(ledger, revision):
     if ledger["revision"] != revision:
         raise AppError(
-            "REQUEST_STALE", "Read the current request revision before changing it.", 409
+            "REQUEST_STALE", "The set changed in the meantime; read it again, then retry.", 409
         )
 
 
@@ -166,7 +166,7 @@ def _save(app, ledger):
             .values(items=ledger["items"], revision=ledger["revision"] + 1, updated_at=timestamp())
         )
         if result.rowcount != 1:
-            raise AppError("REQUEST_STALE", "Another update changed the request evidence.", 409)
+            raise AppError("REQUEST_STALE", "Another change to the set came first; try again.", 409)
 
 
 def _catalog_candidates(app, item, verification, recording_id=None, asset_revision_id=None):
@@ -932,7 +932,7 @@ def collect_request(app, request_id: str, revision: int, name: str | None = None
     if not references:
         raise AppError(
             "COLLECTION_EMPTY",
-            "None of these songs are owned yet. Add music, then refresh the request list.",
+            "None of these songs are owned yet. Add music, then check the set again.",
         )
     title = (name or ledger["name"]).strip()
     # Keyed by name and owned tracks, not revision: re-checking an unchanged list reuses its

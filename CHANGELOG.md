@@ -24,6 +24,7 @@
   - `SHAZAM_NOTHING_NEW`'s message and the 1,000-song Shazam warning no longer contain a command: read `details.next` and `result.shazam.next_spec`. `shazam list` and `djlib_shazam_history` list the latest Shazam first.
   - `djlib_identify_set`'s `tracklist_source` defaults to `file` (it was `1001tracklists`), and repeating a key returns the same summary as `djlib_job`.
   - `WORKSPACE_REQUIRED` and `SOURCE_NOT_ALLOWED` have new messages; the codes are unchanged. The terminal no longer prints error codes.
+  - Messages a DJ can meet speak of sets and crates: `NOT_FOUND` reads “That set was not found.” (it was “Request list …”), an unknown or ambiguous set name says “No set matches …” or “matches 2 sets: Shazam (5bd95c9b); …” with the IDs the terminal prints, and `COLLECTION_EMPTY` and `REQUEST_STALE` say what to do in those words. `djlib rekordbox push --help` shows `CRATE` and `--request SET`; `--revision` and `djlib init --allow-root` still work but are left out of help; `djlib ui` and the review page say “This link is private to you; it works while djlib is running.”
   - An ID line needs only its label; a time or link is optional. A named line of a pasted or file tracklist keeps its time (`timestamp`), so those lists get new keys; a set checked again stays the same set.
   - Captured output is one line of JSON (`--json` at a terminal stays indented).
   - `GET /requests` (`requests list`, `djlib_requests`, the review page) lists sets by when they were last checked (`updated_at`), not made.

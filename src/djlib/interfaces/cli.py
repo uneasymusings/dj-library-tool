@@ -318,8 +318,9 @@ def init(
             help="Your music folders, e.g. ~/Music; drag a folder in to type it.",
         ),
     ] = None,
+    # Kept for scripts from before folders were arguments.
     allow_root: list[Path] = typer.Option(
-        None, "--allow-root", help="Same as a folder argument; repeatable."
+        None, "--allow-root", help="Same as a folder argument; repeatable.", hidden=True
     ),
 ) -> None:
     """Set up djlib and allow your music folders.
@@ -395,10 +396,14 @@ def status(ctx: typer.Context) -> None:
 def use(
     ctx: typer.Context,
     path: Annotated[
-        Path | None, typer.Argument(help="Workspace to use by default; omit to show it.")
+        Path | None,
+        typer.Argument(
+            metavar="FOLDER",
+            help="A djlib folder made by djlib init; leave it out to see which one is used.",
+        ),
     ] = None,
 ) -> None:
-    """Choose the default workspace."""
+    """Choose which djlib folder (your sets and crates) to use."""
     if path is not None:
         workspace = Workspace(path)
         workspace.config()  # only initialized workspaces can become the default
@@ -675,7 +680,7 @@ def ui(
 ) -> None:
     """Open the review page: your sets, crates and library.
 
-    The link includes this workspace's local access token; keep it to yourself.
+    The link is private to you; it works while djlib is running.
     """
     from urllib.parse import urlencode
 

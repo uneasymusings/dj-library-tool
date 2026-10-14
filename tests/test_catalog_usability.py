@@ -162,7 +162,7 @@ def test_listing_errors_are_specific(application, tmp_path):
     assert error.value.code == "INPUT_INVALID"
     with pytest.raises(AppError) as missing:
         requests.get_request(application, "request_missing")
-    assert missing.value.message == "Request list was not found."
+    assert missing.value.message == "That set was not found."
 
 
 def test_playlist_labels_keep_versions():

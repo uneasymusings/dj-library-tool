@@ -308,6 +308,7 @@ def register_commands(app, client, emit, handled, panel=None):
     app.add_typer(requests, name="requests", rich_help_panel=panel)
     app.add_typer(organize, name="organize", hidden=True)
     request_help = "Set name, ID start (6+ characters) or last."
+    # --revision is for scripts and assistants (the JSON has it); a DJ never needs it.
     revision_help = "The set's revision; defaults to the current one."
 
     def emit_list(local, reply: dict) -> None:
@@ -380,7 +381,7 @@ def register_commands(app, client, emit, handled, panel=None):
         ctx: typer.Context,
         request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
         name: str | None = typer.Option(None, help="Crate name; defaults to the set's."),
-        revision: int | None = typer.Option(None, min=1, help=revision_help),
+        revision: int | None = typer.Option(None, min=1, help=revision_help, hidden=True),
     ):
         """Make a crate of the songs you own in a set, in set order."""
         local = client(ctx)
@@ -397,7 +398,7 @@ def register_commands(app, client, emit, handled, panel=None):
     def request_refresh(
         ctx: typer.Context,
         request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
-        revision: int | None = typer.Option(None, min=1, help=revision_help),
+        revision: int | None = typer.Option(None, min=1, help=revision_help, hidden=True),
         item_id: list[str] = typer.Option(None, "--item-id", help="Only this song; repeatable."),
     ):
         """Check a set against your music again, e.g. after a scan."""
@@ -420,7 +421,7 @@ def register_commands(app, client, emit, handled, panel=None):
     def request_report(
         ctx: typer.Context,
         request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
-        revision: int | None = typer.Option(None, min=1, help=revision_help),
+        revision: int | None = typer.Option(None, min=1, help=revision_help, hidden=True),
     ):
         """Your shopping list: the missing songs, with Beatport, Bandcamp and Traxsource links.
 
@@ -449,7 +450,10 @@ def register_commands(app, client, emit, handled, panel=None):
         item_id: str,
         file: Path = typer.Option(..., help="JSON resolution (djlib schemas)."),
         revision: int | None = typer.Option(
-            None, min=1, help="The set's revision; defaults to the file's, else the current one."
+            None,
+            min=1,
+            help="The set's revision; defaults to the file's, else the current one.",
+            hidden=True,
         ),
     ):
         """Pick a source or library match for one song in a set."""

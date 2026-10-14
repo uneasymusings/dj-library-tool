@@ -41,7 +41,9 @@ def new_id(prefix: str) -> str:
 ENTITY_NAMES = {
     "AssetRevision": "Asset revision",
     "JobItem": "Job item",
-    "RequestLedger": "Request list",
+    # What a DJ calls them: NOT_FOUND reaches the terminal and the review page.
+    "Collection": "That crate",
+    "RequestLedger": "That set",
 }
 
 

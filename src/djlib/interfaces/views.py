@@ -1143,8 +1143,7 @@ def review_page(term: Terminal, result: dict) -> None:
     header(term, "Review page", "opened in your browser" if result.get("opened") else "")
     term.out.print(Text("  " + (result.get("url") or ""), style="path"), soft_wrap=True)
     term.out.print()
-    note(term, "The link contains this workspace's access token. Keep it to yourself.")
-    note(term, "It works while djlib's background service is running.")
+    note(term, "This link is private to you; it works while djlib is running.")
 
 
 @view("status")

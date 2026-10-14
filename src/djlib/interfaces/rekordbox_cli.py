@@ -299,7 +299,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         if job["state"] != "completed":
             raise AppError(
                 "EXPORT_FAILED",
-                f"The collection could not be exported; see djlib jobs get {job['job_id']}.",
+                f"The crate could not be exported; see djlib jobs get {job['job_id']}.",
             )
         manifest = json.loads(Path(job["result"]["manifest_path"]).read_text(encoding="utf-8"))
         # A crate keeps the playlist name it got in rekordbox (e.g. "Name (2)"), so later pushes
@@ -336,7 +336,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
     def build_crate(local, request_id: str, name: str | None = None) -> str:
         """Queue `requests collect` for the current revision and return the collection ID."""
-        with status("Building a crate from the request list…"):
+        with status("Building the crate…"):
             current = local.request("GET", f"/requests/{request_id}", params={"limit": 1})
             body = {"revision": current["result"]["revision"]}
             if name is not None:
@@ -578,10 +578,13 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         ctx: typer.Context,
         collection_ids: Annotated[
             list[str] | None,
-            typer.Argument(help="Crates to push: name, ID or its first characters, or 'last'."),
+            typer.Argument(
+                metavar="CRATE",
+                help="Crates to push: name, ID or its first characters, or 'last'.",
+            ),
         ] = None,
         request: str | None = typer.Option(
-            None, "--request", help="Build a crate from this request list's owned songs first."
+            None, "--request", metavar="SET", help="Make the crate from this set first."
         ),
         verify: bool = typer.Option(
             False, "--verify", help="Also export rekordbox's XML once to check members and key."
@@ -611,8 +614,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         if request:
             ids.append(build_crate(local, resolve(local, "request", request)))
         if not ids:
-            raise AppError("INPUT_INVALID", "Name a collection ID, or pass --request ID.")
-        with status("Checking the collections' files…"):
+            raise AppError("INPUT_INVALID", "Name a crate, or pass --request SET.")
+        with status("Checking the crates' files…"):
             crates = [prepare(local, workspace, collection_id) for collection_id in ids]
 
         if when_idle:
@@ -639,7 +642,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def usb(
         ctx: typer.Context,
         collection_id: Annotated[
-            str, typer.Argument(help="The crate: name, ID or its first characters, or 'last'.")
+            str,
+            typer.Argument(
+                metavar="CRATE", help="The crate: name, ID or its first characters, or 'last'."
+            ),
         ],
         device: Path | None = typer.Option(
             None, "--device", help="Mounted USB, e.g. /Volumes/DJ_USB (found automatically)."
@@ -663,7 +669,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         local, workspace = client(ctx), ctx.obj
         collection_id = resolve(local, "collection", collection_id)
         volume = usb_target(device)
-        with status("Checking the collection's files…"):
+        with status("Checking the crate's files…"):
             crate = prepare(local, workspace, collection_id)
         into_rekordbox(local, workspace, ui, [crate])
         # Whether the playlist had to be imported first, and which earlier version it replaces.

@@ -239,7 +239,9 @@ def test_handles_report_unknown_and_ambiguous_values():
     with pytest.raises(AppError) as error:
         handles.resolve(lists, "collection", "Friday")
     assert error.value.code == "AMBIGUOUS"
-    assert "collection_abc123" in error.value.message and "collection_abc124" in error.value.message
+    # The IDs as the terminal prints them, not the long ones.
+    assert "Friday (abc12300); Friday (abc12400)" in error.value.message
+    assert "collection_" not in error.value.message and "2 crates" in error.value.message
     with pytest.raises(AppError) as error:
         handles.resolve(lists, "collection", "abc12")
     assert error.value.code == "NOT_FOUND"  # five characters is too short to be a prefix
@@ -252,7 +254,21 @@ def test_handles_report_unknown_and_ambiguous_values():
     assert error.value.code == "NOT_FOUND"
     with pytest.raises(AppError) as error:
         handles.resolve(requests, "request", "Tonight")
-    assert "djlib requests list" in error.value.message
+    assert error.value.message.startswith(
+        "No set matches “Tonight”. List them with: djlib requests."
+    )
+    assert "request list" not in error.value.message
+    # IDs alike in their first 8 characters show as many as tell them apart.
+    alike = FakeLists(
+        "request",
+        [
+            {"request_id": f"request_{hexa:0<32}", "name": "Shazam"}
+            for hexa in ("5bd95c9b1", "5bd95c9b2")
+        ],
+    )
+    with pytest.raises(AppError) as error:
+        handles.resolve(alike, "request", "Shazam")
+    assert "matches 2 sets: Shazam (5bd95c9b1000); Shazam (5bd95c9b2000)" in error.value.message
 
 
 def test_crates_and_crate_render_like_collections(application, library_http, audio_factory):
