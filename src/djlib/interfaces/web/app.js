@@ -695,7 +695,7 @@ async function library() {
   const input = h("input", {
     class: "search",
     type: "search",
-    placeholder: "Search artist, title or version",
+    placeholder: "Search artist, title or mix",
     "aria-label": "Search the library",
     autocomplete: "off",
   });

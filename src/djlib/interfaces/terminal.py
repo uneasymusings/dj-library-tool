@@ -100,7 +100,7 @@ ACTIVE_STATES = frozenset({"queued", "running"})
 DONE_ITEM_STATES = frozenset({"succeeded", "failed", "skipped", "cancelled"})
 
 JOB_LABELS = {
-    "scan": "Indexing music",
+    "scan": "Reading your music",
     "collection": "Building the crate",
     "download": "Downloading recordings",
     "export": "Writing export files",
@@ -669,9 +669,12 @@ def follow(term: Terminal, client, job: dict, timeout: float | None = None) -> F
             while True:
                 done, total = job_progress(job.get("counts") or {})
                 failed = int((job.get("counts") or {}).get("failed", 0))
-                detail = "ctrl-c: keep going in the background"
+                # Ctrl-C leaves a running job to finish by itself; a finished one needs no hint.
+                active = job.get("state") in ACTIVE_STATES
+                detail = "ctrl-c: keep going in the background" if active else ""
                 if job.get("state") == "queued" and not total:
-                    detail = "queued · " + detail if term.unicode else "queued, " + detail
+                    wait = "waiting its turn"
+                    detail = f"{wait} · {detail}" if term.unicode else f"{wait}, {detail}"
                 if failed:
                     detail = f"{failed} failed"
                 steps = (job.get("result") or {}).get("progress") or {}

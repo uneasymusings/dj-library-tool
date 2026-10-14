@@ -115,8 +115,8 @@ INSTALLER = recognition.INSTALLER
 RECOGNIZER_LABELS = {"shazam": "Shazam", "audd": "AudD", "acrcloud": "ACRCloud"}
 UNOFFICIAL_SHAZAM = (
     "djlib uses Shazam the way the Shazam app does; Apple doesn't offer it to other apps, so "
-    "it may slow down or stop working. For a licensed service (AudD or ACRCloud, with "
-    "DJLIB_RECOGNIZER), see djlib doctor."
+    "it may slow down or stop working. For a licensed service (AudD or ACRCloud), djlib doctor "
+    "shows how."
 )
 
 
