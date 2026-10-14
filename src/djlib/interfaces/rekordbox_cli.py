@@ -813,6 +813,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 "--when-idle waits for you to step away, but --usb needs you to click the "
                 "playlist; use one or the other.",
             )
+        # Before setup, say so at once, not after reading the set's page or the clipboard.
+        ctx.obj.config()
         if usb:
             await_unlock(ui, timeout)
             ui.ensure_supported()
