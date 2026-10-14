@@ -559,11 +559,16 @@ def test_the_shopping_list_prints_each_store_link_in_one_piece(capsys):
     assert f"djlib requests refresh {SHORT_REQUEST}" in out
 
 
-def test_the_shopping_list_path_prints_in_one_piece(capsys):
-    saved = "/w/exports/requests/request_408fe122/Kaytranada Boiler Room Montreal - to buy.txt"
+def test_the_shopping_list_path_prints_in_one_piece(capsys, monkeypatch):
+    saved = "/w/Shopping lists/Kaytranada Boiler Room Montreal - to buy.txt"
     result = {"request_id": REQUEST, "name": "Kaytranada", "to_buy": [], "shopping_list": saved}
+    monkeypatch.setattr(views.sys, "platform", "darwin")
     out = shown("requests report", result, 60, capsys)
     assert f"  Saved to  {saved}" in out.splitlines()
+    # On a Mac, a step opens it.
+    assert f"open {terminal.shell_path(saved)}" in out
+    monkeypatch.setattr(views.sys, "platform", "win32")
+    assert "open " not in shown("requests report", result, 60, capsys)
 
 
 # -- status: rekordbox where there is one ------------------------------------------------------
@@ -718,6 +723,8 @@ def test_requests_report_is_a_shopping_list_saved_beside_the_report(friday):
     assert report["ids"] == [{"position": 3, "timestamp": "06:20"}]
     saved = report["shopping_list"]
     assert saved.endswith("Friday — Warm-up - to buy.txt")
+    # In djlib's folder, under a name a DJ finds in Finder.
+    assert Path(saved).parent.name == "Shopping lists"
     text = Path(saved).read_text(encoding="utf-8")
     # Each song by its time in the set, else its number.
     assert text.splitlines()[:3] == [
