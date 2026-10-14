@@ -1,8 +1,10 @@
 """Identify a DJ set from its link: read the page, listen to the set, merge one tracklist.
 
-Identification jobs run one at a time beside the Worker, never in it: listening to a set
-takes minutes, and Shazam limits requests per address, so downloads and scans keep going
-meanwhile. Each set has a folder, ``<workspace>/sets/<key>/``:
+Identification jobs run beside the Worker, never in it: listening to a set takes minutes,
+and Shazam limits requests per address, so downloads and scans keep going meanwhile. Listens
+run one at a time; a set identified before is shown again in a lane of its own, so it never
+waits for a listen that Shazam's rate limits stretch to an hour. Each set has a folder,
+``<workspace>/sets/<key>/``:
 
 - page.json: what the page said (description, chapters, listener comments) and the set's
   MixesDB tracklist, looked up while reading the page;
@@ -432,12 +434,27 @@ def submit(application: Application, body: IdentifyRequest) -> dict:
     return application.job(job["job_id"])
 
 
+def _key_of(job: Job) -> str | None:
+    try:
+        return set_key(job.request["url"])
+    except (AppError, KeyError, TypeError):
+        return None
+
+
+def reuses(workspace: Workspace, job: Job) -> bool:
+    """True when the job only shows a finished identification again: it never listens."""
+    request = job.request if isinstance(job.request, dict) else {}
+    return not request.get("again") and finished(workspace, request.get("url") or "") is not None
+
+
 def _note_queue(application: Application, job_id: str) -> None:
-    """A queued identification says how many go before it (they run one at a time)."""
+    """A queued identification says how many go before it: listens run one at a time, and
+    a set shown again only waits for work on the same set."""
     with application.db.transaction() as session:
         job = session.get(Job, job_id)
         if job is None or job.state != "queued" or (job.result or {}).get("progress"):
             return
+        quick = reuses(application.workspace, job)
         ahead = [
             other
             for other in session.scalars(
@@ -445,6 +462,7 @@ def _note_queue(application: Application, job_id: str) -> None:
             )
             if other.id != job.id
             and (other.state == "running" or other.created_at <= job.created_at)
+            and (not quick or _key_of(other) == _key_of(job))
         ]
         if ahead:
             job.result = {
@@ -558,7 +576,8 @@ def sweep_audio(application: Application, older: float = AUDIO_SECONDS) -> list[
 
 
 class IdentifyRunner:
-    """Runs identification jobs one at a time, beside the Worker."""
+    """Runs identification jobs beside the Worker: listens one at a time, and sets
+    identified before in a second lane, so showing one never waits for a long listen."""
 
     def __init__(self, application: Application):
         self.app = application
@@ -577,16 +596,27 @@ class IdentifyRunner:
 
     async def run(self) -> None:
         self.recover()
+        reuse = asyncio.create_task(self.lane(self.claim_reuse))
+        try:
+            await self.lane(lambda: self.claim(), housekeeping=True)
+        finally:
+            reuse.cancel()
+            await asyncio.gather(reuse, return_exceptions=True)
+
+    async def lane(
+        self, claim: Callable[[], tuple[str, int] | None], *, housekeeping: bool = False
+    ) -> None:
         while True:
             try:
                 self.record_failures()
-                attempt = self.claim()
+                attempt = claim()
             except Exception:  # noqa: BLE001 - a busy catalog must not end identification for good
                 logger.exception("Could not pick the next identification")
                 attempt = None
                 await asyncio.sleep(1.0)
             if attempt is None:
-                await self.housekeeping()
+                if housekeeping:
+                    await self.housekeeping()
                 await asyncio.sleep(0.25)
                 continue
             job_id, generation = attempt
@@ -647,13 +677,36 @@ class IdentifyRunner:
             return None
 
     def claim(self) -> tuple[str, int] | None:
+        """The next queued identification, unless its set is being worked on."""
+        return self._claim(reuse_only=False)
+
+    def claim_reuse(self) -> tuple[str, int] | None:
+        """The next queued identification that only shows a set identified before."""
+        return self._claim(reuse_only=True)
+
+    def _claim(self, *, reuse_only: bool) -> tuple[str, int] | None:
         with self.app.db.transaction() as session:
-            job = session.scalar(
-                select(Job)
-                .where(Job.state == "queued", Job.kind == KIND)
-                .order_by(Job.updated_at, Job.created_at, Job.id)
-                .limit(1)
+            # One job at a time per set: its folder holds the probes, audio and tracklist.
+            busy = {
+                _key_of(job)
+                for job in session.scalars(
+                    select(Job).where(Job.state == "running", Job.kind == KIND)
+                )
+            }
+            queued = list(
+                session.scalars(
+                    select(Job)
+                    .where(Job.state == "queued", Job.kind == KIND)
+                    .order_by(Job.updated_at, Job.created_at, Job.id)
+                )
             )
+            if reuse_only:
+                quick = {job.id for job in queued if reuses(self.app.workspace, job)}
+                # A listen waiting for the set (an --again, a resumed one) goes first.
+                busy |= {_key_of(job) for job in queued if job.id not in quick}
+                queued = [job for job in queued if job.id in quick]
+            busy.discard(None)
+            job = next((job for job in queued if _key_of(job) not in busy), None)
             if job is None:
                 return None
             job.state, job.generation = "running", job.generation + 1
