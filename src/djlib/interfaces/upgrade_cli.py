@@ -1,5 +1,6 @@
 """`djlib upgrade`: install the newest GitHub release with uv, then restart the service."""
 
+import json
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ import typer
 
 from djlib import __version__
 from djlib.domain.errors import AppError
+from djlib.interfaces import terminal
 from djlib.interfaces.client import VERSION, version_key
 from djlib.interfaces.envelope import envelope
 
@@ -126,17 +128,116 @@ def installed_by_uv() -> bool:
     return "/uv/tools/" in sys.prefix.replace("\\", "/") or "uv-tools" in sys.prefix
 
 
+def finish_in_new_djlib(
+    workspace: Path, *, latest: dict, repair: bool, restart: bool, json_output: bool
+) -> int:
+    """Run the newly installed djlib to finish the upgrade; its exit code.
+
+    uv has just replaced this process's environment, so any module it hasn't imported yet
+    may be gone (rich's Unicode tables were, once, and the upgrade ended in a traceback).
+    This uses only what is already loaded; the new djlib syncs the plugin, restarts the
+    service and prints the result. The tool environment keeps its path, so ``sys.executable``
+    is the new Python, as when the service is started.
+    """
+    command = [
+        sys.executable,
+        "-m",
+        "djlib.interfaces.cli",
+        "--workspace",
+        str(workspace),
+        *(["--json"] if json_output else []),
+        "upgrade",
+        "--finished-from",
+        __version__,
+        "--notes",
+        str(latest.get("notes") or ""),
+        *(["--repaired"] if repair else []),
+        *(["--restart-service"] if restart else []),
+    ]
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        return subprocess.run(command).returncode
+    except OSError:
+        # Installed, but the new djlib can't be started from here: say so with what's loaded.
+        if json_output:
+            reply = envelope(
+                {
+                    "current": __version__,
+                    "latest": latest["version"],
+                    "notes": latest.get("notes"),
+                    "update_available": not repair,
+                    "updated": True,
+                }
+            )
+            sys.stdout.write(json.dumps(reply, ensure_ascii=False, indent=2) + "\n")
+        else:
+            sys.stdout.write(
+                f"djlib {latest['version']} is installed (was {__version__}). "
+                "Run djlib doctor to check it.\n"
+            )
+        return 0
+
+
+def finished(ctx, client, previous: str, notes: str, repaired: bool, restart: bool) -> dict:
+    """The reply of an upgrade, written by the djlib it just installed."""
+    # Assistant sessions keep the old djlib in memory until their host restarts them.
+    sessions = assistant_sessions()
+    reply = envelope(
+        {
+            "current": previous,
+            "latest": __version__,
+            "notes": notes or None,
+            "update_available": version_key(__version__) > version_key(previous),
+            "updated": True,
+            "assistant_sessions": sessions,
+            **({"repaired": "song recognition"} if repaired else {}),
+        }
+    )
+    if sessions:
+        count = f"{sessions} assistant session" + (" is" if sessions == 1 else "s are")
+        old, new = f"djlib {previous}", __version__
+        if previous == __version__:
+            old, new = "the djlib from before this install", "the new install"
+        reply["warnings"].append(
+            f"{count} still running {old}. Restart each one (in Claude Code: "
+            f"/mcp → djlib → Reconnect; in Codex: restart Codex) so it uses {new}."
+        )
+    if restart:
+        # The old service was stopped before the install. Any request starts this version's
+        # in its place, and replaces the old one if it is somehow still there.
+        try:
+            client(ctx).request("GET", "/roots")
+            reply["result"]["service_restarted"] = True
+        except AppError:
+            reply["result"]["service_restarted"] = False
+            reply["warnings"].append(
+                "The background service didn't start again; the next djlib command starts it."
+            )
+    sync_plugin(reply, __version__)
+    return reply
+
+
 def register_upgrade(app, client, emit, handled, panel=None):
     @app.command("upgrade", rich_help_panel=panel)
     @handled
     def upgrade(
         ctx: typer.Context,
         check: bool = typer.Option(False, "--check", help="Only say whether a newer djlib exists."),
+        # The finishing step, run by the djlib that installed this one (finish_in_new_djlib).
+        # Keep these options: older releases pass them to the release they install.
+        finished_from: str | None = typer.Option(None, "--finished-from", hidden=True),
+        notes: str = typer.Option("", "--notes", hidden=True),
+        repaired: bool = typer.Option(False, "--repaired", hidden=True),
+        restart: bool = typer.Option(False, "--restart-service", hidden=True),
     ) -> None:
         """Install the newest djlib release and update the plugin.
 
         Restarts the background service; the Claude Code plugin is updated to match.
         """
+        if finished_from is not None:
+            emit(finished(ctx, client, finished_from, notes, repaired, restart))
+            return
         latest = latest_release()
         newer = version_key(latest["version"]) > version_key(__version__)
         result = {"current": __version__, "latest": latest["version"], "notes": latest["notes"]}
@@ -169,8 +270,10 @@ def register_upgrade(app, client, emit, handled, panel=None):
             )
         # The old service would refuse the new client until restarted; jobs stay saved.
         local = client(ctx)
-        if local.discover():
+        running = bool(local.discover())
+        if running:
             local.request("POST", "/shutdown")
+        json_output = terminal.current().json
         completed = subprocess.run([uv, *command[1:]], capture_output=True, text=True)
         if completed.returncode != 0:
             raise AppError(
@@ -178,23 +281,8 @@ def register_upgrade(app, client, emit, handled, panel=None):
                 "uv couldn't install the new release: "
                 + (completed.stderr.strip().splitlines() or ["unknown error"])[-1][:300],
             )
-        # Assistant sessions keep the old djlib in memory until their host restarts them.
-        sessions = assistant_sessions()
-        reply = envelope(
-            {
-                **result,
-                "update_available": newer,
-                "updated": True,
-                "assistant_sessions": sessions,
-                **({"repaired": "song recognition"} if repair else {}),
-            }
+        # From here on this process imports nothing: the new djlib finishes the upgrade.
+        code = finish_in_new_djlib(
+            ctx.obj.root, latest=latest, repair=repair, restart=running, json_output=json_output
         )
-        if sessions:
-            count = f"{sessions} assistant session" + (" is" if sessions == 1 else "s are")
-            reply["warnings"].append(
-                f"{count} still running djlib {__version__}. Restart each one (in Claude Code: "
-                f"/mcp → djlib → Reconnect; in Codex: restart Codex) so it uses "
-                f"{latest['version']}."
-            )
-        sync_plugin(reply, latest["version"])
-        emit(reply)
+        raise typer.Exit(code)

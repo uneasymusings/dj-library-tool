@@ -1408,6 +1408,32 @@ def service_stop(term: Terminal, result: dict) -> None:
         status_line(term, "ok", "Background service stopped", "accepted jobs stay saved")
 
 
+@view("upgrade")
+def upgrade_view(term: Terminal, result: dict) -> None:
+    latest, current = str(result.get("latest") or ""), str(result.get("current") or __version__)
+    if result.get("updated") and result.get("repaired") and latest == current:
+        status_line(term, "ok", f"djlib {latest} installed again", f"with {result['repaired']}")
+    elif result.get("updated"):
+        status_line(term, "ok", f"djlib {latest} installed", f"from {current}")
+    elif result.get("update_available"):
+        status_line(term, "todo", f"djlib {latest} is out", f"you have {current}")
+    else:
+        status_line(term, "ok", f"djlib {current} is the newest release")
+    news = latest != current and result.get("notes")
+    missing = result.get("recognition_installed") is False
+    fields(
+        term,
+        [
+            ("Release notes", Text(str(result["notes"]), style="path") if news else None),
+            ("Song recognition", "not installed" if missing else None),
+        ],
+    )
+    if result.get("update_available") and not result.get("updated"):
+        next_steps(term, [("Install it", ("upgrade",))])
+    elif result.get("updated"):
+        next_steps(term, [("Check your setup", ("doctor",))])
+
+
 @view("setup-agent")
 def setup_agent(term: Terminal, result: dict) -> None:
     header(term, "Assistant session ready")
