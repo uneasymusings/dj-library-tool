@@ -40,7 +40,7 @@ EVENT_SECONDS = 15
 POLL_SECONDS = 0.5
 TRACKLIST_BYTES = 1_000_000
 # How long a listen takes, said once before `djlib set LINK` starts one.
-LISTEN_TIME = "An hour-long set usually takes 5–10 minutes"
+LISTEN_TIME = "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy"
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
 
