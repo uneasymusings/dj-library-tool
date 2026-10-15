@@ -39,7 +39,8 @@ if [ -z "$djlib" ]; then
   exit 0
 fi
 
-engine=$("$djlib" --version 2>/dev/null | sed -n 's/^djlib \(.*\)$/\1/p')
+# Python on Windows ends the line with \r\n.
+engine=$("$djlib" --version 2>/dev/null | tr -d '\r' | sed -n 's/^djlib \(.*\)$/\1/p')
 if [ -n "$plugin" ] && [ -n "$engine" ] && [ "$plugin" != "$engine" ]; then
   echo "The djlib engine ($engine) and the djlib plugin ($plugin) are from different releases, so tools and instructions may not match."
   echo "If djlib comes up, offer to run \`$upgrade\` (it updates both), then restart Claude Code."
