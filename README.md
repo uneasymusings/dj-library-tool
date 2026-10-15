@@ -4,7 +4,7 @@
 
 **Paste a set link, get every track. See what you own. Play it from your USB.**
 
-For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. Everything runs on your computer.
+For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. It runs on your computer, with no account and no djlib server; it asks Shazam, MixesDB, YouTube and SoundCloud directly.
 
 ```text
 $ djlib set 'https://soundcloud.com/platform/kaytranada-boiler-room' --no-rekordbox
@@ -55,7 +55,7 @@ Leave out `--no-rekordbox` and djlib also makes the rekordbox playlist; add `--u
 | **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing, has IDs or names too few songs for the set. |
 | **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command to check them, last 30 days first. |
 | **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line, copied from anywhere. From 1001Tracklists, add the set's link: `djlib set 'LINK' --tracklist paste`. |
-| **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads stream-quality web copies after asking; buy the real file for the club. |
+| **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `djlib set 'LINK' --fetch` downloads stream-quality copies of clear matches after asking; buy the real file for the club. |
 | **rekordbox and USB** (Mac) | `djlib set 'LINK' --usb` | A rekordbox playlist in set order. You click it once; rekordbox exports it, and djlib reads the stick back to check every track, in order, byte for byte. |
 
 `≈ Radio Edit`: you own another mix. Only the exact mix goes in the crate; drag yours in if you play it. `? maybe yours`: a file with the same title and mix under another artist name, common with Shazams. It stays off the shopping list; if it's the song, pick Use this on the review page.
@@ -89,7 +89,9 @@ curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/
 
 It asks where your music is and indexes it in place: nothing is moved, renamed or retagged. `djlib upgrade` updates it. Skipped the music question? `djlib init ~/Music && djlib scan`. Windows: [Install](docs/INSTALL.md).
 
-With the plugin, just ask: “What's in this set and which tracks do I own? https://soundcloud.com/…”
+Already have djlib? Add the Claude Code plugin with `/plugin install djlib --marketplace uneasymusings/dj-library-tool` (Claude Code 2.1.275 or later; [other ways](docs/INSTALL.md#claude-code-and-codex)).
+
+With the plugin, just ask: “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 
 > **Alpha (0.1.0a16).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
