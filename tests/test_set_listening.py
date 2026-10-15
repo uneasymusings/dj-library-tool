@@ -449,3 +449,38 @@ def test_a_title_first_description_agrees_with_what_djlib_hears(
     assert result["identified"]["counts"]["conflict"] == 0
     assert result["owned"] == 1  # Lumen - Halo, as the library tags it
     assert "the description lists it title first" in result["tracks"][0]["notes"]
+
+
+def test_an_unheard_song_in_a_title_first_list_is_found_in_the_library(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Shazam heard three lines of a "Title - Artist" description the other way round and none
+    as written, so the song it didn't hear is read artist first too: shown that way, and the
+    copy you own is found."""
+    from tests.test_identification import Listener
+
+    files = [audio_factory("halo.wav", frequency=330), audio_factory("persona.wav", frequency=550)]
+    build(library_http, files, [("Lumen", "Halo"), ("Rival Consoles", "Persona")])
+    FakeRekordbox(monkeypatch)
+    setup.listener = Listener(
+        [
+            (0, 100, "Lumen", "Halo"),
+            (100, 200, "Bicep", "Glue"),
+            (200, 300, "Nia Okoro", "Slow Burn"),
+        ]
+    )
+    setup.page["description"] = (
+        "Halo - Lumen\nGlue - Bicep\nSlow Burn - Nia Okoro\nPersona - Rival Consoles\n"
+    )
+    reply = invoke(application, "set", URL, "--identify", "--no-rekordbox")
+    assert reply.exit_code == 0, reply.output
+    result = json.loads(reply.stdout)["result"]
+    assert [track["label"] for track in result["tracks"]] == [
+        "Lumen - Halo",
+        "Bicep - Glue",
+        "Nia Okoro - Slow Burn",
+        "Rival Consoles - Persona",
+    ]
+    assert result["owned"] == 2  # Halo, heard, and Persona, which Shazam didn't hear
+    persona = result["tracks"][-1]
+    assert persona["notes"].startswith("The description lists it title first")
