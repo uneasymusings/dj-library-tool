@@ -49,11 +49,20 @@ codex plugin marketplace add uneasymusings/dj-library-tool
 codex plugin add djlib@dj-library-tool
 ```
 
+In Claude Code 2.1.275 or later, one line inside Claude Code does both: `/plugin install djlib --marketplace uneasymusings/dj-library-tool`.
+
 Without the plugin, register the server yourself (`--scope user` makes it available in every Claude Code project) and copy the skill as described in [agent setup](AGENTS.md):
 
 ```bash
 claude mcp add --scope user --transport stdio djlib -- "$(command -v djlib)" mcp serve
 codex mcp add djlib -- "$(command -v djlib)" mcp serve
+```
+
+On Windows, in PowerShell (the quotes around `--` keep PowerShell from swallowing it when `claude` or `codex` is a PowerShell script):
+
+```powershell
+claude mcp add --scope user --transport stdio djlib '--' (Get-Command djlib).Source mcp serve
+codex mcp add djlib '--' (Get-Command djlib).Source mcp serve
 ```
 
 The server offers the everyday tools by default; `DJLIB_MCP_TOOLS=full` adds deliveries, notes and filters. To try djlib in a separate session without touching your settings: `djlib setup-agent --output ~/djlib-session`, then `python3 ~/djlib-session/launch.py claude`.
