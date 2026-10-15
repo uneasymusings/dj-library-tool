@@ -890,6 +890,78 @@ def test_the_download_log_keeps_its_newest_lines(tmp_path, monkeypatch):
         assert log.stat().st_mode & 0o777 == 0o600
 
 
+async def test_a_download_cancelled_while_it_waits_to_try_again_stops_there(
+    application, setup, monkeypatch
+):
+    job_id = submit(application)
+    seen, _ = refusing_yt_dlp(application, monkeypatch, job_id, 1)
+    monkeypatch.setattr(web, "SET_RETRY_SECONDS", 30)
+
+    async def fetch(url, destination, on_retry=None):
+        def retrying(error, next_try):
+            on_retry(error, next_try)
+            application.control(job_id, "cancel")  # during the pause before the second try
+
+        return await FETCH_SET_AUDIO(url, destination, on_retry=retrying)
+
+    monkeypatch.setattr(web, "fetch_set_audio", fetch)
+    job = await asyncio.wait_for(run(application, job_id), timeout=5)
+    assert job["state"] == "cancelled" and len(seen) == 1
+    assert (folder(application) / "audio" / "set.webm.part").exists()
+    # The failed try is noted; a cancel is no failed download.
+    log = (application.workspace.runtime / "downloads.log").read_text().splitlines()
+    assert [line.split(": ", 1)[1] for line in log if not line.startswith(" ")] == [
+        "download try 1 of 2 failed (SOURCE_FAILED)"
+    ]
+
+
+async def test_listening_after_a_second_download_try_no_longer_says_it(
+    application, setup, monkeypatch
+):
+    job_id = submit(application)
+    refusing_yt_dlp(application, monkeypatch, job_id, 1)
+    listening = []
+
+    async def look(at):
+        listening.append(application.job(job_id)["result"]["progress"])
+
+    setup.listener.hook = look
+    assert (await run(application, job_id))["state"] == "completed"
+    assert listening[0]["phase"] == "listening" and "download_retry" not in listening[0]
+
+
+async def test_a_download_that_is_gone_is_noted_once_and_not_tried_again(
+    application, setup, monkeypatch
+):
+    job_id = submit(application)
+    seen = []
+    gone = b"ERROR: [youtube] fridayset1: Video unavailable. This video has been removed\n"
+    monkeypatch.setattr(web, "fetch_set_audio", FETCH_SET_AUDIO)
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(
+        web, "run", yt_dlp_refuses(folder(application) / "audio", seen, 1, stderr=gone)
+    )
+    job = await run(application, job_id)
+    error = job["result"]["error"]
+    assert error["code"] == "SOURCE_UNAVAILABLE" and "details" not in error and len(seen) == 1
+    log = (application.workspace.runtime / "downloads.log").read_text().splitlines()
+    assert [line.split(": ", 1)[1] for line in log] == [
+        "download failed (SOURCE_UNAVAILABLE)",
+        "[youtube] fridayset1: Video unavailable. This video has been removed",
+    ]
+
+
+async def test_a_download_log_that_cannot_be_written_never_fails_the_job(
+    application, setup, monkeypatch
+):
+    job_id = submit(application)
+    seen, _ = refusing_yt_dlp(application, monkeypatch, job_id, 1)
+    monkeypatch.setattr(identification, "DOWNLOAD_LOG", "missing/downloads.log")
+    job = await run(application, job_id)
+    assert job["state"] == "completed" and len(seen) == 2
+    assert not (application.workspace.runtime / "missing").exists()
+
+
 async def test_a_download_that_came_out_short_leaves_the_rest_unheard(application, setup):
     setup.seconds = 200.0  # the page says 300
     result = (await run(application, submit(application)))["result"]
