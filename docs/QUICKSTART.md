@@ -4,7 +4,7 @@ From a set link or your Shazams to a USB stick, on one page. Every command here 
 
 ## 1. Install
 
-Paste this to Claude Code or Codex: “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”. Or in Terminal (Mac or Linux):
+Paste this to Claude Code or Codex: “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”. Or in Terminal (Mac or Linux):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
