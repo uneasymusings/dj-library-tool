@@ -14,7 +14,7 @@ Options go before `sh`, for example `curl -LsSf https://raw.githubusercontent.co
 
 - `DJLIB_MUSIC=FOLDER`: index this folder without asking (`DJLIB_MUSIC=` skips it).
 - `DJLIB_PLUGIN=0`: don't add the plugin.
-- `DJLIB_VERSION=0.1.0a16`: install this release.
+- `DJLIB_VERSION=0.1.0a17`: install this release.
 
 djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checking sets, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases).
 
@@ -24,7 +24,7 @@ djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checkin
 2. **djlib**, with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
    ```bash
-   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a16/dj_library_tool-0.1.0a16-py3-none-any.whl'
+   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a17/dj_library_tool-0.1.0a17-py3-none-any.whl'
    djlib init ~/Music    # Windows: djlib init "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor
@@ -88,6 +88,8 @@ Reading the songs you Shazamed (`djlib shazam status`) needs none of this. If ma
 
 - **Coming from 0.1.0a15?** Its upgrade runs one last time: a quiet wait, and it can end with a Python error (`ModuleNotFoundError`). The upgrade worked: run `djlib doctor` to confirm.
 - **Coming from 0.1.0a14?** Run `djlib upgrade` twice. The second run adds song recognition.
+
+**Your sets after upgrading to 0.1.0a17.** A set that showed one made-up song (most Boiler Room uploads) is listened to when you check it again. Its songs are new, so it becomes a new set and crate, and pushing it gives a “Name (2)” playlist in rekordbox next to the old one: delete the older one.
 
 **Your sets after upgrading to 0.1.0a16.** Checking a set again updates its saved list. If 0.1.0a16 finds more songs you own (it now also matches a tracklist's spelling of a song Shazam heard under other credits), it builds a new crate, and pushing it gives a “Name (2)” playlist in rekordbox next to the old one: delete the older one. A tracklist file whose untimed ID lines 0.1.0a15 skipped also becomes a new set. A set you check again with a tracklist pasted from 1001Tracklists stays the same set (its spellings, such as “ft.” for “Feat.”, don't count). Shazam sets are now named after their days (“Shazam 26 Sep – 12 Oct”), so an older Shazam set checked again becomes a new set under the new name.
 

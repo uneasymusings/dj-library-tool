@@ -1,5 +1,27 @@
 # Implementation status
 
+## 0.1.0a17
+
+A fix release for set links whose page doesn't give the tracklist. Most Boiler Room uploads describe the set in one line, which djlib read as a song, so it showed one made-up song and never listened; now it listens. A tracklist that names too few songs for the set's length is listened to as well, a list written “Title - Artist” agrees with what Shazam heard, and a set download that the site refuses, or that misses a piece, is tried once more. The plugin tells the assistant when Claude Code can't start djlib, and CI checks song recognition. See the [changelog](../CHANGELOG.md#010a17).
+
+How it was built and checked: two streams (set pages, set downloads), each reviewed with its own sandbox runs before merging, then a docs, a CI and a code review of the whole release branch, whose findings were fixed.
+
+Verified on 2026-10-14, on the release branch:
+- **A Boiler Room set, live.** Mura Masa at Boiler Room x Primavera Sound (YouTube, 57 minutes), whose description has one line about the set and no tracklist, in a fresh sandbox with Shazam and a 0.1.0a17 build: djlib listened instead of showing one made-up song, and found 21 tracks, 16 named songs (13 confirmed, 3 likely) and 5 IDs, none of them named after the set. MixesDB has no page for it. It took 49 minutes, mostly waiting on Shazam while two other listens ran from the same address.
+- **The three demo sets, again with the release code.** Four Tet at Lollapalooza (MixesDB marks its tracklist incomplete), the Mura Masa set and an Avalon Emerson set were listened to live with an earlier 0.1.0a17 build for the demo recordings. Merged again from their saved listens by the release code, offline, each prints the same result, byte for byte, and the same notice before the listen.
+- **Set downloads.** Eight `djlib identify` runs in fresh sandboxes all reached listening, in 11 to 28 s. One met YouTube's refusal (HTTP 403) on its first request: progress said “trying again” at once, the second try worked, and `runtime/downloads.log` held that one try with YouTube's error line and no link. Before the fix, 1 of 9 runs through the same path failed that way.
+- **Set pages, offline.** 182 saved real set pages read with this build and with 0.1.0a16: 34 lose lines, and every line lost is about the set itself (Boiler Room's “live from …” lines, an Essential Mix heading, quotes, a bio, a ticket line, an upload's own title). No song is lost or added.
+- **Tests.** The full suite passes on macOS with Python 3.12 and song recognition installed (1,637 passed, 5 Windows-only skips); Ruff check and format are clean, and the checked-in schemas are unchanged. A freshly built 0.1.0a17 wheel passes the installed-wheel check (45 MCP tools, 22 by default, skill packaged) on Python 3.13, and on 3.12 with song recognition, which makes a Shazam fingerprint. `claude plugin validate` passes, and the plugin manifest carries the same version.
+- **The plugin's hook** was run by hand with sh, dash, bash, ksh and zsh across 10 setups (djlib on PATH, off it with and without uv, another release, home folders with spaces): silent when all is well, otherwise one line with the fix. A clone made the Windows way (`core.autocrlf=true`) gets the hook and the installer with Unix line endings.
+
+Not verified yet:
+- **The PATH hint in a real Claude Code session**, and the hook on Windows (Git Bash). The PowerShell lines for adding djlib's MCP server on Windows weren't run either.
+- **CI's song recognition check** (a Shazam fingerprint from generated tones, nothing sent) ran only on a Mac before the release; GitHub's Linux, macOS and Windows jobs on Python 3.12 run it from this release on.
+- **rekordbox and USB with this build**: no push or USB export was run. Playback on a CDJ/XDJ is still not verified by djlib at all.
+- **The 0.1.0a16 → 0.1.0a17 upgrade on a real install**, including a Boiler Room set checked with 0.1.0a16 coming back as a new crate and a “Name (2)” playlist.
+- **A known limit:** in a description of one or two lines, the uploader beside a venue word reads as a line about the set, also when it is their song (“Blur - Parklife” on Blur's channel). djlib then listens, so the song is found when Shazam hears it; a full tracklist keeps it.
+- **Maintainer checks, still open from 0.1.0a16:** Shazam history on a real Mac, and MixesDB's answer about its robots.txt (below). Boiler Room pages now have no tracklist on the page, so djlib asks MixesDB for those too.
+
 ## 0.1.0a16
 
 A product pass on the two headline jobs: a set link to every track, owned or missing, and your Shazams as a set. It adds the whole set on screen, a shopping list with store searches, `djlib set paste`, recent Shazams first, a Sets view on the review page and listening progress in set time, plus matching fixes that count more owned songs. See the [changelog](../CHANGELOG.md#010a16).
