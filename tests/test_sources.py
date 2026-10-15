@@ -4,12 +4,14 @@ import asyncio
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 from djlib.domain.errors import AppError
 from djlib.sources import web
 from tests.conftest import REAL_PROBE
+from tests.test_recognition import MISSING_PIECE
 
 
 @pytest.mark.parametrize(
@@ -398,12 +400,91 @@ async def test_inspect_can_include_listener_comments(monkeypatch):
         ("ERROR: HTTP Error 503: Service Unavailable", "SOURCE_FAILED", True),
         # A warning about a retried request is not the final error.
         ("WARNING: HTTP Error 404, retrying\nERROR: Read timed out", "SOURCE_FAILED", True),
+        # A piece of audio sent in pieces that didn't come: the upload is still there.
+        (MISSING_PIECE.decode(), "SOURCE_FAILED", True),
+        (
+            "ERROR: \r[download] Got error: HTTP Error 429: Too Many Requests. Giving up after 10 "
+            "retries",
+            "SOURCE_RATE_LIMITED",
+            True,
+        ),
     ],
 )
 def test_gone_uploads_are_unavailable_and_not_retried(stderr, code, retryable):
     error = web.provider_error(stderr.encode())
     assert (error.code, error.retryable) == (code, retryable)
     assert stderr.split(": ")[-1] not in error.message
+
+
+def test_a_missing_piece_is_logged_with_the_error_that_lost_it():
+    """yt-dlp writes "ERROR: \\r[download] Got error: …": the line is kept whole."""
+    assert web.provider_error(MISSING_PIECE).__notes__ == [
+        "ERROR: [download] Got error: HTTP Error 404: Not Found. Giving up after 10 retries",
+        "ERROR: fragment 2 not found, unable to continue",
+    ]
+    windows_ends = web.provider_error(b"WARNING: slow\r\nERROR: Video unavailable\r\n")
+    assert windows_ends.__notes__ == ["WARNING: slow", "ERROR: Video unavailable"]
+
+
+async def test_yt_dlp_error_lines_are_kept_without_links_cookies_or_the_home_folder():
+    home = str(Path.home())
+    stderr = "\n".join(
+        [
+            "[youtube] fridayset1: Downloading webpage",
+            *(f"WARNING: old warning {n}" for n in range(5)),
+            "WARNING: [youtube] fridayset1: Some formats may be missing\x1b[31m",
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden "
+            "(https://rr3---sn-ab5l6n.googlevideo.com/videoplayback?expire=1&sig=SECRET1&n=x)",
+            f"ERROR: Unable to rename file: '{home}/djlib/sets/abc/audio/set.webm.part'",
+            "ERROR: request failed (token=SECRET3); Cookie: SID=SECRET2; HSID=SECRET5",
+            "ERROR: " + "x" * 1000,
+            "Traceback (most recent call last): sig=SECRET4",
+        ]
+    )
+    yt_dlp = "import sys; sys.stderr.write(sys.argv[1]); sys.exit(1)"
+    with pytest.raises(AppError) as failed:
+        await web.run([sys.executable, "-c", yt_dlp, stderr], timeout=5, output_limit=100)
+    error = failed.value
+    assert (error.code, error.retryable) == ("SOURCE_FAILED", True)
+    # The last six ERROR and WARNING lines, cleaned, as the error's notes.
+    assert error.__notes__[:5] == [
+        "WARNING: old warning 4",
+        "WARNING: [youtube] fridayset1: Some formats may be missing[31m",
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden (<googlevideo.com link>)",
+        "ERROR: Unable to rename file: '~/djlib/sets/abc/audio/set.webm.part'",
+        "ERROR: request failed (token=…); Cookie: …",
+    ]
+    assert error.__notes__[5] == "ERROR: " + "x" * 293
+    notes = "\n".join(error.__notes__)
+    assert "SECRET" not in notes and "videoplayback" not in notes and "\x1b" not in notes
+    # They never reach the message or the JSON envelope.
+    assert "Forbidden" not in json.dumps(error.as_dict()) and "403" not in error.message
+
+
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [
+        # YouTube's proof-of-origin token, and other names that end in a secret's name.
+        (
+            "WARNING: [youtube] fridayset1: ignoring youtube:po_token=web.gvs+SECRET1 for now",
+            "WARNING: [youtube] fridayset1: ignoring youtube:po_token=… for now",
+        ),
+        (
+            "ERROR: refused access_token=SECRET2 api_key=SECRET3 client_secret=SECRET4",
+            "ERROR: refused access_token=… api_key=… client_secret=…",
+        ),
+        ("ERROR: refresh_token: SECRET5", "ERROR: refresh_token: …"),
+        # A quoted value, as in a JSON reply.
+        (
+            'ERROR: bad reply {"token": "SECRET6", "ok": false}',
+            'ERROR: bad reply {"token": "…", "ok": false}',
+        ),
+        # Words that only end like a secret's name stay.
+        ("ERROR: tokens are fine; monkey=1", "ERROR: tokens are fine; monkey=1"),
+    ],
+)
+def test_yt_dlp_error_lines_blank_secrets_under_longer_names(line, kept):
+    assert web.error_lines(line.encode()) == [kept]
 
 
 async def test_probe_selects_audio_without_downloading(monkeypatch):

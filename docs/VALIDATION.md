@@ -132,6 +132,8 @@ uv run --locked python scripts/check_distribution.py
 uv run --locked python scripts/release_artifacts.py
 ```
 
+On Python 3.12, `check_distribution.py` installs the wheel with `[download,recognize]`, as the installer does, and also runs `scripts/check_recognition.py`: shazamio imports and makes a signature from generated tones, without asking Shazam anything.
+
 Earlier on **2026-10-04**, a development `0.1.0a3.dev0` wheel passed in a separate installed environment before native XML inspection was added:
 
 ```json

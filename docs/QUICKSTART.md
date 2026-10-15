@@ -4,7 +4,7 @@ From a set link or your Shazams to a USB stick, on one page. Every command here 
 
 ## 1. Install
 
-Paste this to Claude Code or Codex: “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”. Or in Terminal (Mac or Linux):
+Paste this to Claude Code or Codex: “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”. Or in Terminal (Mac or Linux):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
@@ -18,7 +18,7 @@ It asks where your music is (drag the folder in) and indexes it. Nothing is move
 djlib set 'https://www.youtube.com/watch?v=…' --no-rekordbox
 ```
 
-djlib reads the description, chapters, MixesDB and the comments. When the tracklist is missing or has IDs, it says so and listens to the set with Shazam. An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take half an hour. Ctrl-C stops it; run the same command later to carry on. A set djlib already heard comes back at once. You get the whole set in order: time, track, how sure, and what you own. Where your terminal shows links, each time opens the set at that moment.
+djlib reads the description, chapters, MixesDB and the comments. When the tracklist is missing, has IDs or names too few songs for the set's length, it says so and listens to the set with Shazam. A line like “Artist – live from Boiler Room …” is about the set, not a song. An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take half an hour. Ctrl-C stops it; run the same command later to carry on. A set djlib already heard comes back at once. You get the whole set in order: time, track, how sure, and what you own. Where your terminal shows links, each time opens the set at that moment.
 
 | Sure | What it means |
 | --- | --- |

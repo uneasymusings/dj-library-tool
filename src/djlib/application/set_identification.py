@@ -1017,12 +1017,69 @@ def _unify(seq: list[_Slot], order: list[str]) -> list[_Slot]:
     return [slot for slot in seq if id(slot) not in gone]
 
 
+# A listing whose lines the audio heard only the other way round this often, and never as
+# written, lists every song title first (Avalon Emerson's "Desert Hike - Tibi Dabo").
+TITLE_FIRST = 3
+
+
+def _turned(entry: dict) -> dict:
+    """A listed song read the other way round, as "Title - Artist" lists have it ("Desert Hike -
+    Tibi Dabo" is Tibi Dabo's "Desert Hike"); ``label`` keeps the line as written."""
+    artist, title, version = display_label(entry["title"], entry["artist"], entry["version"])
+    return {
+        **entry,
+        "artist": artist,
+        "title": title,
+        "version": version,
+        "song": _song(artist, title, version),
+        "label": _label(entry["artist"], entry["title"], entry["version"]),
+        "turned": True,
+    }
+
+
+def _turn_round(entries: list[dict], clusters: list[dict]) -> list[dict]:
+    """A listed line the audio heard only the other way round is read that way: the song Shazam
+    heard as "Tibi Dabo - Desert Hike" is the listing's "Desert Hike - Tibi Dabo", not another
+    song it disagrees with. A listing with ``TITLE_FIRST`` such lines and none heard as written
+    is written title first throughout, so its lines nobody heard are read the other way round
+    too; any other listing's unheard lines stay as written."""
+    # A song heard again later is compared once. Two songs alike at SAME share a title word
+    # (one title is the other, or inside it), so a line is compared only with those.
+    heard: dict[str, dict[Song, None]] = {}
+    for cluster in clusters:
+        for label in cluster["labels"]:
+            song = _song(label["artist"], label["title"], label["version"])
+            for word in song.core.split():
+                heard.setdefault(word, {})[song] = None
+    if not heard:
+        return entries
+
+    def is_heard(song: Song) -> bool:
+        near = dict.fromkeys(other for word in song.core.split() for other in heard.get(word, {}))
+        return any(_likeness(song, other) >= SAME for other in near)
+
+    read, turned, straight = [], 0, 0
+    for entry in entries:
+        if entry["kind"] == "named":
+            if is_heard(entry["song"]):
+                straight += 1
+            elif is_heard((other := _turned(entry))["song"]):
+                entry, turned = other, turned + 1
+        read.append(entry)
+    if turned < TITLE_FIRST or straight:
+        return read
+    return [
+        _turned(entry) if entry["kind"] == "named" and not entry.get("turned") else entry
+        for entry in read
+    ]
+
+
 def _merge(
     clusters: list[dict], lists: list[tuple[str, list[dict]]], total, unplaced
 ) -> list[_Slot]:
     seq = [_Slot(clusters=[cluster], time=cluster["start"]) for cluster in clusters]
     for name, entries in lists:
-        seq = _place(seq, name, entries)
+        seq = _place(seq, name, _turn_round(entries, clusters))
     seq = _rejoin(seq)
     _interpolate(seq, total)
     seq = _unify(seq, [name for name, _ in lists])
@@ -1181,6 +1238,7 @@ def _evidence(slot: _Slot) -> list[dict]:
                 "label": label,
                 "timestamp": text["timestamp"],
                 **({"moved": True} if text.get("moved") else {}),
+                **({"turned": True} if text.get("turned") else {}),
             }
         )
     return found
@@ -1569,16 +1627,25 @@ def _candidate_label(candidate: dict) -> str:
     return _label(candidate["artist"], candidate["title"], candidate.get("version") or "")
 
 
-def _places(track: dict, kind: str) -> str:
+def _places(track: dict, kind: str, turned: bool | None = None) -> str:
+    """The listings that name the track (``kind`` named) or list an ID there; ``turned`` keeps
+    only those read the other way round (True) or as written (False)."""
     names = dict.fromkeys(
-        e["source"] for e in track["evidence"] if e["source"] != "audio" and e["kind"] == kind
+        e["source"]
+        for e in track["evidence"]
+        if e["source"] != "audio"
+        and e["kind"] == kind
+        and (turned is None or bool(e.get("turned")) == turned)
     )
     return " and ".join(SOURCE_NAMES.get(name, name) for name in names)
 
 
 def _notes(track: dict) -> str:
     heard = [e for e in track["evidence"] if e["source"] == "audio"]
-    places, ids = _places(track, "named"), _places(track, "unknown")
+    # A listing read the other way round says so in place of "also in" (or "from").
+    turned = _places(track, "named", turned=True)
+    places = _places(track, "named", turned=False if turned else None)
+    ids = _places(track, "unknown")
     parts = _heard_by(heard)
     if track["kind"] == "unknown":
         audio = [c for c in track["candidates"] if c["source"] == "audio"]
@@ -1613,6 +1680,8 @@ def _notes(track: dict) -> str:
             for spelling in _spellings(track):
                 where = SOURCE_NAMES.get(spelling["source"], spelling["source"])
                 parts.append(f"{where} spells it {spelling['label']}")
+        if turned:
+            parts.append(f"{turned} {'list' if ' and ' in turned else 'lists'} it title first")
         if ids:
             parts.append(f"an ID in {ids}")
         if track["status"] == "conflict":

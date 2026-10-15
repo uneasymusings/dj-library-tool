@@ -918,6 +918,180 @@ def test_text_and_strong_audio_disagreeing_keeps_both():
     ]
 
 
+def test_a_title_first_listing_agrees_with_the_songs_heard():
+    """Avalon Emerson's YouTube description writes "Title - Artist". A line the audio heard the
+    other way round is that song, not a conflict; with three such lines and none heard as
+    written, the listing is title first throughout, so a line nobody heard is turned too."""
+    probes = [
+        *song(0, 4, "Tibi Dabo", "Desert Hike"),
+        *song(120, 4, "Avalon Emerson", "Treat Mode"),
+        *song(240, 4, "Jex Opolis", "Geiger Counter"),
+    ]
+    listed = listing(
+        "description",
+        "Desert Hike - Tibi Dabo",
+        "Treat Mode - Avalon Emerson",
+        "Song for Bertie - Running Hot",
+        "Geiger Counter - Jex Opolis",
+    )
+    result = build_tracklist(duration=420, probes=probes, listed=[listed])
+    tracks = result["tracks"]
+    assert [(t["artist"], t["title"], t["status"]) for t in tracks] == [
+        ("Tibi Dabo", "Desert Hike", "confirmed"),
+        ("Avalon Emerson", "Treat Mode", "confirmed"),
+        ("Running Hot", "Song for Bertie", "likely"),
+        ("Jex Opolis", "Geiger Counter", "confirmed"),
+    ]
+    assert tracks[0]["evidence"][1] == {
+        "source": "description",
+        "kind": "named",
+        "position": 1,
+        "label": "Desert Hike - Tibi Dabo",
+        "timestamp": None,
+        "turned": True,
+    }
+    assert track_notes(tracks[0]) == (
+        "Shazam heard it at 00:00 (4×); the description lists it title first"
+    )
+    assert tracks[2]["evidence"] == [
+        {
+            "source": "description",
+            "kind": "named",
+            "position": 3,
+            "label": "Song for Bertie - Running Hot",
+            "timestamp": None,
+            "turned": True,
+        }
+    ]
+    assert track_notes(tracks[2]) == (
+        "The description lists it title first; the time is approximate"
+    )
+    items = valid_request(request_items(result)).items
+    assert [(item.artist, item.title) for item in items[:3]] == [
+        ("Tibi Dabo", "Desert Hike"),
+        ("Avalon Emerson", "Treat Mode"),
+        ("Running Hot", "Song for Bertie"),
+    ]
+    # A line heard as written is never read the other way round.
+    straight = listing("description", "Tibi Dabo - Desert Hike", "Jex Opolis - Geiger Counter")
+    tracks = build_tracklist(duration=420, probes=probes, listed=[straight])["tracks"]
+    assert all("turned" not in e for t in tracks for e in t["evidence"])
+    assert [t["title"] for t in tracks] == ["Desert Hike", "Treat Mode", "Geiger Counter"]
+
+
+AVALON_URL = "https://www.youtube.com/watch?v=zn-Mpr9CPkc"
+
+
+def test_avalon_emersons_description_is_read_title_first_throughout():
+    """The real description of Avalon Emerson's 9000Streams mix lists every song "Title -
+    Artist". Shazam heard four of them the other way round and none as written, so the songs
+    nobody heard are shown, and looked up in the library, artist first too."""
+    text = (DATA / "avalon-emerson-description.txt").read_text(encoding="utf-8")
+    page = tracklist_from_source(text, [], "Avalon Emerson", "Avalon Emerson: 9000Streams")
+    listed = listed_tracklist("description", page, AVALON_URL)
+    probes = [
+        *song(0, 7, "Tibi Dabo", "Desert Hike"),
+        *song(240, 6, "Avalon Emerson", "Treat Mode"),
+        *song(1470, 7, "Shanti Celeste", "Ice Cream Dream Boy"),
+        *song(2820, 8, "Oklou", "harvest sky (ft. underscores)"),
+    ]
+    result = build_tracklist(duration=3739, probes=probes, listed=[listed])
+    tracks = result["tracks"]
+    named = [(t["artist"], t["title"], t["version"]) for t in tracks if t["kind"] == "named"]
+    assert named == [
+        ("Tibi Dabo", "Desert Hike", ""),
+        ("Avalon Emerson", "Treat Mode", ""),
+        ("Vitess", "Vibin Check", ""),
+        ("Running Hot", "Song for Bertie", ""),
+        ("Paperkraft", "Cosmosquare", ""),
+        ("Highrise", "Phase1", ""),
+        ("Body Clinic", "Chromia Euphorium", ""),
+        ("Dan Fresco", "Scratching’", ""),
+        ("Shanti Celeste", "Ice Cream Dream Boy", ""),
+        ("Avalon Emerson", "E After Next", ""),
+        ("Ineffekt", "Long Sleeves", ""),
+        ("Jex Opolis", "Geiger Counter", ""),
+        ("Antipolar", "Pineapple Machine", ""),
+        ("Two Shell", "Everybody Worldwide", ""),
+        ("Avril Lavigne", "I’m With You", "Llama & Moor Dub"),
+        ("Oklou", "harvest sky (ft. underscores)", ""),
+        ("Clint", "Dream Rock", ""),
+        ("Avalon Emerson", "Entombed in Ice", "Young Marco Remix"),
+    ]
+    assert tracks[-1]["kind"] == "unknown"  # "ID - Avalon Emerson" stays an ID
+    assert not any(t["status"] == "conflict" for t in tracks)
+    # Every named line keeps its words as written in its evidence.
+    for track in tracks[:-1]:
+        [listed_line] = [e for e in track["evidence"] if e["source"] == "description"]
+        assert listed_line["turned"] is True
+    vitess = tracks[2]
+    assert vitess["evidence"][0]["label"] == "Vibin Check - Vitess"
+    assert track_notes(vitess) == "The description lists it title first; the time is approximate"
+    items = valid_request(request_items(result)).items
+    assert (items[14].artist, items[14].title, items[14].version) == (
+        "Avril Lavigne",
+        "I’m With You",
+        "Llama & Moor Dub",
+    )
+
+
+def test_a_listing_not_title_first_throughout_keeps_its_unheard_lines():
+    """Only a listing whose heard lines are all the other way round, three or more, is read
+    title first throughout. A line heard as written, or two lines turned, leave its unheard
+    lines as written, and each listing is read on its own."""
+    probes = [
+        *song(0, 4, "Tibi Dabo", "Desert Hike"),
+        *song(120, 4, "Avalon Emerson", "Treat Mode"),
+        *song(240, 4, "Jex Opolis", "Geiger Counter"),
+        *song(360, 4, "Two Shell", "Everybody Worldwide"),
+    ]
+    mixed = listing(
+        "description",
+        "Desert Hike - Tibi Dabo",
+        "Treat Mode - Avalon Emerson",
+        "Geiger Counter - Jex Opolis",
+        "Two Shell - Everybody Worldwide",
+        "Vitess - Vibin Check",
+    )
+    tracks = build_tracklist(duration=600, probes=probes, listed=[mixed])["tracks"]
+    assert [(t["artist"], t["title"]) for t in tracks] == [
+        ("Tibi Dabo", "Desert Hike"),
+        ("Avalon Emerson", "Treat Mode"),
+        ("Jex Opolis", "Geiger Counter"),
+        ("Two Shell", "Everybody Worldwide"),
+        ("Vitess", "Vibin Check"),
+    ]
+    assert "turned" not in tracks[-1]["evidence"][0]
+    assert "turned" not in tracks[3]["evidence"][1]  # heard as written
+    two = listing(
+        "description",
+        "Desert Hike - Tibi Dabo",
+        "Treat Mode - Avalon Emerson",
+        "Vibin Check - Vitess",
+    )
+    tracks = build_tracklist(duration=600, probes=probes[:8], listed=[two])["tracks"]
+    assert (tracks[-1]["artist"], tracks[-1]["title"]) == ("Vibin Check", "Vitess")
+    # A title-first description is turned whole; a tracklist file beside it, artist first, is
+    # read as written, and both name the song nobody heard once.
+    title_first = listing(
+        "description",
+        "Desert Hike - Tibi Dabo",
+        "Treat Mode - Avalon Emerson",
+        "Geiger Counter - Jex Opolis",
+        "Vibin Check - Vitess",
+    )
+    given = listing("file", "Jex Opolis - Geiger Counter", "Vitess - Vibin Check")
+    tracks = build_tracklist(duration=600, probes=probes[:12], listed=[given, title_first])[
+        "tracks"
+    ]
+    vitess = tracks[-1]
+    assert (vitess["artist"], vitess["title"]) == ("Vitess", "Vibin Check")
+    assert [(e["source"], e.get("turned", False)) for e in vitess["evidence"]] == [
+        ("file", False),
+        ("description", True),
+    ]
+
+
 def test_text_out_of_order_follows_the_audio():
     probes = [
         *song(0, 4, "Lumen", "Halo"),

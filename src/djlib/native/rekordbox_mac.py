@@ -420,7 +420,7 @@ EXPORT_TO_FILE = (
 
 
 def click_menu_path(*path: str) -> None:
-    """Click one menu item by its full path, e.g. Playlist > Export Playlist > RICARDO_AM."""
+    """Click one menu item by its full path, e.g. Playlist > Export Playlist > DJ_USB."""
     try:
         outcome = _osascript(CLICK_PATH, *path)
     except AppError as exc:

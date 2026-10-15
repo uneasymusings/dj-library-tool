@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dj-library-tool"
-version = "0.1.0a16"
+version = "0.1.0a17"
 description = "From a DJ set's tracklist to a rekordbox playlist and a verified USB stick, using the music you own. CLI and MCP tools."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -60,6 +60,10 @@ packages = ["src/djlib"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "skills/dj-library" = "djlib/resources/skills/dj-library"
+
+# The README's demo GIFs (about 11 MB) are for GitHub, not for the source package.
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/images/demo"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

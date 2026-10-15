@@ -14,7 +14,6 @@ from urllib.parse import urlsplit
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from filelock import FileLock
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
@@ -22,7 +21,7 @@ from djlib.domain.errors import AppError
 from djlib.interfaces.client import LocalClient
 from djlib.interfaces.mcp_server import build_server
 from djlib.interfaces.service import create_app
-from djlib.workspace import Workspace
+from tests.conftest import wait_for_coordinator_exit
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -234,22 +233,6 @@ def cli(workspace, *args, expected=0):
         },
     )
     return json.loads(result.stdout)
-
-
-@pytest.fixture
-def live_workspace(tmp_path):
-    workspace = Workspace(tmp_path / "live")
-    yield workspace
-    if workspace.config_path.exists() and LocalClient(workspace).discover():
-        LocalClient(workspace).request("POST", "/shutdown")
-        wait_for_coordinator_exit(workspace)
-
-
-def wait_for_coordinator_exit(workspace):
-    # A shutdown acknowledgement precedes process exit. Wait for ownership to
-    # end so fixture cleanup cannot submit a second request to an exiting server.
-    with FileLock(workspace.runtime / "coordinator.lock", timeout=10):
-        pass
 
 
 def test_cli_demo_and_all_local_commands(live_workspace, tmp_path):

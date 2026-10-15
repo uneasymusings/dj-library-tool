@@ -297,13 +297,29 @@ UNAVAILABLE = (
     "geo-restrict",
     "your country",
 )
+# yt-dlp stops audio that arrives in pieces (SoundCloud's HLS) when one piece doesn't come:
+# "ERROR: fragment 12 not found, unable to continue", after an HTTP 404 for that piece. The
+# upload is still there and a new try gets new links, so it is no gone upload.
+MISSING_PIECE = re.compile(r"\bfragment \d+ not found\b")
 
 
 def provider_error(stderr: bytes) -> AppError:
-    """Classify bounded diagnostics without reflecting publisher text or private URLs."""
+    """Classify bounded diagnostics without reflecting publisher text or private URLs.
+
+    yt-dlp's last error lines, cleaned (``error_lines``), ride along as the error's notes for
+    a local log; they never reach its message or a JSON envelope.
+    """
+    error = _classified(stderr)
+    for line in error_lines(stderr):
+        error.add_note(line)
+    return error
+
+
+def _classified(stderr: bytes) -> AppError:
     text = stderr.decode("utf-8", errors="replace").lower()
-    # Warnings ("retrying…") can name problems the final error does not have.
-    errors = [line for line in text.splitlines() if line.startswith("error:")]
+    # Warnings ("retrying…") can name problems the final error does not have. A line breaks
+    # only at a newline: yt-dlp writes "ERROR: \r[download] Got error: HTTP Error 404 …".
+    errors = [line for line in text.split("\n") if line.startswith("error:")]
     text = "\n".join(errors) or text
     if "no supported javascript runtime" in text or "javascript runtime is not supported" in text:
         return AppError(
@@ -324,7 +340,7 @@ def provider_error(stderr: bytes) -> AppError:
             502,
             True,
         )
-    if re.search(r"http error 5\d\d", text):
+    if re.search(r"http error 5\d\d", text) or MISSING_PIECE.search(text):
         return AppError(
             "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
         )
@@ -338,6 +354,44 @@ def provider_error(stderr: bytes) -> AppError:
     return AppError(
         "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
     )
+
+
+LINK = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s\"'<>()]+", re.IGNORECASE)
+# A cookie or authorization header runs to the end of its line; other secrets are one value.
+HEADER = re.compile(r"\b(set-cookie|cookies?|authorization)(\s*[=:]\s*).*", re.IGNORECASE)
+# Also under a longer name (po_token, api_key, client_secret) and quoted, as in JSON.
+SECRET = re.compile(
+    r"\b((?:\w*_)?(?:token|signature|sig|key|password|pot|secret))"
+    r"([\"']?\s*[=:]\s*[\"']?)[^\s&;,()\"']+",
+    re.IGNORECASE,
+)
+ERROR_LINES, ERROR_LINE_CHARS = 6, 300
+
+
+def error_lines(stderr: bytes) -> list[str]:
+    """yt-dlp's last ERROR and WARNING lines, safe to keep in a local log: links cut to their
+    site (a signed media link carries tokens), the home folder as ~, cookie and token values
+    blanked, control characters removed, each line cut short."""
+    home = str(Path.home())
+    kept = []
+    for line in stderr.decode("utf-8", errors="replace").split("\n"):
+        if not line.startswith(("ERROR:", "WARNING:")):
+            continue
+        line = LINK.sub(_site, line.replace("\r", "").rstrip())
+        if len(home) > 1:
+            line = line.replace(home, "~")
+        line = SECRET.sub(r"\1\2…", HEADER.sub(r"\1\2…", line))
+        kept.append(safe_text(line)[:ERROR_LINE_CHARS])
+    return kept[-ERROR_LINES:]
+
+
+def _site(link: re.Match) -> str:
+    """A link as its site alone: "<googlevideo.com link>"."""
+    try:
+        host = (urlsplit(link.group(0)).hostname or "").lower()
+    except ValueError:
+        host = ""
+    return f"<{'.'.join(host.split('.')[-2:])} link>" if host else "<link>"
 
 
 async def run(
@@ -421,7 +475,16 @@ async def run(
             if await waiter != 0:
                 raise provider_error(bytes(diagnostics))
     except TimeoutError as exc:
-        raise AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True) from exc
+        timed_out = AppError("SOURCE_TIMEOUT", "Source retrieval timed out.", 504, True)
+        for line in error_lines(bytes(diagnostics)):
+            timed_out.add_note(line)
+        raise timed_out from exc
+    except AppError as error:
+        # A stall or a size limit: what yt-dlp said so far, as provider_error keeps it.
+        if not getattr(error, "__notes__", None):
+            for line in error_lines(bytes(diagnostics)):
+                error.add_note(line)
+        raise
     finally:
         if os.name == "posix":
             # The session belongs exclusively to this retrieval, including FFmpeg children.
@@ -596,14 +659,27 @@ SET_FIELDS = "%(.{id,title,uploader,duration,extractor_key,filepath})j"
 # A six-hour set over a slow link takes a while; a download that stops growing fails sooner.
 SET_DOWNLOAD_SECONDS = 4 * 3600
 SET_STALL_SECONDS = 300
+# YouTube refuses about one set download in five on its first request for the audio (HTTP
+# 403, seen in October 2026), and yt-dlp gives up on any 4xx at once; a new try gets a newly
+# signed link and works. So a download that fails that way (SOURCE_FAILED), or loses a piece
+# of a set sent in pieces (MISSING_PIECE), is tried once more after a short pause. Rate
+# limits, timeouts and uploads that are gone are not tried again.
+SET_TRIES = 2
+SET_RETRY_SECONDS = 5.0
 
 
-async def fetch_set_audio(url: str, destination: Path) -> dict:
+async def fetch_set_audio(
+    url: str,
+    destination: Path,
+    on_retry: Callable[[AppError, int], object] | None = None,
+) -> dict:
     """A whole DJ set's audio, for song recognition only; it never enters the catalog.
 
     The provider's audio is kept as published (FFmpeg reads WebM, M4A and Opus). A receipt
     beside it lets a later scan of the same set reuse the file, and an interrupted download
-    of the same set resumes.
+    of the same set resumes. A try the site failed is made again once (SET_TRIES), after
+    ``on_retry`` gets its error and the number of the next try; an error after more than one
+    try has ``details.tries``.
     """
     url = await resolved(url)
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -626,35 +702,48 @@ async def fetch_set_audio(url: str, destination: Path) -> dict:
         atomic_json(pending, {"url": url, "pid": pid})
 
     # Stable output names cannot be influenced by a publisher's title or template.
-    raw = await run(
-        [
-            *command(),
-            "--format",
-            "bestaudio/best",
-            "--max-filesize",
-            "2G",
-            # A missing piece would shorten the set and shift every later time; failing lets
-            # a retry fetch it.
-            "--abort-on-unavailable-fragments",
-            # One set: a playlist or channel page saves nothing (and is not walked).
-            "--playlist-items",
-            "1",
-            "--match-filters",
-            "duration <= 21600 & !is_live & !playlist_id",
-            "--print",
-            f"after_move:{SET_FIELDS}",
-            "--output",
-            str(destination / "set.%(ext)s"),
-            "--",
-            url,
-        ],
-        timeout=SET_DOWNLOAD_SECONDS,
-        output_limit=1024 * 1024,
-        download_dir=destination,
-        max_bytes=SET_AUDIO_BYTES,
-        stall_seconds=SET_STALL_SECONDS,
-        on_start=started,
-    )
+    args = [
+        *command(),
+        "--format",
+        "bestaudio/best",
+        "--max-filesize",
+        "2G",
+        # A missing piece would shorten the set and shift every later time; failing lets
+        # a retry fetch it.
+        "--abort-on-unavailable-fragments",
+        # One set: a playlist or channel page saves nothing (and is not walked).
+        "--playlist-items",
+        "1",
+        "--match-filters",
+        "duration <= 21600 & !is_live & !playlist_id",
+        "--print",
+        f"after_move:{SET_FIELDS}",
+        "--output",
+        str(destination / "set.%(ext)s"),
+        "--",
+        url,
+    ]
+    for tried in range(1, SET_TRIES + 1):
+        try:
+            raw = await run(
+                args,
+                timeout=SET_DOWNLOAD_SECONDS,
+                output_limit=1024 * 1024,
+                download_dir=destination,
+                max_bytes=SET_AUDIO_BYTES,
+                stall_seconds=SET_STALL_SECONDS,
+                on_start=started,
+            )
+            break
+        except AppError as error:
+            if error.code != "SOURCE_FAILED" or not error.retryable or tried == SET_TRIES:
+                if tried > 1:
+                    error.details = {**(error.details or {}), "tries": tried}
+                raise
+            if on_retry is not None:
+                on_retry(error, tried + 1)
+            # What arrived stays, so the next try continues it.
+            await asyncio.sleep(SET_RETRY_SECONDS)
     lines = [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()]
     try:
         info = json.loads(lines[-1]) if lines else {}

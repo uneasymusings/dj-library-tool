@@ -2,11 +2,11 @@
 
 Ask your assistant about a set the way you'd ask a friend: "What's in this set and which tracks do I own?" with a YouTube or SoundCloud link, or "Load my Shazams from this month. What am I missing?" djlib does the work on your computer: it reads the set's page, MixesDB and anything you copied, listens with Shazam, checks your music and builds the crate, the rekordbox playlist and the USB stick. Your assistant does the talking, the web search and the explaining. The [dj-library skill](../skills/dj-library/SKILL.md) teaches it the workflow, and the MCP server gives it djlib's tools.
 
-The quickest start is to paste “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md” into your assistant. Or run the [one-line installer](INSTALL.md) in a terminal: it installs djlib, adds this plugin to Claude Code and Codex when they're installed, then indexes your music.
+The quickest start is to paste “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>” into your assistant. Or run the [one-line installer](INSTALL.md) in a terminal: it installs djlib, adds this plugin to Claude Code and Codex when they're installed, then indexes your music.
 
 ## What to ask
 
-- “What's in this set and which tracks do I own? https://soundcloud.com/…”
+- “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 - “Load my Shazams from the last month. What am I missing?”
 - “Here's the tracklist I copied from 1001Tracklists for this YouTube set. Fill in the IDs and tell me what I own.”
 - “Here's tonight's tracklist. Check what I own, tell me which other mixes I have, and put the set on my USB through rekordbox.”
@@ -38,7 +38,7 @@ codex plugin marketplace add uneasymusings/dj-library-tool
 codex plugin add djlib@dj-library-tool
 ```
 
-Restart the host. The plugin runs `djlib` from your PATH; at session start it tells the assistant when djlib is missing or from another release, with the fix. `djlib upgrade` (or rerunning the installer) updates djlib and the plugin together. To refresh only the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than djlib. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
+Restart the host. The plugin runs `djlib` from your PATH; at session start it tells the assistant when djlib is missing, installed in a folder that isn't on the host's PATH (such as `~/.local/bin`), or from another release, with the fix. `djlib upgrade` (or rerunning the installer) updates djlib and the plugin together. To refresh only the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than djlib. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
 
 ## Manual setup
 

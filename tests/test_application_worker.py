@@ -13,7 +13,9 @@ from djlib.domain.contracts import CollectionRequest, StartRequest, TrackInput
 from djlib.domain.errors import AppError
 from djlib.jobs.worker import Worker
 from djlib.persistence.models import AssetRevision, Job, JobItem, Membership, Operation
+from djlib.sources import web
 from tests.conftest import execute, submit_collection
+from tests.test_recognition import MISSING_PIECE
 
 
 def test_submission_idempotency_and_conflict(application, audio_factory):
@@ -380,6 +382,8 @@ async def test_download_falls_back_to_another_upload_when_one_is_gone(
     [
         # A refused stream may work on a retry of the same upload: no fallback.
         (AppError("SOURCE_FAILED", "Refused.", 502, True), [OFFICIAL]),
+        # So may one sent in pieces that lost a piece (SoundCloud's HLS).
+        (web.provider_error(MISSING_PIECE), [OFFICIAL]),
         (AppError("SOURCE_UNAVAILABLE", "Gone.", 502), [OFFICIAL, LABEL]),
     ],
 )

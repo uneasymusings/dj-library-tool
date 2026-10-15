@@ -265,7 +265,7 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
         "result"
     ]["collection_id"]
     fake = FakeRekordbox(monkeypatch)
-    volume = tmp_path / "RICARDO_AM"
+    volume = tmp_path / "DJ_USB"
     (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
     (volume / "PIONEER" / "rekordbox" / "export.pdb").write_bytes(b"old")
     exported = []
@@ -295,7 +295,7 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     )
     assert reply.exit_code == 0, reply.output
     result = json.loads(reply.stdout)["result"]
-    assert exported == [("RICARDO_AM", "Owned")]
+    assert exported == [("DJ_USB", "Owned")]
     assert fake.imported[0].name == "Owned.m3u8"  # pushed first because it was missing
     assert result["found"] == result["expected"] == 2 and result["missing"] == []
     assert result["in_order"] is True and result["playlist_on_device"] is True
@@ -331,12 +331,12 @@ def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
         encoding="utf-8",
     )
     fake = FakeRekordbox(monkeypatch)
-    volume = tmp_path / "RICARDO_AM"
+    volume = tmp_path / "DJ_USB"
     (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
     owned_in_order = [sources[1], sources[0]]
 
     def wait_for_selection(device, target, timeout, on_wrong=None, **hooks):
-        assert (device, target) == ("RICARDO_AM", "Friday — Warm-up")
+        assert (device, target) == ("DJ_USB", "Friday — Warm-up")
         files = [(source.name, source.read_bytes()) for source in owned_in_order]
         pdb_fixture.stick(volume, target, files)
 
@@ -365,7 +365,7 @@ def test_set_goes_from_tracklist_to_verified_usb_in_one_command(
     assert status.exit_code == 0, status.output
     crates = json.loads(status.stdout)["result"]["recent_collections"]
     [crate] = [row for row in crates if row["name"] == "Friday — Warm-up"]
-    assert crate["pushed_at"] and crate["usb"]["device"] == "RICARDO_AM"
+    assert crate["pushed_at"] and crate["usb"]["device"] == "DJ_USB"
     assert (crate["usb"]["found"], crate["usb"]["expected"]) == (2, 2)
 
     # Running it again reuses the request list, crate and playlist; nothing is imported twice.
@@ -471,7 +471,7 @@ def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
     fake = FakeSelection(monkeypatch, clicks=[9.9, 19.9], selections=["Other", "Other", "Owned"])
     wrong = []
 
-    rekordbox_mac.wait_for_selection("RICARDO_AM", "Owned", 60, on_wrong=wrong.append)
+    rekordbox_mac.wait_for_selection("DJ_USB", "Owned", 60, on_wrong=wrong.append)
 
     # One look at the start, then one after each burst of input once the user pauses:
     # never a dialog per second, and never in the middle of a click.
@@ -479,7 +479,7 @@ def test_selection_is_reread_only_after_the_user_does_something(monkeypatch):
     settle = rekordbox_mac.SETTLE_SECONDS
     assert 9.9 + settle <= fake.probes[1] < 11.0 and 19.9 + settle <= fake.probes[2] < 21.0
     assert wrong == ["Other"]
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
     # rekordbox comes to the front and the user is told what to click, and why not "Other".
     assert fake.notes[0] == "front" and "Click “Owned”" in fake.notes[1]
     assert any(note.startswith("That's “Other”") for note in fake.notes[2:])
@@ -501,14 +501,14 @@ def test_the_list_on_screen_says_when_to_look_at_the_selection(monkeypatch):
     )
     states = []
     rekordbox_mac.wait_for_selection(
-        "RICARDO_AM",
+        "DJ_USB",
         "Tonight (3)",
         600,
         on_state=lambda state, left, about: states.append((state, about)),
         expected_tracks=5,
     )
     assert len(fake.probes) == 1 and 6.0 + rekordbox_mac.SETTLE_SECONDS <= fake.probes[0] < 7.5
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
     assert states[0] == ("other_list_selected", "692 Tracks, 41 hours, 13.4 GB")
     assert ("other_list_selected", "12 Tracks, 61 minutes, 1.1 GB") in states
 
@@ -519,9 +519,9 @@ def test_a_list_of_another_size_is_still_looked_at_after_a_while(monkeypatch):
     fake = FakeSelection(
         monkeypatch, summaries=[(0.0, "4 Tracks, 14 minutes, 110 MB")], selections=["Tonight"]
     )
-    rekordbox_mac.wait_for_selection("RICARDO_AM", "Tonight", 600, expected_tracks=5)
+    rekordbox_mac.wait_for_selection("DJ_USB", "Tonight", 600, expected_tracks=5)
     assert fake.probes and fake.probes[0] >= rekordbox_mac.OTHER_LIST_SECONDS
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
 
 
 def test_same_sized_copies_are_told_apart_by_the_click(monkeypatch):
@@ -536,10 +536,10 @@ def test_same_sized_copies_are_told_apart_by_the_click(monkeypatch):
     )
     wrong = []
     rekordbox_mac.wait_for_selection(
-        "RICARDO_AM", "Tonight (3)", 600, on_wrong=wrong.append, expected_tracks=5
+        "DJ_USB", "Tonight (3)", 600, on_wrong=wrong.append, expected_tracks=5
     )
     assert wrong == ["Tonight (2)"] and len(fake.probes) == 2 and fake.probes[1] >= 10.0
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
 
 
 def test_track_counts_are_read_from_the_summary_line():
@@ -560,14 +560,14 @@ def test_a_menu_hiccup_after_a_wrong_click_keeps_waiting(monkeypatch):
     states, exported_at = [], []
 
     rekordbox_mac.wait_for_selection(
-        "RICARDO_AM",
+        "DJ_USB",
         "Tonight (3)",
         600,
         on_state=lambda state, left, selected: states.append(state),
         before_export=lambda: exported_at.append(fake.now),
     )
 
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
     assert "wrong_playlist" in states and "busy" in states
     assert exported_at and exported_at[0] >= 6.0  # the stick is read right before the export
 
@@ -577,7 +577,7 @@ def test_a_timeout_says_why_nothing_was_exported(monkeypatch):
     states = []
     with pytest.raises(AppError) as raised:
         rekordbox_mac.wait_for_selection(
-            "RICARDO_AM", "Owned", 30, on_state=lambda state, left, _: states.append(state)
+            "DJ_USB", "Owned", 30, on_state=lambda state, left, _: states.append(state)
         )
     error = raised.value
     assert error.code == "APP_SELECTION_TIMEOUT" and error.retryable is True
@@ -587,16 +587,16 @@ def test_a_timeout_says_why_nothing_was_exported(monkeypatch):
 
     FakeSelection(monkeypatch, menu="missing")
     with pytest.raises(AppError) as raised:
-        rekordbox_mac.wait_for_selection("RICARDO_AM", "Owned", 30)
-    assert "doesn't list RICARDO_AM" in raised.value.message
+        rekordbox_mac.wait_for_selection("DJ_USB", "Owned", 30)
+    assert "doesn't list DJ_USB" in raised.value.message
 
 
 def test_names_match_however_their_accents_are_composed(monkeypatch):
     import unicodedata
 
     fake = FakeSelection(monkeypatch, selections=[unicodedata.normalize("NFD", "Café Nuit")])
-    rekordbox_mac.wait_for_selection("RICARDO_AM", "Café Nuit", 60)
-    assert fake.exported == [("Playlist", "Export Playlist", "RICARDO_AM")]
+    rekordbox_mac.wait_for_selection("DJ_USB", "Café Nuit", 60)
+    assert fake.exported == [("Playlist", "Export Playlist", "DJ_USB")]
 
 
 def test_a_disabled_export_item_means_nothing_is_selected(monkeypatch):
@@ -914,7 +914,7 @@ def test_a_new_version_keeps_its_playlist_name_for_usb_and_later_pushes(
 
     # The live bug: the USB step for that crate imported it again as "Friday (3)" and then
     # asked the user to click a playlist they had never been told about.
-    volume = tmp_path / "RICARDO_AM"
+    volume = tmp_path / "DJ_USB"
     (volume / "PIONEER" / "rekordbox").mkdir(parents=True)
     asked = []
 
