@@ -73,7 +73,7 @@ The first listen that uses Shazam says once that djlib uses Shazam's service uno
 | **Which USB?** (`DEVICE_REQUIRED`) | No stick, or several sticks, are plugged in. Pass `--device /Volumes/NAME`. |
 | **Driving rekordbox needs a Mac** (`APP_AUTOMATION_UNSUPPORTED`) | `djlib set` still builds the crate; import it into your DJ app yourself. |
 | **USB check failed … don't take this stick yet** (exit code 4) | Tracks are missing or out of order on the stick. Don't play from it; export again. |
-| A set you checked with 0.1.0a15 shows up as “Name (2)” in rekordbox | 0.1.0a16 found more songs you own, or now reads the untimed ID lines in your tracklist file, so it made a new crate. Delete the older playlist. |
+| A set you checked with an earlier djlib shows up as “Name (2)” in rekordbox | The newer djlib found other songs, so it made a new crate: 0.1.0a17 listens to a set that showed one made-up song (most Boiler Room uploads), and 0.1.0a16 found more songs you own or read the untimed ID lines in your tracklist file. Delete the older playlist. |
 
 djlib never edits rekordbox's database and never writes the USB stick itself; rekordbox does the export. Playback on CDJ and XDJ players isn't verified by the tool, so test the stick before a gig.
 

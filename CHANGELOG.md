@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0a17 (unreleased)
+## 0.1.0a17
 
 **Fixed:**
 - **Boiler Room sets are listened to.** Boiler Room describes nearly every upload in one line: “Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.” djlib read that line as a song, so `djlib set 'LINK'` showed one made-up song after 14 seconds and never listened. A line about the set itself is not a song any more: who played where or when (“live from …”, “DJ set at …”, “recorded live at …”, “Glastonbury 2019”, the set's date), a set or show (“Kaytranada - Boiler Room Montreal”), or, in a note of one or two lines, the uploader beside a venue (“Four Tet - Lollapalooza” on Four Tet's channel). A full tracklist on an artist's own channel keeps their songs, such as “Blur - Parklife” or “Sigur Rós - Festival”. A show's own channel naming itself beside the place (“Cercle - Château de Chambord” from Cercle) is never a song. “Main Source - Live at the Barbeque” is still a song, and so is a mix in brackets such as “(Live at Alive 2007)”. The upload's own title written again, a quote with its speaker (“"Felt so good to be back, London." - RÜFÜS DU SOL”, as Mixmag writes), a ticket line (“General on sale - Friday May 20”) and a paragraph with a dash in it are not songs either. Only the set's page is read this way: a tracklist you give djlib is read as you wrote it.
