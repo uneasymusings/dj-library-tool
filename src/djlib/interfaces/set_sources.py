@@ -106,10 +106,10 @@ def page_tracklist(page: dict) -> str:
     from djlib.application.tracklists import parse_tracklist
 
     description, chapters = page.get("description") or "", page.get("chapters") or []
-    uploader = str(page.get("uploader") or "")
+    context = (str(page.get("uploader") or ""), str(page.get("title") or ""))
     for text in (
-        tracklist_from_source(description, chapters, uploader),
-        tracklist_from_source(description, [], uploader),
+        tracklist_from_source(description, chapters, *context),
+        tracklist_from_source(description, [], *context),
     ):
         if text and parse_tracklist(text, page.get("url"))[0]:
             return text
