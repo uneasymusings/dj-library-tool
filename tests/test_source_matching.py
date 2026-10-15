@@ -784,6 +784,28 @@ def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
     ]
 
 
+def test_the_uploads_own_title_and_ticket_lines_are_not_tracks():
+    title = "Old School Hip-Hop And R&B On Turntables - DJ Mixtape | Dan Alex"
+    description = "\n".join(
+        [
+            "👉 Old School Hip-Hop And R&B On Turntables - Dj Mixtape | Dan Alex",
+            "General on sale - Friday May 20 at 10am local",
+            'Shop with "ZARA Home - Store Music Playlist 2024".',
+            "Pete Rock & C.L. Smooth - They Reminisce Over You (T.R.O.Y.)",
+        ]
+    )
+    assert tracklist_from_source(description, [], "Dan Alex", title).splitlines() == [
+        "Pete Rock & C.L. Smooth - They Reminisce Over You (T.R.O.Y.)"
+    ]
+    # A short title restated is the song itself, as above its live video.
+    assert not names_the_set("Bicep - Glue", "Bicep", "Bicep - Glue (Live at Glastonbury 2019)")
+    assert names_the_set(
+        "DJ Shinski - 90s Hip Hop Clean Mix Vol 2",
+        "",
+        "DJ Shinski - 90s Hip Hop Clean Mix Vol 2 | Old School Rap Classics",
+    )
+
+
 def test_a_long_tracklist_keeps_every_song_under_a_line_about_the_set():
     description = """Overmono - live at Printworks London, March 2024
 Presented by Cupra

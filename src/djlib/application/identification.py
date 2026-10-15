@@ -1513,9 +1513,9 @@ def _listed(page: dict, listings: list[dict], url: str) -> tuple[list[dict], dic
     chapters' (unless they repeat the description) and MixesDB's (unless one was given),
     with the MixesDB page used, if any."""
     listed = [listed_tracklist(t["source"], t["text"], url) for t in listings]
-    uploader = str(page.get("uploader") or "")
-    description = tracklist_from_source(page.get("description") or "", [], uploader)
-    chapters = tracklist_from_source("", page.get("chapters") or [], uploader)
+    context = (str(page.get("uploader") or ""), str(page.get("title") or ""))
+    description = tracklist_from_source(page.get("description") or "", [], *context)
+    chapters = tracklist_from_source("", page.get("chapters") or [], *context)
     published = [listed_tracklist("description", description, url)] if description else []
     if chapters and not _same_lines(chapters, description):
         published.append(listed_tracklist("chapters", chapters, url))
