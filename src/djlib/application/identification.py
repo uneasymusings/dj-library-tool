@@ -988,7 +988,25 @@ class IdentifyRunner:
             attempt.progress = {**attempt.progress, "downloaded_bytes": size}
             self.save(attempt, progress=attempt.progress)
 
-        receipt = await self.watch(attempt, web.fetch_set_audio(url, audio), downloaded)
+        def retrying(error: AppError, next_try: int) -> None:
+            self.note_download(
+                attempt, error, f"download try {next_try - 1} of {web.SET_TRIES} failed"
+            )
+            attempt.progress = {
+                **attempt.progress,
+                "download_retry": {"try": next_try, "of": web.SET_TRIES, "after": error.code},
+            }
+            self.save(attempt, progress=attempt.progress)
+
+        try:
+            receipt = await self.watch(
+                attempt, web.fetch_set_audio(url, audio, on_retry=retrying), downloaded
+            )
+        except AppError as error:
+            tries = (error.details or {}).get("tries")
+            after = f" after {tries} tries" if tries else ""
+            self.note_download(attempt, error, f"download failed{after}")
+            raise
         path = _receipt_path(receipt)
         seconds = await asyncio.to_thread(windows.duration, path)
         self.check_preview(page, receipt, seconds, folder)
@@ -1411,6 +1429,20 @@ class IdentifyRunner:
         for path in (folder / "audio").glob("*.pcm*"):
             path.unlink(missing_ok=True)
 
+    def note_download(self, attempt: _Attempt, error: AppError, what: str) -> None:
+        """A set download that failed, in ``runtime/downloads.log`` with the last lines yt-dlp
+        wrote (``web.error_lines``: no links, no cookies), so the reason can be told later."""
+        try:
+            host = (urlsplit(attempt.request["url"]).hostname or "").removeprefix("www.")
+        except ValueError:
+            host = ""
+        where = f"{attempt.job_id} set {attempt.folder.name} ({host})"
+        notes = [f"  {note}" for note in getattr(error, "__notes__", [])]
+        append_log(
+            self.app.workspace.runtime / DOWNLOAD_LOG,
+            [f"{_now()} {where}: {what} ({error.code})", *notes],
+        )
+
     def explain(self, error: AppError, folder: Path) -> AppError:
         """The failure in plain words, with what to do next."""
         kept = (
@@ -1473,6 +1505,26 @@ def _failed_windows(probes: list[dict], starts: list[float]) -> tuple[int, str |
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+# Failed set downloads, in the workspace's runtime folder; the newest 64 kB are kept.
+DOWNLOAD_LOG = "downloads.log"
+LOG_BYTES = 64 * 1024
+
+
+def append_log(path: Path, lines: list[str]) -> None:
+    """Add ``lines`` to a small private log, keeping about its newest LOG_BYTES. A log that
+    can't be written never fails the job."""
+    try:
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        fd = os.open(path, flags, 0o600)
+        with os.fdopen(fd, "ab") as log:
+            log.write("".join(f"{line}\n" for line in lines).encode("utf-8", "replace"))
+        if path.stat().st_size > LOG_BYTES:
+            kept = path.read_bytes()[-LOG_BYTES // 2 :]
+            path.write_bytes(kept[kept.find(b"\n") + 1 :])
+    except OSError:
+        logger.warning("Could not write %s", path.name, exc_info=True)
 
 
 def _listened_at(folder: Path) -> str | None:

@@ -58,6 +58,7 @@ An hour-long set usually takes 5–10 minutes; when Shazam is busy it can take h
 | **The recognition service refused djlib's key** (`RECOGNIZER_REJECTED`) | Shazam refused djlib's requests (try again later, or `djlib upgrade`), or a licensed service refused your key or its quota is used up. What djlib heard is saved. |
 | **Song recognition isn't set up** (`RECOGNIZER_NOT_CONFIGURED`) | AudD or ACRCloud is chosen without its keys. Set them (see [song recognition](INSTALL.md#song-recognition)), run `djlib service stop`, then try again. |
 | `DISK_FULL` | The disk with djlib's folder is full; the message says how much a set needs. Free some space and run the same command again. |
+| **The site didn't answer just now** (`SOURCE_FAILED`) while downloading the set | djlib already tried twice. Wait a minute and run the same command again; what arrived is kept. What the site said is in `runtime/downloads.log` in djlib's folder (`djlib doctor` shows where it is). |
 
 The first listen that uses Shazam says once that djlib uses Shazam's service unofficially, so it may slow down or stop working. AudD and ACRCloud are the licensed options.
 

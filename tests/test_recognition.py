@@ -289,6 +289,167 @@ async def test_set_audio_skipped_by_the_limits_is_reported(tmp_path, monkeypatch
     assert unsupported.value.code == "SOURCE_UNSUPPORTED"
 
 
+# What yt-dlp says when YouTube refuses the audio's first request (about one try in five).
+REFUSED = b"ERROR: unable to download video data: HTTP Error 403: Forbidden\n"
+
+
+def yt_dlp_refuses(tmp_path, seen, refusals, *, stderr=REFUSED, then=None):
+    """yt-dlp that fails ``refusals`` times as ``stderr`` says (after half a set arrived),
+    then fails with ``then`` or saves the set like ``yt_dlp_saves``."""
+    saves = yt_dlp_saves(tmp_path, seen)
+
+    async def fake(args, **options):
+        if len(seen) < refusals:
+            seen.append((args, options))
+            (tmp_path / "set.webm.part").write_bytes(b"half a set")
+            raise web.provider_error(stderr)
+        if then is not None:
+            seen.append((args, options))
+            raise then
+        return await saves(args, **options)
+
+    return fake
+
+
+@pytest.fixture
+def pauses(monkeypatch):
+    """The pauses between download tries, recorded instead of waited."""
+    waited, real = [], asyncio.sleep
+
+    async def pause(seconds):
+        waited.append(seconds)
+        await real(0)
+
+    monkeypatch.setattr(web.asyncio, "sleep", pause)
+    return waited
+
+
+def never(*_):
+    pytest.fail("The download was tried again.")
+
+
+async def test_a_set_download_the_site_refused_is_tried_once_more(tmp_path, monkeypatch, pauses):
+    seen, retries = [], []
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp_refuses(tmp_path, seen, 1))
+    receipt = await web.fetch_set_audio(
+        SET_URL, tmp_path, on_retry=lambda error, next_try: retries.append((error, next_try))
+    )
+    assert receipt["path"] == str(tmp_path / "set.webm") and len(seen) == 2
+    # The same download again, after a short pause, keeping what arrived.
+    assert seen[0][0] == seen[1][0] and pauses == [web.SET_RETRY_SECONDS] and pauses[0] <= 10
+    assert (tmp_path / "set.webm.part").exists()
+    [(error, next_try)] = retries
+    assert (error.code, error.retryable, next_try) == ("SOURCE_FAILED", True, 2)
+    assert not (tmp_path / "fetching.json").exists()
+
+
+async def test_a_set_download_refused_twice_says_it_was_tried_twice(tmp_path, monkeypatch, pauses):
+    seen = []
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp_refuses(tmp_path, seen, 2))
+    with pytest.raises(AppError) as refused:
+        await web.fetch_set_audio(SET_URL, tmp_path)
+    assert (refused.value.code, refused.value.retryable) == ("SOURCE_FAILED", True)
+    assert refused.value.details == {"tries": 2} and len(seen) == 2 and len(pauses) == 1
+    # What yt-dlp said is kept for the log, never in the message.
+    assert refused.value.__notes__ == [REFUSED.decode().strip()]
+    assert "403" not in refused.value.message
+    # The second try ends the download whatever it says, a rate limit too.
+    seen.clear()
+    limited = web.provider_error(b"ERROR: HTTP Error 429: Too Many Requests")
+    monkeypatch.setattr(web, "run", yt_dlp_refuses(tmp_path, seen, 1, then=limited))
+    with pytest.raises(AppError) as second:
+        await web.fetch_set_audio(SET_URL, tmp_path)
+    assert second.value.code == "SOURCE_RATE_LIMITED" and second.value.details == {"tries": 2}
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize(
+    ("stderr", "code"),
+    [
+        (b"ERROR: HTTP Error 429: Too Many Requests", "SOURCE_RATE_LIMITED"),
+        (b"ERROR: [youtube] keinemusik: Video unavailable", "SOURCE_UNAVAILABLE"),
+        (b"ERROR: [youtube] keinemusik: Sign in to confirm your age", "SOURCE_AUTH_REQUIRED"),
+        (b"ERROR: No supported JavaScript runtime could be found", "JAVASCRIPT_RUNTIME_REQUIRED"),
+    ],
+)
+async def test_set_downloads_another_try_cannot_fix_are_not_tried_again(
+    tmp_path, monkeypatch, pauses, stderr, code
+):
+    seen = []
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp_refuses(tmp_path, seen, 1, stderr=stderr))
+    with pytest.raises(AppError) as failed:
+        await web.fetch_set_audio(SET_URL, tmp_path, on_retry=never)
+    assert failed.value.code == code and failed.value.details is None
+    assert len(seen) == 1 and pauses == []
+
+
+@pytest.mark.parametrize("code", ["SOURCE_TIMEOUT", "DOWNLOAD_SIZE_LIMIT"])
+async def test_a_stalled_or_oversized_set_download_is_not_tried_again(
+    tmp_path, monkeypatch, pauses, code
+):
+    tries = []
+
+    async def stopped(args, **options):
+        tries.append(args)
+        raise AppError(code, "The download stopped.", 504, code == "SOURCE_TIMEOUT")
+
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", stopped)
+    with pytest.raises(AppError) as failed:
+        await web.fetch_set_audio(SET_URL, tmp_path, on_retry=never)
+    assert failed.value.code == code and len(tries) == 1 and pauses == []
+
+
+# A stand-in for yt-dlp: the site refuses its first run with a signed link in the message,
+# leaving part of the set behind, and a second run continues that part file.
+STAND_IN = """
+import json, pathlib, sys
+runs = pathlib.Path(sys.argv[1])
+runs.write_text(runs.read_text() + "x" if runs.exists() else "x")
+folder = pathlib.Path(sys.argv[sys.argv.index("--output") + 1]).parent
+part = folder / "set.webm.part"
+if len(runs.read_text()) == 1:
+    part.write_bytes(b"half ")
+    sys.stderr.write(
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden "
+        "(https://rr1---sn-x.googlevideo.com/videoplayback?expire=1&sig=SECRET)\\n"
+    )
+    sys.exit(1)
+part.write_bytes(part.read_bytes() + b"a set")
+part.rename(folder / "set.webm")
+info = {"id": "keinemusik", "title": "Keinemusik live", "uploader": "Keinemusik",
+        "duration": 3721.5, "extractor_key": "Youtube", "filepath": str(folder / "set.webm")}
+print(json.dumps(info))
+"""
+
+
+async def test_a_refused_set_download_is_tried_again_through_real_processes(tmp_path, monkeypatch):
+    runs, audio, retries = tmp_path / "runs", tmp_path / "audio", []
+    monkeypatch.setattr(web, "command", lambda: [sys.executable, "-c", STAND_IN, str(runs)])
+    monkeypatch.setattr(web, "SET_RETRY_SECONDS", 0)
+
+    def retrying(error, next_try):
+        # The first process is gone and the second has not started yet.
+        retries.append((error, next_try, json.loads((audio / "fetching.json").read_text())))
+
+    receipt = await web.fetch_set_audio(SET_URL, audio, on_retry=retrying)
+    assert runs.read_text() == "xx"
+    # The second try continued what the first left, and the set came out whole.
+    assert receipt["path"] == str(audio / "set.webm")
+    assert (audio / "set.webm").read_bytes() == b"half a set"
+    assert not (audio / "fetching.json").exists() and not (audio / "set.webm.part").exists()
+    [(error, next_try, pending)] = retries
+    assert (error.code, error.retryable, next_try) == ("SOURCE_FAILED", True, 2)
+    assert pending["url"] == SET_URL and isinstance(pending["pid"], int)
+    # What yt-dlp said rides along without the signed link.
+    assert error.__notes__ == [
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden (<googlevideo.com link>)"
+    ]
+
+
 async def test_size_guard_takes_a_larger_bound_for_sets(tmp_path):
     (tmp_path / "set.webm.part").write_bytes(b"x" * 20)
     sleeper = [sys.executable, "-c", "import time; time.sleep(10)"]
@@ -1207,12 +1368,20 @@ def test_a_decoding_that_would_not_fit_on_the_disk_is_not_made(tmp_path, monkeyp
 
 
 async def test_a_download_that_stops_growing_fails_and_can_resume(tmp_path):
-    slow = [sys.executable, "-c", "import time; time.sleep(30)"]
+    warn = "WARNING: [youtube] keinemusik: unable to extract yt initial data; retrying"
+    slow = [
+        sys.executable,
+        "-c",
+        "import sys, time; print(sys.argv[1], file=sys.stderr, flush=True); time.sleep(30)",
+        warn,
+    ]
     began = time.monotonic()
     with pytest.raises(AppError) as stalled:
         await web.run(slow, timeout=60, output_limit=1024, download_dir=tmp_path, stall_seconds=0.5)
     assert stalled.value.code == "SOURCE_TIMEOUT" and stalled.value.retryable
     assert time.monotonic() - began < 10
+    # What yt-dlp said before it stalled is kept for the log.
+    assert stalled.value.__notes__ == [warn]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Orphaned downloads are found with ps")
