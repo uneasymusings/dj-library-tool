@@ -14,11 +14,12 @@ if __name__ == "__main__":
     if not wheel.is_file():
         raise SystemExit("Build the current wheel with uv build first.")
     checks = ["check_installed.py"]
-    run = ["uv", "run", "--isolated", "--no-project", "--with", str(wheel)]
+    python = f"{sys.version_info[0]}.{sys.version_info[1]}"  # this one, not whichever uv finds
+    package = str(wheel)
     if sys.version_info[:2] == (3, 12):
         # install.sh: uv tool install --python 3.12 "dj-library-tool[download,recognize] @ …"
         package = f"dj-library-tool[download,recognize] @ {wheel.as_uri()}"
-        run = ["uv", "run", "--isolated", "--no-project", "--python", "3.12", "--with", package]
         checks.append("check_recognition.py")
+    run = ["uv", "run", "--isolated", "--no-project", "--python", python, "--with", package]
     for check in checks:
         subprocess.run([*run, "python", str(ROOT / "scripts" / check)], cwd=ROOT, check=True)
