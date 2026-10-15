@@ -61,6 +61,10 @@ packages = ["src/djlib"]
 [tool.hatch.build.targets.wheel.force-include]
 "skills/dj-library" = "djlib/resources/skills/dj-library"
 
+# The README's demo GIFs (about 8 MB) are for GitHub, not for the source package.
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/images/demo"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

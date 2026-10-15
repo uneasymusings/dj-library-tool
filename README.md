@@ -4,6 +4,20 @@
 
 **Paste a set link, get every track. See what you own. Play it from your USB.**
 
+<p align="center">
+  <img src="docs/images/demo/four-tet.gif" width="100%" alt="A real run of djlib set on Four Tet's Lollapalooza 2024 set, against a demo library: djlib finds MixesDB's tracklist marked incomplete, listens with Shazam (sped up), then shows 17 of 27 owned, 1 in another mix, 7 missing and 2 IDs.">
+</p>
+<p align="center"><sub><b>Four Tet, Lollapalooza 2024.</b> A real run of <code>djlib set</code> against a demo library. The listen is sped up: it took 5:35.</sub></p>
+
+<details>
+<summary><b>Two more sets:</b> Avalon Emerson's 9000Streams mix, and Mura Masa at Primavera Sound Barcelona 2023</summary>
+<br>
+<img src="docs/images/demo/avalon-emerson.gif" width="100%" alt="A real run of djlib set on Avalon Emerson's 9000Streams (Triple J Mix) from SoundCloud, against a demo library: the page has no tracklist, so djlib listens with Shazam (sped up), then shows 7 of 12 owned, 2 missing and 3 IDs.">
+<p><sub><b>Avalon Emerson, 9000Streams (Triple J Mix).</b> The SoundCloud page has no tracklist, so djlib listens. Demo library; the listen took 28:38.</sub></p>
+<img src="docs/images/demo/mura-masa-primavera.gif" width="100%" alt="A real run of djlib set on Mura Masa's Boiler Room set at Primavera Sound Barcelona 2023, against a demo library: the description has no tracklist, so djlib listens with Shazam (sped up), then shows 11 of 21 owned, 1 in another mix, 4 missing and 5 IDs.">
+<p><sub><b>Mura Masa, Boiler Room x Primavera Sound Barcelona 2023.</b> The description only says where the set was played, so djlib listens. Demo library; the listen took 27:49.</sub></p>
+</details>
+
 For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. It runs on your computer, with no account and no djlib server; it asks Shazam, MixesDB, YouTube and SoundCloud directly.
 
 ```text
@@ -73,7 +87,7 @@ First time: allow the app you run djlib in under System Settings → Privacy & S
 
 `djlib ui` opens a private page with your sets, crates and library; times open the set at that moment.
 
-![djlib's review page: a set with times, how sure, and what you own](docs/images/review-page-set.png)
+![djlib's review page: a Four Tet set with times, how sure each line is, what you own, and store searches for what's missing](docs/images/review-page-set.png)
 
 ## Install
 
