@@ -456,7 +456,7 @@ def test_usb_and_set_views_show_what_came_back_from_the_stick(capsys):
     term = sized(160)
     usb = {
         "playlist": "Friday",
-        "device": "/Volumes/RICARDO_AM",
+        "device": "/Volumes/DJ_USB",
         "expected": 5,
         "found": 5,
         "in_order": True,
@@ -827,7 +827,7 @@ def test_push_warns_about_missing_tracks_and_points_at_the_usb(capsys):
 USB = {
     "collection_id": COLLECTION,
     "playlist": "Friday",
-    "device": "/Volumes/RICARDO_AM",
+    "device": "/Volumes/DJ_USB",
     "expected": 8,
     "found": 7,
     "in_order": True,
@@ -840,14 +840,14 @@ USB = {
 def test_a_short_usb_export_is_a_failure(capsys):
     out = render("rekordbox usb", USB, width=160, capsys=capsys)
     assert out.startswith(
-        "✗ USB check failed: 1 of 8 missing on RICARDO_AM — don't take this stick yet"
+        "✗ USB check failed: 1 of 8 missing on DJ_USB — don't take this stick yet"
     )
     assert "Âme - Rej (Original Mix)" in out
     assert f"djlib rekordbox usb {SHORT_COLLECTION}" in out
     shuffled = render(
         "rekordbox usb", {**USB, "found": 8, "missing": [], "in_order": False}, capsys=capsys
     )
-    assert "USB check failed: tracks out of order on RICARDO_AM" in shuffled
+    assert "USB check failed: tracks out of order on DJ_USB" in shuffled
     assert "out of order" in shuffled.split("Tracks", 1)[1]
 
 
@@ -864,7 +864,7 @@ def test_set_with_a_failed_usb_check_leads_with_it(capsys):
         "usb": USB,
     }
     out = render("set", result, width=160, capsys=capsys)
-    assert out.startswith("✗ USB check failed: 1 of 8 missing on RICARDO_AM")
+    assert out.startswith("✗ USB check failed: 1 of 8 missing on DJ_USB")
     assert "Friday  8 of 9 owned" in out and "Âme - Rej (Original Mix)" in out
     assert f"Export it to the stick again  djlib rekordbox usb {SHORT_COLLECTION}" in out
 
