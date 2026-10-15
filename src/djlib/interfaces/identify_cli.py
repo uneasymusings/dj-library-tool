@@ -46,6 +46,12 @@ QUOTED_CHARS = 160
 # A published tracklist names a song for every 12 minutes of a set at least (an hour of house
 # has 12 to 20); fewer leaves most of the set out, so `djlib set LINK` listens.
 MINUTES_PER_SONG = 12
+# Who names a published tracklist's songs, by where djlib found it (``set_sources.listed_in``).
+NAMED_BY = {
+    "description": "The description names",
+    "chapters": "The chapters name",
+    "mixesdb": "MixesDB lists",
+}
 
 
 class Recognizer(StrEnum):
@@ -726,11 +732,11 @@ def wanted(
 
 
 def listening_notice(
-    reason: str | None, text: str, url: str, workspace, *, mixesdb: bool = False
+    reason: str | None, text: str, url: str, workspace, *, origin: str = "description"
 ) -> str | None:
     """What `djlib set LINK` says before it listens: why, and how long that takes. None when
-    there is nothing new to hear (a set identified before shows at once). ``mixesdb`` says the
-    tracklist is MixesDB's, not the description's."""
+    there is nothing new to hear (a set identified before shows at once). ``origin`` is where
+    the tracklist came from: "description", "chapters" or "mixesdb"."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
@@ -751,7 +757,7 @@ def listening_notice(
     elif reason == "incomplete":
         why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
     elif reason == "sparse":
-        names = "MixesDB lists" if mixesdb else "The description names"
+        names = NAMED_BY.get(origin, NAMED_BY["description"])
         songs = plural(named_songs(text, url), "song")
         why = f"{names} only {songs}, so djlib is listening to the set to find the rest."
     else:
@@ -759,13 +765,15 @@ def listening_notice(
     return f"{why} {LISTEN_TIME}; --no-identify skips it."
 
 
-def sparse_warning(text: str, url: str, duration=None, *, mixesdb: bool = False) -> str | None:
+def sparse_warning(
+    text: str, url: str, duration=None, *, origin: str = "description"
+) -> str | None:
     """What `djlib set LINK` says when it uses a tracklist with too few songs for the set
-    (``too_few``) without listening, else None."""
+    (``too_few``) without listening, else None. ``origin`` is as for ``listening_notice``."""
     songs = too_few(text, url, duration)
     if songs is None:
         return None
-    names = "MixesDB lists" if mixesdb else "The description names"
+    names = NAMED_BY.get(origin, NAMED_BY["description"])
     length = ""
     if isinstance(duration, int | float) and duration >= 60:
         length = f" for this {round(duration / 60)}-minute set"
