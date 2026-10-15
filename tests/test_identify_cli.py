@@ -370,9 +370,9 @@ def test_set_listens_when_the_published_tracklist_is_too_short_for_the_set(appli
     assert reason("Lumen - Halo\n", duration=3431, choice=False) is None
     assert reason("Lumen - Halo\nID - ID\n", duration=3431) == "ids"
 
-    def notice(text, mixesdb=False):
+    def notice(text, origin="description"):
         return identify_cli.listening_notice(
-            "sparse", text, URL, application.workspace, mixesdb=mixesdb
+            "sparse", text, URL, application.workspace, origin=origin
         )
 
     assert notice("Lumen - Halo\n") == (
@@ -380,8 +380,13 @@ def test_set_listens_when_the_published_tracklist_is_too_short_for_the_set(appli
         "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy; "
         "--no-identify skips it."
     )
-    assert notice("Lumen - Halo\nBicep - Glue\n", mixesdb=True).startswith(
+    assert notice("Lumen - Halo\nBicep - Glue\n", "mixesdb").startswith(
         "MixesDB lists only 2 songs, so djlib is listening to the set to find the rest. "
+    )
+    # The list says where it came from: three chapters name three songs.
+    three = "Lumen - Halo\nBicep - Glue\nNia Okoro - Slow Burn\n"
+    assert notice(three, "chapters").startswith(
+        "The chapters name only 3 songs, so djlib is listening to the set to find the rest. "
     )
     # Used without listening, the list says it may be missing songs.
     assert identify_cli.sparse_warning("Lumen - Halo\nBicep - Glue\n", URL, 3431) == (
@@ -393,6 +398,12 @@ def test_set_listens_when_the_published_tracklist_is_too_short_for_the_set(appli
     assert identify_cli.sparse_warning("Lumen - Halo\nID - ID\n", URL, 3431) == (
         "The description names only 1 song for this 57-minute set: songs may be missing."
     )  # an ID names no song
+    assert identify_cli.sparse_warning(three, URL, 3431, origin="chapters") == (
+        "The chapters name only 3 songs for this 57-minute set: songs may be missing."
+    )
+    assert identify_cli.sparse_warning("Lumen - Halo\n", URL, origin="mixesdb") == (
+        "MixesDB lists only 1 song: songs may be missing."
+    )
     assert identify_cli.sparse_warning(five, URL, 3431) is None
     assert identify_cli.sparse_warning("", URL, 3431) is None
 

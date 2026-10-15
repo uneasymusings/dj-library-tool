@@ -892,9 +892,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 complete=complete,
                 duration=length,
             )
+            origin = set_sources.listed_in(page)
             if reason:
                 notice = identify_cli.listening_notice(
-                    reason, text, tracklist, workspace, mixesdb=listing is not None
+                    reason, text, tracklist, workspace, origin=origin
                 )
                 try:
                     identified = identify_cli.listen(
@@ -908,7 +909,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     problem = error
                     listen_fix = identify_cli.listen_fix(error)
                     if text.strip():
-                        where = "on MixesDB" if listing else "in its description"
+                        where = {"mixesdb": "on MixesDB", "chapters": "in its chapters"}.get(
+                            origin, "in its description"
+                        )
                         warnings.append(
                             f"djlib didn't listen to the set ({identify_cli.cannot_listen(error)}),"
                             f" so it uses the tracklist {where}."
@@ -929,9 +932,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     warnings.append(
                         "MixesDB marks this tracklist incomplete: songs may be missing."
                     )
-                elif few := identify_cli.sparse_warning(
-                    text, tracklist, length, mixesdb=listing is not None
-                ):
+                elif few := identify_cli.sparse_warning(text, tracklist, length, origin=origin):
                     warnings.append(few)
         else:
             path = Path(tracklist).expanduser()

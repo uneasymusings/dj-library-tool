@@ -393,6 +393,44 @@ def test_set_listens_when_the_description_names_too_few_songs(
     assert started["identify_reason"] == "sparse"
 
 
+def test_a_short_list_says_it_came_from_the_chapters(
+    application, library_http, setup, audio_factory, monkeypatch
+):
+    """Three chapters for an hour-long set: the notice and the warnings name the chapters,
+    not the description."""
+    owned(library_http, audio_factory)
+    FakeRekordbox(monkeypatch)
+    setup.page["description"] = "Thanks for listening!"
+    setup.page["chapters"] = [
+        {"start_time": 0.0, "title": "Lumen - Halo"},
+        {"start_time": 150.0, "title": "Bicep - Glue"},
+        {"start_time": 240.0, "title": "Nia Okoro - Slow Burn"},
+    ]
+    setup.page["duration_seconds"] = 3431
+    shown = invoke(application, "set", URL, "--no-rekordbox", pretty=True, columns=100)
+    assert shown.exit_code == 0, shown.output
+    said = " ".join(shown.stderr.split())
+    assert "The chapters name only 3 songs, so djlib is listening to the set" in said
+    assert "description" not in said
+    envelope = json.loads(
+        invoke(application, "set", "https://youtu.be/otherset97", "--no-identify").stdout
+    )
+    assert envelope["result"]["songs"] == 3
+    assert envelope["warnings"] == [
+        "The chapters name only 3 songs for this 57-minute set: songs may be missing."
+    ]
+
+    def missing(name=None):
+        raise identification.AppError("DEPENDENCY_REQUIRED", "Song recognition is not installed.")
+
+    monkeypatch.setattr(identification, "recognizer", missing)
+    fallback = json.loads(invoke(application, "set", "https://youtu.be/otherset96").stdout)
+    assert fallback["warnings"][0] == (
+        "djlib didn't listen to the set (song recognition isn't installed), so it uses the "
+        "tracklist in its chapters."
+    )
+
+
 def test_a_title_first_description_agrees_with_what_djlib_hears(
     application, library_http, setup, audio_factory, monkeypatch
 ):
