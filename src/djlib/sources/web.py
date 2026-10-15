@@ -354,7 +354,12 @@ def _classified(stderr: bytes) -> AppError:
 LINK = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s\"'<>()]+", re.IGNORECASE)
 # A cookie or authorization header runs to the end of its line; other secrets are one value.
 HEADER = re.compile(r"\b(set-cookie|cookies?|authorization)(\s*[=:]\s*).*", re.IGNORECASE)
-SECRET = re.compile(r"\b(token|signature|sig|key|password|pot)(\s*[=:]\s*)[^\s&;,()]+", re.I)
+# Also under a longer name (po_token, api_key, client_secret) and quoted, as in JSON.
+SECRET = re.compile(
+    r"\b((?:\w*_)?(?:token|signature|sig|key|password|pot|secret))"
+    r"([\"']?\s*[=:]\s*[\"']?)[^\s&;,()\"']+",
+    re.IGNORECASE,
+)
 ERROR_LINES, ERROR_LINE_CHARS = 6, 300
 
 

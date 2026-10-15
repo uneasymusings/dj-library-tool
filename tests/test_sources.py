@@ -442,6 +442,32 @@ async def test_yt_dlp_error_lines_are_kept_without_links_cookies_or_the_home_fol
     assert "Forbidden" not in json.dumps(error.as_dict()) and "403" not in error.message
 
 
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [
+        # YouTube's proof-of-origin token, and other names that end in a secret's name.
+        (
+            "WARNING: [youtube] fridayset1: ignoring youtube:po_token=web.gvs+SECRET1 for now",
+            "WARNING: [youtube] fridayset1: ignoring youtube:po_token=… for now",
+        ),
+        (
+            "ERROR: refused access_token=SECRET2 api_key=SECRET3 client_secret=SECRET4",
+            "ERROR: refused access_token=… api_key=… client_secret=…",
+        ),
+        ("ERROR: refresh_token: SECRET5", "ERROR: refresh_token: …"),
+        # A quoted value, as in a JSON reply.
+        (
+            'ERROR: bad reply {"token": "SECRET6", "ok": false}',
+            'ERROR: bad reply {"token": "…", "ok": false}',
+        ),
+        # Words that only end like a secret's name stay.
+        ("ERROR: tokens are fine; monkey=1", "ERROR: tokens are fine; monkey=1"),
+    ],
+)
+def test_yt_dlp_error_lines_blank_secrets_under_longer_names(line, kept):
+    assert web.error_lines(line.encode()) == [kept]
+
+
 async def test_probe_selects_audio_without_downloading(monkeypatch):
     seen = {}
 
