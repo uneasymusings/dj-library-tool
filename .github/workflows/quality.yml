@@ -37,7 +37,10 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: true
       - name: Install locked dependencies
-        run: uv sync --locked --extra download
+        # The one-line installer puts djlib on Python 3.12 with song recognition (shazamio, whose
+        # signing library shazamio-core has wheels for all three systems there), so the 3.12 jobs
+        # install it as well. Tests still swap in a fake Shazam; see scripts/check_recognition.py.
+        run: uv sync --locked --extra download ${{ matrix.python == '3.12' && '--extra recognize' || '' }}
       - name: Install FFmpeg on Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
@@ -50,6 +53,9 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       - name: Require audio dependencies
         run: uv run --locked python -c "import shutil; assert shutil.which('ffmpeg') and shutil.which('ffprobe')"
+      - name: Song recognition works offline
+        if: matrix.python == '3.12'
+        run: uv run --locked python scripts/check_recognition.py
       - name: Lint
         run: uv run --locked ruff check src scripts tests
       - name: Formatting
