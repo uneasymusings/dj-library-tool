@@ -66,8 +66,9 @@ def offline_probes(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_song_recognition(monkeypatch):
-    """Tests never reach Shazam, AudD or ACRCloud: song recognition counts as not installed
-    (as in CI) unless a test supplies a recognizer (see tests/test_identification.py)."""
+    """Tests never reach Shazam, AudD or ACRCloud: song recognition counts as not installed,
+    also where shazamio is (CI's Python 3.12 jobs), unless a test supplies a recognizer (see
+    tests/test_identification.py). scripts/check_recognition.py checks the real library."""
     from djlib.application import identification
     from djlib.sources import recognition
 

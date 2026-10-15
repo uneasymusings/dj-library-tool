@@ -20,7 +20,7 @@ One coordinator owns a workspace and exits after 30 idle minutes when it was sta
 
 ## Development
 
-Requires Python 3.12+ and uv; FFmpeg/ffprobe for compressed audio; the optional `download` extra for yt-dlp.
+Requires Python 3.12+ and uv; FFmpeg/ffprobe for compressed audio; the optional `download` extra for yt-dlp. On Python 3.12, add `--extra recognize` for Shazam listening (shazamio), as the installer and CI's 3.12 jobs do; `uv run python scripts/check_recognition.py` checks it without asking Shazam anything.
 
 ```bash
 git clone https://github.com/uneasymusings/dj-library-tool.git && cd dj-library-tool
@@ -31,7 +31,7 @@ uv run ruff format --check src scripts tests
 uv build
 ```
 
-Prefix any `djlib` command with `uv run` to run your checkout. CI runs tests, lint, formatting and packaging on Linux, macOS and Windows with Python 3.12 and 3.13; tagged releases are built and checked before publishing. See [validation](docs/VALIDATION.md) and [security](SECURITY.md).
+Prefix any `djlib` command with `uv run` to run your checkout. CI runs tests, lint, formatting and packaging on Linux, macOS and Windows with Python 3.12 and 3.13 (song recognition installed and checked on 3.12); tagged releases are built and checked before publishing. See [validation](docs/VALIDATION.md) and [security](SECURITY.md).
 
 Use a separate initialized workspace and synthetic or appropriately licensed media. Never commit personal paths, workspace databases, credentials, source downloads, or copyrighted audio fixtures. The built-in demo generates original tones.
 
