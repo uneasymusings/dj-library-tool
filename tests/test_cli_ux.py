@@ -114,9 +114,9 @@ def test_hidden_commands_still_work(command):
     assert "Usage:" in reply.output
 
 
-def test_sets_is_another_name_for_requests(tmp_path):
+def test_sets_is_another_name_for_requests(live_workspace):
     """Every screen calls them sets; `djlib sets` lists them as `djlib requests` does."""
-    workspace = tmp_path / "w"
+    workspace = live_workspace.root
     assert run("init", workspace=workspace).exit_code == 0
     listed = json.loads(run("sets", workspace=workspace).stdout)["result"]
     same = json.loads(run("requests", "list", workspace=workspace).stdout)["result"]

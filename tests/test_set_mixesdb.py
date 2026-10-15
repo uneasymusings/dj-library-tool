@@ -267,7 +267,9 @@ def test_set_says_when_mixesdb_lists_too_few_songs_for_the_set(
     assert "MixesDB lists only 22 songs, so djlib is listening to the set to find the rest." in said
 
 
-async def test_a_line_about_the_set_leaves_mixesdb_to_be_asked(application, setup, wiki):
+async def test_a_line_about_the_set_leaves_mixesdb_to_be_asked(
+    application, library_http, setup, wiki
+):
     """Boiler Room's one line read as a tracklist kept djlib_source_inspect from asking
     MixesDB; it names the set, so MixesDB's tracklist comes back."""
     kaytranada(setup, wiki)
@@ -276,8 +278,12 @@ async def test_a_line_about_the_set_leaves_mixesdb_to_be_asked(application, setu
         "► Subscribe to Boiler Room: https://blrrm.tv/YT"
     )
     async with Client(mcp_server.build_server(application.workspace)) as client:
-        reply_ = await client.call_tool("djlib_source_inspect", {"url": KAYTRANADA})
-    assert reply_.structured_content["result"]["mixesdb"]["page_url"] == MONTREAL["page_url"]
+        reply_ = await client.call_tool(
+            "djlib_source_inspect", {"url": KAYTRANADA, "comments": identification.COMMENTS}
+        )
+    result = reply_.structured_content["result"]
+    assert result["description"].startswith("Kaytranada – live from Boiler Room")
+    assert result["mixesdb"]["page_url"] == MONTREAL["page_url"]
 
 
 def test_no_tracklist_anywhere_says_mixesdb_had_none(

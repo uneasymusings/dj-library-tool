@@ -6,6 +6,7 @@ import wave
 
 import pytest
 from fastapi.testclient import TestClient
+from filelock import FileLock
 from mutagen.id3 import TIT2, TPE1
 from mutagen.wave import WAVE
 
@@ -21,6 +22,24 @@ from djlib.sources import web
 from djlib.workspace import Workspace
 
 REAL_PROBE = web.probe
+
+
+def wait_for_coordinator_exit(workspace):
+    # A shutdown acknowledgement precedes process exit. Wait for ownership to
+    # end so fixture cleanup cannot submit a second request to an exiting server.
+    with FileLock(workspace.runtime / "coordinator.lock", timeout=10):
+        pass
+
+
+@pytest.fixture
+def live_workspace(tmp_path):
+    """A workspace for the CLI or MCP to run a real coordinator in, stopped after the test
+    (it would otherwise wait 30 idle minutes before it exits)."""
+    workspace = Workspace(tmp_path / "live")
+    yield workspace
+    if workspace.config_path.exists() and LocalClient(workspace).discover():
+        LocalClient(workspace).request("POST", "/shutdown")
+        wait_for_coordinator_exit(workspace)
 
 
 @pytest.fixture(autouse=True)
