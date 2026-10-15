@@ -146,7 +146,7 @@
 
 **Install in one line, for you or your assistant.**
 - **One line sets everything up.** The installer (`curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh`) now also adds the djlib plugin to Claude Code and Codex when they're installed, and in a terminal asks where your music is and indexes it. Running it again updates everything. `DJLIB_PLUGIN=0`, `DJLIB_MUSIC=FOLDER` and `DJLIB_VERSION` control it.
-- **Or paste one line to your assistant:** “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”. [SETUP.md](SETUP.md) walks it through install, indexing, the macOS permission, loading the plugin and a first set.
+- **Or paste one line to your assistant:** “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”. [SETUP.md](SETUP.md) walks it through install, indexing, the macOS permission, loading the plugin and a first set.
 - **`djlib upgrade` updates the plugin too**, also when the engine is already current, so engine and plugin no longer drift apart (the cause of `COORDINATOR_VERSION_MISMATCH` in the plugin test).
 - **The plugin checks itself.** At session start it tells the assistant when the djlib engine is missing or from another release, with the one command that fixes it; it is silent otherwise.
 - **`djlib scan` works for scripts and assistants** without the hidden `--key` retry token it used to demand when not run in a terminal (a rescan is harmless; it only reads new bytes).

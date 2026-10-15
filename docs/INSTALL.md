@@ -1,6 +1,6 @@
 # Install
 
-**Easiest:** paste this to Claude Code or Codex: “Set up djlib for me by following https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md”.
+**Easiest:** paste this to Claude Code or Codex: “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”.
 
 **Terminal (Mac or Linux):**
 
