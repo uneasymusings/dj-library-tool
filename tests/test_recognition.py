@@ -403,6 +403,53 @@ async def test_a_stalled_or_oversized_set_download_is_not_tried_again(
     assert failed.value.code == code and len(tries) == 1 and pauses == []
 
 
+# A stand-in for yt-dlp: the site refuses its first run with a signed link in the message,
+# leaving part of the set behind, and a second run continues that part file.
+STAND_IN = """
+import json, pathlib, sys
+runs = pathlib.Path(sys.argv[1])
+runs.write_text(runs.read_text() + "x" if runs.exists() else "x")
+folder = pathlib.Path(sys.argv[sys.argv.index("--output") + 1]).parent
+part = folder / "set.webm.part"
+if len(runs.read_text()) == 1:
+    part.write_bytes(b"half ")
+    sys.stderr.write(
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden "
+        "(https://rr1---sn-x.googlevideo.com/videoplayback?expire=1&sig=SECRET)\\n"
+    )
+    sys.exit(1)
+part.write_bytes(part.read_bytes() + b"a set")
+part.rename(folder / "set.webm")
+info = {"id": "keinemusik", "title": "Keinemusik live", "uploader": "Keinemusik",
+        "duration": 3721.5, "extractor_key": "Youtube", "filepath": str(folder / "set.webm")}
+print(json.dumps(info))
+"""
+
+
+async def test_a_refused_set_download_is_tried_again_through_real_processes(tmp_path, monkeypatch):
+    runs, audio, retries = tmp_path / "runs", tmp_path / "audio", []
+    monkeypatch.setattr(web, "command", lambda: [sys.executable, "-c", STAND_IN, str(runs)])
+    monkeypatch.setattr(web, "SET_RETRY_SECONDS", 0)
+
+    def retrying(error, next_try):
+        # The first process is gone and the second has not started yet.
+        retries.append((error, next_try, json.loads((audio / "fetching.json").read_text())))
+
+    receipt = await web.fetch_set_audio(SET_URL, audio, on_retry=retrying)
+    assert runs.read_text() == "xx"
+    # The second try continued what the first left, and the set came out whole.
+    assert receipt["path"] == str(audio / "set.webm")
+    assert (audio / "set.webm").read_bytes() == b"half a set"
+    assert not (audio / "fetching.json").exists() and not (audio / "set.webm.part").exists()
+    [(error, next_try, pending)] = retries
+    assert (error.code, error.retryable, next_try) == ("SOURCE_FAILED", True, 2)
+    assert pending["url"] == SET_URL and isinstance(pending["pid"], int)
+    # What yt-dlp said rides along without the signed link.
+    assert error.__notes__ == [
+        "ERROR: unable to download video data: HTTP Error 403: Forbidden (<googlevideo.com link>)"
+    ]
+
+
 async def test_size_guard_takes_a_larger_bound_for_sets(tmp_path):
     (tmp_path / "set.webm.part").write_bytes(b"x" * 20)
     sleeper = [sys.executable, "-c", "import time; time.sleep(10)"]
