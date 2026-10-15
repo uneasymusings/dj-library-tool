@@ -31,11 +31,11 @@ The workspace holds the catalog, a runtime token, managed media and exports; `dj
 
 ## How listening to a set works
 
-`djlib identify 'LINK'` (and `djlib set 'LINK'` when the tracklist is missing or has IDs) reads the set's description, chapters and listener comments, looks the set up on MixesDB, downloads the audio and sends a 12-second clip every 30 seconds to song recognition (every minute when a timed tracklist says what plays). It listens again where songs change, then merges everything into one timed tracklist saved in the workspace's `sets/` folder. The audio is deleted afterwards unless `DJLIB_KEEP_SET_AUDIO=1`. `djlib identify 'LINK' --again` listens again even when djlib heard the set before.
+`djlib identify 'LINK'` (and `djlib set 'LINK'` when the tracklist is missing, has IDs or names too few songs for the set's length: one, or fewer than one per 12 minutes) reads the set's description, chapters and listener comments, looks the set up on MixesDB, downloads the audio and sends a 12-second clip every 30 seconds to song recognition (every minute when a timed tracklist says what plays). It listens again where songs change, then merges everything into one timed tracklist saved in the workspace's `sets/` folder. The audio is deleted afterwards unless `DJLIB_KEEP_SET_AUDIO=1`. `djlib identify 'LINK' --again` listens again even when djlib heard the set before.
 
 `DJLIB_MIXESDB=off` (or `0`, `false`, `no`) stops djlib asking MixesDB, for `djlib set`, `djlib identify` and assistants alike; a set djlib listened to before keeps the MixesDB tracklist it merged then. djlib's background service reads it when it starts: run `djlib service stop`, and the next command starts it with the setting.
 
-When Shazam hears a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), djlib uses the spelling Shazam heard, so your files are found, and notes how the tracklist wrote it; and if your file is tagged the way a tracklist spells it (MixesDB's, or one you pasted), it still counts as owned (“Owned under another spelling”), for the same exact mix. A song heard once that fits nowhere is listed under “Heard once, not placed”, not as a track. `djlib source-inspect 'LINK'` reads only the description and chapters.
+When Shazam hears a listed song clearly but the tracklist misspells its artists (“Armand Val Helden”), djlib uses the spelling Shazam heard, so your files are found, and notes how the tracklist wrote it; and if your file is tagged the way a tracklist spells it (MixesDB's, or one you pasted), it still counts as owned (“Owned under another spelling”), for the same exact mix. A tracklist written title first (“Desert Hike - Tibi Dabo”) agrees with what Shazam heard the other way round, and the notes say so. When Shazam heard at least three of its lines that way and none as written, the lines it didn't hear are read artist first too; in any other tracklist they stay as written. A song heard once that fits nowhere is listed under “Heard once, not placed”, not as a track. `djlib source-inspect 'LINK'` reads only the description and chapters.
 
 Shazam is the default, used the way the Shazam app uses it, without an official API. AudD and ACRCloud are licensed options with your own key: see [song recognition](INSTALL.md#song-recognition). `djlib identify 'LINK' --recognizer audd` picks one for a single run.
 
@@ -162,7 +162,7 @@ djlib jobs control JOB_ID pause|resume|cancel|retry
 djlib service stop
 ```
 
-Retry keeps successful items, and cancelling keeps accepted files. Stopping the service keeps unfinished work, which resumes on the next start. Logs are in the workspace's `runtime/service.log`; redact them before sharing. Staging and incoming files are not cleaned up automatically.
+Retry keeps successful items, and cancelling keeps accepted files. Stopping the service keeps unfinished work, which resumes on the next start. Logs are in the workspace's `runtime/service.log`, and set downloads that failed (with what YouTube or SoundCloud said, links left out) in `runtime/downloads.log`; redact them before sharing. Staging and incoming files are not cleaned up automatically.
 
 ## Other hidden commands
 

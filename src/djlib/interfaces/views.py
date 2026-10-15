@@ -1385,7 +1385,7 @@ def unbroken(first: Text, parts: list[Text], sep: Text, width: int) -> Text:
 def crate_line(
     term: Terminal, row: dict, outdated: dict | None, *, app: bool = True, unread: bool = False
 ) -> Text:
-    """``Friday  8 tracks  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago`` for the status screen.
+    """``Friday  8 tracks  ✓ in rekordbox  ✓ on DJ_USB 1d ago`` for the status screen.
     Without rekordbox to put it in (``app`` False), a crate says nothing about rekordbox."""
     # The rekordbox playlist name tells versions of one set apart ("Friday (2)").
     line = Text(str(row.get("playlist") or row.get("name") or ""))
@@ -1406,7 +1406,7 @@ def crate_places(
     app: bool = True,
     unread: bool = False,
 ) -> Text:
-    """``  ✓ in rekordbox  ✓ on RICARDO_AM 1d ago``: where djlib put a crate."""
+    """``  ✓ in rekordbox  ✓ on DJ_USB 1d ago``: where djlib put a crate."""
     line, sep = Text(), sep or Text("  ")
     for part in place_parts(term, row, app=app, unread=unread):
         line.append_text(sep).append_text(part)
@@ -1414,7 +1414,7 @@ def crate_places(
 
 
 def place_parts(term: Terminal, row: dict, *, app: bool = True, unread: bool = False) -> list[Text]:
-    """``✓ in rekordbox``, ``✓ on RICARDO_AM 1d ago``: each place djlib put a crate.
+    """``✓ in rekordbox``, ``✓ on DJ_USB 1d ago``: each place djlib put a crate.
 
     ``in_rekordbox`` is what rekordbox shows right now (None: unread); without it, only
     that djlib pushed it once, which the DJ may have deleted since. Without rekordbox to put

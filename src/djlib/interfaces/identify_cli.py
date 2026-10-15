@@ -2,7 +2,7 @@
 
 The background service does the listening (an identify job); this command shows how far it
 got and then the tracklist. `djlib set LINK` uses the same identification when a set's own
-tracklist is missing or has IDs.
+tracklist is missing, has IDs or names too few songs for the set.
 """
 
 import codecs
@@ -43,6 +43,15 @@ TRACKLIST_BYTES = 1_000_000
 LISTEN_TIME = "An hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy"
 # Lines djlib skipped are quoted from the page or file: cut short, they stay data.
 QUOTED_CHARS = 160
+# A published tracklist names a song for every 12 minutes of a set at least (an hour of house
+# has 12 to 20); fewer leaves most of the set out, so `djlib set LINK` listens.
+MINUTES_PER_SONG = 12
+# Who names a published tracklist's songs, by where djlib found it (``set_sources.listed_in``).
+NAMED_BY = {
+    "description": "The description names",
+    "chapters": "The chapters name",
+    "mixesdb": "MixesDB lists",
+}
 
 
 class Recognizer(StrEnum):
@@ -501,7 +510,10 @@ def progress_line(job: dict, width: int = 78) -> str:
     if phase in {"listening", "checking_gaps", "merging"} and progress.get("songs_heard"):
         songs = plural(int(progress["songs_heard"]), "song")
     waiting = progress.get("waiting") if phase in {"listening", "checking_gaps"} else None
-    if isinstance(waiting, dict):
+    if phase == "downloading" and progress.get("download_retry"):
+        # The site refused the first try, so djlib tries once more by itself.
+        choices = [[where, "trying again"], [where]]
+    elif isinstance(waiting, dict):
         calm = waiting_text(waiting)
         # Fullest first, the first that fits; that Ctrl-C is safe matters more than the count.
         choices = [
@@ -542,14 +554,20 @@ def follow(local, job: dict, url: str | None = None, reason: str | None = None) 
     else:
         status = term.err.status(f"[bold]{progress_line(job, fit(term))}", spinner_style="accent")
         live = status.__enter__()
-    last_phase, last_event = None, 0.0
+    last_phase, last_retry, last_event = None, None, 0.0
     try:
         while True:
             progress = (job.get("result") or {}).get("progress") or {}
             phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
+            # A download tried again gets an event of its own, however soon it comes.
+            retry = progress.get("download_retry")
             if live is not None:
                 live.update(f"[bold]{progress_line(job, fit(term))}")
-            elif phase != last_phase or time.monotonic() - last_event >= EVENT_SECONDS:
+            elif (
+                phase != last_phase
+                or retry != last_retry
+                or time.monotonic() - last_event >= EVENT_SECONDS
+            ):
                 event(
                     "identify_progress",
                     job_id=job_id,
@@ -559,7 +577,7 @@ def follow(local, job: dict, url: str | None = None, reason: str | None = None) 
                     },
                 )
                 last_event = time.monotonic()
-            last_phase = phase
+            last_phase, last_retry = phase, retry
             if job.get("state") not in {"queued", "running"}:
                 return job
             time.sleep(POLL_SECONDS)
@@ -656,12 +674,38 @@ def listen_fix(error: AppError) -> str | None:
     return INSTALLER
 
 
+def named_songs(text: str, url: str) -> int:
+    """How many songs a tracklist names, IDs aside."""
+    from djlib.application.tracklists import parse_tracklist
+
+    if not text.strip():
+        return 0
+    return sum(item.kind == "named" for item in parse_tracklist(text, url)[0])
+
+
+def too_few(text: str, url: str, duration=None) -> int | None:
+    """How many songs a published tracklist names when that is too few for the set (one, or
+    fewer than one per ``MINUTES_PER_SONG`` minutes of ``duration`` seconds), else None."""
+    songs = named_songs(text, url)
+    if not songs:
+        return None
+    length = duration if isinstance(duration, int | float) and duration > 0 else 0
+    return songs if songs == 1 or songs * MINUTES_PER_SONG * 60 < length else None
+
+
 def listen_reason(
-    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True
+    choice: bool | None,
+    text: str,
+    url: str,
+    workspace,
+    *,
+    complete: bool = True,
+    duration=None,
 ) -> str | None:
     """Why `djlib set LINK` listens to the set, or None when it doesn't: "asked" (--identify),
     or by default "no_tracklist", "incomplete" (MixesDB marks some tracklists so), "ids" when
-    the tracklist has IDs, or "identified_before" (that costs nothing)."""
+    the tracklist has IDs, "sparse" when it names too few songs for the set's ``duration``
+    (``too_few``), or "identified_before" (that costs nothing)."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
@@ -674,17 +718,25 @@ def listen_reason(
     items, _ = parse_tracklist(text, url)
     if any(item.kind == "unknown" for item in items):
         return "ids"
+    if too_few(text, url, duration):
+        return "sparse"
     return "identified_before" if finished(workspace, url) is not None else None
 
 
-def wanted(choice: bool | None, text: str, url: str, workspace, *, complete: bool = True) -> bool:
+def wanted(
+    choice: bool | None, text: str, url: str, workspace, *, complete: bool = True, duration=None
+) -> bool:
     """Whether `djlib set LINK` listens to the set (see ``listen_reason``)."""
-    return listen_reason(choice, text, url, workspace, complete=complete) is not None
+    found = listen_reason(choice, text, url, workspace, complete=complete, duration=duration)
+    return found is not None
 
 
-def listening_notice(reason: str | None, text: str, url: str, workspace) -> str | None:
+def listening_notice(
+    reason: str | None, text: str, url: str, workspace, *, origin: str = "description"
+) -> str | None:
     """What `djlib set LINK` says before it listens: why, and how long that takes. None when
-    there is nothing new to hear (a set identified before shows at once)."""
+    there is nothing new to hear (a set identified before shows at once). ``origin`` is where
+    the tracklist came from: "description", "chapters" or "mixesdb"."""
     from djlib.application.identification import finished
     from djlib.application.tracklists import parse_tracklist
 
@@ -704,9 +756,28 @@ def listening_notice(reason: str | None, text: str, url: str, workspace) -> str 
         )
     elif reason == "incomplete":
         why = "MixesDB marks its tracklist incomplete, so djlib is listening to the set."
+    elif reason == "sparse":
+        names = NAMED_BY.get(origin, NAMED_BY["description"])
+        songs = plural(named_songs(text, url), "song")
+        why = f"{names} only {songs}, so djlib is listening to the set to find the rest."
     else:
         return f"djlib is listening to the set. {LISTEN_TIME}; {carry_on}."
     return f"{why} {LISTEN_TIME}; --no-identify skips it."
+
+
+def sparse_warning(
+    text: str, url: str, duration=None, *, origin: str = "description"
+) -> str | None:
+    """What `djlib set LINK` says when it uses a tracklist with too few songs for the set
+    (``too_few``) without listening, else None. ``origin`` is as for ``listening_notice``."""
+    songs = too_few(text, url, duration)
+    if songs is None:
+        return None
+    names = NAMED_BY.get(origin, NAMED_BY["description"])
+    length = ""
+    if isinstance(duration, int | float) and duration >= 60:
+        length = f" for this {round(duration / 60)}-minute set"
+    return f"{names} only {plural(songs, 'song')}{length}: songs may be missing."
 
 
 def listen(

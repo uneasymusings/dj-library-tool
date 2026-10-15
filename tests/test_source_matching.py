@@ -5,6 +5,7 @@ import pytest
 from djlib.application.source_matching import (
     alternates,
     comment_hints,
+    names_the_set,
     rank_sources,
     tracklist_from_source,
     worth_probing,
@@ -688,6 +689,250 @@ def test_trailing_times_move_to_the_front_and_empty_sources_give_nothing():
     assert text.splitlines() == ["[02:41] Phoenix - Lasso", "[12:00] Bicep - Glue"]
     assert tracklist_from_source("", []) == ""
     assert tracklist_from_source("Thanks for listening! https://example.test", []) == ""
+
+
+# How Boiler Room describes nearly every upload (Mura Masa at Primavera Sound 2023, 57 minutes).
+BOILER_ROOM = """Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.
+
+Catch Mura Masa at our London show this September, tickets — blrrm.tv/ldn-sun
+
+►  Listen to Boiler Room’s archive on Apple Music: https://apple.co/BoilerRoom
+►  Shop Boiler Room clothing: https://blrrm.tv/shop
+►  Subscribe to Boiler Room: https://blrrm.tv/YT"""
+
+
+def test_a_line_about_the_set_is_not_a_track():
+    """The upload's one line says who played where; it is no tracklist, so djlib listens."""
+    assert tracklist_from_source(BOILER_ROOM, [], "Boiler Room") == ""
+    assert tracklist_from_source(BOILER_ROOM, []) == ""
+    chapters = [
+        {"start_time": 0.0, "title": "Mura Masa - live at Primavera Sound 2023"},
+        {"start_time": 60.0, "title": "Lumen - Halo"},
+        {"start_time": 240.0, "title": "Bicep - Glue"},
+    ]
+    assert tracklist_from_source("", chapters).splitlines() == [
+        "[01:00] Lumen - Halo",
+        "[04:00] Bicep - Glue",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("line", "uploader"),
+    [
+        ("Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona.", ""),
+        ("Fred again.. - Live from Boiler Room: London", ""),
+        ("Kaytranada - Boiler Room Montreal", ""),
+        ("Boiler Room x Cupra – Primavera Sound Barcelona", "Boiler Room"),
+        ("Overmono - live at Printworks London, March 2024", ""),
+        ("Bicep - Live @ Glastonbury", ""),
+        ("Four Tet - DJ set at Lollapalooza", ""),
+        ("Four Tet - DJ-Set", ""),
+        ("Peggy Gou - recorded live at Primavera Sound", ""),
+        ("Bicep - Glastonbury 2019", ""),
+        ("Four Tet - Primavera Sound Barcelona 2023", ""),
+        ("Avalon Emerson - HÖR - Sep 12 / 2022", ""),
+        ("Cercle - Château de Chambord, France", "Cercle"),
+        ("Four Tet - Lollapalooza", "Four Tet"),
+    ],
+)
+def test_lines_about_the_set_are_left_out(line, uploader):
+    assert names_the_set(line, uploader)
+
+
+@pytest.mark.parametrize(
+    ("line", "uploader"),
+    [
+        ("Main Source - Live at the Barbeque", ""),
+        ("Big K.R.I.T. - Live From The Underground", ""),
+        ("Four Tet - Baby", "Four Tet"),
+        ("Pulp - Disco 2000", "Pulp"),
+        ("Ludovico Einaudi - Primavera", ""),
+        ("Daft Punk - Around the World (Live at Alive 2007)", ""),
+        ("Basement Jaxx - Fly Life (Glastonbury 2005 Mix)", ""),
+        ("Moderat - Bad Kingdom - Live at Melt Festival 2014", ""),
+        ("Bicep - Glue (Live Set Edit)", ""),
+        ("Set It Off - Set It Off", ""),
+        ("Bicep - Broadcast", ""),
+        ("Fahlberg - Bad Love (Antdot & Maz (BR) Remix) [RADIANT.]", ""),
+    ],
+)
+def test_songs_that_sound_like_a_venue_stay_songs(line, uploader):
+    assert not names_the_set(line, uploader)
+
+
+def test_the_uploader_beside_a_venue_is_their_song_in_a_full_tracklist():
+    """On an artist's own channel a complete tracklist keeps "Blur - Parklife": the uploader
+    beside a venue names the set only in a one- or two-line note about it."""
+    blur = "Blur - Girls & Boys\nBlur - Parklife\nBlur - Song 2\nParklife - Blur\n"
+    assert tracklist_from_source(blur, [], "BlurVEVO").splitlines() == blur.splitlines()
+    timed = "00:00 Linkin Park - Papercut\n04:10 Linkin Park - Session\n07:00 Linkin Park - Numb"
+    assert tracklist_from_source(timed, [], "Linkin Park").splitlines() == [
+        "[00:00] Linkin Park - Papercut",
+        "[04:10] Linkin Park - Session",
+        "[07:00] Linkin Park - Numb",
+    ]
+    chapters = [
+        {"start_time": 0.0, "title": "Sigur Rós - Glósóli"},
+        {"start_time": 300.0, "title": "Sigur Rós - Festival"},
+        {"start_time": 840.0, "title": "Sigur Rós - Hoppípolla"},
+    ]
+    assert "[05:00] Sigur Rós - Festival" in tracklist_from_source("", chapters, "Sigur Rós")
+    einaudi = (
+        "Ludovico Einaudi - Nuvole Bianche\nLudovico Einaudi - Primavera\nID - ID\nLumen - Halo"
+    )
+    assert tracklist_from_source(einaudi, [], "Ludovico Einaudi").splitlines() == (
+        einaudi.splitlines()
+    )
+    assert names_the_set("Linkin Park - Session", "Linkin Park", songs=2)
+    assert not names_the_set("Linkin Park - Session", "Linkin Park", songs=3)
+
+
+def test_the_uploader_beside_a_venue_in_a_short_note_names_the_set():
+    """One or two lines (IDs aside) are a note about the set: "Four Tet - Lollapalooza" from
+    Four Tet goes, and a song beside it stays."""
+    assert tracklist_from_source("Four Tet - Lollapalooza\n", [], "Four Tet") == ""
+    two = "Four Tet - Lollapalooza\nFour Tet - Baby\n"
+    assert tracklist_from_source(two, [], "Four Tet").splitlines() == ["Four Tet - Baby"]
+    ids = "Four Tet - Lollapalooza\nID - ID\nFour Tet - ID\nFour Tet - Baby\n"
+    assert tracklist_from_source(ids, [], "Four Tet").splitlines() == [
+        "ID - ID",
+        "Four Tet - ID",
+        "Four Tet - Baby",
+    ]
+    chapters = [
+        {"start_time": 0.0, "title": "Four Tet - Lollapalooza"},
+        {"start_time": 0.0, "title": "Intro"},
+        {"start_time": 3600.0, "title": "Outro"},
+    ]
+    assert tracklist_from_source("", chapters, "Four Tet") == ""
+    # Without the uploader the line is a song.
+    assert tracklist_from_source("Four Tet - Lollapalooza\n", []) == "Four Tet - Lollapalooza"
+
+
+def test_a_shows_name_beside_the_place_is_never_a_song():
+    """A show has no songs of its own: "Cercle - Château de Chambord" above Cercle's full
+    tracklist names the set. Only a channel named just that is a show: Brian Fallon's full
+    tracklist keeps his songs."""
+    songs = ["Monolink - Return to Oz", "Bob Moses - Tearing Me Up", "Monolink - Burning Sun"]
+    cercle = "Cercle - Château de Chambord, France\nTracklist:\n" + "\n".join(
+        f"{number}. {line}" for number, line in enumerate(songs, 1)
+    )
+    assert tracklist_from_source(cercle, [], "Cercle").splitlines() == songs
+    chapters = [
+        {"start_time": 60.0 * minute, "title": title}
+        for minute, title in enumerate(["Cercle - Château de Chambord", *songs])
+    ]
+    assert tracklist_from_source("", chapters, "Cercle").splitlines() == [
+        "[01:00] Monolink - Return to Oz",
+        "[02:00] Bob Moses - Tearing Me Up",
+        "[03:00] Monolink - Burning Sun",
+    ]
+    assert names_the_set("KEXP - Seattle", "KEXP", songs=20)
+    fallon = "Brian Fallon - Painkillers\nBrian Fallon - A Wonderful Life\nBrian Fallon - Rosemary"
+    assert tracklist_from_source(fallon, [], "Brian Fallon") == fallon
+    # A festival's channel under a longer name still drops its line from a short note.
+    assert tracklist_from_source("Primavera Sound - Barcelona\n", [], "Primavera Sound") == ""
+
+
+def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
+    """Mixmag's descriptions quote the DJ, and bios hold dashes between their words."""
+    description = "\n".join(
+        [
+            '"Thunderstorms couldn’t stop us. Felt so good to be back, London." - RÜFÜS DU SOL',
+            '"Cover stars in 2018. Lab London in 2024. An honour to work together again" - Mixmag',
+            "Interplanetary Criminal is the Manchester-based producer, DJ and ATW Records "
+            "co-founder leading a rip-roaring new wave of UK garage. His speedy, rowdy sets — and "
+            "speedier, rowdier productions — are connecting with up-for-it audiences from "
+            "Dekmantel to Depot Mayfield.",
+            'Bicep - "Glue"',
+            '"Weird Al" Yankovic - Amish Paradise',
+            "Above & Beyond feat. Zoë Johnston - Love Is Not Enough (Newman (I Love) Remix / "
+            "Above & Beyond’s Cercle Respray)",
+        ]
+    )
+    assert tracklist_from_source(description, []).splitlines() == [
+        'Bicep - "Glue"',
+        '"Weird Al" Yankovic - Amish Paradise',
+        "Above & Beyond feat. Zoë Johnston - Love Is Not Enough (Newman (I Love) Remix / Above "
+        "& Beyond’s Cercle Respray)",
+    ]
+
+
+def test_quoted_titles_and_long_timed_lines_stay_songs():
+    """A quote comes first and its speaker after the dash: a title quoted after its artist is
+    a song, also as a question or with "feat.", and a line with a time is a track however
+    long it is."""
+    description = "\n".join(
+        [
+            'Moby - "Why Does My Heart Feel So Bad?"',
+            'Calvin Harris - "This Is What You Came For feat. Rihanna"',
+            '"This Is What You Came For feat. Rihanna" - Calvin Harris',
+            "„Glue“ - Bicep",
+            '"Felt so good to be back in London, thank you all." - RÜFÜS DU SOL',
+        ]
+    )
+    assert tracklist_from_source(description, []).splitlines() == [
+        'Moby - "Why Does My Heart Feel So Bad?"',
+        'Calvin Harris - "This Is What You Came For feat. Rihanna"',
+        '"This Is What You Came For feat. Rihanna" - Calvin Harris',
+        "„Glue“ - Bicep",
+    ]
+    mashup = (
+        "Dimitri Vegas & Like Mike vs. Martin Garrix vs. Tiësto vs. Hardwell vs. Steve Aoki - "
+        "Tremor vs. Animals vs. Red Lights vs. Spaceman vs. Wakanda vs. Pursuit Of Happiness vs. "
+        "Mammoth (Dimitri Vegas & Like Mike Mashup)"
+    )
+    timed = f'00:00 Lumen - Halo\n04:00 Moby - "Why Does My Heart Feel So Bad?"\n07:30 {mashup}'
+    assert tracklist_from_source(timed, []).splitlines() == [
+        "[00:00] Lumen - Halo",
+        '[04:00] Moby - "Why Does My Heart Feel So Bad?"',
+        f"[07:30] {mashup}",
+    ]
+
+
+def test_the_uploads_own_title_and_ticket_lines_are_not_tracks():
+    title = "Old School Hip-Hop And R&B On Turntables - DJ Mixtape | Dan Alex"
+    description = "\n".join(
+        [
+            "👉 Old School Hip-Hop And R&B On Turntables - Dj Mixtape | Dan Alex",
+            "General on sale - Friday May 20 at 10am local",
+            'Shop with "ZARA Home - Store Music Playlist 2024".',
+            "Pete Rock & C.L. Smooth - They Reminisce Over You (T.R.O.Y.)",
+        ]
+    )
+    assert tracklist_from_source(description, [], "Dan Alex", title).splitlines() == [
+        "Pete Rock & C.L. Smooth - They Reminisce Over You (T.R.O.Y.)"
+    ]
+    # A short title restated is the song itself, as above its live video.
+    assert not names_the_set("Bicep - Glue", "Bicep", "Bicep - Glue (Live at Glastonbury 2019)")
+    assert names_the_set(
+        "DJ Shinski - 90s Hip Hop Clean Mix Vol 2",
+        "",
+        "DJ Shinski - 90s Hip Hop Clean Mix Vol 2 | Old School Rap Classics",
+    )
+
+
+def test_a_long_tracklist_keeps_every_song_under_a_line_about_the_set():
+    description = """Overmono - live at Printworks London, March 2024
+Presented by Cupra
+Main Source - Live at the Barbeque
+Bicep - Glue (Hammer Edit)
+Four Tet - Baby
+Pulp - Disco 2000"""
+    assert tracklist_from_source(description, [], "Overmono").splitlines() == [
+        "Main Source - Live at the Barbeque",
+        "Bicep - Glue (Hammer Edit)",
+        "Four Tet - Baby",
+        "Pulp - Disco 2000",
+    ]
+    # Only the set's page is read this way: a tracklist the DJ gives keeps every line.
+    items, skipped = parse_tracklist(
+        "Mura Masa – live from Boiler Room x Cupra at Primavera Sound Barcelona."
+    )
+    assert [(item.artist, item.title) for item in items] == [
+        ("Mura Masa", "live from Boiler Room x Cupra at Primavera Sound Barcelona.")
+    ]
+    assert skipped == []
 
 
 def test_a_list_that_times_only_its_ids_keeps_every_track():

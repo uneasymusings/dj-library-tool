@@ -772,7 +772,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         Takes a YouTube or SoundCloud set link, a text file, or paste for what you copied.
 
-        A link whose tracklist is missing or has IDs is listened to (see djlib identify).
+        A link whose tracklist is missing, has IDs or names too few songs is listened to (see djlib identify).
 
         An hour-long set takes about 5–10 minutes, up to half an hour when Shazam is busy.
 
@@ -785,7 +785,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         shazam:2026-09-13 takes those since that date; shazam:new those since last time.
 
         Matches the exact artist, title and mix; another mix is never swapped in.
-        """
+        """  # noqa: E501 - a help paragraph stays one line; the terminal wraps it
         from djlib.application import identification
         from djlib.interfaces import identify_cli, set_sources, shazam_cli
         from djlib.interfaces.library_cli import (
@@ -882,12 +882,21 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if page.get("from_saved_page"):
                 warnings.append(set_sources.saved_page_note(page, tracklist))
             problem = None
+            length = page.get("duration_seconds")
             # --tracklist merges with what djlib hears, so it asks for a listen.
             reason = identify_cli.listen_reason(
-                True if given else identify, text, tracklist, workspace, complete=complete
+                True if given else identify,
+                text,
+                tracklist,
+                workspace,
+                complete=complete,
+                duration=length,
             )
+            origin = set_sources.listed_in(page)
             if reason:
-                notice = identify_cli.listening_notice(reason, text, tracklist, workspace)
+                notice = identify_cli.listening_notice(
+                    reason, text, tracklist, workspace, origin=origin
+                )
                 try:
                     identified = identify_cli.listen(
                         local, tracklist, given, name, reason=reason, notice=notice
@@ -900,7 +909,9 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     problem = error
                     listen_fix = identify_cli.listen_fix(error)
                     if text.strip():
-                        where = "on MixesDB" if listing else "in its description"
+                        where = {"mixesdb": "on MixesDB", "chapters": "in its chapters"}.get(
+                            origin, "in its description"
+                        )
                         warnings.append(
                             f"djlib didn't listen to the set ({identify_cli.cannot_listen(error)}),"
                             f" so it uses the tracklist {where}."
@@ -921,6 +932,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     warnings.append(
                         "MixesDB marks this tracklist incomplete: songs may be missing."
                     )
+                elif few := identify_cli.sparse_warning(text, tracklist, length, origin=origin):
+                    warnings.append(few)
         else:
             path = Path(tracklist).expanduser()
             if (identify or tracklists) and not source:

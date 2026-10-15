@@ -102,17 +102,33 @@ def page_tracklist(page: dict) -> str:
     """The tracklist a set's page publishes (its chapters, else its description), or "" when
     no line of it reads as a track: YouTube names some sets' chapters itself, such as
     "Opening performance"."""
+    return page_listing(page)[0]
+
+
+def page_listing(page: dict) -> tuple[str, str | None]:
+    """``page_tracklist`` and where it is: "chapters" or "description" (None without one)."""
     from djlib.application.source_matching import tracklist_from_source
     from djlib.application.tracklists import parse_tracklist
 
     description, chapters = page.get("description") or "", page.get("chapters") or []
+    context = (str(page.get("uploader") or ""), str(page.get("title") or ""))
     for text in (
-        tracklist_from_source(description, chapters),
-        tracklist_from_source(description, []),
+        tracklist_from_source(description, chapters, *context),
+        tracklist_from_source(description, [], *context),
     ):
         if text and parse_tracklist(text, page.get("url"))[0]:
-            return text
-    return ""
+            chaptered = bool(chapters) and text == tracklist_from_source("", chapters, *context)
+            return text, "chapters" if chaptered else "description"
+    return "", None
+
+
+def listed_in(page: dict) -> str:
+    """Where `djlib set` found a set's published tracklist (``tracklist_from_url``):
+    "chapters", "description" or "mixesdb"."""
+    text, origin = page_listing(page)
+    if not text and from_mixesdb(page) is not None:
+        return "mixesdb"
+    return origin or "description"
 
 
 def from_mixesdb(page: dict) -> dict | None:

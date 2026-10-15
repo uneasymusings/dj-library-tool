@@ -755,10 +755,44 @@ PROMO = re.compile(
     r"(?i)\b(?:subscribe|follow|out now|stream(?:ing)?|download|buy|pre-?order|pre-?save|"
     r"tickets?|merch|booking|contact|management|listen|available|copyright|all rights|support|"
     r"newsletter|tour dates|mastered|artwork|filmed|recorded|video by|directed|thanks|"
-    r"thank you)\b|[©℗]"
+    r"thank you|presented by|in (?:partnership|association) with|powered by|sponsored by|"
+    r"on sale)\b|[©℗]"
 )
 TRAILING_TIME = re.compile(r"\s*[-–—|@]?\s*[\[(]?(\d{1,2}(?::[0-5]\d){1,2})[\])]?\s*$")
 JUNK_TITLE = re.compile(r"(?i)^(?:intro|outro|start|end|chapter\s*\d+|untitled|break)$")
+# A publisher's line about the set, not a track in it: "Mura Masa – live from Boiler Room x
+# Cupra at Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza".
+PERFORMED = re.compile(
+    r"(?i)^(?:(?:recorded|filmed|streamed|broadcast)\s+(?:live\b|at\b|in\b|from\b|on\b|for\b|@)"
+    r"|(?:(?:dj|live|hybrid|vinyl|b2b|closing|opening|full)\s*-?\s*)+set\b)"
+)
+# "Live at the Barbeque" is a song: "live at" names the set only with an event beside it.
+LIVE_AT = re.compile(r"(?i)^(?:recorded\s+)?live\s*(?:(?:from|at|in|on|for)\b|@)")
+YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# The day the set was played: "Sep 12 / 2022", "12.09.2022", "2022-09-12".
+DATE = re.compile(
+    r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?"
+    r"\s*[,/.]?\s*(?:19|20)\d{2}\b|\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b"
+    r"|\b(?:19|20)\d{2}-\d{2}-\d{2}\b"
+)
+BRACKETED = re.compile(r"[\(\[][^\(\)\[\]]*[\)\]]")
+# A quote or a paragraph with a dash in it: '"Felt so good to be back, London." - RÜFÜS DU
+# SOL', a bio's "… sets — and rowdier productions — are …". The longest track lines in real
+# tracklists have about 20 words outside brackets.
+QUOTED = re.compile(r"^[\"“”‘’'](?P<said>.+)[\"“”‘’']$")
+SENTENCE_MARK = re.compile(r"[.!?](?:\s|$)")
+# "feat." or "Vol." in a quoted title ends no sentence.
+ABBREVIATION = re.compile(r"(?i)\b(?:feat|ft|vs|vol|pt|no|op|mr|mrs|ms|dr|st|jr|sr)\.")
+PROSE_WORDS = 30
+# A line that restates the upload's title is its heading, from six words up: "Bicep - Glue"
+# above the same song's live video stays a song.
+RESTATED_WORDS = 6
+# The uploader beside a venue ("Four Tet - Lollapalooza" from Four Tet) names the set only in
+# a one- or two-line note about it. In a full tracklist on an artist's own channel it is their
+# song: "Blur - Parklife" from BlurVEVO, "Sigur Rós - Festival". A show has no songs of its
+# own, so its name beside the place ("Cercle - Château de Chambord" from Cercle) names the set
+# on any page.
+FEW_SONGS = 3
 
 
 def _clock(seconds: float) -> str:
@@ -773,7 +807,119 @@ def _track_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def _chapter_lines(chapters: list[dict]) -> list[tuple[float | None, str]]:
+def names_the_set(line: str, uploader: str = "", heading: str = "", songs: int = 0) -> bool:
+    """Whether a publisher's "Artist - Title" line is about the set, not a track it plays.
+
+    Such a line restates the upload's title (``heading``), names a set or show ("Kaytranada -
+    Boiler Room Montreal", "… DJ set"), says
+    where or when it was played or recorded ("Mura Masa – live from Boiler Room x Cupra at
+    Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza", "Bicep - Glastonbury
+    2019", "Avalon Emerson - HÖR - Sep 12 / 2022"), or, on a page whose list names fewer than
+    ``FEW_SONGS`` songs (``songs``), pairs the uploader with a venue ("Four Tet -
+    Lollapalooza" from Four Tet); a show's channel pairing its name with the place ("Cercle -
+    Château de Chambord" from Cercle) does so on any page. A song's mix in brackets ("(Live at
+    Dekmantel 2019)") is not read, and "Live at the Barbeque" stays a song: "live at" counts
+    only with an event, a year or the uploader beside it.
+    """
+    if _about_the_set(line, uploader, heading):
+        return True
+    return (songs < FEW_SONGS or _show(uploader)) and _hosted(line, uploader)
+
+
+def _about_the_set(line: str, uploader: str, heading: str) -> bool:
+    """``names_the_set`` on any page: every rule but the uploader beside a venue."""
+    plain = " ".join(BRACKETED.sub(" ", line).split())
+    words = _text(plain)
+    if _restates(words, _text(BRACKETED.sub(" ", heading))):
+        return True
+    if any(_has(words, phrase) for phrase in SET_PHRASES):
+        return True
+    parts = SEPARATOR.split(plain, maxsplit=1)
+    if len(parts) != 2:
+        return False
+    title = parts[1].strip()
+    if PERFORMED.match(title) or DATE.search(title):
+        return True
+    named = _text(title)
+    venue = any(_has(words, term) for term in VENUES)
+    host = _uploader_core(uploader) if uploader.strip() else ""
+    if LIVE_AT.match(title) and (
+        venue or YEAR.search(title) or X_JOIN.search(title) or _has(named, host)
+    ):
+        return True
+    # "Primavera Sound Barcelona 2023": the title is the event itself.
+    return bool(YEAR.search(title)) and any(named.startswith(f" {term} ") for term in VENUES)
+
+
+def _show(uploader: str) -> bool:
+    """Whether the upload's channel is a show or festival itself (Cercle, KEXP, Tomorrowland),
+    which has no songs of its own. Only the whole name counts: Brian Fallon is no show."""
+    return bool(uploader.strip()) and _uploader_core(uploader) in VENUES
+
+
+def _hosted(line: str, uploader: str) -> bool:
+    """Whether a line pairs the uploader with a venue: "Four Tet - Lollapalooza" from Four
+    Tet, "Cercle - Château de Chambord" from Cercle."""
+    host = _uploader_core(uploader) if uploader.strip() else ""
+    plain = " ".join(BRACKETED.sub(" ", line).split())
+    parts = SEPARATOR.split(plain, maxsplit=1)
+    if not host or len(parts) != 2:
+        return False
+    words = _text(plain)
+    venue = any(_has(words, term) for term in VENUES)
+    return venue and any(_same_name(host, fold(side.strip())) for side in parts)
+
+
+def _songs(lines: list[tuple[float | None, str]]) -> int:
+    """How many songs a page's lines name, IDs aside."""
+    count = 0
+    for _, line in lines:
+        parts = [part.strip() for part in SEPARATOR.split(line, maxsplit=1)]
+        count += len(parts) == 2 and all(part and not UNKNOWN.match(part) for part in parts)
+    return count
+
+
+def _without_hosts(
+    lines: list[tuple[float | None, str]], uploader: str
+) -> list[tuple[float | None, str]]:
+    """A page's lines, less any that pairs the uploader with a venue when they name fewer than
+    ``FEW_SONGS`` songs (a one- or two-line note about the set, not its tracklist) or the
+    uploader is a show."""
+    if _songs(lines) >= FEW_SONGS and not _show(uploader):
+        return lines
+    return [(seconds, line) for seconds, line in lines if not _hosted(line, uploader)]
+
+
+def _restates(words: str, heading: str) -> bool:
+    """Whether a line (in ``_text`` form) is the upload's title, or starts or ends it."""
+    short, long = sorted((words.strip(), heading.strip()), key=len)
+    return len(short.split()) >= RESTATED_WORDS and (long.startswith(short) or long.endswith(short))
+
+
+def _prose(line: str) -> bool:
+    """Whether a publisher's line is a quote or a paragraph rather than "Artist - Title".
+
+    A quote comes first, its speaker after the dash: 'Moby - "Why Does My Heart Feel So
+    Bad?"' is a song."""
+    plain = BRACKETED.sub(" ", line)
+    if len(plain.split()) > PROSE_WORDS:
+        return True
+    sides = SEPARATOR.split(plain, maxsplit=1)
+    said = sides[0]
+    # 'Shop with "ZARA Home - Store Music Playlist".': the dash is inside the quotation
+    # (German quotes close with “: „Glue“).
+    if len(sides) == 2 and (
+        said.count('"') % 2 or said.count("“") > said.count("”") + said.count("„")
+    ):
+        return True
+    quote = QUOTED.match(said.strip())
+    words = ABBREVIATION.sub("", quote["said"]) if quote else ""
+    return len(words.split()) >= 5 and bool(SENTENCE_MARK.search(words))
+
+
+def _chapter_lines(
+    chapters: list[dict], uploader: str = "", heading: str = ""
+) -> list[tuple[float | None, str]]:
     found = []
     for chapter in chapters:
         if not isinstance(chapter, dict):
@@ -782,12 +928,16 @@ def _chapter_lines(chapters: list[dict]) -> list[tuple[float | None, str]]:
         if match := TIMESTAMP.match(title):
             title = title[match.end() :]
         title = _track_text(title)
-        if LETTER.search(title) and not JUNK_TITLE.match(title):
+        set_line = _about_the_set(title, uploader, heading)
+        if LETTER.search(title) and not JUNK_TITLE.match(title) and not set_line:
             found.append((_seconds(chapter.get("start_time")), title))
+    found = _without_hosts(found, uploader)
     return sorted(found, key=lambda line: line[0] if line[0] is not None else math.inf)
 
 
-def _description_lines(description: str) -> list[tuple[float | None, str]]:
+def _description_lines(
+    description: str, uploader: str = "", heading: str = ""
+) -> list[tuple[float | None, str]]:
     found = []
     for raw in description.splitlines()[:MAX_LINES]:
         line = NUMBERING.sub("", HEADER.sub("", " ".join(raw.split()), count=1), count=1)
@@ -803,23 +953,35 @@ def _description_lines(description: str) -> list[tuple[float | None, str]]:
         line = _track_text(line)
         if not LETTER.search(line) or JUNK_TITLE.match(line):
             continue
+        # A line with a time is a track, however long or quoted, as with promo words above.
+        if (seconds is None and _prose(line)) or _about_the_set(line, uploader, heading):
+            continue
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
     timed = [line for line in found if line[0] is not None]
     # In a timestamped tracklist, untimed lines are the set's own credits; a list that times
     # only its IDs ("48:30 ID - ID" among plain lines) keeps every line.
-    return timed if len(timed) >= 2 and len(timed) * 2 >= len(found) else found
+    lines = timed if len(timed) >= 2 and len(timed) * 2 >= len(found) else found
+    return _without_hosts(lines, uploader)
 
 
-def tracklist_from_source(description: str, chapters: list[dict]) -> str:
+def tracklist_from_source(
+    description: str, chapters: list[dict], uploader: str = "", heading: str = ""
+) -> str:
     """Tracklist text ("[mm:ss] Artist - Title" per line) from a set's chapters or description.
 
     Three or more chapters win; otherwise description lines that look like tracks are kept and
-    links, hashtags, handles, headers and promo lines are dropped.
+    links, hashtags, handles, headers and promo lines are dropped, as are quotes, paragraphs
+    and lines about the set itself (``names_the_set``; ``uploader`` is the upload's channel or
+    account and ``heading`` its title). The uploader beside a venue is such a line only when
+    the chapters or description name fewer than ``FEW_SONGS`` songs, or the uploader is a show.
     """
     named = [c for c in chapters or [] if isinstance(c, dict) and str(c.get("title") or "")]
-    lines = _chapter_lines(named) if len(named) >= 3 else []
-    lines = lines or _description_lines(description or "") or _chapter_lines(named)
+    context = (uploader, heading)
+    lines = _chapter_lines(named, *context) if len(named) >= 3 else []
+    lines = (
+        lines or _description_lines(description or "", *context) or _chapter_lines(named, *context)
+    )
     return "\n".join(
         f"[{_clock(seconds)}] {text}" if seconds is not None else text for seconds, text in lines
     )

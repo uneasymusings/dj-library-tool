@@ -249,6 +249,43 @@ def test_without_song_recognition_set_uses_the_mixesdb_tracklist_and_says_so(
     ]
 
 
+def test_set_says_when_mixesdb_lists_too_few_songs_for_the_set(
+    application, library_http, setup, wiki, monkeypatch
+):
+    """MixesDB's 22 songs for a five-hour upload: the notice and the warning name MixesDB."""
+    kaytranada(setup, wiki)
+    setup.page["duration_seconds"] = 5 * 3600
+    FakeRekordbox(monkeypatch)
+    envelope = json.loads(invoke(application, "set", KAYTRANADA, "--no-identify").stdout)
+    assert envelope["result"]["identified"] is None and envelope["result"]["songs"] == 22
+    assert envelope["warnings"] == [
+        "MixesDB lists only 22 songs for this 300-minute set: songs may be missing."
+    ]
+    shown = invoke(application, "set", KAYTRANADA, "--no-rekordbox", pretty=True, columns=100)
+    assert shown.exit_code == 0, shown.output
+    said = " ".join(shown.stderr.split())
+    assert "MixesDB lists only 22 songs, so djlib is listening to the set to find the rest." in said
+
+
+async def test_a_line_about_the_set_leaves_mixesdb_to_be_asked(
+    application, library_http, setup, wiki
+):
+    """Boiler Room's one line read as a tracklist kept djlib_source_inspect from asking
+    MixesDB; it names the set, so MixesDB's tracklist comes back."""
+    kaytranada(setup, wiki)
+    setup.page["description"] = (
+        "Kaytranada – live from Boiler Room in Montreal.\n\n"
+        "► Subscribe to Boiler Room: https://blrrm.tv/YT"
+    )
+    async with Client(mcp_server.build_server(application.workspace)) as client:
+        reply_ = await client.call_tool(
+            "djlib_source_inspect", {"url": KAYTRANADA, "comments": identification.COMMENTS}
+        )
+    result = reply_.structured_content["result"]
+    assert result["description"].startswith("Kaytranada – live from Boiler Room")
+    assert result["mixesdb"]["page_url"] == MONTREAL["page_url"]
+
+
 def test_no_tracklist_anywhere_says_mixesdb_had_none(
     application, library_http, setup, wiki, monkeypatch
 ):

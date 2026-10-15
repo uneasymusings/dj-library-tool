@@ -96,6 +96,17 @@ def test_help_shows_only_what_a_dj_needs_in_journey_panels():
     assert max(len(line) for line in reply.output.splitlines()) <= 80
 
 
+def test_set_help_says_when_a_link_is_listened_to():
+    reply = run("set", "--help", columns=80)
+    assert reply.exit_code == 0, reply.output
+    said = " ".join(reply.output.split())
+    assert (
+        "A link whose tracklist is missing, has IDs or names too few songs is listened to "
+        "(see djlib identify)." in said
+    )
+    assert max(len(line) for line in reply.output.splitlines()) <= 80
+
+
 @pytest.mark.parametrize("command", HIDDEN)
 def test_hidden_commands_still_work(command):
     reply = run(command, "--help")
@@ -103,9 +114,9 @@ def test_hidden_commands_still_work(command):
     assert "Usage:" in reply.output
 
 
-def test_sets_is_another_name_for_requests(tmp_path):
+def test_sets_is_another_name_for_requests(live_workspace):
     """Every screen calls them sets; `djlib sets` lists them as `djlib requests` does."""
-    workspace = tmp_path / "w"
+    workspace = live_workspace.root
     assert run("init", workspace=workspace).exit_code == 0
     listed = json.loads(run("sets", workspace=workspace).stdout)["result"]
     same = json.loads(run("requests", "list", workspace=workspace).stdout)["result"]
