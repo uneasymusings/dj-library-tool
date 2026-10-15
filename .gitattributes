@@ -4,3 +4,5 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.toml text eol=lf
+# sh fails on a script with Windows line endings (the plugin's hook, the installer).
+*.sh text eol=lf

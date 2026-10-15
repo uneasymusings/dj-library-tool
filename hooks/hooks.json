@@ -1,5 +1,5 @@
 {
-  "description": "Tell the assistant when the djlib engine is missing or from another release than the plugin.",
+  "description": "Tell the assistant when the djlib engine is missing, isn't on Claude Code's PATH, or is from another release than the plugin.",
   "hooks": {
     "SessionStart": [
       {
