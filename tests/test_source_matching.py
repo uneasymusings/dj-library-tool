@@ -809,6 +809,31 @@ def test_the_uploader_beside_a_venue_in_a_short_note_names_the_set():
     assert tracklist_from_source("Four Tet - Lollapalooza\n", []) == "Four Tet - Lollapalooza"
 
 
+def test_a_shows_name_beside_the_place_is_never_a_song():
+    """A show has no songs of its own: "Cercle - Château de Chambord" above Cercle's full
+    tracklist names the set. Only a channel named just that is a show: Brian Fallon's full
+    tracklist keeps his songs."""
+    songs = ["Monolink - Return to Oz", "Bob Moses - Tearing Me Up", "Monolink - Burning Sun"]
+    cercle = "Cercle - Château de Chambord, France\nTracklist:\n" + "\n".join(
+        f"{number}. {line}" for number, line in enumerate(songs, 1)
+    )
+    assert tracklist_from_source(cercle, [], "Cercle").splitlines() == songs
+    chapters = [
+        {"start_time": 60.0 * minute, "title": title}
+        for minute, title in enumerate(["Cercle - Château de Chambord", *songs])
+    ]
+    assert tracklist_from_source("", chapters, "Cercle").splitlines() == [
+        "[01:00] Monolink - Return to Oz",
+        "[02:00] Bob Moses - Tearing Me Up",
+        "[03:00] Monolink - Burning Sun",
+    ]
+    assert names_the_set("KEXP - Seattle", "KEXP", songs=20)
+    fallon = "Brian Fallon - Painkillers\nBrian Fallon - A Wonderful Life\nBrian Fallon - Rosemary"
+    assert tracklist_from_source(fallon, [], "Brian Fallon") == fallon
+    # A festival's channel under a longer name still drops its line from a short note.
+    assert tracklist_from_source("Primavera Sound - Barcelona\n", [], "Primavera Sound") == ""
+
+
 def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
     """Mixmag's descriptions quote the DJ, and bios hold dashes between their words."""
     description = "\n".join(
