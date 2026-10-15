@@ -1,4 +1,5 @@
-"""`djlib set LINK` listens to a set when its tracklist is missing, has IDs or is too short.
+"""`djlib set LINK` listens to a set when its tracklist is missing, has IDs or names too few
+songs.
 
 Everything runs through the real coordinator; the page, the download and the recognizer are
 the fakes of tests/test_identification.py.
