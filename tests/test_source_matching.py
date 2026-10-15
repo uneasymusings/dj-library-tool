@@ -784,6 +784,38 @@ def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
     ]
 
 
+def test_quoted_titles_and_long_timed_lines_stay_songs():
+    """A quote comes first and its speaker after the dash: a title quoted after its artist is
+    a song, also as a question or with "feat.", and a line with a time is a track however
+    long it is."""
+    description = "\n".join(
+        [
+            'Moby - "Why Does My Heart Feel So Bad?"',
+            'Calvin Harris - "This Is What You Came For feat. Rihanna"',
+            '"This Is What You Came For feat. Rihanna" - Calvin Harris',
+            "„Glue“ - Bicep",
+            '"Felt so good to be back in London, thank you all." - RÜFÜS DU SOL',
+        ]
+    )
+    assert tracklist_from_source(description, []).splitlines() == [
+        'Moby - "Why Does My Heart Feel So Bad?"',
+        'Calvin Harris - "This Is What You Came For feat. Rihanna"',
+        '"This Is What You Came For feat. Rihanna" - Calvin Harris',
+        "„Glue“ - Bicep",
+    ]
+    mashup = (
+        "Dimitri Vegas & Like Mike vs. Martin Garrix vs. Tiësto vs. Hardwell vs. Steve Aoki - "
+        "Tremor vs. Animals vs. Red Lights vs. Spaceman vs. Wakanda vs. Pursuit Of Happiness vs. "
+        "Mammoth (Dimitri Vegas & Like Mike Mashup)"
+    )
+    timed = f'00:00 Lumen - Halo\n04:00 Moby - "Why Does My Heart Feel So Bad?"\n07:30 {mashup}'
+    assert tracklist_from_source(timed, []).splitlines() == [
+        "[00:00] Lumen - Halo",
+        '[04:00] Moby - "Why Does My Heart Feel So Bad?"',
+        f"[07:30] {mashup}",
+    ]
+
+
 def test_the_uploads_own_title_and_ticket_lines_are_not_tracks():
     title = "Old School Hip-Hop And R&B On Turntables - DJ Mixtape | Dan Alex"
     description = "\n".join(

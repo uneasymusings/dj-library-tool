@@ -781,6 +781,8 @@ BRACKETED = re.compile(r"[\(\[][^\(\)\[\]]*[\)\]]")
 # tracklists have about 20 words outside brackets.
 QUOTED = re.compile(r"^[\"“”‘’'](?P<said>.+)[\"“”‘’']$")
 SENTENCE_MARK = re.compile(r"[.!?](?:\s|$)")
+# "feat." or "Vol." in a quoted title ends no sentence.
+ABBREVIATION = re.compile(r"(?i)\b(?:feat|ft|vs|vol|pt|no|op|mr|mrs|ms|dr|st|jr|sr)\.")
 PROSE_WORDS = 30
 # A line that restates the upload's title is its heading, from six words up: "Bicep - Glue"
 # above the same song's live video stays a song.
@@ -843,19 +845,24 @@ def _restates(words: str, heading: str) -> bool:
 
 
 def _prose(line: str) -> bool:
-    """Whether a publisher's line is a quote or a paragraph rather than "Artist - Title"."""
+    """Whether a publisher's line is a quote or a paragraph rather than "Artist - Title".
+
+    A quote comes first, its speaker after the dash: 'Moby - "Why Does My Heart Feel So
+    Bad?"' is a song."""
     plain = BRACKETED.sub(" ", line)
     if len(plain.split()) > PROSE_WORDS:
         return True
     sides = SEPARATOR.split(plain, maxsplit=1)
-    # 'Shop with "ZARA Home - Store Music Playlist".': the dash is inside the quotation.
-    if len(sides) == 2 and (sides[0].count('"') % 2 or sides[0].count("“") > sides[0].count("”")):
+    said = sides[0]
+    # 'Shop with "ZARA Home - Store Music Playlist".': the dash is inside the quotation
+    # (German quotes close with “: „Glue“).
+    if len(sides) == 2 and (
+        said.count('"') % 2 or said.count("“") > said.count("”") + said.count("„")
+    ):
         return True
-    for side in sides:
-        quote = QUOTED.match(side.strip())
-        if quote and len(quote["said"].split()) >= 5 and SENTENCE_MARK.search(quote["said"]):
-            return True
-    return False
+    quote = QUOTED.match(said.strip())
+    words = ABBREVIATION.sub("", quote["said"]) if quote else ""
+    return len(words.split()) >= 5 and bool(SENTENCE_MARK.search(words))
 
 
 def _chapter_lines(
@@ -893,7 +900,8 @@ def _description_lines(
         line = _track_text(line)
         if not LETTER.search(line) or JUNK_TITLE.match(line):
             continue
-        if _prose(line) or names_the_set(line, uploader, heading):
+        # A line with a time is a track, however long or quoted, as with promo words above.
+        if (seconds is None and _prose(line)) or names_the_set(line, uploader, heading):
             continue
         if seconds is not None or SEPARATOR.search(line):
             found.append((seconds, line))
