@@ -297,6 +297,10 @@ UNAVAILABLE = (
     "geo-restrict",
     "your country",
 )
+# yt-dlp stops audio that arrives in pieces (SoundCloud's HLS) when one piece doesn't come:
+# "ERROR: fragment 12 not found, unable to continue", after an HTTP 404 for that piece. The
+# upload is still there and a new try gets new links, so it is no gone upload.
+MISSING_PIECE = re.compile(r"\bfragment \d+ not found\b")
 
 
 def provider_error(stderr: bytes) -> AppError:
@@ -313,8 +317,9 @@ def provider_error(stderr: bytes) -> AppError:
 
 def _classified(stderr: bytes) -> AppError:
     text = stderr.decode("utf-8", errors="replace").lower()
-    # Warnings ("retrying…") can name problems the final error does not have.
-    errors = [line for line in text.splitlines() if line.startswith("error:")]
+    # Warnings ("retrying…") can name problems the final error does not have. A line breaks
+    # only at a newline: yt-dlp writes "ERROR: \r[download] Got error: HTTP Error 404 …".
+    errors = [line for line in text.split("\n") if line.startswith("error:")]
     text = "\n".join(errors) or text
     if "no supported javascript runtime" in text or "javascript runtime is not supported" in text:
         return AppError(
@@ -335,7 +340,7 @@ def _classified(stderr: bytes) -> AppError:
             502,
             True,
         )
-    if re.search(r"http error 5\d\d", text):
+    if re.search(r"http error 5\d\d", text) or MISSING_PIECE.search(text):
         return AppError(
             "SOURCE_FAILED", "The site didn't answer just now. Try again in a minute.", 502, True
         )
@@ -369,10 +374,10 @@ def error_lines(stderr: bytes) -> list[str]:
     blanked, control characters removed, each line cut short."""
     home = str(Path.home())
     kept = []
-    for line in stderr.decode("utf-8", errors="replace").splitlines():
+    for line in stderr.decode("utf-8", errors="replace").split("\n"):
         if not line.startswith(("ERROR:", "WARNING:")):
             continue
-        line = LINK.sub(_site, line)
+        line = LINK.sub(_site, line.replace("\r", "").rstrip())
         if len(home) > 1:
             line = line.replace(home, "~")
         line = SECRET.sub(r"\1\2…", HEADER.sub(r"\1\2…", line))
@@ -656,8 +661,9 @@ SET_DOWNLOAD_SECONDS = 4 * 3600
 SET_STALL_SECONDS = 300
 # YouTube refuses about one set download in five on its first request for the audio (HTTP
 # 403, seen in October 2026), and yt-dlp gives up on any 4xx at once; a new try gets a newly
-# signed link and works. So a download that fails that way (SOURCE_FAILED) is tried once more
-# after a short pause. Rate limits, timeouts and uploads that are gone are not tried again.
+# signed link and works. So a download that fails that way (SOURCE_FAILED), or loses a piece
+# of a set sent in pieces (MISSING_PIECE), is tried once more after a short pause. Rate
+# limits, timeouts and uploads that are gone are not tried again.
 SET_TRIES = 2
 SET_RETRY_SECONDS = 5.0
 
