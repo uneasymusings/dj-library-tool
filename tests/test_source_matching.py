@@ -760,6 +760,55 @@ def test_songs_that_sound_like_a_venue_stay_songs(line, uploader):
     assert not names_the_set(line, uploader)
 
 
+def test_the_uploader_beside_a_venue_is_their_song_in_a_full_tracklist():
+    """On an artist's own channel a complete tracklist keeps "Blur - Parklife": the uploader
+    beside a venue names the set only in a one- or two-line note about it."""
+    blur = "Blur - Girls & Boys\nBlur - Parklife\nBlur - Song 2\nParklife - Blur\n"
+    assert tracklist_from_source(blur, [], "BlurVEVO").splitlines() == blur.splitlines()
+    timed = "00:00 Linkin Park - Papercut\n04:10 Linkin Park - Session\n07:00 Linkin Park - Numb"
+    assert tracklist_from_source(timed, [], "Linkin Park").splitlines() == [
+        "[00:00] Linkin Park - Papercut",
+        "[04:10] Linkin Park - Session",
+        "[07:00] Linkin Park - Numb",
+    ]
+    chapters = [
+        {"start_time": 0.0, "title": "Sigur Rós - Glósóli"},
+        {"start_time": 300.0, "title": "Sigur Rós - Festival"},
+        {"start_time": 840.0, "title": "Sigur Rós - Hoppípolla"},
+    ]
+    assert "[05:00] Sigur Rós - Festival" in tracklist_from_source("", chapters, "Sigur Rós")
+    einaudi = (
+        "Ludovico Einaudi - Nuvole Bianche\nLudovico Einaudi - Primavera\nID - ID\nLumen - Halo"
+    )
+    assert tracklist_from_source(einaudi, [], "Ludovico Einaudi").splitlines() == (
+        einaudi.splitlines()
+    )
+    assert names_the_set("Linkin Park - Session", "Linkin Park", songs=2)
+    assert not names_the_set("Linkin Park - Session", "Linkin Park", songs=3)
+
+
+def test_the_uploader_beside_a_venue_in_a_short_note_names_the_set():
+    """One or two lines (IDs aside) are a note about the set: "Four Tet - Lollapalooza" from
+    Four Tet goes, and a song beside it stays."""
+    assert tracklist_from_source("Four Tet - Lollapalooza\n", [], "Four Tet") == ""
+    two = "Four Tet - Lollapalooza\nFour Tet - Baby\n"
+    assert tracklist_from_source(two, [], "Four Tet").splitlines() == ["Four Tet - Baby"]
+    ids = "Four Tet - Lollapalooza\nID - ID\nFour Tet - ID\nFour Tet - Baby\n"
+    assert tracklist_from_source(ids, [], "Four Tet").splitlines() == [
+        "ID - ID",
+        "Four Tet - ID",
+        "Four Tet - Baby",
+    ]
+    chapters = [
+        {"start_time": 0.0, "title": "Four Tet - Lollapalooza"},
+        {"start_time": 0.0, "title": "Intro"},
+        {"start_time": 3600.0, "title": "Outro"},
+    ]
+    assert tracklist_from_source("", chapters, "Four Tet") == ""
+    # Without the uploader the line is a song.
+    assert tracklist_from_source("Four Tet - Lollapalooza\n", []) == "Four Tet - Lollapalooza"
+
+
 def test_quotes_and_paragraphs_with_a_dash_are_not_tracks():
     """Mixmag's descriptions quote the DJ, and bios hold dashes between their words."""
     description = "\n".join(
