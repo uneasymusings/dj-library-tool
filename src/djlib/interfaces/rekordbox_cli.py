@@ -772,7 +772,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
 
         Takes a YouTube or SoundCloud set link, a text file, or paste for what you copied.
 
-        A link whose tracklist is missing, has IDs or is too short is listened to.
+        A link whose tracklist is missing, has IDs or names too few songs is listened to (see djlib identify).
 
         An hour-long set takes about 5–10 minutes, up to half an hour when Shazam is busy.
 
@@ -785,7 +785,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         shazam:2026-09-13 takes those since that date; shazam:new those since last time.
 
         Matches the exact artist, title and mix; another mix is never swapped in.
-        """
+        """  # noqa: E501 - a help paragraph stays one line; the terminal wraps it
         from djlib.application import identification
         from djlib.interfaces import identify_cli, set_sources, shazam_cli
         from djlib.interfaces.library_cli import (

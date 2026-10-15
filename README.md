@@ -52,7 +52,7 @@ Leave out `--no-rekordbox` and djlib also makes the rekordbox playlist; add `--u
 
 | You have | Run | You get |
 | --- | --- | --- |
-| **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing, has IDs or is too short for the set. |
+| **A set link** | `djlib set 'LINK' --no-rekordbox` | Every track in set order: time, how sure, and whether you own it. Shazam listens when the tracklist is missing, has IDs or names too few songs for the set. |
 | **Your Shazams** (Mac) | `djlib shazam status` | Your Mac's and iPhone's Shazams (once Shazam syncs with iCloud), and the command to check them, last 30 days first. |
 | **A tracklist** | `djlib set paste` | One “Artist - Title (Mix)” per line, copied from anywhere. From 1001Tracklists, add the set's link: `djlib set 'LINK' --tracklist paste`. |
 | **Missing songs** | `djlib requests report last` | A shopping list for the set you checked last, with Beatport, Bandcamp and Traxsource searches. `--fetch` downloads stream-quality web copies after asking; buy the real file for the club. |
