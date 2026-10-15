@@ -789,7 +789,9 @@ PROSE_WORDS = 30
 RESTATED_WORDS = 6
 # The uploader beside a venue ("Four Tet - Lollapalooza" from Four Tet) names the set only in
 # a one- or two-line note about it. In a full tracklist on an artist's own channel it is their
-# song: "Blur - Parklife" from BlurVEVO, "Sigur Rós - Festival".
+# song: "Blur - Parklife" from BlurVEVO, "Sigur Rós - Festival". A show has no songs of its
+# own, so its name beside the place ("Cercle - Château de Chambord" from Cercle) names the set
+# on any page.
 FEW_SONGS = 3
 
 
@@ -814,13 +816,14 @@ def names_the_set(line: str, uploader: str = "", heading: str = "", songs: int =
     Primavera Sound Barcelona.", "Four Tet - DJ set at Lollapalooza", "Bicep - Glastonbury
     2019", "Avalon Emerson - HÖR - Sep 12 / 2022"), or, on a page whose list names fewer than
     ``FEW_SONGS`` songs (``songs``), pairs the uploader with a venue ("Four Tet -
-    Lollapalooza" from Four Tet). A song's mix in brackets ("(Live at Dekmantel 2019)") is not
-    read, and "Live at the Barbeque" stays a song: "live at" counts only with an event, a
-    year or the uploader beside it.
+    Lollapalooza" from Four Tet); a show's channel pairing its name with the place ("Cercle -
+    Château de Chambord" from Cercle) does so on any page. A song's mix in brackets ("(Live at
+    Dekmantel 2019)") is not read, and "Live at the Barbeque" stays a song: "live at" counts
+    only with an event, a year or the uploader beside it.
     """
     if _about_the_set(line, uploader, heading):
         return True
-    return songs < FEW_SONGS and _hosted(line, uploader)
+    return (songs < FEW_SONGS or _show(uploader)) and _hosted(line, uploader)
 
 
 def _about_the_set(line: str, uploader: str, heading: str) -> bool:
@@ -846,6 +849,12 @@ def _about_the_set(line: str, uploader: str, heading: str) -> bool:
         return True
     # "Primavera Sound Barcelona 2023": the title is the event itself.
     return bool(YEAR.search(title)) and any(named.startswith(f" {term} ") for term in VENUES)
+
+
+def _show(uploader: str) -> bool:
+    """Whether the upload's channel is a show or festival itself (Cercle, KEXP, Tomorrowland),
+    which has no songs of its own. Only the whole name counts: Brian Fallon is no show."""
+    return bool(uploader.strip()) and _uploader_core(uploader) in VENUES
 
 
 def _hosted(line: str, uploader: str) -> bool:
@@ -874,8 +883,9 @@ def _without_hosts(
     lines: list[tuple[float | None, str]], uploader: str
 ) -> list[tuple[float | None, str]]:
     """A page's lines, less any that pairs the uploader with a venue when they name fewer than
-    ``FEW_SONGS`` songs: a one- or two-line note about the set, not its tracklist."""
-    if _songs(lines) >= FEW_SONGS:
+    ``FEW_SONGS`` songs (a one- or two-line note about the set, not its tracklist) or the
+    uploader is a show."""
+    if _songs(lines) >= FEW_SONGS and not _show(uploader):
         return lines
     return [(seconds, line) for seconds, line in lines if not _hosted(line, uploader)]
 
@@ -964,7 +974,7 @@ def tracklist_from_source(
     links, hashtags, handles, headers and promo lines are dropped, as are quotes, paragraphs
     and lines about the set itself (``names_the_set``; ``uploader`` is the upload's channel or
     account and ``heading`` its title). The uploader beside a venue is such a line only when
-    the chapters or description name fewer than ``FEW_SONGS`` songs.
+    the chapters or description name fewer than ``FEW_SONGS`` songs, or the uploader is a show.
     """
     named = [c for c in chapters or [] if isinstance(c, dict) and str(c.get("title") or "")]
     context = (uploader, heading)
