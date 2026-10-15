@@ -504,7 +504,10 @@ def progress_line(job: dict, width: int = 78) -> str:
     if phase in {"listening", "checking_gaps", "merging"} and progress.get("songs_heard"):
         songs = plural(int(progress["songs_heard"]), "song")
     waiting = progress.get("waiting") if phase in {"listening", "checking_gaps"} else None
-    if isinstance(waiting, dict):
+    if phase == "downloading" and progress.get("download_retry"):
+        # The site refused the first try, so djlib tries once more by itself.
+        choices = [[where, "trying again"], [where]]
+    elif isinstance(waiting, dict):
         calm = waiting_text(waiting)
         # Fullest first, the first that fits; that Ctrl-C is safe matters more than the count.
         choices = [
@@ -545,14 +548,20 @@ def follow(local, job: dict, url: str | None = None, reason: str | None = None) 
     else:
         status = term.err.status(f"[bold]{progress_line(job, fit(term))}", spinner_style="accent")
         live = status.__enter__()
-    last_phase, last_event = None, 0.0
+    last_phase, last_retry, last_event = None, None, 0.0
     try:
         while True:
             progress = (job.get("result") or {}).get("progress") or {}
             phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
+            # A download tried again gets an event of its own, however soon it comes.
+            retry = progress.get("download_retry")
             if live is not None:
                 live.update(f"[bold]{progress_line(job, fit(term))}")
-            elif phase != last_phase or time.monotonic() - last_event >= EVENT_SECONDS:
+            elif (
+                phase != last_phase
+                or retry != last_retry
+                or time.monotonic() - last_event >= EVENT_SECONDS
+            ):
                 event(
                     "identify_progress",
                     job_id=job_id,
@@ -562,7 +571,7 @@ def follow(local, job: dict, url: str | None = None, reason: str | None = None) 
                     },
                 )
                 last_event = time.monotonic()
-            last_phase = phase
+            last_phase, last_retry = phase, retry
             if job.get("state") not in {"queued", "running"}:
                 return job
             time.sleep(POLL_SECONDS)
