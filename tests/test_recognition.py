@@ -291,6 +291,12 @@ async def test_set_audio_skipped_by_the_limits_is_reported(tmp_path, monkeypatch
 
 # What yt-dlp says when YouTube refuses the audio's first request (about one try in five).
 REFUSED = b"ERROR: unable to download video data: HTTP Error 403: Forbidden\n"
+# What yt-dlp says when one piece of audio sent in pieces (SoundCloud's HLS) doesn't come, as
+# it wrote it for a local stream whose second piece was missing.
+MISSING_PIECE = (
+    b"ERROR: \r[download] Got error: HTTP Error 404: Not Found. Giving up after 10 retries\n"
+    b"ERROR: fragment 2 not found, unable to continue\n"
+)
 
 
 def yt_dlp_refuses(tmp_path, seen, refusals, *, stderr=REFUSED, then=None):
@@ -363,6 +369,21 @@ async def test_a_set_download_refused_twice_says_it_was_tried_twice(tmp_path, mo
         await web.fetch_set_audio(SET_URL, tmp_path)
     assert second.value.code == "SOURCE_RATE_LIMITED" and second.value.details == {"tries": 2}
     assert len(seen) == 2
+
+
+async def test_a_set_download_missing_a_piece_is_tried_once_more(tmp_path, monkeypatch, pauses):
+    """A piece of the set that didn't come is no removed upload: the second try fetches it."""
+    seen, retries = [], []
+    monkeypatch.setattr(web, "command", lambda: ["yt-dlp"])
+    monkeypatch.setattr(web, "run", yt_dlp_refuses(tmp_path, seen, 1, stderr=MISSING_PIECE))
+    receipt = await web.fetch_set_audio(
+        SET_URL, tmp_path, on_retry=lambda error, next_try: retries.append((error, next_try))
+    )
+    assert receipt["path"] == str(tmp_path / "set.webm") and len(seen) == 2
+    assert pauses == [web.SET_RETRY_SECONDS]
+    [(error, next_try)] = retries
+    assert (error.code, error.retryable, next_try) == ("SOURCE_FAILED", True, 2)
+    assert "removed" not in error.message
 
 
 @pytest.mark.parametrize(

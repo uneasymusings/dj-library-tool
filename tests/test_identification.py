@@ -20,7 +20,7 @@ from djlib.domain.errors import AppError
 from djlib.jobs.worker import Worker
 from djlib.sources import recognition, web
 from djlib.sources.recognition import Match
-from tests.test_recognition import yt_dlp_refuses
+from tests.test_recognition import MISSING_PIECE, REFUSED, yt_dlp_refuses
 
 URL = "https://www.youtube.com/watch?v=fridayset1"
 DATA = Path(__file__).parent / "data"
@@ -817,12 +817,14 @@ async def test_retryable_download_errors_keep_the_partial_download(application, 
     assert not (folder(application) / "audio").exists()
 
 
-def refusing_yt_dlp(application, monkeypatch, job_id: str, refusals: int) -> tuple[list, list]:
-    """The real set download over a fake yt-dlp the site refuses ``refusals`` times: its
-    tries, and the job's progress as each later try starts."""
+def refusing_yt_dlp(
+    application, monkeypatch, job_id: str, refusals: int, stderr: bytes = REFUSED
+) -> tuple[list, list]:
+    """The real set download over a fake yt-dlp the site refuses ``refusals`` times (saying
+    ``stderr``): its tries, and the job's progress as each later try starts."""
     seen: list = []
     during: list = []
-    refuses = yt_dlp_refuses(folder(application) / "audio", seen, refusals)
+    refuses = yt_dlp_refuses(folder(application) / "audio", seen, refusals, stderr=stderr)
 
     async def yt_dlp(args, **options):
         if seen:
@@ -876,6 +878,29 @@ async def test_a_set_download_refused_twice_fails_after_two_tries(application, s
         "download failed after 2 tries (SOURCE_FAILED)",
     ]
     assert "://" not in "\n".join(log)  # no links: a signed media link carries tokens
+
+
+async def test_a_set_missing_a_piece_keeps_what_arrived_and_the_log_says_why(
+    application, setup, monkeypatch
+):
+    """SoundCloud sends a set in pieces. One that didn't come on either try is a failure to
+    try again later, not a removed upload: what arrived stays and the log names the piece."""
+    job_id = submit(application)
+    seen, _ = refusing_yt_dlp(application, monkeypatch, job_id, 2, stderr=MISSING_PIECE)
+    job = await run(application, job_id)
+    error = job["result"]["error"]
+    assert (error["code"], error["retryable"], error["details"]) == (
+        "SOURCE_FAILED",
+        True,
+        {"tries": 2},
+    )
+    assert len(seen) == 2 and "removed" not in error["message"]
+    assert (folder(application) / "audio" / "set.webm.part").exists()
+    log = (application.workspace.runtime / "downloads.log").read_text()
+    assert (
+        "  ERROR: [download] Got error: HTTP Error 404: Not Found. Giving up after 10 retries\n"
+        "  ERROR: fragment 2 not found, unable to continue\n"
+    ) in log
 
 
 def test_the_download_log_keeps_its_newest_lines(tmp_path, monkeypatch):

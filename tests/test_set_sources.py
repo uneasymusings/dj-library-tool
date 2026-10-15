@@ -323,8 +323,12 @@ def fetch_lasso(application, audio_factory, monkeypatch, tmp_path, failures):
 
     async def download(url, destination):
         downloaded.append(url)
-        if url in failures:
-            raise failures[url]
+        failure = failures.get(url)
+        # A list fails once per error in it, then the upload downloads.
+        if isinstance(failure, list) and failure:
+            raise failure.pop(0)
+        if isinstance(failure, AppError):
+            raise failure
         destination.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(fetched_audio, destination / "audio.wav")
         return destination / "audio.wav", {"kind": "test_download", "source_url": url}
@@ -375,6 +379,24 @@ def test_set_fetch_does_not_retry_uploads_that_are_gone(
     assert downloaded == [OFFICIAL_LASSO, GLASSNOTE_LASSO]  # once each: no retry
     assert (result["fetched"]["downloaded"], result["fetched"]["failed"]) == (0, 1)
     assert result["owned"] == 0
+
+
+def test_set_fetch_downloads_a_song_again_when_a_piece_of_it_did_not_come(
+    application, library_http, audio_factory, monkeypatch, tmp_path
+):
+    """A song sent in pieces (SoundCloud's HLS) that lost one is downloaded again from the same
+    upload, as a refused stream is; it isn't taken for gone, so no other upload replaces it."""
+    from djlib.sources import web
+    from tests.test_recognition import MISSING_PIECE
+    from tests.test_source_matching import OFFICIAL_LASSO
+
+    piece = web.provider_error(MISSING_PIECE)
+    result, downloaded = fetch_lasso(
+        application, audio_factory, monkeypatch, tmp_path, {OFFICIAL_LASSO: [piece]}
+    )
+    assert downloaded == [OFFICIAL_LASSO, OFFICIAL_LASSO]
+    assert (result["fetched"]["downloaded"], result["fetched"]["failed"]) == (1, 0)
+    assert result["owned"] == 1
 
 
 def test_set_fetch_says_which_uploads_it_skipped(

@@ -11,6 +11,7 @@ import pytest
 from djlib.domain.errors import AppError
 from djlib.sources import web
 from tests.conftest import REAL_PROBE
+from tests.test_recognition import MISSING_PIECE
 
 
 @pytest.mark.parametrize(
@@ -399,12 +400,30 @@ async def test_inspect_can_include_listener_comments(monkeypatch):
         ("ERROR: HTTP Error 503: Service Unavailable", "SOURCE_FAILED", True),
         # A warning about a retried request is not the final error.
         ("WARNING: HTTP Error 404, retrying\nERROR: Read timed out", "SOURCE_FAILED", True),
+        # A piece of audio sent in pieces that didn't come: the upload is still there.
+        (MISSING_PIECE.decode(), "SOURCE_FAILED", True),
+        (
+            "ERROR: \r[download] Got error: HTTP Error 429: Too Many Requests. Giving up after 10 "
+            "retries",
+            "SOURCE_RATE_LIMITED",
+            True,
+        ),
     ],
 )
 def test_gone_uploads_are_unavailable_and_not_retried(stderr, code, retryable):
     error = web.provider_error(stderr.encode())
     assert (error.code, error.retryable) == (code, retryable)
     assert stderr.split(": ")[-1] not in error.message
+
+
+def test_a_missing_piece_is_logged_with_the_error_that_lost_it():
+    """yt-dlp writes "ERROR: \\r[download] Got error: …": the line is kept whole."""
+    assert web.provider_error(MISSING_PIECE).__notes__ == [
+        "ERROR: [download] Got error: HTTP Error 404: Not Found. Giving up after 10 retries",
+        "ERROR: fragment 2 not found, unable to continue",
+    ]
+    windows_ends = web.provider_error(b"WARNING: slow\r\nERROR: Video unavailable\r\n")
+    assert windows_ends.__notes__ == ["WARNING: slow", "ERROR: Video unavailable"]
 
 
 async def test_yt_dlp_error_lines_are_kept_without_links_cookies_or_the_home_folder():
