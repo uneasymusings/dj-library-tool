@@ -38,7 +38,7 @@ codex plugin marketplace add uneasymusings/dj-library-tool
 codex plugin add djlib@dj-library-tool
 ```
 
-Restart the host. The plugin runs `djlib` from your PATH; at session start it tells the assistant when djlib is missing or from another release, with the fix. `djlib upgrade` (or rerunning the installer) updates djlib and the plugin together. To refresh only the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than djlib. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
+Restart the host. The plugin runs `djlib` from your PATH; at session start it tells the assistant when djlib is missing, installed in a folder that isn't on the host's PATH (such as `~/.local/bin`), or from another release, with the fix. `djlib upgrade` (or rerunning the installer) updates djlib and the plugin together. To refresh only the plugin, run `claude plugin marketplace update dj-library-tool` and then `claude plugin update djlib@dj-library-tool`, or `codex plugin marketplace upgrade`; `djlib doctor` shows when the plugin is older than djlib. After `djlib upgrade`, reconnect djlib in open sessions (`/mcp` in Claude Code) or they answer `CLIENT_OUTDATED`.
 
 ## Manual setup
 
