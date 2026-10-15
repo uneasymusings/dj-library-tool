@@ -19,8 +19,9 @@ jobs:
   quality:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    # Windows runners take 7-14 minutes for the suite; leave headroom for slow hosts.
-    timeout-minutes: 25
+    # Windows runners took 10-24 minutes for the test step on the same tree (October 2026), and
+    # one hit the old 25-minute limit; leave headroom for slow hosts.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +43,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install FFmpeg on macOS
         if: runner.os == 'macOS'
-        run: brew list ffmpeg || brew install ffmpeg
+        # `brew list ffmpeg` posts a red "No such keg" annotation when it isn't there yet.
+        run: brew list --versions ffmpeg >/dev/null 2>&1 || brew install ffmpeg
       - name: Install FFmpeg on Windows
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
