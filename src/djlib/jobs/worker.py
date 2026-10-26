@@ -5,6 +5,7 @@ import dataclasses
 import logging
 import os
 import shutil
+import stat
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -14,6 +15,7 @@ from sqlalchemy import func, or_, select
 from djlib.application.service import Application, add_event, new_id, require
 from djlib.application.tracklists import file_name_labels
 from djlib.audio.catalog_inspection import inspect_catalog_audio
+from djlib.audio.file_identity import is_cloud_placeholder, path_snapshot
 from djlib.audio.inspection import SUPPORTED_EXTENSIONS, Inspection, checksum, inspect_audio, labels
 from djlib.audio.preparation import tag_download_copy
 from djlib.domain.contracts import (
@@ -296,7 +298,14 @@ class Worker:
                         if counts["needs_input"]
                         else (
                             "completed_with_gaps"
-                            if counts["failed"] or counts["skipped"]
+                            if counts["failed"]
+                            or counts["skipped"]
+                            or ((job.result or {}).get("skipped_files") or {}).get(
+                                "cloud_only_files"
+                            )
+                            or ((job.result or {}).get("skipped_files") or {}).get(
+                                "unavailable_files"
+                            )
                             else "complete"
                         )
                     )
@@ -354,26 +363,85 @@ class Worker:
             )
             if not root.is_relative_to(folder)
         ]
-        tracks, skipped = [], {"workspace_files": 0, "outside_allowed_folders": 0}
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        tracks, skipped = (
+            [],
+            {
+                "workspace_files": 0,
+                "outside_allowed_folders": 0,
+                "cloud_only_files": 0,
+                "unavailable_files": 0,
+                "software_assets": 0,
+            },
+        )
+
+        def walk_error(error):
+            # Path.rglob() can suppress directory access errors. An unreadable music
+            # folder must fail visibly rather than make a partial scan look complete.
+            raise error
+
+        def files():
+            for folder, directories, names in os.walk(root, onerror=walk_error):
+                directories.sort()
+                for name in sorted(names):
+                    yield Path(folder) / name
+
+        for path in files():
+            if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
-            if any(path.is_relative_to(folder) for folder in generated):
-                skipped["workspace_files"] += 1
+            if any(
+                part.lower().endswith(".app")
+                and path.parts[index + 1 : index + 3] == ("Contents", "Resources")
+                for index, part in enumerate(path.parts)
+            ):
+                # A broad Downloads scan can include installed app notification
+                # sounds. User music in ordinary Assets/Samples folders stays eligible.
+                skipped["software_assets"] += 1
                 continue
             try:
+                if not stat.S_ISREG(path.stat().st_mode):
+                    continue
+                if any(path.is_relative_to(folder) for folder in generated):
+                    skipped["workspace_files"] += 1
+                    continue
                 authorized = self.app.workspace.authorize(str(path))
+                if is_cloud_placeholder(authorized):
+                    skipped["cloud_only_files"] += 1
+                    continue
+                before = path_snapshot(authorized)
+                if not before.is_regular or before.is_reparse:
+                    skipped["unavailable_files"] += 1
+                    continue
+                artist, title = labels(authorized)
+                # A cloud download, eviction or move may finish while reading tags.
+                # Do not queue stale labels or let a vanished file lose the entire scan.
+                if is_cloud_placeholder(authorized):
+                    skipped["cloud_only_files"] += 1
+                    continue
+                if path_snapshot(authorized).signature != before.signature:
+                    skipped["unavailable_files"] += 1
+                    continue
             except AppError as exc:
                 # A symlink that leaves the allowed folders is skipped, not followed.
-                if exc.code != "SOURCE_NOT_ALLOWED":
+                if exc.code == "SOURCE_NOT_ALLOWED":
+                    skipped["outside_allowed_folders"] += 1
+                elif exc.code == "FILE_REQUIRED" or (
+                    exc.code == "FILE_UNAVAILABLE"
+                    and isinstance(exc.__cause__, (FileNotFoundError, NotADirectoryError))
+                ):
+                    skipped["unavailable_files"] += 1
+                else:
                     raise
-                skipped["outside_allowed_folders"] += 1
                 continue
-            artist, title = labels(authorized)
-            if not (artist or title):
-                # Untagged files are often named "Artist - Title"; use that for display.
+            except (FileNotFoundError, NotADirectoryError):
+                skipped["unavailable_files"] += 1
+                continue
+            if not artist and (not title or title.strip() == path.stem.strip()):
+                # Some exporters put the entire filename in the title tag and leave
+                # artist blank. Only that exact case permits the same filename fallback.
                 # Identity stays byte-based (provisional) because a file name is not a tag.
-                artist, title = file_name_labels(path.stem)
+                named_artist, named_title = file_name_labels(path.stem)
+                if named_artist and named_title:
+                    artist, title = named_artist, named_title
             track = TrackInput(
                 path=str(authorized), artist=artist or "Unknown artist", title=title or path.stem
             )
@@ -477,8 +545,15 @@ class Worker:
                         )
                     if existing:
                         decision = "reuse_existing_bytes"
+            filename_labels = (
+                job.kind == "scan"
+                and not inspection.artist
+                and inspection.title.strip() == source.stem.strip()
+                and file_name_labels(source.stem) == (track.artist, track.title)
+            )
             if (
-                self.identity_conflict(track, inspection, profile.exact_version)
+                not filename_labels
+                and self.identity_conflict(track, inspection, profile.exact_version)
                 and decision is None
             ):
                 self.review(item_id, job_id, track, inspection)

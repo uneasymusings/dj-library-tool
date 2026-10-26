@@ -528,8 +528,17 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                     live.update(f"[bold]{escape(message)}[/] {count} of {len(tracks)} files")
 
             wait_for_copy(volume, tracks, before, on_progress=progress, ready=listed)
-        with status("Checking the playlist on the USB…"):
-            check = check_playlist(volume, name, tracks)
+        with status("Checking the playlist on the USB…") as live:
+
+            def verified(done, total):
+                if term.json:
+                    event("verify_progress", playlist=name, done=done, total=total)
+                elif live is not None:
+                    live.update(
+                        f"[bold]Checking the playlist on the USB…[/] {done} of {total} files"
+                    )
+
+            check = check_playlist(volume, name, tracks, on_progress=verified)
         keys = ("expected", "found", "missing", "playlist_on_device", "device_entries", "in_order")
         analysis = None
         if check.get("device_analysis"):

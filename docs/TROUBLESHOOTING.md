@@ -105,6 +105,31 @@ djlib service start
 
 Then open or reconnect Claude Code or Codex. **djlib's background service isn't running** (`COORDINATOR_START_REQUIRED`) means this step is missing; trying the tool again doesn't help. Sessions made with `djlib setup-agent` do this for you: `python launch.py claude` starts the service before the app. Several assistants can share one service.
 
+## Music stored only in iCloud
+
+Files can appear in Finder before their audio is downloaded. djlib skips these cloud-only
+files so they cannot hold up a scan of the music already on your Mac. The result reports
+how many files need downloading and exits with gaps, rather than claiming a complete scan.
+Previously indexed matches stay unverified while their files are cloud-only; checking a
+tracklist does not silently download them either.
+In Finder, select the music folder and choose **Download Now**, wait for the download to
+finish, then run `djlib scan` again. Existing recordings are reused.
+
+Files that move, disappear or change while their tags are being read count as
+`skipped_files.unavailable_files`; the other music is still scanned and the result has
+gaps. Rescan once the folder settles. Permission errors are reported as failures rather
+than silently skipped, including errors opening a subfolder.
+
+Broad scans leave out notification sounds inside standard macOS app bundles
+(`*.app/Contents/Resources`), reported as `skipped_files.software_assets`. Audio in your own
+`Assets` or `Samples` folders is still eligible.
+
+When an audio file has no artist tag and its title tag is exactly the whole
+`Artist - Title` filename, djlib can use those filename labels for display and matching.
+They remain provisional filename evidence; complete or conflicting embedded tags are
+preserved. Rescanning improves an existing unnamed provisional recording without making
+a second recording or changing its audio.
+
 ## Backups
 
 Upgrades back up djlib's index of your music (its sets and crates too) under djlib's folder in `backups/` before changing it. Your music and rekordbox's own data aren't part of that backup, and there is no automatic restore.
