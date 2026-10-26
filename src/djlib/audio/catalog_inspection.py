@@ -5,7 +5,7 @@ import hashlib
 import wave
 from pathlib import Path
 
-from djlib.audio.file_identity import path_snapshot
+from djlib.audio.file_identity import is_cloud_placeholder, path_snapshot
 from djlib.audio.fingerprint import pcm_hash
 from djlib.audio.inspection import Inspection, checksum, inspect_audio
 from djlib.domain.errors import AppError
@@ -26,6 +26,11 @@ def inspect_catalog_audio(path: Path, inspector=inspect_audio, known=None):
 
 
 def _inspect(path, inspector, known=None):
+    if is_cloud_placeholder(path):
+        raise AppError(
+            "SOURCE_CLOUD_ONLY",
+            "This audio is only in iCloud. Download it in Finder, then scan the folder again.",
+        )
     before = path_snapshot(path)
     if not before.is_regular or before.is_reparse:
         raise AppError("FILE_CHANGED", "Catalog inspection requires a regular, stable file.")

@@ -761,6 +761,27 @@ def failed_scan(failed: int = 12) -> dict:
     }
 
 
+def test_scan_reports_cloud_files_and_tells_how_to_continue(capsys):
+    job = failed_scan(0)
+    job["result"]["skipped_files"] = {"cloud_only_files": 2}
+    out = render("jobs get", job, width=160, capsys=capsys)
+    assert "2 need downloading" in out
+    assert "Cloud files" in out and "2 not downloaded" in out
+    assert "Download cloud files in Finder" in out
+    assert "Then scan again" in out and "djlib scan" in out
+
+
+def test_scan_reports_vanished_files_without_counting_software_bundles_as_failures(capsys):
+    job = failed_scan(0)
+    job["result"]["skipped_files"] = {"unavailable_files": 2, "software_assets": 3}
+    out = render("jobs get", job, width=160, capsys=capsys)
+    assert "2 no longer available" in out
+    assert "Unavailable files" in out
+    assert "3 software bundle files" in out
+    assert "Check missing files and connected drives" in out
+    assert "Then scan again" in out
+
+
 def test_scan_failures_are_grouped_by_reason(capsys, monkeypatch):
     error = {"code": "DEPENDENCY_REQUIRED", "message": "This format requires ffprobe and FFmpeg."}
     monkeypatch.setattr(

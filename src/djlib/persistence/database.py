@@ -1,6 +1,7 @@
 """Single-coordinator catalog access with short, isolated transactions."""
 
 import hashlib
+import json
 import os
 import sqlite3
 import tempfile
@@ -16,6 +17,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+from djlib.domain.contracts import label_form
 from djlib.domain.errors import AppError
 
 # Letters that NFKD does not decompose into a base letter plus a combining mark.
@@ -31,6 +33,13 @@ def search_fold(value: str | None) -> str | None:
     return " ".join(stripped.translate(_FOLD_LETTERS).split())
 
 
+def label_match_key(artist: str | None, title: str | None, version: str | None) -> str | None:
+    """SQL lookup form only; reuse the matcher's labels without changing stored identities."""
+    if artist is None or title is None or version is None:
+        return None
+    return json.dumps(label_form(artist, title, version), ensure_ascii=False, separators=(",", ":"))
+
+
 class Database:
     def __init__(self, path: Path):
         self.path = Path(path).absolute()
@@ -43,6 +52,7 @@ class Database:
             connection.execute("PRAGMA journal_mode=DELETE")
             # SQLite lower()/LIKE fold ASCII only; search and sorting use Unicode folding.
             connection.create_function("djlib_fold", 1, search_fold, deterministic=True)
+            connection.create_function("djlib_label_key", 3, label_match_key, deterministic=True)
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
 
