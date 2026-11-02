@@ -520,6 +520,8 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 expected_tracks=len(tracks),
             )
         started = time.monotonic()
+        if term.json:
+            event("export_started", playlist=name, device=volume.name)
         message = f"rekordbox is exporting to {volume.name}…"
         with status(message) as live:
 

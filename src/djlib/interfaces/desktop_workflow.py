@@ -196,6 +196,8 @@ class DesktopRunner:
                     try:
                         value = json.loads(line)
                         if isinstance(value, dict) and "event" in value:
+                            if value.get("instruction"):
+                                record["instruction"] = value["instruction"]
                             record["event"] = value
                             atomic_json(path, record)
                     except ValueError:
