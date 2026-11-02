@@ -106,7 +106,13 @@ def create_app(
                     await asyncio.to_thread(sync_rekordbox_analysis, application)
                 except Exception:  # noqa: BLE001 - upkeep must never stop the coordinator
                     logger.exception("Background rekordbox analysis sync failed")
-            if idle_exit and now - activity["last"] >= idle_exit and not application.busy():
+            desktop = getattr(app.state, "desktop_runner", None)
+            if (
+                idle_exit
+                and now - activity["last"] >= idle_exit
+                and not application.busy()
+                and not (desktop and desktop.active)
+            ):
                 server = getattr(app.state, "server", None)
                 if server:
                     server.should_exit = True
@@ -126,6 +132,9 @@ def create_app(
             else []
         )
         yield
+        desktop = getattr(app.state, "desktop_runner", None)
+        if desktop:
+            await desktop.close()
         for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -157,6 +166,19 @@ def create_app(
         return await call_next(request)
 
     app.state.application = application
+
+    from djlib.application.playlist_import import PlaylistImport, import_playlist, preview_playlist
+    from djlib.interfaces.desktop_workflow import register_http as register_desktop
+
+    register_desktop(app, application)
+
+    @app.post("/playlists/preview")
+    async def playlist_preview(body: PlaylistImport):
+        return envelope(await asyncio.to_thread(preview_playlist, body))
+
+    @app.post("/playlists/import")
+    async def playlist_import(body: PlaylistImport):
+        return envelope(await asyncio.to_thread(import_playlist, application, body))
 
     @app.exception_handler(AppError)
     async def application_error(_request, exc: AppError):
