@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0a19
+## 0.1.0a20
 
 - **Studio-style terminal screens.** Status, library and crates share a quiet amber identity. Crate prep shows whole-crate AUDIO and BPM + KEY meters, import history, last USB evidence and an explicit Needs attention block. The first next action follows missing files, import, analysis and export in order. Active actions point back to their progress instead of offering duplicates.
 - **Readable small terminals.** Below 60 columns, catalog tracks stack so artist, title, mix and BPM/key remain readable. Long pagination commands move onto their own line. Live progress preserves the operation and counts while decorative bars yield space. Missing metadata uses explicit dashes and ASCII terminals retain the same information.

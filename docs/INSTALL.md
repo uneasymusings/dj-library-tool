@@ -14,7 +14,7 @@ Options go before `sh`, for example `curl -LsSf https://raw.githubusercontent.co
 
 - `DJLIB_MUSIC=FOLDER`: index this folder without asking (`DJLIB_MUSIC=` skips it).
 - `DJLIB_PLUGIN=0`: don't add the plugin.
-- `DJLIB_VERSION=0.1.0a19`: install this release.
+- `DJLIB_VERSION=0.1.0a20`: install this release.
 
 djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checking sets, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases).
 
@@ -24,7 +24,7 @@ djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checkin
 2. **djlib**, with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
    ```bash
-   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a19/dj_library_tool-0.1.0a19-py3-none-any.whl'
+   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/dj_library_tool-0.1.0a20-py3-none-any.whl'
    djlib init ~/Music    # Windows: djlib init "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor
