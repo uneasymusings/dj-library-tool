@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0a18
+
+- **MixesDB is opt-in.** Automatic lookups remain off pending maintainer confirmation with the wiki admins. Existing saved tracklists and copied tracklists still work. Explicit `DJLIB_MIXESDB=on` enables the bounded lookup after restarting the background service.
+
+- **Playlist import on the review page.** Choose a Spotify playlist CSV, another CSV/TSV with artist and title columns, or paste a tracklist. Preview the selection before checking ownership. Latest songs are selected by Added At timestamps with timezones, newest first; release dates and custom order are never treated as dates added. Missing dates, malformed rows and oversized all-track selections get an actionable error rather than silently dropping songs. Live Spotify account sync is not included.
+- **From crate to USB, on screen.** Each crate shows available local files, saved BPM/key coverage, native import status and the last successful USB file/order check. Import and USB buttons on macOS use the existing rekordbox CLI, show its selection prompt and verification progress, and preserve failures or interrupted actions. Changing the crate invalidates the recorded result. Hardware playback is never implied. Terminal commands remain available.
+- **Safer cloud-file scans and matching.** iCloud-only files and bundled application sound assets are skipped before reading. Vanished files leave a useful partial result, and provisional matching retains version and identity constraints.
+- **Less USB I/O.** Batch verification hashes each shared track once per run while preserving exact playlist order checks. Database fingerprints catch edits even when FAT timestamps and sizes stay unchanged.
+
+
 ## 0.1.0a17
 
 **Fixed:**

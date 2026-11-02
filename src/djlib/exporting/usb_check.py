@@ -10,6 +10,7 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
+from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
 from djlib.domain.errors import AppError
 
 AUDIO = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".mp4", ".aac", ".ogg", ".alac"}
@@ -36,8 +37,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def check_tracks(volume: Path, tracks: list[dict]) -> dict:
+def check_tracks(volume: Path, tracks: list[dict], *, on_progress=None) -> dict:
     """``tracks`` carry ``sha256`` and ``size_bytes``; returns found/missing counts and paths."""
+    return _check_tracks(volume, tracks, _sha256, on_progress)
+
+
+def _check_tracks(volume, tracks, hash_file, on_progress):
     contents = volume / "Contents"
     if not volume.is_dir():
         raise AppError("DEVICE_UNAVAILABLE", f"{volume.name} is not mounted; plug the USB back in.")
@@ -55,12 +60,14 @@ def check_tracks(volume: Path, tracks: list[dict]) -> dict:
                 continue
     hashes: dict[Path, str] = {}
     found, missing = [], []
-    for track in tracks:
+    if on_progress:
+        on_progress(0, len(tracks))
+    for position, track in enumerate(tracks, 1):
         match = None
         for candidate in by_size.get(int(track.get("size_bytes") or -1), []):
             if candidate not in hashes:
                 try:
-                    hashes[candidate] = _sha256(candidate)
+                    hashes[candidate] = hash_file(candidate)
                 except OSError:
                     continue
             if hashes[candidate] == track["sha256"]:
@@ -70,6 +77,8 @@ def check_tracks(volume: Path, tracks: list[dict]) -> dict:
             missing.append(track.get("label") or track["sha256"][:12])
         else:
             found.append(str(match))
+        if on_progress:
+            on_progress(position, len(tracks))
     return {
         "volume": str(volume),
         "expected": len(tracks),
@@ -139,13 +148,17 @@ def wait_for_copy(
     return False
 
 
-def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
+def check_playlist(volume: Path, name: str, tracks: list[dict], *, on_progress=None) -> dict:
     """Check the playlist as a player sees it: the device library must list ``name`` with
     the expected tracks in order, each pointing at a file whose bytes match.
 
     Falls back to a content-only check of ``Contents/`` when the device library cannot be
     read; ``verified_by`` says which check ran.
     """
+    return _check_playlist(volume, name, tracks, _sha256, on_progress)
+
+
+def _check_playlist(volume, name, tracks, hash_file, on_progress):
     from djlib.exporting import rekordbox_pdb
 
     try:
@@ -153,7 +166,7 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
     except AppError:
         listed = None
     if listed is None:
-        result = check_tracks(volume, tracks)
+        result = _check_tracks(volume, tracks, hash_file, on_progress)
         return {
             **result,
             "playlist_on_device": False,
@@ -162,6 +175,8 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
         }
     entries = listed["tracks"]
     found, missing, analysis = 0, [], []
+    if on_progress:
+        on_progress(0, len(tracks))
     for position, track in enumerate(tracks):
         entry = entries[position] if position < len(entries) else {}
         path = volume / (entry.get("file_path") or "").lstrip("/")
@@ -170,7 +185,7 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
             try:
                 matches = (
                     path.stat().st_size == int(track.get("size_bytes") or -1)
-                    and _sha256(path) == track["sha256"]
+                    and hash_file(path) == track["sha256"]
                 )
             except OSError:
                 matches = False
@@ -182,6 +197,8 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
                 )
         else:
             missing.append(track.get("label") or track["sha256"][:12])
+        if on_progress:
+            on_progress(position + 1, len(tracks))
     return {
         "volume": str(volume),
         "expected": len(tracks),
@@ -195,6 +212,108 @@ def check_playlist(volume: Path, name: str, tracks: list[dict]) -> dict:
         "verified_by": "device_library_and_file_hashes",
         "device_analysis": analysis,
         "device_written": False,
+    }
+
+
+def check_playlists(volume: Path, playlists: dict[str, list[dict]], *, on_progress=None) -> dict:
+    """Check several playlists, reading shared audio once during this check only.
+
+    Every playlist still checks exact entry order and file hashes. A changing library or
+    file invalidates the entire check; cached hashes never survive into a later run.
+    """
+    total = sum(len(tracks) for tracks in playlists.values())
+    if not total:
+        raise AppError("INPUT_INVALID", "Pass at least one nonempty playlist to check.")
+    before = library_state(volume)
+    cache = {}
+
+    def changed():
+        return AppError(
+            "DEVICE_CHANGED_DURING_CHECK",
+            "The USB changed while it was being checked. Wait for export to finish, then retry.",
+            retryable=True,
+        )
+
+    def signature(path):
+        try:
+            snapshot = path_snapshot(path)
+        except OSError as exc:
+            raise changed() from exc
+        if not snapshot.is_regular or snapshot.is_reparse:
+            raise changed()
+        return snapshot
+
+    def hash_file(path):
+        snapshot = signature(path)
+        if path in cache:
+            previous, digest = cache[path]
+            if previous.signature != snapshot.signature:
+                raise changed()
+            return digest
+        digest = _sha256(path)
+        if signature(path).signature != snapshot.signature:
+            raise changed()
+        cache[path] = (snapshot, digest)
+        return digest
+
+    def library_fingerprints():
+        # FAT timestamps can be coarse: a same-size playlist edit can retain the
+        # modification signature. Read these small database files independently of
+        # the audio cache so database reads never count as checked audio files/bytes.
+        state = library_state(volume)
+        fingerprints = {}
+        for name in state:
+            path = volume / "PIONEER" / "rekordbox" / name
+            snapshot = signature(path)
+            try:
+                with path.open("rb") as stream:
+                    opened = descriptor_snapshot(stream.fileno())
+                    if opened.signature != snapshot.signature:
+                        raise changed()
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                    if descriptor_snapshot(stream.fileno()).signature != opened.signature:
+                        raise changed()
+                if signature(path).signature != opened.signature:
+                    raise changed()
+            except OSError as exc:
+                raise changed() from exc
+            fingerprints[name] = digest
+        if library_state(volume) != state:
+            raise changed()
+        return fingerprints
+
+    fingerprints = library_fingerprints()
+    if library_state(volume) != before:
+        raise changed()
+    completed, results = 0, {}
+
+    def progress(done, _):
+        if on_progress:
+            on_progress(completed + done, total)
+
+    for name, tracks in playlists.items():
+        results[name] = _check_playlist(volume, name, tracks, hash_file, progress)
+        completed += len(tracks)
+    if library_state(volume) != before:
+        raise changed()
+    if library_fingerprints() != fingerprints:
+        raise changed()
+    for path, (snapshot, _) in cache.items():
+        if signature(path).signature != snapshot.signature:
+            raise changed()
+    return {
+        "volume": str(volume),
+        "playlists": results,
+        "verified": all(
+            result.get("playlist_on_device") is True
+            and result.get("in_order") is True
+            and result["found"] == result["expected"]
+            for result in results.values()
+        ),
+        "unique_files_hashed": len(cache),
+        "audio_bytes_read": sum(snapshot.size for snapshot, _ in cache.values()),
+        "device_written": False,
+        "player_playback_verified": False,
     }
 
 

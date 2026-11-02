@@ -15,6 +15,12 @@ from pathlib import Path
 _WINDOWS = os.name == "nt"
 _REPARSE_POINT = 0x400
 _DIRECTORY = 0x10
+_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
+
+
+def is_cloud_placeholder(path: Path) -> bool:
+    """Metadata-only check: opening a macOS dataless file can wait for iCloud indefinitely."""
+    return bool(getattr(path.stat(), "st_flags", 0) & _DATALESS)
 
 
 @dataclass(frozen=True)

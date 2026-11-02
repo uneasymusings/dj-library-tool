@@ -832,7 +832,10 @@ def test_usb_prompt_is_a_json_event_and_a_failed_check_exits_nonzero(
     assert reply.exit_code == 4
     assert json.loads(reply.stdout)["result"]["found"] == 1
     events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
-    assert [e["event"] for e in events] == ["select_playlist", "wrong_playlist"]
+    assert [e["event"] for e in events[:2]] == ["select_playlist", "wrong_playlist"]
+    assert any(e["event"] == "export_started" for e in events)
+    progress = [e for e in events if e["event"] == "verify_progress"]
+    assert [(e["done"], e["total"]) for e in progress] == [(0, 2), (1, 2), (2, 2)]
     assert events[0]["playlist"] == "Owned" and events[0]["device"] == "STICK"
 
 
@@ -935,7 +938,10 @@ def test_a_new_version_keeps_its_playlist_name_for_usb_and_later_pushes(
     assert (result["found"], result["expected"], result["in_order"]) == (2, 2, True)
     assert [path.name for path in fake.imported] == ["Friday.m3u8", "Friday (2).m3u8"]
     events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
-    assert [e["event"] for e in events] == ["select_playlist", "waiting"]
+    assert [e["event"] for e in events[:2]] == ["select_playlist", "waiting"]
+    progress = [e for e in events if e["event"] == "verify_progress"]
+    assert progress[-1]["done"] == progress[-1]["total"] == 2
+    assert all(e["playlist"] == "Friday (2)" for e in progress)
     assert "click “Friday (2)” once" in events[0]["instruction"]
     assert events[1]["reason"] == "rekordbox isn't the app in front"
     assert events[1]["seconds_left"] == 590

@@ -53,8 +53,9 @@ def page(index: int, kind: int, rows: list[bytes], deleted: frozenset = frozense
         offsets.append(len(heap))
         heap += row + b"\0" * (-len(row) % 4)
     struct.pack_into("<IIII", data, 0, 0, index, kind, index)
-    data[0x18] = len(rows)
-    data[0x1B] = 0x34
+    struct.pack_into(
+        "<I", data, 0x18, len(rows) | ((len(rows) - len(deleted)) << 13) | (0x34 << 24)
+    )
     data[0x28 : 0x28 + len(heap)] = heap
     for group in range((len(rows) + 15) // 16):
         end = PAGE - group * 0x24

@@ -91,6 +91,9 @@ def offline_mixesdb(monkeypatch):
     test answers with recorded replies (tests/data/mixesdb, see tests/test_mixesdb.py)."""
     from djlib.application import identification
 
+    # Provider behavior is tested with recorded replies; real installs require opt-in.
+    monkeypatch.setenv("DJLIB_MIXESDB", "on")
+
     async def nothing(**wanted):
         return None
 

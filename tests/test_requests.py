@@ -1,5 +1,6 @@
 """Original-tone request ledgers preserve uncertainty, exact versions, and CAS evidence."""
 
+import hashlib
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +30,7 @@ from djlib.domain.request_contracts import (
 )
 from djlib.interfaces.rekordbox_cli import set_item, set_track
 from djlib.interfaces.views import spelled_as
-from djlib.persistence.models import Job
+from djlib.persistence.models import Asset, AssetRevision, FileLocation, Job, Recording
 from djlib.persistence.request_models import RequestLedger
 from tests.conftest import execute
 from tests.test_set_identification import SET_URL, listing, song
@@ -1241,3 +1242,129 @@ def test_tracklist_lines_with_control_characters_or_hidden_marks_still_read():
         ("named", "Rain"),
     ]
     assert items[2].artist == "Ana[2J"
+
+
+def provisional_catalog(app, factory, labels):
+    """Distinct local audio with deterministic recording IDs, oldest unrelated title first."""
+    recordings, assets, revisions, locations = [], [], [], []
+    for number, (artist, title, version) in enumerate(labels):
+        source = factory(f"provisional-{number:04}.wav", frequency=500 + number)
+        sha = hashlib.sha256(source.read_bytes()).hexdigest()
+        recording_id, asset_id, revision_id = (
+            f"{kind}_provisional_{number:04}" for kind in ("rec", "asset", "rev")
+        )
+        recordings.append(
+            Recording(
+                id=recording_id,
+                identity_key=f"provisional:sha256:{sha}",
+                artist=artist,
+                title=title,
+                version=version,
+                evidence={"method": "provisional_bytes", "labels_are_identity": False},
+            )
+        )
+        assets.append(
+            Asset(id=asset_id, recording_id=recording_id, provenance={"kind": "user_supplied"})
+        )
+        revisions.append(
+            AssetRevision(
+                id=revision_id,
+                asset_id=asset_id,
+                sha256=sha,
+                properties={"size_bytes": source.stat().st_size},
+            )
+        )
+        locations.append(
+            FileLocation(
+                id=f"loc_provisional_{number:04}", revision_id=revision_id, path=str(source)
+            )
+        )
+    with app.db.transaction() as session:
+        for rows in (recordings, assets, revisions, locations):
+            session.add_all(rows)
+            session.flush()
+    return revisions
+
+
+@pytest.mark.parametrize(
+    "catalog,requested",
+    [
+        (("Unknown artist", "Late Song (Dub)", ""), ("Unknown artist", "Late Song", "Dub")),
+        (("De La Soul", "Me, Myself & I", ""), ("De La Soul", "Me Myself and I", "")),
+        (("AC/DC", "Late Song", ""), ("AC DC", "Late Song", "")),
+        (("BJÖRK", "Late Song (Original Mix)", ""), ("björk", "late song", "")),
+    ],
+)
+def test_provisional_lookup_filters_exact_labels_before_the_candidate_cap(
+    ledger_app, audio_factory, catalog, requested
+):
+    fillers = [(catalog[0], f"Unrelated Song {n}", "") for n in range(requests.MAX_CANDIDATES + 5)]
+    tracks = provisional_catalog(ledger_app, audio_factory, [*fillers, catalog])
+    item = create(
+        ledger_app,
+        [named(artist=requested[0], title=requested[1], version=requested[2])],
+    )["items"][0]
+    assert item["state"] == "satisfied"
+    assert item["candidates_truncated"] is False
+    assert len(item["candidates"]) == 1
+    assert item["accepted"]["asset_revision_id"] == tracks[-1].id
+    assert item["accepted"]["identity_match"] == "file_name_labels"
+
+
+def test_too_many_provisional_exact_copies_are_ambiguous_and_truncated(ledger_app, audio_factory):
+    provisional_catalog(
+        ledger_app,
+        audio_factory,
+        [("Unknown artist", "Same Song (Dub)", "") for _ in range(requests.MAX_CANDIDATES + 2)],
+    )
+    item = create(ledger_app, [named(artist="Unknown artist", title="Same Song", version="Dub")])[
+        "items"
+    ][0]
+    assert item["state"] == "ambiguous"
+    assert item["accepted"] is None
+    assert item["candidates_truncated"] is True
+    assert len(item["candidates"]) == requests.MAX_CANDIDATES
+
+
+async def test_provisional_matches_overflowing_the_regular_candidate_cap_are_not_hidden(
+    ledger_app, audio_factory, monkeypatch
+):
+    regular = await owned(ledger_app, audio_factory)
+    provisional_catalog(ledger_app, audio_factory, [("Original Artist", "Original Tone", "")])
+    monkeypatch.setattr(requests, "MAX_CANDIDATES", 1)
+    item = create(ledger_app, [named()])["items"][0]
+    assert item["state"] == "ambiguous"
+    assert item["accepted"] is None
+    assert item["candidates_truncated"] is True
+    assert [candidate["asset_revision_id"] for candidate in item["candidates"]] == [
+        regular["asset_revision_id"]
+    ]
+
+
+def test_provisional_lookup_keeps_other_mixes_out_of_an_exact_request(ledger_app, audio_factory):
+    provisional_catalog(
+        ledger_app,
+        audio_factory,
+        [
+            ("Unknown artist", "Same Song (Radio Edit)", "")
+            for _ in range(requests.MAX_CANDIDATES + 2)
+        ],
+    )
+    item = create(ledger_app, [named(artist="Unknown artist", title="Same Song", version="Dub")])[
+        "items"
+    ][0]
+    assert item["state"] == "missing"
+    assert item["accepted"] is None
+    assert item["candidates_truncated"] is False
+
+
+def test_provisional_sql_label_key_preserves_distinct_symbol_only_artists(
+    ledger_app, audio_factory
+):
+    tracks = provisional_catalog(
+        ledger_app, audio_factory, [("?", "Same Song", ""), ("/", "Same Song", "")]
+    )
+    item = create(ledger_app, [named(artist="/", title="Same Song")])["items"][0]
+    assert item["state"] == "satisfied"
+    assert len(item["candidates"]) == 1
+    assert item["accepted"]["asset_revision_id"] == tracks[-1].id
