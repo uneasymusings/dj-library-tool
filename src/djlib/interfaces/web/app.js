@@ -927,6 +927,14 @@ async function playlistImport() {
     form, result);
 }
 
+function desktopMessage(action) {
+  const event = action.event || {};
+  if (event.event === "verify_progress") return `Checking USB files: ${event.done} of ${event.total}.`;
+  if (event.event === "export_started") return `rekordbox is exporting “${event.playlist}” to ${event.device}. Keep the USB connected.`;
+  if (event.event === "wrong_playlist") return `You selected “${event.selected || "not a playlist"}”. ${action.instruction || `Select “${event.playlist}” in rekordbox.`}`;
+  return event.instruction || action.instruction || event.reason || "Working with rekordbox. Keep your Mac unlocked.";
+}
+
 async function crateWorkflow(collectionId) {
   const status = await api(`/collections/${encodeURIComponent(collectionId)}/workflow`);
   const active = status.action?.state === "running";
@@ -960,8 +968,9 @@ async function crateWorkflow(collectionId) {
   }
   if (active) {
     const event = status.action.event || {};
-    const message = event.instruction || event.reason || (event.event === "verify_progress" ? `Checking USB files: ${event.done} of ${event.total}.` : "Working with rekordbox. Keep your Mac unlocked.");
+    const message = desktopMessage(status.action);
     feedback.append(notice("info", message));
+    if (event.reason && event.reason !== message) feedback.append(h("p", { class: "hint" }, event.reason));
     refreshSoon();
   } else if (status.action?.error) feedback.append(notice("warn", status.action.error.message));
   if (status.previous_action_is_stale) feedback.append(notice("warn", "This crate changed since the previous action. Import and check it again."));

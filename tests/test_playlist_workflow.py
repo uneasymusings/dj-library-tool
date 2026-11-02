@@ -239,6 +239,7 @@ def fake_process(reply, code=0):
     stdout.feed_data(json.dumps(reply).encode())
     stdout.feed_eof()
     stderr.feed_data(b'{"event":"select_playlist","instruction":"Click Tonight"}\n')
+    stderr.feed_data(b'{"event":"waiting","reason":"No playlist selected","playlist":"Tonight"}\n')
     stderr.feed_eof()
 
     async def wait():
@@ -277,6 +278,7 @@ async def test_native_runner_uses_fixed_cli_arguments_and_duplicate_clicks_reuse
     assert len(calls) == 1 and calls[0][-3:] == ("rekordbox", "usb", collection_id)
     status = desktop.workflow_status(application, collection_id)
     assert status["usb_verified_at_last_check"] and status["action"]["finished_at"]
+    assert status["action"]["instruction"] == "Click Tonight"
     assert not runner.active
 
 
@@ -373,6 +375,23 @@ async def test_new_usb_attempt_invalidates_previous_device_check(
     await runner.start(collection_id, desktop.DesktopAction(action="usb", idempotency_key="two"))
     assert not desktop.workflow_status(application, collection_id)["usb_verified_at_last_check"]
     await runner.close()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_desktop_ui_keeps_the_playlist_prompt_until_export_starts():
+    from tests.test_review_page import run_page
+
+    messages = run_page(
+        'desktopMessage({instruction: "Click Friday (2)", '
+        'event: {event: "waiting", reason: "No playlist selected"}})',
+        'desktopMessage({instruction: "Click Friday (2)", '
+        'event: {event: "export_started", playlist: "Friday (2)", device: "STICK"}})',
+        'desktopMessage({instruction: "Click Friday (2)", '
+        'event: {event: "verify_progress", done: 42, total: 56}})',
+    )
+    assert messages[0] == "Click Friday (2)"
+    assert "is exporting" in messages[1] and "STICK" in messages[1]
+    assert messages[2] == "Checking USB files: 42 of 56."
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node")

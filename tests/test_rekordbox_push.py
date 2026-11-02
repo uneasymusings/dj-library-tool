@@ -833,6 +833,7 @@ def test_usb_prompt_is_a_json_event_and_a_failed_check_exits_nonzero(
     assert json.loads(reply.stdout)["result"]["found"] == 1
     events = [json.loads(line) for line in reply.stderr.splitlines() if line.startswith("{")]
     assert [e["event"] for e in events[:2]] == ["select_playlist", "wrong_playlist"]
+    assert any(e["event"] == "export_started" for e in events)
     progress = [e for e in events if e["event"] == "verify_progress"]
     assert [(e["done"], e["total"]) for e in progress] == [(0, 2), (1, 2), (2, 2)]
     assert events[0]["playlist"] == "Owned" and events[0]["device"] == "STICK"
