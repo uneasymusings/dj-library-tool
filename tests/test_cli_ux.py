@@ -314,7 +314,13 @@ def test_crates_and_crate_render_like_collections(application, library_http, aud
     assert "Owned" in pretty_crates and "Tracks" in pretty_crates
     assert pretty_crates == pretty_legacy
     pretty_crate = run("crate", "last", pretty=True, workspace=root).stdout
-    assert "Lumen" in pretty_crate and "Put it in rekordbox" in pretty_crate
+    assert "Lumen" in pretty_crate and "AUDIO" in pretty_crate
+    if sys.platform == "darwin":
+        assert "Put it in rekordbox" in pretty_crate
+    else:
+        assert "Review this crate" in pretty_crate
+        assert "controls require macOS" in pretty_crate
+        assert "rekordbox push" not in pretty_crate
     missing = run("crate", "Nothing like it", workspace=root)
     assert missing.exit_code == 2
     assert json.loads(missing.stdout)["error"]["code"] == "NOT_FOUND"

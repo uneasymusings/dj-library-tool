@@ -123,7 +123,7 @@ Already have djlib? Add the Claude Code plugin with `/plugin install djlib --mar
 
 With the plugin, just ask: “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 
-> **Alpha (0.1.0a19).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
+> **Alpha (0.1.0a20).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
 ## Docs
 

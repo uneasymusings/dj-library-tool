@@ -1,6 +1,6 @@
 # Implementation status
 
-## 0.1.0a19
+## 0.1.0a20
 
 The terminal has a studio-style prep view: whole-crate local-file and saved BPM/key meters, exact-crate native receipts, actionable blockers and one primary next action. Library/crate tables highlight BPM/key and switch to stacked track rows below 60 columns. Status shows library coverage; live progress yields its meter before losing the operation and counts. Human crate views fetch the existing workflow route; captured JSON and MCP results retain their contracts. The null startup phase found intermittently during 0.1.0a18 testing now has a deterministic fix and regression.
 
