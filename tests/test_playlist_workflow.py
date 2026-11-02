@@ -317,6 +317,56 @@ async def test_shutdown_before_first_native_turn_releases_lock(
         pass
 
 
+async def test_read_analysis_uses_pull_and_keeps_previous_import_evidence(
+    application, crate, monkeypatch, tmp_path
+):
+    collection_id = await crate()
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    calls = []
+
+    async def spawn(*args, **kwargs):
+        calls.append(args)
+        return fake_process({"ok": True, "result": {"updated": 1}})
+
+    monkeypatch.setattr(desktop.asyncio, "create_subprocess_exec", spawn)
+    runner = desktop.DesktopRunner(application)
+    await runner.start(collection_id, desktop.DesktopAction(action="import", idempotency_key="one"))
+    await runner.task
+    await runner.start(
+        collection_id, desktop.DesktopAction(action="analysis", idempotency_key="two")
+    )
+    await runner.task
+    assert calls[1][-2:] == ("rekordbox", "pull")
+    status = desktop.workflow_status(application, collection_id)
+    assert status["import_recorded"] and not status["usb_verified_at_last_check"]
+
+
+async def test_new_usb_attempt_invalidates_previous_device_check(
+    application, crate, monkeypatch, tmp_path
+):
+    collection_id = await crate()
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+
+    async def spawn(*args, **kwargs):
+        return fake_process(
+            {
+                "ok": True,
+                "result": {"playlist_on_device": True, "in_order": True, "found": 1, "expected": 1},
+            }
+        )
+
+    monkeypatch.setattr(desktop.asyncio, "create_subprocess_exec", spawn)
+    runner = desktop.DesktopRunner(application)
+    await runner.start(collection_id, desktop.DesktopAction(action="usb", idempotency_key="one"))
+    await runner.task
+    assert desktop.workflow_status(application, collection_id)["usb_verified_at_last_check"]
+    await runner.start(collection_id, desktop.DesktopAction(action="usb", idempotency_key="two"))
+    assert not desktop.workflow_status(application, collection_id)["usb_verified_at_last_check"]
+    await runner.close()
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
 def test_import_ui_requires_preview_and_invalidates_it_when_selection_changes():
     """Exercise event handlers with a tiny DOM; no browser, server or native action runs."""

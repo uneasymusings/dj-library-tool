@@ -21,7 +21,7 @@ from djlib.workspace import atomic_json
 
 
 class DesktopAction(RequestContract):
-    action: Literal["import", "usb"]
+    action: Literal["import", "analysis", "usb"]
     idempotency_key: str = Field(min_length=1, max_length=200)
 
 
@@ -58,12 +58,16 @@ def workflow_status(application, collection_id):
     action = read_action(application.workspace, collection_id)
     current = bool(action and action.get("fingerprint") == collection_fingerprint(collection))
     complete = current and action.get("state") == "completed"
-    result = (action or {}).get("result") or {}
+    imported = bool(current and action.get("import_evidence")) or bool(
+        complete and action.get("action") in {"import", "usb"}
+    )
+    result = (action or {}).get("usb_evidence") or (
+        (action or {}).get("result") if complete and action.get("action") == "usb" else {}
+    )
     if not isinstance(result, dict):
         result = {}
     usb = (
-        complete
-        and action["action"] == "usb"
+        current
         and result.get("playlist_on_device") is True
         and result.get("in_order") is True
         and result.get("found") == len(tracks) == result.get("expected")
@@ -72,8 +76,10 @@ def workflow_status(application, collection_id):
         "track_count": len(tracks),
         "local_files": present,
         "with_bpm_and_key": analyzed,
-        "import_recorded": bool(complete),
+        "import_recorded": imported,
         "usb_verified_at_last_check": bool(usb),
+        "usb_checked_at": result.get("checked_at") if usb else None,
+        "usb_device": result.get("device") if usb else None,
         "hardware_playback_verified": False,
         "desktop_supported": sys.platform == "darwin",
         "action": action if current else None,
@@ -141,6 +147,12 @@ class DesktopRunner:
             },
             "result": None,
             "error": None,
+            "import_evidence": old.get("import_evidence")
+            if old and old.get("fingerprint") == fingerprint
+            else None,
+            "usb_evidence": old.get("usb_evidence")
+            if body.action != "usb" and old and old.get("fingerprint") == fingerprint
+            else None,
         }
         path = self.application.workspace.runtime / "desktop-actions" / f"{collection_id}.json"
         try:
@@ -164,9 +176,10 @@ class DesktopRunner:
                 str(self.application.workspace.root),
                 "--json",
                 "rekordbox",
-                "push" if record["action"] == "import" else "usb",
-                collection_id,
+                {"import": "push", "analysis": "pull", "usb": "usb"}[record["action"]],
             ]
+            if record["action"] != "analysis":
+                args.append(collection_id)
             self.process = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
@@ -212,6 +225,13 @@ class DesktopRunner:
                 )
             else:
                 record.update(state="completed", result=reply.get("result"), event=None)
+                if record["action"] in {"import", "usb"}:
+                    record["import_evidence"] = {"checked_at": datetime.now(UTC).isoformat()}
+                if record["action"] == "usb":
+                    record["usb_evidence"] = {
+                        **reply["result"],
+                        "checked_at": datetime.now(UTC).isoformat(),
+                    }
         except asyncio.CancelledError:
             record.update(
                 state="interrupted",

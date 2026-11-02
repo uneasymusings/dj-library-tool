@@ -591,6 +591,7 @@
         "action": {
           "enum": [
             "import",
+            "analysis",
             "usb"
           ],
           "title": "Action",

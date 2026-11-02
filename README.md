@@ -91,7 +91,7 @@ First time: allow the app you run djlib in under System Settings → Privacy & S
 
 Use **Import playlist or tracklist** to choose a Spotify playlist CSV or paste a tracklist. Preview the selection, check which songs you own, then build a crate. **Latest by date added** selects the newest songs using the CSV’s Added At timestamps; it never guesses from custom order or release dates. A Spotify playlist link alone cannot be synced yet.
 
-Open a crate to see its local files, saved BPM/key coverage, native import and last USB check. On macOS, **Import in rekordbox** and **Export to USB and check** run from the page. The USB step asks you to click the named playlist in rekordbox once. Keep the Mac unlocked, let analysis finish, and check playback on your player before a gig.
+Open a crate to see its local files, saved BPM/key coverage, native import and last USB check. On macOS, **Import in rekordbox**, **Read BPM and key** and **Export to USB and check** run from the page. The USB step asks you to click the named playlist in rekordbox once. Keep the Mac unlocked, let analysis finish, and check playback on your player before a gig.
 
 ![djlib's review page: a Four Tet set with times, how sure each line is, what you own, and store searches for what's missing](docs/images/review-page-set.png)
 

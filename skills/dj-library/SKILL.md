@@ -11,7 +11,7 @@ djlib finds every track in a YouTube or SoundCloud set or the user's Shazams, ch
 
 ## Playlist CSVs and the review page
 
-`djlib ui` opens the local review page. **Import playlist or tracklist** accepts a Spotify playlist CSV, a CSV/TSV with artist/title columns, or plain tracklist text. Preview first; **Latest by date added** needs timezone-aware Added At timestamps and selects newest first (up to 1,000). Never substitute custom playlist order or release dates for dates added. Live Spotify account sync and link-only playlist import are not supported. After checking ownership, build the crate. On macOS, its page has **Import in rekordbox** and **Export to USB and check**, with the native playlist-click prompt and progress. The page records the last action for that crate, not a fresh hardware readiness claim.
+`djlib ui` opens the local review page. **Import playlist or tracklist** accepts a Spotify playlist CSV, a CSV/TSV with artist/title columns, or plain tracklist text. Preview first; **Latest by date added** needs timezone-aware Added At timestamps and selects newest first (up to 1,000). Never substitute custom playlist order or release dates for dates added. Live Spotify account sync and link-only playlist import are not supported. After checking ownership, build the crate. On macOS, its page has **Import in rekordbox**, **Read BPM and key** and **Export to USB and check**, with the native playlist-click prompt and progress. The page records the last action for that crate, not a fresh hardware readiness claim.
 
 ## 1. "What's in this set? Which ones do I own?"
 

@@ -940,9 +940,9 @@ async function crateWorkflow(collectionId) {
     step("Local audio", total > 0 && status.local_files === total, `${status.local_files} of ${total} files available on this computer. Export checks their bytes again.`),
     step("BPM and key", total > 0 && status.with_bpm_and_key === total, `${status.with_bpm_and_key} of ${total} tracks have saved BPM and key. Beatgrids are managed in rekordbox.`),
     step("Imported in rekordbox", status.import_recorded, status.import_recorded ? "This crate was imported through these controls." : "Import the crate, then let rekordbox finish analyzing it."),
-    step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? "Playlist order and audio bytes matched at the last check. Check again after changing the stick." : "Export through rekordbox, then check the files and playlist order on the stick."));
+    step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}${status.usb_device ? ` on ${fileTail(status.usb_device)}` : ""}. Check again after changing the stick.` : "Export through rekordbox, then check the files and playlist order on the stick."));
   const buttons = h("div", { class: "workflow-buttons" });
-  for (const [action, label] of [["import", "Import in rekordbox"], ["usb", "Export to USB and check"]]) {
+  for (const [action, label] of [["import", "Import in rekordbox"], ["analysis", "Read BPM and key"], ["usb", "Export to USB and check"]]) {
     const button = h("button", { type: "button", class: action === "usb" ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
     button.addEventListener("click", async () => {
       for (const sibling of buttons.querySelectorAll("button")) sibling.disabled = true;
@@ -966,7 +966,7 @@ async function crateWorkflow(collectionId) {
   } else if (status.action?.error) feedback.append(notice("warn", status.action.error.message));
   if (status.previous_action_is_stale) feedback.append(notice("warn", "This crate changed since the previous action. Import and check it again."));
   if (!status.desktop_supported) feedback.append(notice("info", "Native rekordbox controls need macOS. The terminal commands below show the next steps."));
-  if (status.with_bpm_and_key < total) feedback.append(notice("warn", "Analyze missing BPM and key in rekordbox before you play. Saved metadata alone does not verify beatgrid accuracy."));
+  if (status.with_bpm_and_key < total) feedback.append(notice("warn", "Analyze missing BPM and key in rekordbox, then click Read BPM and key. Saved metadata alone does not verify beatgrid accuracy."));
   return h("div", { class: "crate-workflow" }, h("h2", null, "From crate to USB"),
     h("p", { class: "hint" }, "This crate contains owned tracks. Missing songs in its source list still need acquiring."),
     steps, buttons, feedback,
