@@ -427,6 +427,27 @@ def test_watching_an_identify_job_shows_its_windows():
     assert followed.job["state"] == "completed" and not followed.detached
 
 
+def test_claimed_job_without_first_phase_emits_a_named_startup_event(monkeypatch):
+    running = {"job_id": "job_startup", "state": "running", "result": {}}
+    done = {**running, "state": "completed"}
+    seen = []
+    from djlib.interfaces import rekordbox_cli
+
+    monkeypatch.setattr(identify_cli.terminal, "current", lambda: terminal.Terminal(json=True))
+    monkeypatch.setattr(rekordbox_cli, "event", lambda name, **values: seen.append((name, values)))
+    monkeypatch.setattr(identify_cli, "POLL_SECONDS", 0)
+
+    class Jobs:
+        def request(self, method, path):
+            return {"result": done}
+
+    assert identify_cli.follow(Jobs(), running) == done
+    assert [values["phase"] for name, values in seen if name == "identify_progress"] == [
+        "queued",
+        "completed",
+    ]
+
+
 def test_lines_a_tracklist_could_not_use_are_warnings(application, library_http, setup, tmp_path):
     listing = tmp_path / "friday.txt"
     listing.write_text("Friday at Fabric\n" + LISTED + "just a note\n", encoding="utf-8")

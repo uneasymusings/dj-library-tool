@@ -558,7 +558,13 @@ def follow(local, job: dict, url: str | None = None, reason: str | None = None) 
     try:
         while True:
             progress = (job.get("result") or {}).get("progress") or {}
-            phase = progress.get("phase") if job.get("state") == "running" else job.get("state")
+            # The worker can claim a job before writing its first phase. Keep startup
+            # progress meaningful for scripts as well as the human status line.
+            phase = (
+                (progress.get("phase") or "queued")
+                if job.get("state") == "running"
+                else job.get("state")
+            )
             # A download tried again gets an event of its own, however soon it comes.
             retry = progress.get("download_retry")
             if live is not None:
