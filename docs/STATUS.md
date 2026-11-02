@@ -1,5 +1,12 @@
 # Implementation status
 
+## 0.1.0a18
+
+Playlist preview/import and crate-to-USB controls are available in the local review page. A Spotify CSV can be selected in custom order or by timezone-aware Added At timestamps (newest first); live Spotify account sync is not implemented. The macOS controls launch the existing native CLI and show its click prompt and progress. They record last-action evidence for an unchanged crate, never physical playback readiness. MixesDB lookup is now opt-in pending the maintainer confirmation described in CONTRIBUTING.md.
+
+Local validation uses generated audio, in-process HTTP clients and a DOM component harness. Live native automation, physical CDJ playback, and a fresh visual browser review of this release have not been performed in the restricted development session. GitHub CI runs the full cross-platform suite and package checks before publication. Earlier USB verification results apply to the previous build, not as an end-to-end validation of these new page controls.
+
+
 ## 0.1.0a17
 
 A fix release for set links whose page doesn't give the tracklist. Most Boiler Room uploads describe the set in one line, which djlib read as a song, so it showed one made-up song and never listened; now it listens. A tracklist that names too few songs for the set's length is listened to as well, a list written “Title - Artist” agrees with what Shazam heard, and a set download that the site refuses, or that misses a piece, is tried once more. The plugin tells the assistant when Claude Code can't start djlib, and CI checks song recognition. See the [changelog](../CHANGELOG.md#010a17).

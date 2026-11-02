@@ -585,6 +585,31 @@
       "title": "DeliveryVerifyRequest",
       "type": "object"
     },
+    "DesktopAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "import",
+            "usb"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Idempotency Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "idempotency_key"
+      ],
+      "title": "DesktopAction",
+      "type": "object"
+    },
     "DeviceRequest": {
       "additionalProperties": false,
       "properties": {
@@ -961,6 +986,43 @@
         "idempotency_key"
       ],
       "title": "OrganizationRequest",
+      "type": "object"
+    },
+    "PlaylistImport": {
+      "additionalProperties": false,
+      "properties": {
+        "latest": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest"
+        },
+        "name": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 10000000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "text"
+      ],
+      "title": "PlaylistImport",
       "type": "object"
     },
     "Profile": {
