@@ -145,6 +145,14 @@ def test_mixesdb_is_opt_in_until_maintainer_confirmation(monkeypatch):
         assert not mixesdb.enabled()
 
 
+def test_malformed_action_record_does_not_prevent_service_startup(application):
+    folder = application.workspace.runtime / "desktop-actions"
+    folder.mkdir(parents=True)
+    (folder / "broken.json").write_text("[]", encoding="utf-8")
+    desktop.DesktopRunner(application)
+    assert desktop.read_action(application.workspace, "broken") is None
+
+
 async def test_import_checks_same_mix_and_is_idempotent_without_downloading(
     application, audio_factory
 ):
