@@ -193,7 +193,7 @@ def test_a_second_copy_of_a_song_is_no_new_track(local_http, audio_factory):
         "result"
     ].items()
     status = invoke("status", pretty=True, workspace=local_http.root).stdout
-    assert "Library  2 tracks" in status
+    assert re.search(r"Library\s+2 tracks", status)
 
 
 def test_scan_without_path_indexes_every_root(local_http, audio_factory, tmp_path, monkeypatch):

@@ -122,6 +122,9 @@ def test_push_imports_quickly_and_verifies_on_request(
     assert fake.imported[0].name == "Owned.m3u8"
     crate = result["crates"][0]
     assert crate["status"] == "imported" and crate["playlist_found"] is True
+    assert "_fingerprint" not in crate
+    prep = library_http.get(f"/collections/{collection_id}/workflow").json()["result"]
+    assert prep["import_recorded"] and not prep["usb_verified_at_last_check"]
     assert (
         result["verified_by"] == "rekordbox_menu" and result["database_modified_directly"] is False
     )
@@ -306,6 +309,8 @@ def test_usb_export_waits_for_the_right_selection_then_verifies(
     exported = [row for row in rows if row["title"].startswith("USB")]
     assert {(row["dj"]["key"], row["dj"]["bpm"]) for row in exported} == {("Am", 124.0)}
     assert result["library_updated"] is True and result["player_playback_verified"] is False
+    prep = library_http.get(f"/collections/{collection_id}/workflow").json()["result"]
+    assert prep["usb_verified_at_last_check"] and prep["import_recorded"]
 
 
 def test_set_goes_from_tracklist_to_verified_usb_in_one_command(

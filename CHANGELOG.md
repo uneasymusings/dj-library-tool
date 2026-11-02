@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a19
+
+- **Studio-style terminal screens.** Status, library and crates share a quiet amber identity. Crate prep shows whole-crate AUDIO and BPM + KEY meters, import history, last USB evidence and an explicit Needs attention block. The first next action follows missing files, import, analysis and export in order. Active actions point back to their progress instead of offering duplicates.
+- **Readable small terminals.** Below 60 columns, catalog tracks stack so artist, title, mix and BPM/key remain readable. Long pagination commands move onto their own line. Live progress preserves the operation and counts while decorative bars yield space. Missing metadata uses explicit dashes and ASCII terminals retain the same information.
+- **One prep record across Terminal and the review page.** New native CLI receipts are tied to the exact crate fingerprint. An edited crate cannot reuse old import/USB evidence, and starting another USB attempt clears the prior check immediately. Older unbound receipts do not become readiness claims.
+- **Named startup progress.** An identification job claimed before its first phase now emits `queued` instead of a null phase. The race caught intermittently in 0.1.0a18's separate main-branch test is covered by a deterministic regression.
+- Terminal preview generation uses fictional data and the real views, producing SVG/HTML/text without accessing a library, native app, web source or device. JSON results and MCP tools retain their contracts.
+
 ## 0.1.0a18
 
 - **MixesDB is opt-in.** Automatic lookups remain off pending maintainer confirmation with the wiki admins. Existing saved tracklists and copied tracklists still work. Explicit `DJLIB_MIXESDB=on` enables the bounded lookup after restarting the background service.
