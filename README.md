@@ -20,7 +20,7 @@
 <p align="center"><sub><b>Mura Masa, Boiler Room x Primavera Sound Barcelona 2023.</b> The description only says where the set was played, so djlib listens. Demo library; the whole run took 27:49.</sub></p>
 </details>
 
-For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. It runs on your computer, with no account and no djlib server; it asks Shazam, MixesDB, YouTube and SoundCloud directly.
+For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. It runs on your computer, with no account and no djlib server; it asks Shazam, YouTube and SoundCloud directly. MixesDB lookup is optional (`DJLIB_MIXESDB=on`); automatic lookup is off pending maintainer confirmation.
 
 ```text
 $ djlib set 'https://soundcloud.com/platform/kaytranada-boiler-room' --no-rekordbox
@@ -89,6 +89,10 @@ First time: allow the app you run djlib in under System Settings → Privacy & S
 
 `djlib ui` opens a private page with your sets, crates and library; times open the set at that moment.
 
+Use **Import playlist or tracklist** to choose a Spotify playlist CSV or paste a tracklist. Preview the selection, check which songs you own, then build a crate. **Latest by date added** selects the newest songs using the CSV’s Added At timestamps; it never guesses from custom order or release dates. A Spotify playlist link alone cannot be synced yet.
+
+Open a crate to see its local files, saved BPM/key coverage, native import and last USB check. On macOS, **Import in rekordbox**, **Read BPM and key** and **Export to USB and check** run from the page. The USB step asks you to click the named playlist in rekordbox once. Keep the Mac unlocked, let analysis finish, and check playback on your player before a gig.
+
 ![djlib's review page: a Four Tet set with times, how sure each line is, what you own, and store searches for what's missing](docs/images/review-page-set.png)
 
 ## Install
@@ -109,7 +113,7 @@ Already have djlib? Add the Claude Code plugin with `/plugin install djlib --mar
 
 With the plugin, just ask: “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 
-> **Alpha (0.1.0a17).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
+> **Alpha (0.1.0a18).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
 ## Docs
 

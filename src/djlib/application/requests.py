@@ -18,14 +18,13 @@ from pathlib import Path
 from sqlalchemy import func, or_, select, update
 
 from djlib.application.service import new_id, require
-from djlib.audio.file_identity import descriptor_snapshot, path_snapshot
+from djlib.audio.file_identity import descriptor_snapshot, is_cloud_placeholder, path_snapshot
 from djlib.domain.contracts import (
     base_form,
     base_title,
     credit_base_form,
     credit_form,
     equivalent_labels,
-    label_form,
     normalize,
     recording_key,
     related_prefixes,
@@ -35,7 +34,7 @@ from djlib.domain.contracts import (
 )
 from djlib.domain.errors import AppError
 from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
-from djlib.persistence.database import search_fold
+from djlib.persistence.database import label_match_key
 from djlib.persistence.models import Asset, AssetRevision, FileLocation, Recording, timestamp
 from djlib.persistence.request_models import RequestLedger, RequestSubmission
 from djlib.sources.web import validate_url
@@ -82,6 +81,8 @@ class _Verification:
     def _location(self, value, expected):
         try:
             path = self.app.workspace.authorize(value)
+            if is_cloud_placeholder(path):
+                return "cloud_only"
             before = path_snapshot(path)
             if not before.is_regular or before.is_reparse:
                 return "unavailable"
@@ -216,24 +217,26 @@ def _catalog_candidates(app, item, verification, recording_id=None, asset_revisi
             # Untagged files carry byte-based identities; their file-name labels can still
             # match a request. They are reported as such (identity_match file_name_labels).
             seen = {revision.id for _, revision in rows}
-            wanted_form = label_form(requested["artist"], requested["title"], requested["version"])
+            room = MAX_CANDIDATES - len(rows)
             named = session.execute(
                 select(Recording, AssetRevision)
                 .join(Asset, Asset.recording_id == Recording.id)
                 .join(AssetRevision, AssetRevision.asset_id == Asset.id)
                 .where(
                     Recording.identity_key.startswith("provisional:"),
-                    func.djlib_fold(Recording.artist) == search_fold(requested["artist"]),
+                    func.djlib_label_key(Recording.artist, Recording.title, Recording.version)
+                    == label_match_key(
+                        requested["artist"], requested["title"], requested["version"]
+                    ),
+                    AssetRevision.id.not_in(seen),
                 )
                 .order_by(Recording.id, AssetRevision.id)
-                .limit(MAX_CANDIDATES)
+                .limit(room + 1)
             ).all()
-            rows += [
-                row
-                for row in named
-                if row[1].id not in seen
-                and label_form(row[0].artist, row[0].title, row[0].version) == wanted_form
-            ][: max(0, MAX_CANDIDATES - len(rows))]
+            # Filter before limiting: unrelated songs by an unnamed artist must not
+            # hide a later exact title. The extra row keeps an incomplete choice ambiguous.
+            truncated = truncated or len(named) > room
+            rows += named[:room]
         context = []
         if prefixes and not recording_id:
             # Tracklists credit the same artists in another order or with other separators
@@ -590,6 +593,8 @@ def _matches(candidates: list[dict], requested: dict, verification) -> list[dict
             candidate["availability"] = (
                 "verification_limit"
                 if "verification_limit" in statuses
+                else "cloud_only"
+                if "cloud_only" in statuses
                 else "changed"
                 if "changed" in statuses
                 else "unavailable"

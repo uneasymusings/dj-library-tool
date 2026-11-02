@@ -1,4 +1,5 @@
 import hashlib
+import struct
 
 import pytest
 
@@ -43,6 +44,31 @@ def test_skips_deleted_rows_and_spans_many_row_groups():
     library = rekordbox_pdb.DeviceLibrary(pdb.library({5: rows}, deleted={5: frozenset({0, 17})}))
     keys = library.keys()
     assert len(keys) == 38 and 1 not in keys and 18 not in keys and keys[40] == "K40"
+
+
+@pytest.mark.parametrize("allocated", [260, 280])
+@pytest.mark.parametrize("transaction_index", [0, 190, 0x1FFF])
+@pytest.mark.parametrize("with_deleted", [False, True])
+def test_large_playlist_pages_use_all_13_row_offset_bits(
+    allocated, transaction_index, with_deleted
+):
+    deleted = frozenset({0, 17, allocated - 2}) if with_deleted else frozenset()
+    data = bytearray(
+        pdb.library(
+            {
+                7: [pdb.tree_row(10, "Large playlist")],
+                8: [pdb.entry_row(n + 1, n + 1, 10) for n in range(allocated)],
+            },
+            deleted={8: deleted},
+        )
+    )
+    # An unrelated transaction index used to truncate these pages, especially after
+    # export updates. The final valid row must survive holes earlier in the index.
+    struct.pack_into("<H", data, 2 * pdb.PAGE + 0x22, transaction_index)
+    library = rekordbox_pdb.DeviceLibrary(bytes(data))
+    assert library.playlists()[0]["track_ids"] == [
+        n + 1 for n in range(allocated) if n not in deleted
+    ]
 
 
 def test_rejects_files_that_are_not_device_libraries(tmp_path):

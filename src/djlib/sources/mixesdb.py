@@ -28,7 +28,7 @@ from djlib.domain.errors import AppError
 logger = logging.getLogger(__name__)
 
 API = "https://www.mixesdb.com/w/api.php"
-# DJLIB_MIXESDB=off (or 0, false, no) turns the lookups off everywhere; on by default.
+# Opt in explicitly until the maintainers confirm this API use with the wiki's admins.
 SWITCH_ENV = "DJLIB_MIXESDB"
 OFF = frozenset({"off", "0", "false", "no"})
 PAGES = "https://www.mixesdb.com/w/"
@@ -58,7 +58,7 @@ MARGIN = 0.1
 def enabled() -> bool:
     """Whether djlib may ask MixesDB (``SWITCH_ENV``), read by the process that asks: the
     background service, which reads it when it starts."""
-    return os.environ.get(SWITCH_ENV, "").strip().lower() not in OFF
+    return os.environ.get(SWITCH_ENV, "off").strip().lower() in {"on", "1", "true", "yes"}
 
 
 def _terms(text: str) -> frozenset[str]:

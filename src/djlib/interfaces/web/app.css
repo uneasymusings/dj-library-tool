@@ -624,3 +624,25 @@ a.time:hover { color: var(--amber-text); text-decoration: underline; text-decora
   .running .g { animation: none; }
   .t-set tr.flash td { animation: none; background: color-mix(in srgb, var(--amber) 16%, transparent); }
 }
+
+/* Playlist import and the crate's visible handoff to rekordbox. */
+.import-link { margin-bottom: 24px; }
+.playlist-form, .crate-workflow { padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin: 24px 0; }
+.playlist-form { max-width: 900px; }
+.playlist-form label { display: block; font-weight: 600; margin: 16px 0 6px; }
+.playlist-form input, .playlist-form textarea, .playlist-form select { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+.playlist-form textarea { resize: vertical; font-family: var(--mono); }
+.playlist-options { display: grid; grid-template-columns: 1fr 160px; gap: 16px; }
+.workflow-buttons { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+.workflow-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; list-style: none; padding: 0; margin: 24px 0; }
+.workflow-steps li { display: flex; align-items: flex-start; gap: 8px; }
+.workflow-steps .dot { color: var(--muted); }
+.workflow-steps .done .dot { color: var(--ok); }
+.workflow-steps .hint { margin: 5px 0; }
+.command-fallback { margin: 20px 0; }
+.command-fallback summary { cursor: pointer; color: var(--muted); }
+@media (max-width: 700px) {
+  .playlist-form, .crate-workflow { padding: 16px; }
+  .playlist-options, .workflow-steps { grid-template-columns: 1fr; }
+  .workflow-buttons > button { width: 100%; }
+}

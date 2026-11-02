@@ -830,10 +830,163 @@ function setRow(row, { twin = false } = {}) {
   return { node, fill };
 }
 
+async function playlistImport() {
+  const name = h("input", { id: "playlist-name", type: "text", maxlength: "300", required: true, placeholder: "Friday set" });
+  const file = h("input", { id: "playlist-file", type: "file", accept: ".csv,.tsv,.txt,text/csv,text/plain" });
+  const text = h("textarea", { id: "playlist-text", rows: "8", maxlength: "10000000", placeholder: "Artist - Title (Mix)\nArtist - Another song" });
+  const selection = h("select", { id: "playlist-selection" },
+    h("option", { value: "all" }, "Keep playlist order"),
+    h("option", { value: "latest" }, "Latest by date added (newest first)"));
+  const count = h("input", { id: "playlist-count", type: "number", min: "1", max: "1000", value: "200", disabled: true });
+  const preview = h("button", { type: "submit", class: "primary" }, "Preview selection");
+  const save = h("button", { type: "button", class: "primary", disabled: true }, "Check against my music");
+  const result = h("div", { "aria-live": "polite" });
+  let approved = null;
+  let generation = 0;
+  const invalidate = () => { approved = null; save.disabled = true; generation++; result.replaceChildren(); };
+  for (const field of [name, text, selection, count]) field.addEventListener("input", invalidate);
+  selection.addEventListener("change", () => { count.disabled = selection.value !== "latest"; invalidate(); });
+  file.addEventListener("change", async () => {
+    invalidate();
+    const chosen = file.files?.[0];
+    if (!chosen) return;
+    if (chosen.size > 10_000_000) {
+      result.replaceChildren(notice("bad", "Choose a file smaller than 10 MB."));
+      return;
+    }
+    const run = generation;
+    try {
+      const content = await chosen.text();
+      if (run !== generation) return;
+      text.value = content;
+      if (!name.value.trim()) name.value = chosen.name.replace(/\.[^.]+$/, "").slice(0, 300);
+    } catch {
+      result.replaceChildren(notice("bad", "The file could not be read. Choose it again or paste the tracklist."));
+    }
+  });
+  const form = h("form", { class: "playlist-form" },
+    h("label", { for: "playlist-name" }, "Playlist name"), name,
+    h("label", { for: "playlist-file" }, "Choose a playlist CSV or text file"), file,
+    h("label", { for: "playlist-text" }, "Or paste a tracklist or CSV"), text,
+    h("p", { class: "hint" }, "Spotify CSVs need Track Name and Artist Name(s). Latest songs also needs Added At timestamps with timezones. A Spotify link alone cannot be imported yet."),
+    h("div", { class: "playlist-options" },
+      h("div", null, h("label", { for: "playlist-selection" }, "Selection"), selection),
+      h("div", null, h("label", { for: "playlist-count" }, "How many"), count)),
+    h("div", { class: "workflow-buttons" }, preview, save));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    invalidate();
+    const body = { name: name.value.trim(), text: text.value, latest: selection.value === "latest" ? Number(count.value) : null };
+    const run = generation;
+    preview.disabled = true;
+    result.replaceChildren(h("p", { class: "loading" }, "Reading the playlist…"));
+    try {
+      const parsed = await api("/playlists/preview", { method: "POST", body });
+      if (run !== generation) return;
+      approved = body;
+      save.disabled = false;
+      result.replaceChildren(...[
+        h("h2", null, `${number(parsed.selected_rows)} of ${plural(parsed.total_rows, "song")} selected`),
+        h("p", null, parsed.order === "newest_first" ? "Selected by date added, newest first." : "Kept in the order supplied."),
+        ...parsed.warnings.map((warning) => notice("warn", warning)),
+        table([
+          { label: "#", class: "num", cell: (row) => row.source_position },
+          { label: "Artist", cell: (row) => row.artist || "ID" },
+          { label: "Title", cell: (row) => row.title || row.label },
+          { label: "Added", cell: (row) => row.added_at || "—" },
+        ], parsed.tracks.slice(0, 20)),
+        parsed.tracks.length > 20 ? h("p", { class: "hint" }, "Showing the first 20 selected songs. All selected songs will be checked.") : null,
+      ].filter(Boolean));
+    } catch (error) {
+      if (run === generation) result.replaceChildren(errorNotice(error));
+    } finally {
+      preview.disabled = false;
+    }
+  });
+  save.addEventListener("click", async () => {
+    if (!approved) return;
+    const body = approved;
+    save.disabled = preview.disabled = true;
+    // Freeze the reviewed input until the request finishes; retries use the same parsed key.
+    for (const field of [name, text, file, selection, count]) field.disabled = true;
+    result.replaceChildren(h("p", { class: "loading" }, "Checking which songs you own…"));
+    try {
+      const reply = await api("/playlists/import", { method: "POST", body });
+      location.hash = `#/sets/${encodeURIComponent(reply.request.request_id)}`;
+    } catch (error) {
+      result.replaceChildren(errorNotice(error));
+      save.disabled = false;
+    } finally {
+      preview.disabled = false;
+      for (const field of [name, text, file, selection]) field.disabled = false;
+      count.disabled = selection.value !== "latest";
+    }
+  });
+  return h("section", null, crumb("#/sets", "Sets"),
+    pageHead("Import a playlist", "Preview the songs, check what you own, then build your crate."),
+    form, result);
+}
+
+function desktopMessage(action) {
+  const event = action.event || {};
+  if (event.event === "verify_progress") return `Checking USB files: ${event.done} of ${event.total}.`;
+  if (event.event === "export_started") return `rekordbox is exporting “${event.playlist}” to ${event.device}. Keep the USB connected.`;
+  if (event.event === "wrong_playlist") return `You selected “${event.selected || "not a playlist"}”. ${action.instruction || `Select “${event.playlist}” in rekordbox.`}`;
+  return event.instruction || action.instruction || event.reason || "Working with rekordbox. Keep your Mac unlocked.";
+}
+
+async function crateWorkflow(collectionId) {
+  const status = await api(`/collections/${encodeURIComponent(collectionId)}/workflow`);
+  const active = status.action?.state === "running";
+  const feedback = h("div", { "aria-live": "polite" });
+  const total = status.track_count;
+  const steps = h("ol", { class: "workflow-steps" });
+  const step = (label, done, description) => h("li", { class: done ? "done" : "todo" },
+    h("span", { class: "dot", "aria-hidden": "true" }, done ? "✓" : "○"),
+    h("div", null, h("strong", null, label), h("p", { class: "hint" }, description)));
+  steps.append(
+    step("Local audio", total > 0 && status.local_files === total, `${status.local_files} of ${total} files available on this computer. Export checks their bytes again.`),
+    step("BPM and key", total > 0 && status.with_bpm_and_key === total, `${status.with_bpm_and_key} of ${total} tracks have saved BPM and key. Beatgrids are managed in rekordbox.`),
+    step("Imported in rekordbox", status.import_recorded, status.import_recorded ? "This crate was imported through these controls." : "Import the crate, then let rekordbox finish analyzing it."),
+    step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}${status.usb_device ? ` on ${fileTail(status.usb_device)}` : ""}. Check again after changing the stick.` : "Export through rekordbox, then check the files and playlist order on the stick."));
+  const buttons = h("div", { class: "workflow-buttons" });
+  for (const [action, label] of [["import", "Import in rekordbox"], ["analysis", "Read BPM and key"], ["usb", "Export to USB and check"]]) {
+    const button = h("button", { type: "button", class: action === "usb" ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
+    button.addEventListener("click", async () => {
+      for (const sibling of buttons.querySelectorAll("button")) sibling.disabled = true;
+      try {
+        await api(`/collections/${encodeURIComponent(collectionId)}/desktop`, {
+          method: "POST", body: { action, idempotency_key: crypto.randomUUID() },
+        });
+        await route({ quiet: true });
+      } catch (error) {
+        feedback.replaceChildren(errorNotice(error));
+        for (const sibling of buttons.querySelectorAll("button")) sibling.disabled = false;
+      }
+    });
+    buttons.append(button);
+  }
+  if (active) {
+    const event = status.action.event || {};
+    const message = desktopMessage(status.action);
+    feedback.append(notice("info", message));
+    if (event.reason && event.reason !== message) feedback.append(h("p", { class: "hint" }, event.reason));
+    refreshSoon();
+  } else if (status.action?.error) feedback.append(notice("warn", status.action.error.message));
+  if (status.previous_action_is_stale) feedback.append(notice("warn", "This crate changed since the previous action. Import and check it again."));
+  if (!status.desktop_supported) feedback.append(notice("info", "Native rekordbox controls need macOS. The terminal commands below show the next steps."));
+  if (status.with_bpm_and_key < total) feedback.append(notice("warn", "Analyze missing BPM and key in rekordbox, then click Read BPM and key. Saved metadata alone does not verify beatgrid accuracy."));
+  return h("div", { class: "crate-workflow" }, h("h2", null, "From crate to USB"),
+    h("p", { class: "hint" }, "This crate contains owned tracks. Missing songs in its source list still need acquiring."),
+    steps, buttons, feedback,
+    h("p", { class: "hint" }, "Physical CDJ/XDJ playback has not been tested by djlib. Eject the USB normally after export finishes."));
+}
+
 async function setsList() {
   const first = await api("/requests", { params: { limit: 50 } });
   if (!first.requests.length) {
-    return h("section", null, pageHead("Sets"), empty(
+    return h("section", null, pageHead("Sets"),
+      h("a", { class: "button primary", href: "#/import" }, "Import playlist or tracklist"), empty(
       "No sets yet. Copy a set's link or tracklist, then run this in a terminal:",
       copyable(commandText("set", "paste")),
       "Or check the songs you Shazamed:",
@@ -844,6 +997,7 @@ async function setsList() {
   const more = h("div");
   const view = h("section", null,
     pageHead("Sets", `${plural(first.total, "set")}, last checked first. Owned tracks are in a crate, in set order.`),
+    h("a", { class: "button primary import-link", href: "#/import" }, "Import playlist or tracklist"),
     list, more);
   const names = new Map();
   const show = (reply) => {
@@ -1216,9 +1370,12 @@ async function collectionDetail(collectionId) {
     return view;
   }
   const short = shortId(collectionId);
-  view.append(h("div", { class: "handoff" },
+  view.append(await crateWorkflow(collectionId));
+  const commands = h("details", { class: "command-fallback" }, h("summary", null, "Terminal commands"));
+  commands.append(h("div", { class: "handoff" },
     h("div", null, h("h2", null, "Put it in rekordbox"), copyable(commandText("rekordbox", "push", short))),
     h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", short)))));
+  view.append(commands);
   view.append(libraryTable(tracks, { numbered: true }));
   return view;
 }
@@ -1393,6 +1550,7 @@ function refreshSoon() {
 
 // Sets, Crates and Library are in the navigation; the older pages keep their links.
 const ROUTES = [
+  [/^#\/import$/, "sets", playlistImport],
   [/^#\/sets$/, "sets", setsList],
   [/^#\/sets\/([\w-]+)$/, "sets", requestDetail],
   [/^#\/requests$/, "sets", setsList],

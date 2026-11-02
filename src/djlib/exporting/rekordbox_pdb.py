@@ -58,10 +58,12 @@ class DeviceLibrary:
             seen.add(page)
             base = page * self.page_size
             page_type, next_page = struct.unpack_from("<II", self.data, base + 8)
-            small, flags = self.data[base + 0x18], self.data[base + 0x1B]
-            (large,) = struct.unpack_from("<H", self.data, base + 0x22)
+            # The row-offset count is the low 13 bits of the packed page header.
+            # 0x22 is a transaction row index, not an overflow count; using it drops
+            # valid entries from large or previously edited playlist pages.
+            (packed_rows,) = struct.unpack_from("<I", self.data, base + 0x18)
+            count, flags = packed_rows & 0x1FFF, self.data[base + 0x1B]
             if page_type == kind and not flags & 0x40:
-                count = large if small < large != 0x1FFF else small
                 for group in range((count + 15) // 16):
                     end = base + self.page_size - group * ROW_GROUP
                     (present,) = struct.unpack_from("<H", self.data, end - 4)

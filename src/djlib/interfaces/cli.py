@@ -528,6 +528,7 @@ def demo(ctx: typer.Context) -> None:
 @handled
 def schemas(ctx: typer.Context) -> None:
     """Print the strict JSON input schemas without starting the service."""
+    from djlib.application.playlist_import import PlaylistImport
     from djlib.domain.contracts import (
         ControlRequest,
         DeliveryDeviceRequest,
@@ -547,6 +548,7 @@ def schemas(ctx: typer.Context) -> None:
     from djlib.domain.reconciliation_contracts import ReconcileRequest
     from djlib.domain.request_contracts import RequestCreate, RequestRefresh, RequestResolution
     from djlib.domain.workspace_contracts import RootsRequest
+    from djlib.interfaces.desktop_workflow import DesktopAction
 
     emit(
         envelope(
@@ -577,6 +579,8 @@ def schemas(ctx: typer.Context) -> None:
                     RequestResolution,
                     ReconcileRequest,
                     RootsRequest,
+                    PlaylistImport,
+                    DesktopAction,
                 )
             }
         )

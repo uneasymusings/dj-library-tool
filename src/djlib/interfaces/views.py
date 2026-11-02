@@ -613,6 +613,12 @@ def job_headline(kind: str, job: dict) -> str:
         }.get(kind, f"{JOB_LABELS.get(kind, humanize(kind)).split(' ', 1)[0]} finished")
     if job.get("outcome") == "completed_with_gaps":
         gaps = [f"{counts[state]} {state}" for state in ("failed", "skipped") if counts.get(state)]
+        cloud = (result.get("skipped_files") or {}).get("cloud_only_files", 0)
+        if cloud:
+            gaps.append(f"{cloud} need downloading")
+        unavailable = (result.get("skipped_files") or {}).get("unavailable_files", 0)
+        if unavailable:
+            gaps.append(f"{unavailable} no longer available")
         message += ", " + (" and ".join(gaps) if gaps else "with gaps")
     return message
 
@@ -767,7 +773,21 @@ def job_result_rows(term: Terminal, kind: str, result: dict) -> list[tuple[str, 
             reasons.append(f"{skipped['workspace_files']} djlib working copies")
         if skipped.get("outside_allowed_folders"):
             reasons.append(f"{skipped['outside_allowed_folders']} links outside allowed folders")
-        rows.append(("Skipped", Text(", ".join(reasons), style="muted")))
+        if skipped.get("software_assets"):
+            reasons.append(f"{skipped['software_assets']} software bundle files")
+        if reasons:
+            rows.append(("Skipped", Text(", ".join(reasons), style="muted")))
+        if skipped.get("cloud_only_files"):
+            rows.append(
+                ("Cloud files", Text(f"{skipped['cloud_only_files']} not downloaded", style="warn"))
+            )
+        if skipped.get("unavailable_files"):
+            rows.append(
+                (
+                    "Unavailable files",
+                    Text(f"{skipped['unavailable_files']} no longer available", style="warn"),
+                )
+            )
     if kind in CRATE_JOBS and result.get("name"):
         rows.append(("Crate", Text(result["name"])))
     elif result.get("collection_id"):
@@ -820,6 +840,13 @@ def job_next_steps(
             url = result["source"]["url"]
             steps.append(("Check it against your music", ("set", url, "--no-rekordbox")))
         elif kind == "scan":
+            skipped = result.get("skipped_files") or {}
+            if skipped.get("cloud_only_files"):
+                steps.append(("Download cloud files in Finder", None))
+            if skipped.get("unavailable_files"):
+                steps.append(("Check missing files and connected drives", None))
+            if skipped.get("cloud_only_files") or skipped.get("unavailable_files"):
+                steps.append(("Then scan again", ("scan",)))
             steps.append(("Browse your library", ("library",)))
             steps.append(copied_step())
         elif result.get("collection_id"):
