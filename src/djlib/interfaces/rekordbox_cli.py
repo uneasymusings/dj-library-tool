@@ -53,19 +53,25 @@ def history_file(workspace) -> Path:
 def remembered(workspace) -> dict:
     """What djlib last did with each collection in rekordbox and on USB, by collection ID."""
     try:
-        return json.loads(history_file(workspace).read_text(encoding="utf-8"))
+        value = json.loads(history_file(workspace).read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
 
 def remember(workspace, collection_id: str, **fields) -> None:
-    history = remembered(workspace)
-    history.setdefault(collection_id, {}).update(fields)
+    from filelock import FileLock
+
+    from djlib.workspace import atomic_json
+
     path = history_file(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    with FileLock(str(path.with_suffix(".lock"))):
+        history = remembered(workspace)
+        row = history.get(collection_id)
+        row = row if isinstance(row, dict) else {}
+        history[collection_id] = {**row, **fields}
+        atomic_json(path, history)
 
 
 def now() -> str:
@@ -311,7 +317,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         playlist.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(job["result"]["playlist_path"], playlist)
         tracks = manifest["collection"]["tracks"]
+        from djlib.interfaces.desktop_workflow import collection_fingerprint
+
         return {
+            "_fingerprint": collection_fingerprint(manifest["collection"]),
             "collection_id": collection_id,
             "playlist": playlist.stem,
             "playlist_file": str(playlist),
@@ -444,7 +453,13 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
             if crate["collection_id"] in reports:
                 report = reports[crate["collection_id"]]
                 crate.update({k: report[k] for k in ("entries", "expected", "matched", "analyzed")})
-            remember(workspace, crate["collection_id"], playlist=crate["playlist"], pushed_at=now())
+            remember(
+                workspace,
+                crate["collection_id"],
+                playlist=crate["playlist"],
+                pushed_at=now(),
+                import_fingerprint=crate["_fingerprint"],
+            )
         return {
             "rekordbox_ui_seconds": ui_seconds,
             "verified_by": "rekordbox_xml_export" if verify else "rekordbox_menu",
@@ -453,6 +468,16 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
     def to_usb(local, workspace, ui, crate: dict, volume: Path, timeout: int) -> dict:
         """Have rekordbox export one playlist to the stick, then check it as a player would."""
         from djlib.exporting import rekordbox_pdb
+
+        # Starting a new attempt invalidates the previous successful USB receipt, even
+        # when the user never selects a playlist or rekordbox stops before verification.
+        remember(
+            workspace,
+            crate["collection_id"],
+            usb=None,
+            usb_fingerprint=crate["_fingerprint"],
+            usb_action_key=None,
+        )
         from djlib.exporting.usb_check import check_playlist, library_state, wait_for_copy
 
         tracks = crate["tracks"]
@@ -565,8 +590,10 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
                 "found": check.get("found"),
                 "expected": check.get("expected"),
                 "in_order": check.get("in_order"),
+                "playlist_on_device": check.get("playlist_on_device"),
                 "checked_at": now(),
             },
+            usb_fingerprint=crate["_fingerprint"],
         )
         return {
             "device": str(volume),
@@ -637,6 +664,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         for crate in crates:
             crate.pop("paths")
             crate.pop("tracks")
+            crate.pop("_fingerprint")
         emit(
             envelope(
                 {

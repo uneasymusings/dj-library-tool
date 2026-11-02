@@ -93,6 +93,16 @@ def show(term: Terminal, name: str, envelope: dict, client_factory=None) -> None
     result = envelope.get("result")
     if result is None:
         result = {}
+    if name in {"crate", "collection"} and client_factory and result.get("collection_id"):
+        # Human-only preparation summary, over the entire crate, not just this page. Older
+        # services can still show the track list when the workflow route isn't available.
+        try:
+            workflow = client_factory().request(
+                "GET", f"/collections/{result['collection_id']}/workflow"
+            )["result"]
+        except AppError:
+            workflow = None
+        result = {**result, "terminal_workflow": workflow}
     # Skipped lines and similar notes belong under the headline, not after the next steps.
     term.pending = skipped_once([str(warning) for warning in envelope.get("warnings") or []])
     if (
@@ -185,6 +195,61 @@ def header(term: Terminal, title: str, subtitle: str = "", *, glyph: str = "mark
     flush_warnings(term)
 
 
+def studio_header(term: Terminal, screen: str, title: str = "", detail: str = "") -> None:
+    """A quiet instrument label and rule; data and failures keep the visual weight."""
+    brand = Text.assemble((f"{term.glyph('mark')} djlib", "brand"), (f" / {screen}", "muted"))
+    term.out.print(brand)
+    if title:
+        line = Text(title, style="heading")
+        if detail:
+            room = min(term.out.width, 96) - line.cell_len - cell_len(detail)
+            line.append(" " * room if room >= 2 else "\n")
+            line.append(detail, style="muted")
+        term.out.print(line)
+    term.out.print(Text(("─" if term.unicode else "-") * min(term.out.width, 96), "muted"))
+    flush_warnings(term)
+
+
+def meters(term: Terminal, rows: list[tuple[str, int, int, str]]) -> None:
+    """Measured counts, with bounded meters; zero items never looks complete."""
+    label_width = max((cell_len(label) for label, *_ in rows), default=0)
+    count_width = max(
+        (len(f"{number(done)} / {number(total)}") for _, done, total, _ in rows), default=0
+    )
+    bar_width = min(20, term.out.width - label_width - count_width - 10)
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="label", no_wrap=True)
+    if bar_width >= 4:
+        grid.add_column(no_wrap=True)
+    grid.add_column(no_wrap=True, justify="right")
+    details = term.out.width >= 72
+    if details:
+        grid.add_column(style="muted", overflow="fold")
+    for label, done, total, detail in rows:
+        tone = "ok" if total > 0 and done == total else "warn" if total else "muted"
+        cells = [Text(label)]
+        if bar_width >= 4:
+            filled = min(bar_width, max(0, int(bar_width * done / total))) if total else 0
+            meter = Text("[", "muted")
+            meter.append(term.glyph("bar_full") * filled, tone)
+            meter.append(term.glyph("bar_empty") * (bar_width - filled), "muted")
+            cells.append(meter.append("]", "muted"))
+        cells.append(Text(f"{number(done)} / {number(total)}", tone))
+        if details:
+            cells.append(Text(detail))
+        grid.add_row(*cells)
+    term.out.print(indented(grid))
+
+
+def attention(term: Terminal, messages: list[str]) -> None:
+    if not messages:
+        return
+    term.out.print()
+    term.out.print(Text("Needs attention", style="heading"))
+    for message in messages:
+        hanging(term.out, Text(term.glyph("warn"), "warn"), Text(message), indent=2)
+
+
 def status_line(
     term: Terminal, tone: str, message: str, detail: str = "", *, detail_style: str = "muted"
 ) -> None:
@@ -254,14 +319,17 @@ def next_steps(term: Terminal, steps: list[Step], *, title: str = "Next") -> Non
         ),
         default=0,
     )
-    for (label, _), command in zip(steps, commands, strict=True):
+    for index, ((label, _), command) in enumerate(zip(steps, commands, strict=True)):
+        primary = index == 0 and title == "Next"
+        style = "heading" if primary else "muted"
         if command and 6 + max(width, cell_len(label)) + cell_len(command) <= term.out.width:
             line = Text.assemble("  ", (term.glyph("arrow"), "accent"), " ", label)
+            line.stylize(style)
             line.append(" " * (width - cell_len(label) + 2))
             line.append(command, style="cmd")
             term.out.print(line, soft_wrap=True)
             continue
-        hanging(term.out, Text(term.glyph("arrow"), style="accent"), Text(label), indent=2)
+        hanging(term.out, Text(term.glyph("arrow"), style="accent"), Text(label, style), indent=2)
         if command:
             # Soft wrap leaves the command in one piece for copying.
             term.out.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
@@ -271,8 +339,15 @@ def more_line(term: Terminal, summary: str, parts: tuple | None) -> None:
     """``20 of 412 tracks · more: djlib library --after X`` under a list."""
     line = Text.assemble((summary, "muted"))
     if parts:
+        command = term.command(*parts)
+        if line.cell_len + 11 + cell_len(command) > term.out.width:
+            term.out.print()
+            term.out.print(line)
+            term.out.print(Text("  more:", "muted"))
+            term.out.print(Text.assemble("    ", (command, "cmd")), soft_wrap=True)
+            return
         line.append(f"  {term.glyph('dot')}  more: ", style="muted")
-        line.append(term.command(*parts), style="cmd")
+        line.append(command, style="cmd")
     term.out.print()
     term.out.print(line, soft_wrap=True)
 
@@ -1006,6 +1081,27 @@ def track_table(
     term: Terminal, tracks: list[dict], *, numbered: bool = False, start: int = 0
 ) -> Table:
     """One line per track; columns that are empty for every row are left out."""
+    if term.out.width < 60:
+        # Seven columns turn a title, mix and even BPM into ellipses at phone widths.
+        # Stacked rows keep the exact mix and playable metadata readable instead.
+        compact = Table.grid(padding=0)
+        compact.add_column(overflow="fold")
+        for index, track in enumerate(tracks, start + 1):
+            title = Text(f"{index}. " if numbered else "", "muted")
+            title.append(str(track.get("artist") or ""))
+            title.append(" - ").append(str(track.get("title") or ""), "heading")
+            if track.get("version"):
+                title.append(f" ({track['version']})", "muted")
+            dj = track.get("dj") or {}
+            bpm = dj.get("bpm")
+            meta = Text("   ")
+            meta.append(f"{bpm:g} BPM" if isinstance(bpm, int | float) else "BPM -", "accent")
+            meta.append(f" / {dj.get('key') or 'key -'}", "accent")
+            length = duration((track.get("properties") or {}).get("duration_seconds"))
+            if length:
+                meta.append(f" / {length}", "muted")
+            compact.add_row(Group(title, meta, Text("")))
+        return compact
     show_version = any(track.get("version") for track in tracks)
     show_dj = any(
         (track.get("dj") or {}).get("bpm") or (track.get("dj") or {}).get("key") for track in tracks
@@ -1022,7 +1118,7 @@ def track_table(
     if show_version:
         columns.append(("Version", {"overflow": "ellipsis"}))
     if show_dj:
-        columns += [("BPM", {"justify": "right"}), ("Key", {})]
+        columns += [("BPM", {"justify": "right", "style": "accent"}), ("Key", {"style": "accent"})]
     columns += [
         ("Time", {"justify": "right"}),
         ("Format", {"style": "muted", "drop": 2}),
@@ -1039,7 +1135,10 @@ def track_table(
         if show_dj:
             dj = track.get("dj") or {}
             bpm = dj.get("bpm")
-            cells += [f"{bpm:g}" if isinstance(bpm, int | float) else "", dj.get("key") or ""]
+            cells += [
+                f"{bpm:g}" if isinstance(bpm, int | float) else Text("-", "muted"),
+                dj.get("key") or Text("-", "muted"),
+            ]
         cells += [duration(properties.get("duration_seconds")), audio_format(track)]
         if show_file:
             cells.append(file_tail(track.get("path") or track.get("last_known_path")))
@@ -1058,6 +1157,7 @@ def library(term: Terminal, result: dict) -> None:
             status_line(term, "todo", "Your library is empty")
             next_steps(term, [("Index your music", ("scan",))])
         return
+    studio_header(term, "library")
     term.out.print(track_table(term, tracks))
     page_hint(term, result, "track", len(tracks))
 
@@ -1071,6 +1171,7 @@ def collections(term: Terminal, result: dict) -> None:
         note(term, "A crate is built from the songs of a tracklist you own.")
         next_steps(term, [copied_step()])
         return
+    studio_header(term, "crates")
     grid = table(
         ("Name", {"style": "heading", "overflow": "ellipsis", "readable": TITLE_WIDTH}),
         ("Tracks", {"justify": "right"}),
@@ -1101,7 +1202,12 @@ def collections(term: Terminal, result: dict) -> None:
 def collection(term: Terminal, result: dict) -> None:
     tracks = result.get("tracks") or []
     total = result.get("track_count", len(tracks))
-    header(term, result.get("name") or "Crate", plural(total, "track"))
+    studio_header(term, "crate prep", result.get("name") or "Crate", plural(total, "track"))
+    workflow = result.get("terminal_workflow")
+    if isinstance(workflow, dict):
+        crate_prep(term, workflow)
+    elif "terminal_workflow" in result:
+        note(term, "Prep status unavailable; showing the track list without readiness claims.")
     offset = int(params().get("after") or 0)
     if tracks:
         term.out.print()
@@ -1119,6 +1225,9 @@ def collection(term: Terminal, result: dict) -> None:
             ),
         )
     collection = result.get("collection_id", "")
+    if isinstance(workflow, dict):
+        next_steps(term, crate_prep_steps(workflow, collection))
+        return
     next_steps(
         term,
         [
@@ -1128,6 +1237,89 @@ def collection(term: Terminal, result: dict) -> None:
         if tracks
         else [],
     )
+
+
+def crate_prep(term: Terminal, workflow: dict) -> None:
+    total = int(workflow.get("track_count") or 0)
+    local = int(workflow.get("local_files") or 0)
+    analyzed = int(workflow.get("with_bpm_and_key") or 0)
+    meters(
+        term,
+        [("AUDIO", local, total, "files present"), ("BPM + KEY", analyzed, total, "saved values")],
+    )
+    usb = workflow.get("usb_verified_at_last_check") is True
+    action = workflow.get("action") or {}
+    active = action.get("state") == "running"
+    imported = workflow.get("import_recorded") is True
+    usb_text = Text("not checked for this crate", "muted")
+    if usb:
+        usb_text = marked(term, "ok", "files and order checked")
+        if device := workflow.get("usb_device"):
+            usb_text.append(f" on {Path(device).name}")
+        if checked := workflow.get("usb_checked_at"):
+            usb_text.append(f" {ago(checked)}", "muted")
+    if active and action.get("action") == "usb":
+        usb_text = marked(term, "run", "export/check in progress")
+    fields(
+        term,
+        [
+            (
+                "REKORDBOX",
+                marked(term, "ok", "import recorded")
+                if imported
+                else Text("import not recorded", "muted"),
+            ),
+            ("USB", usb_text),
+        ],
+    )
+    messages = []
+    if local < total:
+        messages.append(
+            f"{plural(total - local, 'file')} missing or cloud-only; "
+            "reconnect or download the source files."
+        )
+    if analyzed < total:
+        messages.append(f"{plural(total - analyzed, 'track')} without saved BPM and key.")
+    if workflow.get("previous_action_is_stale"):
+        messages.append("The crate changed; its previous import/export result no longer applies.")
+    if action.get("state") in {"failed", "interrupted"}:
+        error = action.get("error") or {}
+        messages.append(
+            str(
+                error.get("message")
+                or f"The last {action.get('action', 'desktop')} action did not finish."
+            )
+        )
+    attention(term, messages)
+    if active:
+        instruction = action.get("instruction")
+        if instruction:
+            term.out.print()
+            note(term, str(instruction))
+        note(term, "An action is already running; follow it on the review page.")
+    if not workflow.get("desktop_supported"):
+        note(term, "rekordbox import and USB controls require macOS.")
+    if usb:
+        note(term, "Last check only; hardware playback has not been tested.")
+
+
+def crate_prep_steps(workflow: dict, collection_id: str) -> list[Step]:
+    total = int(workflow.get("track_count") or 0)
+    if not total:
+        return [("Choose a set to build a crate", ("ui",))]
+    if (workflow.get("action") or {}).get("state") == "running":
+        return [("Follow the running action", ("ui",))]
+    if int(workflow.get("local_files") or 0) < total:
+        return [("Reconnect or download the source files, then scan", ("scan",))]
+    if not workflow.get("desktop_supported"):
+        return [("Review this crate", ("ui",))]
+    if not workflow.get("import_recorded"):
+        return [("Put it in rekordbox", ("rekordbox", "push", collection_id))]
+    if int(workflow.get("with_bpm_and_key") or 0) < total:
+        return [("Finish analysis in rekordbox, then read BPM and key", ("rekordbox", "pull"))]
+    if not workflow.get("usb_verified_at_last_check"):
+        return [("Export to USB and check", ("rekordbox", "usb", collection_id))]
+    return [("Test this USB on your player before a gig", None)]
 
 
 @view("roots list", "roots add")
@@ -1208,12 +1400,16 @@ def review_page(term: Terminal, result: dict) -> None:
 @view("status")
 def status_view(term: Terminal, result: dict) -> None:
     tracks = int(result.get("tracks") or 0)
-    header(term, "djlib", short_path(result.get("workspace")))
+    studio_header(term, "overview")
     bpm, key = int(result.get("with_bpm") or 0), int(result.get("with_key") or 0)
     dot = term.glyph("dot")
     fields(
         term,
         [
+            (
+                "Workspace",
+                Text(str(result["workspace"]), "path") if result.get("workspace") else None,
+            ),
             (
                 "Library",
                 Text.assemble(
@@ -1231,6 +1427,8 @@ def status_view(term: Terminal, result: dict) -> None:
             ),
         ],
     )
+    if tracks:
+        meters(term, [("BPM", bpm, tracks, "saved values"), ("KEY", key, tracks, "saved values")])
     # A tracklist checked again after edits makes a new set, and a rebuilt crate a new
     # collection; show the newest set of each name, with the newest crate made from it.
     newest: dict[str, dict] = {}
@@ -2103,6 +2301,8 @@ def rekordbox_usb(term: Terminal, result: dict) -> None:
             f"“{result.get('playlist', '')}” on {stick}",
             f"exported in {round(seconds)} s" if isinstance(seconds, int | float) else "",
         )
+    if expected:
+        meters(term, [("FILES", int(result.get("found") or 0), expected, "byte-for-byte check")])
     rows += [
         ("Tracks", Text(usb_tracks(result), style="bad" if failed else "")),
         (

@@ -153,6 +153,19 @@ def test_malformed_action_record_does_not_prevent_service_startup(application):
     assert desktop.read_action(application.workspace, "broken") is None
 
 
+def test_malformed_native_history_is_replaced_by_a_valid_receipt(application):
+    from djlib.interfaces.rekordbox_cli import history_file, remember, remembered
+
+    path = history_file(application.workspace)
+    path.parent.mkdir(parents=True)
+    path.write_text("[]", encoding="utf-8")
+    remember(application.workspace, "crate", import_fingerprint="new")
+    assert remembered(application.workspace)["crate"]["import_fingerprint"] == "new"
+    path.write_text('{"crate": "broken"}', encoding="utf-8")
+    remember(application.workspace, "crate", import_fingerprint="next")
+    assert remembered(application.workspace)["crate"]["import_fingerprint"] == "next"
+
+
 async def test_import_checks_same_mix_and_is_idempotent_without_downloading(
     application, audio_factory
 ):
@@ -209,6 +222,44 @@ async def test_local_files_and_collection_membership_never_claim_usb_readiness(a
     assert not status["import_recorded"] and not status["usb_verified_at_last_check"]
     assert not status["hardware_playback_verified"]
     assert status["with_bpm_and_key"] == 0
+
+
+async def test_terminal_receipts_share_prep_state_and_new_attempt_invalidates_old_check(
+    application, crate
+):
+    from djlib.interfaces.rekordbox_cli import remember
+
+    collection_id = await crate()
+    fingerprint = desktop.collection_fingerprint(application.collection(collection_id))
+    remember(
+        application.workspace,
+        collection_id,
+        import_fingerprint=fingerprint,
+        usb_fingerprint=fingerprint,
+        usb={"playlist_on_device": True, "in_order": True, "found": 1, "expected": 1},
+    )
+    status = desktop.workflow_status(application, collection_id)
+    assert status["import_recorded"] and status["usb_verified_at_last_check"]
+    # Even a previous page receipt cannot survive a newer terminal export attempt.
+    atomic_json(
+        application.workspace.runtime / "desktop-actions" / f"{collection_id}.json",
+        {
+            "fingerprint": fingerprint,
+            "state": "completed",
+            "action": "usb",
+            "result": {"playlist_on_device": True, "in_order": True, "found": 1, "expected": 1},
+        },
+    )
+    remember(application.workspace, collection_id, usb=None, usb_fingerprint=fingerprint)
+    status = desktop.workflow_status(application, collection_id)
+    assert status["import_recorded"] and not status["usb_verified_at_last_check"]
+    remember(application.workspace, collection_id, import_fingerprint="old", usb_fingerprint="old")
+    atomic_json(
+        application.workspace.runtime / "desktop-actions" / f"{collection_id}.json",
+        {"fingerprint": "old", "state": "completed", "action": "usb"},
+    )
+    status = desktop.workflow_status(application, collection_id)
+    assert status["previous_action_is_stale"] and not status["usb_verified_at_last_check"]
 
 
 async def test_usb_evidence_requires_full_ordered_match_and_is_invalidated_by_crate_changes(

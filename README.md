@@ -95,6 +95,16 @@ Open a crate to see its local files, saved BPM/key coverage, native import and l
 
 ![djlib's review page: a Four Tet set with times, how sure each line is, what you own, and store searches for what's missing](docs/images/review-page-set.png)
 
+### In your terminal
+
+`djlib crate last` shows the whole crate's local-file and saved BPM/key counts, import record, and last USB check above its tracks. Amber meters show unfinished prep; **Needs attention** names missing files and unfinished analysis. The first **Next** action follows the first unfinished stage. Terminal commands and the review page share records tied to that exact crate; changing it invalidates the old result.
+
+![An illustrative crate-prep screen rendered by djlib: 184 of 200 local files, 172 with saved BPM/key, import recorded, and 16 missing files to address before export](docs/images/terminal-crate-prep.png)
+
+Illustrative data, rendered by the actual terminal views. Compact tables highlight BPM/key; below 60 columns, tracks stack so their mix names stay readable. Plain ASCII and color-free terminals keep the same counts and next steps. `djlib status` shows library analysis coverage, and USB results distinguish byte-for-byte file checks from playlist order and hardware playback. Scripts and assistants keep the JSON interface.
+
+Developers can regenerate the SVG, HTML and text previews with `python scripts/preview_terminal.py`; they use fictional fixtures and never touch rekordbox, your library, or a USB.
+
 ## Install
 
 Paste this to Claude Code or Codex:
@@ -113,7 +123,7 @@ Already have djlib? Add the Claude Code plugin with `/plugin install djlib --mar
 
 With the plugin, just ask: “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 
-> **Alpha (0.1.0a18).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
+> **Alpha (0.1.0a19).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
 ## Docs
 
