@@ -35,7 +35,9 @@ def collection_fingerprint(collection):
 def read_action(workspace, collection_id):
     try:
         value = json.loads(
-            (workspace.runtime / "desktop-actions" / f"{collection_id}.json").read_text()
+            (workspace.runtime / "desktop-actions" / f"{collection_id}.json").read_text(
+                encoding="utf-8"
+            )
         )
         return value if isinstance(value, dict) else None
     except (OSError, ValueError):
@@ -97,7 +99,7 @@ class DesktopRunner:
         folder = application.workspace.runtime / "desktop-actions"
         for path in folder.glob("*.json"):
             try:
-                record = json.loads(path.read_text())
+                record = json.loads(path.read_text(encoding="utf-8"))
                 if record.get("state") == "running":
                     record.update(
                         state="interrupted",
