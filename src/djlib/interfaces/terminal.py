@@ -621,7 +621,7 @@ class CountColumn(ProgressColumn):
     def render(self, task):
         if task.total is None:
             return Text("")
-        return Text(f"{int(task.completed)}/{int(task.total)}", style="")
+        return Text(f"{number(int(task.completed))}/{number(int(task.total))}", style="")
 
 
 @dataclass
@@ -638,19 +638,30 @@ def job_progress(counts: dict) -> tuple[int, int]:
 
 
 def progress_bar(term: Terminal) -> Progress:
-    return Progress(
-        SpinnerColumn(style="accent", finished_text=term.glyph("ok")),
-        TextColumn("[bold]{task.description}"),
-        BarColumn(
-            bar_width=28,
-            style="muted",
-            complete_style="accent",
-            finished_style="ok",
-            pulse_style="accent",
+    # Counts and the active operation survive on small terminals; the decorative meter
+    # yields first. More room is left for an instruction on a wide terminal.
+    columns = [
+        SpinnerColumn(
+            "dots" if term.unicode else "line", style="accent", finished_text=term.glyph("ok")
         ),
-        CountColumn(),
-        TextColumn("{task.fields[detail]}", style="muted"),
-        TimeElapsedColumn(),
+        TextColumn("[bold]{task.description}"),
+    ]
+    if term.err.width >= 72:
+        columns.append(
+            BarColumn(
+                bar_width=12 if term.err.width < 100 else 24,
+                style="muted",
+                complete_style="accent",
+                finished_style="ok",
+                pulse_style="accent",
+            )
+        )
+    columns.append(CountColumn())
+    if term.err.width >= 100:
+        columns.append(TextColumn("{task.fields[detail]}", style="muted"))
+    columns.append(TimeElapsedColumn())
+    return Progress(
+        *columns,
         console=term.err,
         transient=True,
     )

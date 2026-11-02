@@ -1,5 +1,11 @@
 # Implementation status
 
+## 0.1.0a20
+
+The terminal has a studio-style prep view: whole-crate local-file and saved BPM/key meters, exact-crate native receipts, actionable blockers and one primary next action. Library/crate tables highlight BPM/key and switch to stacked track rows below 60 columns. Status shows library coverage; live progress yields its meter before losing the operation and counts. Human crate views fetch the existing workflow route; captured JSON and MCP results retain their contracts. The null startup phase found intermittently during 0.1.0a18 testing now has a deterministic fix and regression.
+
+SVG previews from the real views were rendered and visually inspected at 80 and 40 columns with fictional fixtures, including a failed USB check. Automated checks exercise 32–120 columns, ASCII output, whole-crate counts despite pagination, interrupted/stale evidence, shared native receipts and progress. Live native automation, real terminal emulator fonts and physical CDJ playback still need hands-on verification. No music was downloaded or exported for this UI work.
+
 ## 0.1.0a18
 
 Playlist preview/import and crate-to-USB controls are available in the local review page. A Spotify CSV can be selected in custom order or by timezone-aware Added At timestamps (newest first); live Spotify account sync is not implemented. The macOS controls launch the existing native CLI and show its click prompt and progress. They record last-action evidence for an unchanged crate, never physical playback readiness. MixesDB lookup is now opt-in pending the maintainer confirmation described in CONTRIBUTING.md.

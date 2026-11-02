@@ -58,18 +58,39 @@ def workflow_status(application, collection_id):
         dj = track.get("dj") or {}
         analyzed += bool(dj.get("bpm") and dj.get("key"))
     action = read_action(application.workspace, collection_id)
-    current = bool(action and action.get("fingerprint") == collection_fingerprint(collection))
+    fingerprint = collection_fingerprint(collection)
+    current = bool(action and action.get("fingerprint") == fingerprint)
+    from djlib.interfaces.rekordbox_cli import remembered
+
+    history = remembered(application.workspace)
+    receipt = history.get(collection_id) if isinstance(history, dict) else None
+    if not isinstance(receipt, dict):
+        receipt = {}
+    import_receipt = receipt.get("import_fingerprint") == fingerprint
+    usb_receipt = receipt.get("usb_fingerprint") == fingerprint
     complete = current and action.get("state") == "completed"
-    imported = bool(current and action.get("import_evidence")) or bool(
-        complete and action.get("action") in {"import", "usb"}
+    imported = (
+        import_receipt
+        or bool(current and action.get("import_evidence"))
+        or bool(complete and action.get("action") in {"import", "usb"})
     )
     result = (action or {}).get("usb_evidence") or (
         (action or {}).get("result") if complete and action.get("action") == "usb" else {}
     )
     if not isinstance(result, dict):
         result = {}
+    if usb_receipt:
+        if isinstance(receipt.get("usb"), dict):
+            result = receipt["usb"]
+        elif not (
+            complete
+            and action.get("action") == "usb"
+            and receipt.get("usb_action_key") == action.get("idempotency_key")
+            and action.get("idempotency_key")
+        ):
+            result = {}
     usb = (
-        current
+        (current or usb_receipt)
         and result.get("playlist_on_device") is True
         and result.get("in_order") is True
         and result.get("found") == len(tracks) == result.get("expected")
@@ -85,7 +106,11 @@ def workflow_status(application, collection_id):
         "hardware_playback_verified": False,
         "desktop_supported": sys.platform == "darwin",
         "action": action if current else None,
-        "previous_action_is_stale": bool(action and not current),
+        "previous_action_is_stale": bool(action and not current)
+        or any(
+            value not in (None, fingerprint)
+            for value in (receipt.get("import_fingerprint"), receipt.get("usb_fingerprint"))
+        ),
     }
 
 
@@ -161,6 +186,16 @@ class DesktopRunner:
         path = self.application.workspace.runtime / "desktop-actions" / f"{collection_id}.json"
         try:
             atomic_json(path, record)
+            if body.action == "usb":
+                from djlib.interfaces.rekordbox_cli import remember
+
+                remember(
+                    self.application.workspace,
+                    collection_id,
+                    usb=None,
+                    usb_fingerprint=fingerprint,
+                    usb_action_key=body.idempotency_key,
+                )
         except OSError:
             lock.release()
             raise
