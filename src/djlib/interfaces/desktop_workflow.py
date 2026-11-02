@@ -100,6 +100,8 @@ class DesktopRunner:
         for path in folder.glob("*.json"):
             try:
                 record = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(record, dict):
+                    continue
                 if record.get("state") == "running":
                     record.update(
                         state="interrupted",
