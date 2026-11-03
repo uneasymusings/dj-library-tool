@@ -4,55 +4,59 @@
 
 **Paste a set link, get every track. See what you own. Play it from your USB.**
 
+## From tracklist to crate
+
+Follow **Avalon Emerson, Ben UFO, Four Tet, Floating Points, and Skrillex** from a tracklist to an ownership check, shopping list, and prepared crate: **match → shop → prep**. Real CLI output, edited for pacing, with a generated demo library and illustrative saved BPM/key. [About these examples](docs/images/demo/README.md).
+
 <p align="center">
-  <img src="docs/images/demo/caribou.gif" width="100%" alt="A real run of djlib set on Caribou's Essential Mix (BBC Radio 1, 29 February 2020) from his SoundCloud, against a demo library: the tracklist in the description has 2 IDs, so djlib listens with Shazam (sped up), then shows 29 of 49 owned, 2 in another mix and 18 missing.">
+  <a href="https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-avalon-emerson.mp4"><img src="docs/images/demo/avalon-emerson.gif" width="100%" alt="Avalon Emerson walkthrough: check an eight-track selection, distinguish owned records and another mix, find missing tracks, then inspect crate prep."></a>
 </p>
-<p align="center"><sub><b>Caribou, Essential Mix (BBC Radio 1, 29 Feb 2020).</b> A real run of <code>djlib set</code> on his own upload, against a demo library. His tracklist has two IDs, so djlib listens: MixesDB names both, and Shazam hears them. Sped up: the whole run took 12:34.</sub></p>
+
+**Avalon Emerson / 9000Streams.** Exact mixes, missing records, and a crate with a clear next step. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-avalon-emerson.mp4) · [Still image](docs/images/demo/avalon-emerson-poster.png) · [Set source](https://www.youtube.com/watch?v=zn-Mpr9CPkc)
 
 <details>
-<summary><b>Three more sets:</b> Four Tet at Lollapalooza 2024, Avalon Emerson's 9000Streams mix, and Mura Masa at Primavera Sound Barcelona 2023</summary>
+<summary><b>Ben UFO</b> — an ID stays an ID; another mix stays out</summary>
 <br>
-<img src="docs/images/demo/four-tet.gif" width="100%" alt="A real run of djlib set on Four Tet's Lollapalooza 2024 set, against a demo library: djlib finds MixesDB's tracklist marked incomplete, listens with Shazam (sped up), then shows 17 of 27 owned, 1 in another mix, 7 missing and 2 IDs.">
-<p align="center"><sub><b>Four Tet, Lollapalooza 2024.</b> MixesDB marks the tracklist incomplete, so djlib listens. Demo library; the whole run took 5:35.</sub></p>
-<img src="docs/images/demo/avalon-emerson.gif" width="100%" alt="A real run of djlib set on Avalon Emerson's 9000Streams (Triple J Mix) from SoundCloud, against a demo library: the page has no tracklist, so djlib listens with Shazam (sped up), then shows 7 of 12 owned, 2 missing and 3 IDs.">
-<p align="center"><sub><b>Avalon Emerson, 9000Streams (Triple J Mix).</b> The SoundCloud page has no tracklist, so djlib listens. Demo library; the whole run took 28:38.</sub></p>
-<img src="docs/images/demo/mura-masa-primavera.gif" width="100%" alt="A real run of djlib set on Mura Masa's Boiler Room set at Primavera Sound Barcelona 2023, against a demo library: the description has no tracklist, so djlib listens with Shazam (sped up), then shows 11 of 21 owned, 1 in another mix, 4 missing and 5 IDs.">
-<p align="center"><sub><b>Mura Masa, Boiler Room x Primavera Sound Barcelona 2023.</b> The description only says where the set was played, so djlib listens. Demo library; the whole run took 27:49.</sub></p>
+<img src="docs/images/demo/ben-ufo.gif" width="100%" alt="Ben UFO walkthrough: two unknown IDs remain unnamed, the Cassy remix stays distinct from the original, and only exact owned tracks enter the crate.">
+
+Selected tracks from **Boiler Room London, 21 September 2010**. The demo leaves the two IDs unnamed and keeps the wrong mix out of the crate. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-ben-ufo.mp4) · [Still image](docs/images/demo/ben-ufo-poster.png) · [Published tracklist](https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423)
 </details>
+
+<details>
+<summary><b>Four Tet</b> — a festival tracklist becomes a practical crate</summary>
+<br>
+<img src="docs/images/demo/four-tet.gif" width="100%" alt="Four Tet walkthrough: selected Lollapalooza tracks checked against a demo library, with two alternate mixes excluded and a prep view for the exact matches.">
+
+Selected tracks from **Lollapalooza 2024**. The original recordings of “Goblin” and “In Your Head” do not substitute for the requested edits. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-four-tet.mp4) · [Still image](docs/images/demo/four-tet-poster.png) · [Set source](https://www.youtube.com/watch?v=C2f_OA2Ce14)
+</details>
+
+<details>
+<summary><b>Floating Points</b> — radio discoveries, missing records, saved BPM/key</summary>
+<br>
+<img src="docs/images/demo/floating-points.gif" width="100%" alt="Floating Points walkthrough: selected NTS tracks become an ownership report, store searches, and a crate with explicit saved-analysis gaps.">
+
+Selected tracks from **NTS, 10 February 2025**, supplied as a copied text file. The clip shows store searches and saved-analysis gaps; it does not imply direct NTS-link import. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-floating-points.mp4) · [Still image](docs/images/demo/floating-points-poster.png) · [Published tracklist](https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025)
+</details>
+
+<details>
+<summary><b>Skrillex</b> — prep the exact recordings you own</summary>
+<br>
+<img src="docs/images/demo/skrillex.gif" width="100%" alt="Skrillex walkthrough: a selection from the official Quest For Fire Basement Set, with five exact demo-library matches and the unavailable VIP excluded.">
+
+Selected chapters from **QUEST FOR FIRE Basement Set**. Five exact matches enter this demo crate; the unavailable VIP is not replaced with another recording. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a20/demo-skrillex.mp4) · [Still image](docs/images/demo/skrillex-poster.png) · [Official set and chapters](https://www.youtube.com/watch?v=hb0XLX0b4Y4)
+</details>
+
+[How these previews were made](docs/images/demo/README.md) · [Reproduce them](scripts/showcase/README.md)
 
 For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every track: from the description, chapters, MixesDB and comments, and by running Shazam over the mix. Or start from the songs you Shazamed. djlib tells you which ones you own (the exact mix, never a lookalike), gives you a shopping list for the rest, and puts the set into a rekordbox playlist and onto your USB stick, checked track by track. It runs on your computer, with no account and no djlib server; it asks Shazam, YouTube and SoundCloud directly. MixesDB lookup is optional (`DJLIB_MIXESDB=on`); automatic lookup is off pending maintainer confirmation.
 
-```text
-$ djlib set 'https://soundcloud.com/platform/kaytranada-boiler-room' --no-rekordbox
-✓ Kaytranada Boiler Room Montreal DJ Set  14 of 22 owned · 1 in another mix · 7 missing
-  Source      SoundCloud: Kaytranada Boiler Room Montreal DJ Set
-  Identified  9 heard by Shazam · 13 from tracklists only  listened 14 Oct
-  Crate       ✓ 14 tracks, in set order
-  rekordbox   not added yet (--no-rekordbox)
-  Tracklist from MixesDB: 2013-09-27 - Kaytranada @ Boiler Room Montreal 002
+The previews use these commands with a copied tracklist:
 
-The set (22)
- #  Time   Track                                                  Sure      Own
-────────────────────────────────────────────────────────────────────────────────────────
- 1  00:00  Kaytranada - Roots (Silent Treatment Intro)            ✓         ✓ owned
- 2  01:09  Robert Glasper Experiment - Move Love (Kaytranada      ✓         ✓ owned
-           Edition)
- 3  03:08  KenLo Croqnote - Facteur Humidex                       ◐ likely  ✗ missing
- 4  03:55  Flume - Holdin On (Kaytranada Edit)                    ✓         ✓ owned
- …
-16  26:00  Bell Biv DeVoe - Poison                                ◐ likely  ≈ Radio Edit
- …
-22  39:17  Modjo - Lady (Kaytranada Remix)                        ◐ likely  ✓ owned
-
-  Owned under another spelling: #2 Robert Glasper - Move Love (Kaytranada Edition) · …
-
-Next
-  → Put it in rekordbox        djlib rekordbox push ab33dc73
-  → Or straight onto your USB  djlib rekordbox usb ab33dc73
-  → Your shopping list (7)     djlib requests report 7d3a8f2d
+```bash
+djlib set avalon-emerson.txt --name 'Avalon Emerson' --no-rekordbox
+djlib requests report last
+djlib crate last
 ```
-
-Real output, trimmed.
 
 ## Three ways in
 

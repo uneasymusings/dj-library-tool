@@ -1,0 +1,153 @@
+{
+  "tool_version": "0.1.0a20",
+  "capture": "real CLI and authenticated in-process HTTP",
+  "presentation": "paced replay, selected complete output lines, silent",
+  "library": "generated four-second tones; selected metadata labels",
+  "saved_bpm_key": "illustrative unverified operator values",
+  "live_recognition": false,
+  "native_export": false,
+  "hardware_playback_tested": false,
+  "full_decode": "passed for all five MP4 and all five GIF files",
+  "examples": [
+    {
+      "artist": "Avalon Emerson",
+      "source_url": "https://www.youtube.com/watch?v=zn-Mpr9CPkc",
+      "selection": "eight selected tracklist entries",
+      "counts": {
+        "owned": 4,
+        "missing": 2,
+        "other_mix": 1,
+        "ids": 1,
+        "to_check": 0,
+        "maybe": 0
+      },
+      "movie": {
+        "name": "demo-avalon-emerson.mp4",
+        "duration_seconds": 20.666667,
+        "width": 1440,
+        "height": 1120,
+        "bytes": 439202,
+        "sha256": "f2d099d4aaef703e160f45670246a1ba9f90b859444ce7c29d1e0f0017cb2eff"
+      },
+      "gif": {
+        "name": "avalon-emerson.gif",
+        "width": 1080,
+        "height": 840,
+        "bytes": 770645,
+        "sha256": "2169c02c9b5999f0ff8aea1247b1f8fbd798cea3689d2b9233eb6185c4d810bb"
+      }
+    },
+    {
+      "artist": "Ben UFO",
+      "source_url": "https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423",
+      "selection": "eight selected tracklist entries",
+      "counts": {
+        "owned": 3,
+        "missing": 2,
+        "other_mix": 1,
+        "ids": 2,
+        "to_check": 0,
+        "maybe": 0
+      },
+      "movie": {
+        "name": "demo-ben-ufo.mp4",
+        "duration_seconds": 20.533333,
+        "width": 1440,
+        "height": 1120,
+        "bytes": 413064,
+        "sha256": "04ff7b63e1731870f1240ca22857ef48fa2cffdb6d3351067b987b8f8a652d60"
+      },
+      "gif": {
+        "name": "ben-ufo.gif",
+        "width": 1080,
+        "height": 840,
+        "bytes": 740233,
+        "sha256": "d2c258762c6f69f6a656afefcfb39df80135906b23a3e446fc073425bbafa00d"
+      }
+    },
+    {
+      "artist": "Four Tet",
+      "source_url": "https://www.youtube.com/watch?v=C2f_OA2Ce14",
+      "selection": "eight selected tracklist entries",
+      "counts": {
+        "owned": 4,
+        "missing": 2,
+        "other_mix": 2,
+        "ids": 0,
+        "to_check": 0,
+        "maybe": 0
+      },
+      "movie": {
+        "name": "demo-four-tet.mp4",
+        "duration_seconds": 20.533333,
+        "width": 1440,
+        "height": 1120,
+        "bytes": 424549,
+        "sha256": "5a92af6c988e297f6e15fb8e2c111b8ec285050121bafe2ec2e6ac59821232a8"
+      },
+      "gif": {
+        "name": "four-tet.gif",
+        "width": 1080,
+        "height": 840,
+        "bytes": 718651,
+        "sha256": "8e466c0648069cb87dc04171404e443a8e0fda433c6fde89ce49cb39c89879c1"
+      }
+    },
+    {
+      "artist": "Floating Points",
+      "source_url": "https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025",
+      "selection": "eight selected tracklist entries",
+      "counts": {
+        "owned": 4,
+        "missing": 3,
+        "other_mix": 1,
+        "ids": 0,
+        "to_check": 0,
+        "maybe": 0
+      },
+      "movie": {
+        "name": "demo-floating-points.mp4",
+        "duration_seconds": 20.666667,
+        "width": 1440,
+        "height": 1120,
+        "bytes": 480270,
+        "sha256": "91f46bb1ac76922ee68878bc46328c054f8aed512d7d28cede571881c4b4ef4b"
+      },
+      "gif": {
+        "name": "floating-points.gif",
+        "width": 1080,
+        "height": 840,
+        "bytes": 824521,
+        "sha256": "eef9e9abac18c9cc63f544e468d544b4204edbb6eed66dffe304eea6bdc82152"
+      }
+    },
+    {
+      "artist": "Skrillex",
+      "source_url": "https://www.youtube.com/watch?v=hb0XLX0b4Y4",
+      "selection": "eight selected tracklist entries",
+      "counts": {
+        "owned": 5,
+        "missing": 3,
+        "other_mix": 0,
+        "ids": 0,
+        "to_check": 0,
+        "maybe": 0
+      },
+      "movie": {
+        "name": "demo-skrillex.mp4",
+        "duration_seconds": 20.533333,
+        "width": 1440,
+        "height": 1120,
+        "bytes": 522161,
+        "sha256": "672f52da363a053d262d9e352947db044c4ca00598f89e050417ef2441eabc45"
+      },
+      "gif": {
+        "name": "skrillex.gif",
+        "width": 1080,
+        "height": 840,
+        "bytes": 947590,
+        "sha256": "a3025f02caa5b77942e4f23a22ef92abf0da4f1cb32105b11f31012cda4892c1"
+      }
+    }
+  ]
+}
