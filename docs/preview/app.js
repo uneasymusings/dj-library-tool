@@ -378,6 +378,12 @@ function youtubeVideo(value) {
   return /^[\w-]{11}$/.test(id || "") ? `https://www.youtube.com/watch?v=${id}` : null;
 }
 
+function closeTrackActions(except = null) {
+  for (const details of document.querySelectorAll(".track-action[open]")) {
+    if (details !== except) details.open = false;
+  }
+}
+
 // Missing music has two deliberate actions. Opening either never downloads or opens a store.
 function acquireTrack(item, requestId, onDone) {
   const track = item.input || {};
@@ -388,6 +394,13 @@ function acquireTrack(item, requestId, onDone) {
   const download = h("button", { type: "button", class: "small primary", disabled: true }, "Rip MP3");
   const results = h("div", { class: "rip-results" });
   const message = h("div", { role: "status" });
+  for (const details of [rip, shop]) {
+    details.addEventListener("toggle", () => {
+      if (!details.open) return;
+      closeTrackActions(details);
+      details.classList.toggle("opens-up", innerHeight - details.getBoundingClientRect().bottom < 320);
+    });
+  }
   let busy = false;
   const changed = () => { download.disabled = busy || !youtubeVideo(source.value); };
   source.addEventListener("input", changed);
@@ -441,8 +454,12 @@ function acquireTrack(item, requestId, onDone) {
     } catch (error) { message.replaceChildren(errorNotice(error)); }
     finally { busy = false; source.disabled = find.disabled = false; changed(); }
   });
-  rip.append(h("summary", null, "Rip"), h("div", { class: "rip-panel" },
-    h("p", { class: "hint" }, "YouTube → MP3. Choose the exact recording; stream quality varies."),
+  const close = h("button", { type: "button", class: "small", "aria-label": "Close Rip" }, "×");
+  close.addEventListener("click", () => { rip.open = false; rip.querySelector("summary").focus(); });
+  rip.append(h("summary", null, "Rip"), h("div", { class: "rip-panel", role: "group", "aria-label": `Rip ${plainLabel(track)}` },
+    h("div", { class: "rip-heading" }, h("strong", null, "YouTube → MP3"), close),
+    h("p", { class: "rip-caption" }, plainLabel(track)),
+    h("p", { class: "hint" }, "Choose the exact recording; stream quality varies."),
     source, h("div", { class: "rip-buttons" }, find, download), results, message));
   return h("div", { class: "acquire-actions" }, rip, unreleased(track) ? null : shop);
 }
@@ -1674,6 +1691,14 @@ async function route({ quiet = false } = {}) {
 
 async function start() {
   readHandoff();
+  document.addEventListener("pointerdown", event => {
+    if (!event.target.closest(".track-action")) closeTrackActions();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const open = document.querySelector(".track-action[open]");
+    if (open) { closeTrackActions(); open.querySelector("summary").focus(); }
+  });
   window.addEventListener("hashchange", () => {
     route();
     window.scrollTo(0, 0);

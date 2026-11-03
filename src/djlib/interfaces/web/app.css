@@ -635,10 +635,8 @@ a.time:hover { color: var(--accent-text); text-decoration: underline; text-decor
 .pill { background: transparent !important; padding: 2px 0; font-weight: 500; }
 .acquire-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
 .track-action { min-width: 0; }
-.t-set td.c-own:has(.track-action[open]) { width: 320px; white-space: normal; }
 .track-action summary { cursor: pointer; font-size: 12px; color: var(--signal); text-underline-offset: 4px; }
 .track-action summary:hover { text-decoration: underline; }
-.track-action[open] { flex-basis: 100%; }
 .track-action .buy { display: block; margin: 12px 0; line-height: 1.8; }
 .rip-panel { padding: 12px 0; width: 100%; min-width: 0; max-width: 320px; }
 .rip-panel input { width: 100%; min-width: 0; padding: 8px; color: var(--text); background: var(--bg); border: 1px solid var(--line-strong); font: 12px/1.5 var(--mono); border-radius: 0; }
@@ -680,4 +678,27 @@ tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel) 65%, v
   .t-set .acquire-actions { display: inline-flex; margin: 0 0 0 12px; }
   .t-set .own-note { max-width: none; }
   .t-set .own-note + .acquire-actions { display: flex; margin: 4px 0 0; }
+}
+
+/* Desktop actions behave like compact software tool panels. */
+.track-action { position: relative; }
+.rip-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; font: 11px/1.5 var(--mono); }
+.rip-heading button { min-height: 24px; padding: 0 7px; font-size: 16px; }
+.rip-caption { margin: 10px 0 6px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+@media (min-width: 641px) {
+  .table-wrap:has(.track-action[open]) { overflow: visible; }
+  .rip-panel, .track-action > .buy {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 3;
+    width: 320px; max-width: 320px; margin: 0; padding: 14px;
+    background: var(--panel); border: 1px solid var(--line-strong);
+    box-shadow: 0 3px 8px rgba(30, 32, 28, .14); white-space: normal;
+  }
+  .track-action.opens-up > .rip-panel, .track-action.opens-up > .buy {
+    top: auto; bottom: calc(100% + 8px);
+  }
+  .rip-panel .hint { margin: 6px 0 10px; }
+  .rip-results { max-height: 260px; overflow-y: auto; }
+}
+@media (max-width: 640px) {
+  .rip-panel { padding: 12px; background: var(--panel); border: 1px solid var(--line-strong); }
 }
