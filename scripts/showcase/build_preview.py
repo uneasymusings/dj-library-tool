@@ -67,11 +67,17 @@ def frontend():
         '<script src="app.js" defer></script>',
         '<script src="app.js" defer></script>\n<script src="demo.js" defer></script>',
     )
-    return {
-        "index.html": page.encode(),
+    # Pages caches static files independently; keep every published UI update coherent.
+    assets = {
         "app.js": script.encode(),
         "app.css": (WEB / "app.css").read_bytes(),
         "demo.js": ADAPTER.encode(),
+    }
+    for name, value in assets.items():
+        page = page.replace(f'"{name}"', f'"{name}?v={digest(value)[:12]}"')
+    return {
+        "index.html": page.encode(),
+        **assets,
     }
 
 
