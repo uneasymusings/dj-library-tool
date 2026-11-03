@@ -21,7 +21,7 @@ from tests.test_headline_workflow import build
 
 PANELS = {
     "Start here": ["init", "scan", "set", "identify", "status", "doctor"],
-    "Your library": ["library", "crates", "crate", "requests", "shazam", "ui"],
+    "Your library": ["library", "crates", "crate", "requests", "rip", "shop", "shazam", "ui"],
     "rekordbox and USB": ["rekordbox"],
     "Settings": ["use", "roots", "upgrade"],
     "Assistants": ["setup-agent", "mcp"],

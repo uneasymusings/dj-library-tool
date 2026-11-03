@@ -1,5 +1,12 @@
 # Implementation status
 
+## 0.1.0a21 candidate
+
+- Explicit Rip and optional Shop choices in the terminal and review page. Rip previews YouTube sources before an MP3 download; a completed download rechecks the saved set.
+- Review-page styling follows Lattice's paper/ink palette, restrained blue signal, square rules and mono labels. Local browser visual review remains unverified: this environment denies loopback socket binding.
+- Five terminal-only walkthroughs replace the framed media. The optional Rip-help stage shows usage, without claiming a live commercial-audio download.
+- Targeted in-process runtime and browser interaction checks pass; release publication waits for the cross-platform CI matrix.
+
 ## 0.1.0a20
 
 The terminal has a studio-style prep view: whole-crate local-file and saved BPM/key meters, exact-crate native receipts, actionable blockers and one primary next action. Library/crate tables highlight BPM/key and switch to stacked track rows below 60 columns. Status shows library coverage; live progress yields its meter before losing the operation and counts. Human crate views fetch the existing workflow route; captured JSON and MCP results retain their contracts. The null startup phase found intermittently during 0.1.0a18 testing now has a deterministic fix and regression.

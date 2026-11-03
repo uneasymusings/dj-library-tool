@@ -1,8 +1,7 @@
 {
-  "tool_version": "0.1.0a20",
-  "capture": "real CLI and authenticated in-process HTTP",
-  "presentation": "paced replay, selected complete output lines, silent",
-  "library": "generated four-second tones; selected metadata labels",
+  "tool_version": "0.1.0a21",
+  "presentation": "plain terminal replay; no title cards or overlays",
+  "library": "original generated tones, selected published metadata labels",
   "saved_bpm_key": "illustrative unverified operator values",
   "live_recognition": false,
   "native_export": false,
@@ -12,7 +11,6 @@
     {
       "artist": "Avalon Emerson",
       "source_url": "https://www.youtube.com/watch?v=zn-Mpr9CPkc",
-      "selection": "eight selected tracklist entries",
       "counts": {
         "owned": 4,
         "missing": 2,
@@ -21,26 +19,31 @@
         "to_check": 0,
         "maybe": 0
       },
+      "commands": [
+        "djlib set avalon-emerson.txt --name 'Avalon Emerson' --no-rekordbox",
+        "djlib rip --help",
+        "djlib crate last"
+      ],
       "movie": {
-        "name": "demo-avalon-emerson.mp4",
-        "duration_seconds": 20.666667,
+        "name": "terminal-demo-avalon-emerson.mp4",
         "width": 1440,
-        "height": 1120,
-        "bytes": 439202,
-        "sha256": "f2d099d4aaef703e160f45670246a1ba9f90b859444ce7c29d1e0f0017cb2eff"
+        "height": 1000,
+        "duration_seconds": 21.333333,
+        "bytes": 237031,
+        "sha256": "96fb7ab23b94381690f8a93f12e3d18fe1eb86d4090d37d1ee185953de39de65"
       },
       "gif": {
         "name": "avalon-emerson.gif",
         "width": 1080,
-        "height": 840,
-        "bytes": 770645,
-        "sha256": "2169c02c9b5999f0ff8aea1247b1f8fbd798cea3689d2b9233eb6185c4d810bb"
+        "height": 750,
+        "duration_seconds": 22.75,
+        "bytes": 408968,
+        "sha256": "279ee028a76e95a5c92c63edf07439398467f045add61244bffc94a84f37fdce"
       }
     },
     {
       "artist": "Ben UFO",
       "source_url": "https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423",
-      "selection": "eight selected tracklist entries",
       "counts": {
         "owned": 3,
         "missing": 2,
@@ -49,26 +52,31 @@
         "to_check": 0,
         "maybe": 0
       },
+      "commands": [
+        "djlib set ben-ufo.txt --name 'Ben UFO' --no-rekordbox",
+        "djlib rip --help",
+        "djlib crate last"
+      ],
       "movie": {
-        "name": "demo-ben-ufo.mp4",
-        "duration_seconds": 20.533333,
+        "name": "terminal-demo-ben-ufo.mp4",
         "width": 1440,
-        "height": 1120,
-        "bytes": 413064,
-        "sha256": "04ff7b63e1731870f1240ca22857ef48fa2cffdb6d3351067b987b8f8a652d60"
+        "height": 1000,
+        "duration_seconds": 21.233333,
+        "bytes": 217292,
+        "sha256": "83abb421507e01558ce46e3108c63e2b00a0027c429f63bef9c28541f7afa403"
       },
       "gif": {
         "name": "ben-ufo.gif",
         "width": 1080,
-        "height": 840,
-        "bytes": 740233,
-        "sha256": "d2c258762c6f69f6a656afefcfb39df80135906b23a3e446fc073425bbafa00d"
+        "height": 750,
+        "duration_seconds": 22.63,
+        "bytes": 373138,
+        "sha256": "4d5840248077299901caaa73551148b61581f01f0b50eb0d00b96cc0025fa8b7"
       }
     },
     {
       "artist": "Four Tet",
       "source_url": "https://www.youtube.com/watch?v=C2f_OA2Ce14",
-      "selection": "eight selected tracklist entries",
       "counts": {
         "owned": 4,
         "missing": 2,
@@ -77,26 +85,31 @@
         "to_check": 0,
         "maybe": 0
       },
+      "commands": [
+        "djlib set four-tet.txt --name 'Four Tet' --no-rekordbox",
+        "djlib rip --help",
+        "djlib crate last"
+      ],
       "movie": {
-        "name": "demo-four-tet.mp4",
-        "duration_seconds": 20.533333,
+        "name": "terminal-demo-four-tet.mp4",
         "width": 1440,
-        "height": 1120,
-        "bytes": 424549,
-        "sha256": "5a92af6c988e297f6e15fb8e2c111b8ec285050121bafe2ec2e6ac59821232a8"
+        "height": 1000,
+        "duration_seconds": 21.233333,
+        "bytes": 231999,
+        "sha256": "d8aa7ae3e6fac80c4fbb467d303929a2bbe816c82d400dfff85d730000bdf57c"
       },
       "gif": {
         "name": "four-tet.gif",
         "width": 1080,
-        "height": 840,
-        "bytes": 718651,
-        "sha256": "8e466c0648069cb87dc04171404e443a8e0fda433c6fde89ce49cb39c89879c1"
+        "height": 750,
+        "duration_seconds": 22.63,
+        "bytes": 419483,
+        "sha256": "4b1f61e9255d69108cc874c4d5429e7253ea18a62bed031f995f0b7037d2f7e6"
       }
     },
     {
       "artist": "Floating Points",
       "source_url": "https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025",
-      "selection": "eight selected tracklist entries",
       "counts": {
         "owned": 4,
         "missing": 3,
@@ -105,26 +118,31 @@
         "to_check": 0,
         "maybe": 0
       },
+      "commands": [
+        "djlib set floating-points.txt --name 'Floating Points' --no-rekordbox",
+        "djlib rip --help",
+        "djlib crate last"
+      ],
       "movie": {
-        "name": "demo-floating-points.mp4",
-        "duration_seconds": 20.666667,
+        "name": "terminal-demo-floating-points.mp4",
         "width": 1440,
-        "height": 1120,
-        "bytes": 480270,
-        "sha256": "91f46bb1ac76922ee68878bc46328c054f8aed512d7d28cede571881c4b4ef4b"
+        "height": 1000,
+        "duration_seconds": 21.333333,
+        "bytes": 234776,
+        "sha256": "3b1785c7fc28d06346a13794d7248bc8840869a1cb8c9f4f39ed9165c6220e9c"
       },
       "gif": {
         "name": "floating-points.gif",
         "width": 1080,
-        "height": 840,
-        "bytes": 824521,
-        "sha256": "eef9e9abac18c9cc63f544e468d544b4204edbb6eed66dffe304eea6bdc82152"
+        "height": 750,
+        "duration_seconds": 22.75,
+        "bytes": 411187,
+        "sha256": "79cc1a18163c5c40065b40a29d34dd20468762cc613645adc4b961499942b793"
       }
     },
     {
       "artist": "Skrillex",
       "source_url": "https://www.youtube.com/watch?v=hb0XLX0b4Y4",
-      "selection": "eight selected tracklist entries",
       "counts": {
         "owned": 5,
         "missing": 3,
@@ -133,20 +151,26 @@
         "to_check": 0,
         "maybe": 0
       },
+      "commands": [
+        "djlib set skrillex.txt --name Skrillex --no-rekordbox",
+        "djlib rip --help",
+        "djlib crate last"
+      ],
       "movie": {
-        "name": "demo-skrillex.mp4",
-        "duration_seconds": 20.533333,
+        "name": "terminal-demo-skrillex.mp4",
         "width": 1440,
-        "height": 1120,
-        "bytes": 522161,
-        "sha256": "672f52da363a053d262d9e352947db044c4ca00598f89e050417ef2441eabc45"
+        "height": 1000,
+        "duration_seconds": 21.233333,
+        "bytes": 236924,
+        "sha256": "36327a9b4f65c3409a1ef5db00e29b199dac6d8a3f3c4f3a16b6777ecb1c97a7"
       },
       "gif": {
         "name": "skrillex.gif",
         "width": 1080,
-        "height": 840,
-        "bytes": 947590,
-        "sha256": "a3025f02caa5b77942e4f23a22ef92abf0da4f1cb32105b11f31012cda4892c1"
+        "height": 750,
+        "duration_seconds": 22.63,
+        "bytes": 449823,
+        "sha256": "3e24bdbdd61435a674e7e9cb6317c54f8df9cc9dfb443c18e6cfc31b90ae6bb6"
       }
     }
   ]

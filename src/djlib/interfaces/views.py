@@ -2563,8 +2563,9 @@ def set_view(term: Terminal, result: dict) -> None:
         steps.append((f"Check the songs that may be yours ({maybe})", ("ui",)))
     to_buy = sum(1 for track in tracks if track.get("own") == "missing")
     if to_buy:
-        report = ("requests", "report", result.get("request_id", ""))
-        steps.append((f"Your shopping list ({number(to_buy)})", report))
+        handle = short_handle(result.get("request_id") or "last")
+        steps.append((f"Rip missing tracks as MP3 ({number(to_buy)})", ("rip", handle)))
+        steps.append(("Shop instead (optional)", ("shop", handle)))
     if result.get("listen_fix"):
         steps.append(("So djlib can listen to sets, fix this", result["listen_fix"]))
     if result.get("shazam"):
@@ -3243,7 +3244,68 @@ def rekordbox_sync(term: Terminal, result: dict) -> None:
 STORE_NAMES = {"beatport": "Beatport", "bandcamp": "Bandcamp", "traxsource": "Traxsource"}
 
 
-@view("requests report")
+@view("rip")
+def rip_report(term: Terminal, result: dict) -> None:
+    preview = result.get("preview", True)
+    chosen = result.get("chosen") or []
+    job = result.get("job") or {}
+    status_line(
+        term,
+        "ok" if preview or job.get("state") == "completed" else "warn",
+        "Rip preview" if preview else "Rip job",
+        result.get("name") or "YouTube to MP3",
+    )
+    for entry in chosen:
+        upload = entry["source"]
+        term.out.print()
+        term.out.print(Text(entry["label"], style="heading"))
+        term.out.print(
+            Text(
+                f"  {upload.get('title') or 'Selected video'} · "
+                f"{upload.get('uploader') or 'YouTube'}",
+                style="muted",
+            )
+        )
+        term.out.print(Text(f"  {upload['url']}", style="path"), soft_wrap=True)
+    undecided = result.get("needs_your_pick") or []
+    for entry in undecided:
+        term.out.print()
+        term.out.print(Text(f"Needs your pick: {entry['label']}", style="warn"))
+        for option in entry.get("options") or []:
+            term.out.print(Text(f"  {option['url']}", style="path"), soft_wrap=True)
+    if not chosen:
+        note(term, "No clear YouTube matches. Nothing was downloaded.")
+    elif preview:
+        note(term, "Preview only. No files downloaded. Check the exact mix before ripping.")
+    else:
+        fields(
+            term,
+            [
+                ("Downloaded", plural(int(result.get("downloaded") or 0), "MP3")),
+                ("Job", Text(str(job.get("state") or "unknown"))),
+            ],
+        )
+    steps = []
+    if preview and chosen and result.get("request_id"):
+        steps.append(("Rip these sources", ("rip", short_handle(result["request_id"]), "--yes")))
+    elif preview and chosen and result.get("source"):
+        entry = chosen[0]
+        command = ["rip", result["source"], "--artist", entry["artist"], "--title", entry["title"]]
+        if entry.get("version"):
+            command += ["--version", entry["version"]]
+        steps.append(("Rip this video", (*command, "--yes")))
+    if not preview and result.get("request_id") and job.get("state") == "completed":
+        steps.append(
+            (
+                "Rebuild the crate with the new files",
+                ("requests", "collect", short_handle(result["request_id"])),
+            )
+        )
+    if steps:
+        next_steps(term, steps)
+
+
+@view("shop", "requests report")
 def request_report(term: Terminal, result: dict) -> None:
     """The shopping list: each missing song with its store searches, one unbroken link a line
     (Cmd-click or right-click opens it), then the songs you own in another mix and the IDs."""
@@ -3942,7 +4004,8 @@ def request_view(term: Terminal, result: dict) -> None:
     if result.get("unresolved_items"):
         # Songs to buy: missing outright (not another mix, nor maybe yours already).
         if int(counts.get("missing", 0)):
-            steps.append(("Your shopping list", ("requests", "report", request_id)))
+            steps.append(("Rip missing tracks as MP3", ("rip", request_id)))
+            steps.append(("Shop instead (optional)", ("shop", request_id)))
         steps.append(("Re-check after adding music", ("requests", "refresh", request_id)))
     next_steps(term, steps)
 

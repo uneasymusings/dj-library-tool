@@ -57,7 +57,7 @@ EPILOG = (
 # Help lists panels in command order, so keep the journey order explicit.
 ORDER = [
     *("init", "scan", "set", "identify", "status", "doctor"),
-    *("library", "crates", "crate", "requests", "shazam", "ui"),
+    *("library", "crates", "crate", "requests", "rip", "shop", "shazam", "ui"),
     "rekordbox",
     *("use", "roots", "upgrade"),
     *("setup-agent", "mcp"),
@@ -1403,6 +1403,10 @@ register_shazam(app, client, emit, handled, panel=LIBRARY)
 from djlib.interfaces.identify_cli import register_identify  # noqa: E402
 
 register_identify(app, client, emit, handled, panel=START)
+
+from djlib.interfaces.rip_cli import register_rip  # noqa: E402
+
+register_rip(app, client, emit, handled, panel=LIBRARY)
 
 for group in app.registered_groups:
     if group.name in DEFAULT_COMMANDS:

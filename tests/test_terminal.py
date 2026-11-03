@@ -721,9 +721,10 @@ def test_request_lists_lead_with_building_the_crate(capsys):
     }
     out = render("requests create", request, width=160, capsys=capsys)
     steps = out.split("Next\n", 1)[1]
-    assert steps.index("Build the crate from the 1 song you own") < steps.index("report")
+    assert steps.index("Build the crate from the 1 song you own") < steps.index("djlib rip")
     assert f"djlib requests collect {SHORT_REQUEST}" in steps
-    assert f"djlib requests report {SHORT_REQUEST}" in steps
+    assert f"djlib rip {SHORT_REQUEST}" in steps
+    assert f"djlib shop {SHORT_REQUEST}" in steps
     assert f"djlib requests refresh {SHORT_REQUEST}" in steps
     assert "--revision" not in out
 
