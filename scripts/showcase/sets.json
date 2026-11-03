@@ -1,0 +1,78 @@
+[
+  {
+    "id": "avalon-emerson", "name": "Avalon Emerson", "subtitle": "9000Streams / selected tracks", "lesson": "Find your records. Keep the exact mix.",
+    "source_url": "https://www.youtube.com/watch?v=zn-Mpr9CPkc",
+    "source_note": "Artist-linked 9000Streams Studio Mix; selected track names from its published description, also preserved in tests/data/avalon-emerson-description.txt. This is a selection, not the complete mix.",
+    "tracks": [
+      ["Tibi Dabo", "Desert Hike", "owned"],
+      ["Avalon Emerson", "Treat Mode", "owned"],
+      ["Vitess", "Vibin Check", "missing"],
+      ["Running Hot", "Song for Bertie", "owned"],
+      ["Pleasure Planet", "Go With Madness (Earth Trax Remix)", "other", "Go With Madness"],
+      ["Shanti Celeste", "Ice Cream Dream Boy", "owned"],
+      ["Two Shell", "Everybody Worldwide", "missing"],
+      ["ID", "ID", "id"]
+    ]
+  },
+  {
+    "id": "ben-ufo", "name": "Ben UFO", "subtitle": "Boiler Room London / selected tracks", "lesson": "An ID stays an ID. Another mix stays out.",
+    "source_url": "https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423",
+    "source_note": "Selected tracks from the officially distributed 21 September 2010 Boiler Room mix. Mixed suffixes are omitted; remix names and unknown IDs are preserved. Apple Music audio is not downloaded.",
+    "tracks": [
+      ["ID", "ID", "id"],
+      ["ID", "ID", "id"],
+      ["Chez Damier", "Help Myself (Reconstructed by Carl Craig)", "owned"],
+      ["Portable", "Don't Give Up (Cassy Remix)", "other", "Don't Give Up"],
+      ["Lowtec", "Use Me", "owned"],
+      ["A Made Up Sound", "Demons", "missing"],
+      ["elGato", "Blue", "owned"],
+      ["Mood II Swing", "Move Me (Alternative Mix)", "missing"]
+    ]
+  },
+  {
+    "id": "four-tet", "name": "Four Tet", "subtitle": "Lollapalooza 2024 / selected tracks", "lesson": "Turn a festival tracklist into your next crate.",
+    "source_url": "https://www.youtube.com/watch?v=C2f_OA2Ce14",
+    "source_note": "Selection from the previously captured Lollapalooza 2024 run documented in the a17 README and demo-gifs source. No fresh identification or confidence claim is made in this preview.",
+    "tracks": [
+      ["Four Tet", "Gliding Through Everything", "owned"],
+      ["Joy Orbison", "Flight FM", "owned"],
+      ["4B & Viperactive", "Throw It Back", "owned"],
+      ["Billie Eilish", "LUNCH (Phrva Flip)", "owned"],
+      ["Borne & Alexis B", "Hush", "missing"],
+      ["Oski & Hydraulix", "HAWT", "missing"],
+      ["Coki", "Goblin (Hamdi Edit)", "other", "Goblin"],
+      ["G Jones", "In Your Head (RL Grime Edit)", "other", "In Your Head"]
+    ]
+  },
+  {
+    "id": "floating-points", "name": "Floating Points", "subtitle": "NTS 10 February 2025 / selected tracks", "lesson": "A radio selection. A practical prep list.",
+    "source_url": "https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025",
+    "source_note": "Selected entries from NTS's publicly visible tracklist. Minnie Riperton and Secret Liaisons spellings are normalized against Apple Music and Source Direct's own Bandcamp. Subscriber-only timestamps are not accessed or inferred. The copied text is the input; djlib does not claim direct NTS-link support.",
+    "correction_sources": ["https://music.apple.com/us/song/1444020200", "https://sourcedirectmusic.bandcamp.com/album/secret-liaisons"],
+    "tracks": [
+      ["Jessica Ekomane", "Manifolds", "owned"],
+      ["Klute", "Survival", "missing"],
+      ["Alaska", "Believe In Me", "owned"],
+      ["Human Being", "The Box Opened", "owned"],
+      ["Source Direct", "Secret Liaisons", "missing"],
+      ["Sade", "Cherish The Day (Pal Joey Remix)", "other", "Cherish The Day"],
+      ["Robert Hood", "Museum", "owned"],
+      ["Minnie Riperton", "Memory Lane", "missing"]
+    ]
+  },
+  {
+    "id": "skrillex", "name": "Skrillex", "subtitle": "QUEST FOR FIRE Basement Set / selected tracks", "lesson": "Keep the VIP separate. Prep what you own.",
+    "source_url": "https://www.youtube.com/watch?v=hb0XLX0b4Y4",
+    "source_note": "Selected unblended chapter entries from Skrillex's official video description. Featured artists are kept in the artist credit. The VIP remains distinct from the original recording.",
+    "tracks": [
+      ["Skrillex & Nai Barghouti", "Xena", "owned"],
+      ["Skrillex & Aluna & Kito", "Inhale Exhale", "missing"],
+      ["Skrillex & Eli Keszler", "A Street I Know", "owned"],
+      ["Skrillex & Joker & Sleepnet", "Tears", "owned"],
+      ["Skrillex & Starrah", "Good Space", "owned"],
+      ["Skrillex & Noisia & Josh Pan & Dylan Brady", "Supersonic (My Existence) (VIP)", "other", "Supersonic (My Existence)"],
+      ["Skrillex & Starrah & Four Tet", "Butterflies", "missing"],
+      ["Skrillex & Missy Elliott & Mr. Oizo", "Ratata", "owned"]
+    ]
+  }
+]
