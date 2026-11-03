@@ -29,16 +29,16 @@
         "width": 1440,
         "height": 1000,
         "duration_seconds": 21.333333,
-        "bytes": 237031,
-        "sha256": "96fb7ab23b94381690f8a93f12e3d18fe1eb86d4090d37d1ee185953de39de65"
+        "bytes": 237145,
+        "sha256": "68d67ad3e86359b73a16d09c3abaf1b0937968ff7246c6d666d2c87d752728b6"
       },
       "gif": {
         "name": "avalon-emerson.gif",
         "width": 1080,
         "height": 750,
         "duration_seconds": 22.75,
-        "bytes": 408968,
-        "sha256": "279ee028a76e95a5c92c63edf07439398467f045add61244bffc94a84f37fdce"
+        "bytes": 415527,
+        "sha256": "d448605a9bfc6390af7956db3ff8aafd28dde3d5f5c9da292137fee99bfd9413"
       }
     },
     {
@@ -62,16 +62,16 @@
         "width": 1440,
         "height": 1000,
         "duration_seconds": 21.233333,
-        "bytes": 217292,
-        "sha256": "83abb421507e01558ce46e3108c63e2b00a0027c429f63bef9c28541f7afa403"
+        "bytes": 217552,
+        "sha256": "43ed6065048e1226e0f1880af22d671906acd0679512cd13ccb29e7561d0bf1e"
       },
       "gif": {
         "name": "ben-ufo.gif",
         "width": 1080,
         "height": 750,
         "duration_seconds": 22.63,
-        "bytes": 373138,
-        "sha256": "4d5840248077299901caaa73551148b61581f01f0b50eb0d00b96cc0025fa8b7"
+        "bytes": 386751,
+        "sha256": "237d1f7fdd7bfd15dda1dd061808a49445ab93a06236eb1c8d8e98561df435b2"
       }
     },
     {
@@ -95,16 +95,16 @@
         "width": 1440,
         "height": 1000,
         "duration_seconds": 21.233333,
-        "bytes": 231999,
-        "sha256": "d8aa7ae3e6fac80c4fbb467d303929a2bbe816c82d400dfff85d730000bdf57c"
+        "bytes": 232438,
+        "sha256": "1680712718f551eb2883850adcdfef7387e0fb826c9289d5bd3e74ea8546f02c"
       },
       "gif": {
         "name": "four-tet.gif",
         "width": 1080,
         "height": 750,
         "duration_seconds": 22.63,
-        "bytes": 419483,
-        "sha256": "4b1f61e9255d69108cc874c4d5429e7253ea18a62bed031f995f0b7037d2f7e6"
+        "bytes": 429563,
+        "sha256": "28267b89f0d6636c71481620f0fda5935bd063ddc0bbc809b38794b27b602ad7"
       }
     },
     {
@@ -128,16 +128,16 @@
         "width": 1440,
         "height": 1000,
         "duration_seconds": 21.333333,
-        "bytes": 234776,
-        "sha256": "3b1785c7fc28d06346a13794d7248bc8840869a1cb8c9f4f39ed9165c6220e9c"
+        "bytes": 235273,
+        "sha256": "c0f1cd4a5e8b83f769a4d76a2914a6fe3d8f1ed92eb7c7bda019424c0197db0e"
       },
       "gif": {
         "name": "floating-points.gif",
         "width": 1080,
         "height": 750,
         "duration_seconds": 22.75,
-        "bytes": 411187,
-        "sha256": "79cc1a18163c5c40065b40a29d34dd20468762cc613645adc4b961499942b793"
+        "bytes": 416101,
+        "sha256": "f66b7b66e359e5228fddc10085067d0d325ab0b957c776f63e421f01e8afae27"
       }
     },
     {
@@ -161,16 +161,16 @@
         "width": 1440,
         "height": 1000,
         "duration_seconds": 21.233333,
-        "bytes": 236924,
-        "sha256": "36327a9b4f65c3409a1ef5db00e29b199dac6d8a3f3c4f3a16b6777ecb1c97a7"
+        "bytes": 237011,
+        "sha256": "edcf19828173ffb0f9ab133da70d339025397134ea8be09edee875db839d7bfe"
       },
       "gif": {
         "name": "skrillex.gif",
         "width": 1080,
         "height": 750,
         "duration_seconds": 22.63,
-        "bytes": 449823,
-        "sha256": "3e24bdbdd61435a674e7e9cb6317c54f8df9cc9dfb443c18e6cfc31b90ae6bb6"
+        "bytes": 447576,
+        "sha256": "2a05e968a1911de12d91b56040e0906b65b2152ab03d2ad303876d609ef697b0"
       }
     }
   ]

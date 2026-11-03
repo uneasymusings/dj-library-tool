@@ -1,11 +1,11 @@
 # Implementation status
 
-## 0.1.0a21 candidate
+## 0.1.0a21
 
 - Explicit Rip and optional Shop choices in the terminal and review page. Rip previews YouTube sources before an MP3 download; a completed download rechecks the saved set.
 - Review-page styling follows Lattice's paper/ink palette, restrained blue signal, square rules and mono labels. Local browser visual review remains unverified: this environment denies loopback socket binding.
 - Five terminal-only walkthroughs replace the framed media. The optional Rip-help stage shows usage, without claiming a live commercial-audio download.
-- Targeted in-process runtime and browser interaction checks pass; release publication waits for the cross-platform CI matrix.
+- All six Linux/macOS/Windows CI jobs passed on Python 3.12/3.13 at `da0a723`, including fresh installed-wheel smoke checks. [a21 release](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a21). Local targeted checks, an installed-wheel CLI replay and all ten media decodes also passed.
 
 ## 0.1.0a20
 

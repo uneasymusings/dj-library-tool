@@ -107,7 +107,7 @@ def capture(spec, output, work):
 
         def run(arguments, record=None):
             started = time.monotonic()
-            reply = runner.invoke(cli_app, arguments, color=True)
+            reply = runner.invoke(cli_app, arguments, color=True, prog_name="djlib")
             if reply.exit_code:
                 raise RuntimeError(f"{arguments}: {reply.output}\n{reply.exception}")
             if record:
