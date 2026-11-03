@@ -234,11 +234,11 @@ def main():
         encoding="utf-8",
     )
     env = {**os.environ, "FONTCONFIG_FILE": str(config)}
-    specs = json.loads((ROOT / "sets.json").read_text())
+    specs = json.loads((ROOT / "sets.json").read_text(encoding="utf-8"))
     for spec in specs:
         if options.only and spec["id"] != options.only:
             continue
-        capture = json.loads((options.captures / f"{spec['id']}.json").read_text())
+        capture = json.loads((options.captures / f"{spec['id']}.json").read_text(encoding="utf-8"))
         render(capture, output, env, options.poster_only)
 
 

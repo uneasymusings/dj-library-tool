@@ -52,10 +52,10 @@ def digest(value):
 
 
 def frontend():
-    source = (WEB / "app.js").read_text()
+    source = (WEB / "app.js").read_text(encoding="utf-8")
     assert source.endswith("\nstart();\n"), "Review startup changed; update the demo adapter."
     script = source.removesuffix("\nstart();\n") + "\n"
-    page = (WEB / "index.html").read_text()
+    page = (WEB / "index.html").read_text(encoding="utf-8")
     page = page.replace("<title>djlib</title>", "<title>djlib / public demo</title>")
     page = page.replace(
         '<main id="view"',
@@ -98,7 +98,7 @@ def main():
         for name, value in files.items():
             (PUBLIC / name).write_bytes(value)
         files["catalog.json"] = (PUBLIC / "catalog.json").read_bytes()
-        manifest = json.loads((PUBLIC / "manifest.json").read_text())
+        manifest = json.loads((PUBLIC / "manifest.json").read_text(encoding="utf-8"))
         manifest["files"] = {name: digest(value) for name, value in files.items()}
         (PUBLIC / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         print("Updated public frontend; retained the checked demo catalog.")
@@ -106,9 +106,9 @@ def main():
     if not args.captures:
         parser.error("--captures is required when generating")
     catalog, lists = {}, {"/requests": [], "/collections": [], "/library": []}
-    specs = json.loads((Path(__file__).parent / "sets.json").read_text())
+    specs = json.loads((Path(__file__).parent / "sets.json").read_text(encoding="utf-8"))
     for spec in specs:
-        capture = json.loads((args.captures / f"{spec['id']}.json").read_text())
+        capture = json.loads((args.captures / f"{spec['id']}.json").read_text(encoding="utf-8"))
         for endpoint, value in capture["preview"].items():
             if endpoint in lists:
                 key = {
