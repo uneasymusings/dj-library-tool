@@ -1187,9 +1187,10 @@ async function requestDetail(requestId) {
   view.append(message);
 
   // Where the crate goes next, as on the crate's own page.
-  const handoff = (collectionId) => h("div", { class: "handoff" },
+  const handoff = (collectionId) => h("details", { class: "command-fallback" },
+    h("summary", null, "Terminal commands"), h("div", { class: "handoff" },
     h("div", null, h("h2", null, "Put it in rekordbox"), copyable(commandText("rekordbox", "push", shortId(collectionId)))),
-    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", shortId(collectionId)))));
+    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", shortId(collectionId))))));
 
   const rows = new Map();
   let filter = "all";
@@ -1225,7 +1226,6 @@ async function requestDetail(requestId) {
     missing.length ? copyLines(`Copy ${number(missing.length)} missing`, missing.map((item) => plainLabel(item.input))) : null));
   const credit = mixesdbCredit(ledger.mixesdb);
   if (credit) view.append(credit);
-  if (current) view.append(handoff(crate.collection_id));
 
   if (!current) {
     action.addEventListener("click", async () => {
@@ -1397,6 +1397,7 @@ async function requestDetail(requestId) {
   }
   render();
   view.append(tableSlot, moreSlot);
+  if (current) view.append(handoff(crate.collection_id));
   view.append(h("p", { class: "foot" },
     "Matched to your files by exact artist, title and mix. Another mix is never swapped in.",
     shazam ? " Newest Shazams first." : null,

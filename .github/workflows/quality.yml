@@ -58,6 +58,8 @@ jobs:
         run: uv run --locked ruff check src scripts tests
       - name: Formatting
         run: uv run --locked ruff format --check src scripts tests
+      - name: Public preview matches the production UI
+        run: uv run --locked python scripts/showcase/build_preview.py --check
       - name: Runtime, CLI, and MCP tests
         run: uv run --locked pytest -q --durations=10
       - name: Song recognition works offline

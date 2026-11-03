@@ -348,7 +348,7 @@ code.inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); b
 
 .set-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin: 0 0 20px; }
 .set-title { min-width: 0; flex: 1 1 32rem; }
-.set-title h1 { font-size: 28px; line-height: 1.18; letter-spacing: -0.022em; margin: 8px 0 0; max-width: 42ch; overflow-wrap: anywhere; }
+.set-title h1 { font-size: 22px; line-height: 1.18; letter-spacing: -0.022em; margin: 8px 0 0; max-width: 42ch; overflow-wrap: anywhere; }
 .set-tally { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; margin: 0 0 16px; }
 .credit { margin: -6px 0 16px; font-size: 13px; color: var(--muted); }
 .credit a { color: var(--muted); text-underline-offset: 3px; }
@@ -465,13 +465,13 @@ a.time:hover { color: var(--accent-text); text-decoration: underline; text-decor
   border-radius: 0;
   background: var(--lcd);
   border: 1px solid color-mix(in srgb, var(--lcd) 55%, var(--line-strong));
-  color: #ece8e1;
+  color: var(--lcd-text);
   font: 12.5px/1.5 var(--mono);
   max-width: 100%;
 }
 
 .command code { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.command button { background: transparent; color: #ece8e1; border-color: #4a463f; flex: none; }
+.command button { background: transparent; color: var(--lcd-text); border-color: var(--line-strong); flex: none; }
 .command button:hover { border-color: #8a8478; }
 
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; font-size: 14px; }
@@ -673,4 +673,11 @@ tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel) 65%, v
   button, .button, .track-action summary { min-height: 36px; }
   .tabs a { padding: 7px 10px; }
   .demo-notice { padding: 8px 16px; }
+}
+
+@media (min-width: 641px) {
+  .t-set td.c-own { width: 240px; }
+  .t-set .acquire-actions { display: inline-flex; margin: 0 0 0 12px; }
+  .t-set .own-note { max-width: none; }
+  .t-set .own-note + .acquire-actions { display: flex; margin: 4px 0 0; }
 }

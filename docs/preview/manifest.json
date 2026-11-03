@@ -1,9 +1,9 @@
 {
   "files": {
     "index.html": "f9a4dad13a3c620afdad6bd0564cb545396f6edc7b42b29ab3f9e070d68d6f11",
-    "app.js": "40bff337c4ce99ac6e2fc4b6e74a0e4d9bc678a6bf9cd29f749f96e9b8f7d414",
-    "app.css": "03c197c1f77803dd67f27e2413cbfbd8495f3b4cbcea5e08e9e6943ffec7402d",
-    "demo.js": "1617bdb30b6e8b926452c06d20b78aab15f471d2d95d4517716667dc41e127f1",
+    "app.js": "68bef6152c5c4c09c5bc3a89989aff7790d60bcab7497c0f62d705e1038eead8",
+    "app.css": "50e431126bb22f4e4c0e9576036a2d4d5fe3fe585f791ac96a65f7d4b3d07a61",
+    "demo.js": "c453eb06a8b1484c7e86e193981e4bf44742d7cc5770bb7da01d72bc6934c5a7",
     "catalog.json": "ee569344d9127aa61984f338713f3c746c23df94973b718d1fe5b43da658dfdb"
   },
   "frontend": "production source; only auto-start is deferred",

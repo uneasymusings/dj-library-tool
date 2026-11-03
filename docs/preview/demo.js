@@ -22,6 +22,9 @@
     }
     return reply;
   };
+  const originalErrorNotice = errorNotice;
+  errorNotice = error => error.code === "DEMO_READ_ONLY"
+    ? notice("info", error.message) : originalErrorNotice(error);
   await start();
 })().catch(error => {
   document.getElementById("view").textContent = "The demo could not load. Please reload the page.";

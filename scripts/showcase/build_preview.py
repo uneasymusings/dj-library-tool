@@ -36,6 +36,9 @@ ADAPTER = r""""use strict";
     }
     return reply;
   };
+  const originalErrorNotice = errorNotice;
+  errorNotice = error => error.code === "DEMO_READ_ONLY"
+    ? notice("info", error.message) : originalErrorNotice(error);
   await start();
 })().catch(error => {
   document.getElementById("view").textContent = "The demo could not load. Please reload the page.";
@@ -76,12 +79,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--captures", type=Path)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--refresh-ui", action="store_true")
     args = parser.parse_args()
     files = frontend()
     if args.check:
         for name, value in files.items():
             assert (PUBLIC / name).read_bytes() == value, f"Regenerate public frontend: {name}"
         print("Public preview matches the production frontend; demo transport is read-only.")
+        return
+    if args.refresh_ui:
+        assert (PUBLIC / "catalog.json").is_file(), "Build the demo catalog first."
+        for name, value in files.items():
+            (PUBLIC / name).write_bytes(value)
+        files["catalog.json"] = (PUBLIC / "catalog.json").read_bytes()
+        manifest = json.loads((PUBLIC / "manifest.json").read_text())
+        manifest["files"] = {name: digest(value) for name, value in files.items()}
+        (PUBLIC / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        print("Updated public frontend; retained the checked demo catalog.")
         return
     if not args.captures:
         parser.error("--captures is required when generating")
