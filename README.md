@@ -119,9 +119,9 @@ A paced sequence of actual browser screenshots from the public demo. No download
 
 `djlib crate last` shows the whole crate's local-file and saved BPM/key counts, import record, and last USB check above its tracks. Amber meters show unfinished prep; **Needs attention** names missing files and unfinished analysis. The first **Next** action follows the first unfinished stage. Terminal commands and the review page share records tied to that exact crate; changing it invalidates the old result.
 
-![An illustrative crate-prep screen rendered by djlib: 184 of 200 local files, 172 with saved BPM/key, import recorded, and 16 missing files to address before export](docs/images/terminal-crate-prep.png)
+![Four Tet crate prep: four local demo files, three with illustrative saved BPM/key, import unrecorded and USB unchecked](docs/images/terminal-crate-prep-gray.png)
 
-Illustrative data, rendered by the actual terminal views. Compact tables highlight BPM/key; below 60 columns, tracks stack so their mix names stay readable. Plain ASCII and color-free terminals keep the same counts and next steps. `djlib status` shows library analysis coverage, and USB results distinguish byte-for-byte file checks from playlist order and hardware playback. Scripts and assistants keep the JSON interface.
+The same generated library used in the walkthrough above, rendered by the actual terminal views. Saved BPM/key are illustrative. Compact tables highlight BPM/key; below 60 columns, tracks stack so their mix names stay readable. Plain ASCII and color-free terminals keep the same counts and next steps. `djlib status` shows library analysis coverage, and USB results distinguish byte-for-byte file checks from playlist order and hardware playback. Scripts and assistants keep the JSON interface.
 
 Developers can regenerate the SVG, HTML and text previews with `python scripts/preview_terminal.py`; they use fictional fixtures and never touch rekordbox, your library, or a USB.
 

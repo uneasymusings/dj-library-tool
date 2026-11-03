@@ -35,3 +35,5 @@ These generators are development tools; the source version is recorded in each c
 `python scripts/showcase/build_preview.py --captures dist/showcase/captures` exports the same production frontend with a read-only data transport. The example data comes from these real API captures; workstation paths are replaced with `/demo/` paths. No audio or credentials are published.
 
 For UI-only edits, run `python scripts/showcase/build_preview.py --refresh-ui` to keep the existing demo catalog. `--check` verifies that the public assets match the production frontend; CI runs it. GitHub Pages serves `docs/preview/`. The public transport rejects every write with instructions to run the local app.
+
+The standalone crate still in the README comes from `four-tet-prep.png`. The browser JPEGs are actual captures of the public demo; `python scripts/showcase/render_browser.py --output dist/showcase/rendered` joins the set, optional Rip and crate views with simple cuts and verifies both exports decode.

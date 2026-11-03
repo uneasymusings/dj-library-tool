@@ -209,5 +209,13 @@
       "bytes": 201854
     },
     "decode": "passed for both files"
-  }
+  },
+  "additional_stills": [
+    {
+      "name": "terminal-crate-prep-gray.png",
+      "source": "four-tet-prep.png from the actual CLI capture",
+      "sha256": "9a7110671929eef2ba18d6cebe5702880a1afb707476e9a3b046ef224cb3f001",
+      "bytes": 140646
+    }
+  ]
 }
