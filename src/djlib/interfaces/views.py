@@ -2667,7 +2667,7 @@ def set_table(term: Terminal, result: dict, tracks: list[dict]) -> bool:
         # One unbroken line, so the command pastes whole.
         line = Text(f"  {'…' if term.unicode else '...'} and {number(more)} more: ", style="muted")
         line.append(
-            term.command("requests", "report", short_handle(result.get("request_id") or "")),
+            term.command("requests", "get", short_handle(result.get("request_id") or "")),
             style="cmd",
         )
         term.out.print(line, soft_wrap=True)
