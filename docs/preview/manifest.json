@@ -1,0 +1,12 @@
+{
+  "files": {
+    "index.html": "edb2e016241adc5eba9900f48a35b492e97d41c4027ca50dfcfe866feb183b45",
+    "app.js": "2ddc7038d9b7a66c8b691e4442d6cb274f5136dab88a11642f3699a4c0bb75fd",
+    "app.css": "78112ae820869040f5205db0a9ea012b498eb0ca6f72fcc761f26ac73ee189b5",
+    "demo.js": "c453eb06a8b1484c7e86e193981e4bf44742d7cc5770bb7da01d72bc6934c5a7",
+    "catalog.json": "ee569344d9127aa61984f338713f3c746c23df94973b718d1fe5b43da658dfdb"
+  },
+  "frontend": "production source; only auto-start is deferred",
+  "data": "generated original-tone fixtures",
+  "writes": "disabled"
+}

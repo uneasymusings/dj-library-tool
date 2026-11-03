@@ -1,0 +1,4765 @@
+{
+  "/requests/request_db35a700d0a1417993a2a99689ff919c": {
+    "request_id": "request_db35a700d0a1417993a2a99689ff919c",
+    "revision": 1,
+    "name": "Avalon Emerson / 9000Streams",
+    "created_at": "2026-11-03T06:47:17.821781+00:00",
+    "updated_at": "2026-11-03T06:47:17.821783+00:00",
+    "total_items": 8,
+    "counts": {
+      "satisfied": 4,
+      "missing": 3,
+      "ambiguous": 0,
+      "unknown": 1,
+      "unavailable": 0,
+      "source_selected": 0
+    },
+    "unresolved_items": 4,
+    "unique_satisfied_recording_ids": [
+      "rec_34e48f88d4424a27b5a1001a44c1dbba",
+      "rec_38ca58c398704162b662ed321c31a9e4",
+      "rec_610345c6f6f44503a4ff89bb5e592ff2",
+      "rec_e67cedd18fb6427a96fad5bd8c143a3a"
+    ],
+    "catalog_snapshot_only": true,
+    "automatic_acquisition": false,
+    "acoustic_identification": false,
+    "app_import_verified": false,
+    "device_export_verified": false,
+    "hardware_verified": false,
+    "verification_limits": {
+      "max_bytes_per_refresh": 1073741824,
+      "max_seconds_per_refresh": 30,
+      "max_candidates_per_item": 20
+    },
+    "source": null,
+    "mixesdb": null,
+    "hidden_tracks": null,
+    "crate": {
+      "collection_id": "collection_6800174adf634e8cb1aa5e21fc14de65",
+      "name": "Avalon Emerson / 9000Streams",
+      "created_at": "2026-11-03T06:47:17.882138+00:00",
+      "tracks": 4
+    },
+    "items": [
+      {
+        "item_id": "requested_888a366862244c8a94c726f00f6f64c6",
+        "position": 1,
+        "input": {
+          "kind": "named",
+          "artist": "Tibi Dabo",
+          "title": "Desert Hike",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_34e48f88d4424a27b5a1001a44c1dbba",
+            "asset_revision_id": "rev_911b1e6575984b3aab8dd2baefa16ac4",
+            "artist": "Tibi Dabo",
+            "title": "Desert Hike",
+            "version": "",
+            "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-01.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_34e48f88d4424a27b5a1001a44c1dbba",
+          "asset_revision_id": "rev_911b1e6575984b3aab8dd2baefa16ac4",
+          "artist": "Tibi Dabo",
+          "title": "Desert Hike",
+          "version": "",
+          "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-01.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:17.810210+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:17.810210+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_b97f76acdeed4d679edc5434bbd30980",
+        "position": 2,
+        "input": {
+          "kind": "named",
+          "artist": "Avalon Emerson",
+          "title": "Treat Mode",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_38ca58c398704162b662ed321c31a9e4",
+            "asset_revision_id": "rev_0da1bdc6e58746468b56fda7b07b1c36",
+            "artist": "Avalon Emerson",
+            "title": "Treat Mode",
+            "version": "",
+            "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-02.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_38ca58c398704162b662ed321c31a9e4",
+          "asset_revision_id": "rev_0da1bdc6e58746468b56fda7b07b1c36",
+          "artist": "Avalon Emerson",
+          "title": "Treat Mode",
+          "version": "",
+          "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-02.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:17.813627+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:17.813627+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_175e39f4803e4c3b929411094cd42c2a",
+        "position": 3,
+        "input": {
+          "kind": "named",
+          "artist": "Vitess",
+          "title": "Vibin Check",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:17.814994+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_bf2fe594546143d6bf334f0b0e0b713d",
+        "position": 4,
+        "input": {
+          "kind": "named",
+          "artist": "Running Hot",
+          "title": "Song for Bertie",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_610345c6f6f44503a4ff89bb5e592ff2",
+            "asset_revision_id": "rev_bf18a47f9e274293a614be8468804f9f",
+            "artist": "Running Hot",
+            "title": "Song for Bertie",
+            "version": "",
+            "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-04.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_610345c6f6f44503a4ff89bb5e592ff2",
+          "asset_revision_id": "rev_bf18a47f9e274293a614be8468804f9f",
+          "artist": "Running Hot",
+          "title": "Song for Bertie",
+          "version": "",
+          "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-04.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:17.816500+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:17.816500+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_3f77a7695c8c41fe9f3867713ceb7394",
+        "position": 5,
+        "input": {
+          "kind": "named",
+          "artist": "Pleasure Planet",
+          "title": "Go With Madness (Earth Trax Remix)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_13afde1dc07f4cbf945637048652d078",
+            "asset_revision_id": "rev_10300076164a49a2b84082dae087625f",
+            "artist": "Pleasure Planet",
+            "title": "Go With Madness",
+            "version": "",
+            "sha256": "c9b71c3c5bd785945858b321ad0af438b253c38aa2d640cc8c50181c71fc5690",
+            "locations_truncated": false,
+            "identity_match": "different_version",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:17.817869+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_e70913d3801542459f0a22e6d32c2b13",
+        "position": 6,
+        "input": {
+          "kind": "named",
+          "artist": "Shanti Celeste",
+          "title": "Ice Cream Dream Boy",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_e67cedd18fb6427a96fad5bd8c143a3a",
+            "asset_revision_id": "rev_1c4b69150d3145298280fee0ee2e1ba7",
+            "artist": "Shanti Celeste",
+            "title": "Ice Cream Dream Boy",
+            "version": "",
+            "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-06.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_e67cedd18fb6427a96fad5bd8c143a3a",
+          "asset_revision_id": "rev_1c4b69150d3145298280fee0ee2e1ba7",
+          "artist": "Shanti Celeste",
+          "title": "Ice Cream Dream Boy",
+          "version": "",
+          "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-06.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:17.819161+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:17.819161+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_77051f8803124d7f9deba18ff78ea927",
+        "position": 7,
+        "input": {
+          "kind": "named",
+          "artist": "Two Shell",
+          "title": "Everybody Worldwide",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:17.820389+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_a581dc29c515404385e4cef8a683fec7",
+        "position": 8,
+        "input": {
+          "kind": "unknown",
+          "artist": null,
+          "title": null,
+          "version": "",
+          "label": "ID - ID",
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:17.821412+00:00",
+        "state": "unknown"
+      }
+    ],
+    "offset": 0,
+    "limit": 100,
+    "next_offset": null
+  },
+  "/collections/collection_6800174adf634e8cb1aa5e21fc14de65": {
+    "collection_id": "collection_6800174adf634e8cb1aa5e21fc14de65",
+    "name": "Avalon Emerson / 9000Streams",
+    "revision": 1,
+    "tracks": [
+      {
+        "recording_id": "rec_34e48f88d4424a27b5a1001a44c1dbba",
+        "asset_revision_id": "rev_911b1e6575984b3aab8dd2baefa16ac4",
+        "artist": "Tibi Dabo",
+        "title": "Desert Hike",
+        "version": "",
+        "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+        "properties": {
+          "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Tibi Dabo",
+          "title": "Desert Hike",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_38ca58c398704162b662ed321c31a9e4",
+        "asset_revision_id": "rev_0da1bdc6e58746468b56fda7b07b1c36",
+        "artist": "Avalon Emerson",
+        "title": "Treat Mode",
+        "version": "",
+        "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+        "properties": {
+          "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+          "size_bytes": 353934,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Avalon Emerson",
+          "title": "Treat Mode",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-02.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f4bb8dc44612bcc0a7182b61db2b8a71b45b523ee17fed398d219b43131f15cd",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-02.wav"
+        },
+        "path": "/demo/demo-02.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-02.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_610345c6f6f44503a4ff89bb5e592ff2",
+        "asset_revision_id": "rev_bf18a47f9e274293a614be8468804f9f",
+        "artist": "Running Hot",
+        "title": "Song for Bertie",
+        "version": "",
+        "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+        "properties": {
+          "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+          "size_bytes": 353936,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Running Hot",
+          "title": "Song for Bertie",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_e67cedd18fb6427a96fad5bd8c143a3a",
+        "asset_revision_id": "rev_1c4b69150d3145298280fee0ee2e1ba7",
+        "artist": "Shanti Celeste",
+        "title": "Ice Cream Dream Boy",
+        "version": "",
+        "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+        "properties": {
+          "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+          "size_bytes": 353944,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Shanti Celeste",
+          "title": "Ice Cream Dream Boy",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-06.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8870761d276e8e79e9452a6063ef40254f1b5a1504bf253bba501612f7007a00",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-06.wav"
+        },
+        "path": "/demo/demo-06.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-06.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "app_state": "not_tracked_here",
+    "device_state": "not_tracked_here",
+    "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
+    "track_count": 4,
+    "next_cursor": null
+  },
+  "/collections/collection_6800174adf634e8cb1aa5e21fc14de65/workflow": {
+    "track_count": 4,
+    "local_files": 4,
+    "with_bpm_and_key": 2,
+    "import_recorded": false,
+    "usb_verified_at_last_check": false,
+    "usb_checked_at": null,
+    "usb_device": null,
+    "hardware_playback_verified": false,
+    "desktop_supported": true,
+    "action": null,
+    "previous_action_is_stale": false
+  },
+  "/capabilities": {
+    "application_version": "0.1.0a22",
+    "schema_version": "1",
+    "workspace_id": "ws_d2168fcd8bb242f1ba7346bcd47e4806",
+    "implemented": [
+      "local_audio_index",
+      "owned_request_matching",
+      "missing_track_ledger",
+      "local_tracklist_collection",
+      "set_command",
+      "set_link_tracklists",
+      "set_identification",
+      "shazam_history",
+      "listener_comment_id_hints",
+      "web_source_search",
+      "selected_web_audio_download",
+      "rekordbox_push",
+      "rekordbox_usb_export",
+      "usb_device_library_verification",
+      "rekordbox_analysis_sync",
+      "rekordbox_analysis_pull",
+      "durable_jobs",
+      "review_queue",
+      "manifest_export",
+      "rekordbox_xml_handoff",
+      "usb_space_preflight",
+      "set_metadata_inspection",
+      "json_cli",
+      "mcp_stdio",
+      "agent_session_setup",
+      "targeted_delivery_workflow",
+      "native_app_working_copies",
+      "device_audio_readback",
+      "operator_native_stage_evidence",
+      "app_import_workflow",
+      "catalog_annotations",
+      "organization_filters",
+      "native_rekordbox_snapshot_inspection",
+      "catalog_pagination",
+      "saved_work_discovery",
+      "explicit_root_management",
+      "file_reconciliation"
+    ],
+    "planned": [
+      "soulseek",
+      "artist_catalogs",
+      "native_serato",
+      "standalone_chat"
+    ],
+    "details": {
+      "rekordbox": "set, rekordbox push, usb and pull drive rekordbox's own menus on macOS and are CLI only; sync (MCP: djlib_import_rekordbox_analysis) reads its analysis files in the background. The USB export is verified from the stick's device library (export.pdb) against each file's SHA-256",
+      "web_sources": "YouTube and SoundCloud search (djlib_find_sources) and MP3 downloads of unverified source quality",
+      "set_links": "YouTube and SoundCloud set descriptions or chapters become the tracklist; listener comments near each ID are hints, not identifications",
+      "set_identification": "djlib identify LINK (MCP: djlib_identify_set) reads a YouTube or SoundCloud set's description, chapters and comments, listens to it with song recognition (Shazam, unofficial; or licensed AudD or ACRCloud) and merges one timestamped tracklist with a status and evidence per track; djlib set LINK uses it when the published tracklist is missing, has IDs or names too few songs for the set's length",
+      "shazam_history": "djlib set shazam (MCP: djlib_shazam_history lists them) reads the songs the user Shazamed: this Mac's history, an iPhone backup, a CSV or Apple Music"
+    },
+    "cli_only": [
+      "djlib set FILE_OR_URL [--fetch --yes] [--usb] [--no-rekordbox]",
+      "djlib rekordbox push ID",
+      "djlib rekordbox usb ID"
+    ],
+    "identity_method": "exact artist/title/version labels from tags or file names, hash-checked; the user's own files are never matched by sound",
+    "native_automation_available": true,
+    "delivery_default": "rekordbox: djlib set or rekordbox push/usb from the CLI on macOS; working-copy deliveries: small pilot before bulk, native steps by the operator",
+    "stage": "experimental alpha; consult docs/STATUS.md for app/provider test evidence"
+  },
+  "/requests/request_a7020bcbf173494cae3a8ba42824a486": {
+    "request_id": "request_a7020bcbf173494cae3a8ba42824a486",
+    "revision": 1,
+    "name": "Ben UFO / Boiler Room London",
+    "created_at": "2026-11-03T06:47:18.764434+00:00",
+    "updated_at": "2026-11-03T06:47:18.764437+00:00",
+    "total_items": 8,
+    "counts": {
+      "satisfied": 3,
+      "missing": 3,
+      "ambiguous": 0,
+      "unknown": 2,
+      "unavailable": 0,
+      "source_selected": 0
+    },
+    "unresolved_items": 5,
+    "unique_satisfied_recording_ids": [
+      "rec_017bd62c1dd74db69e0354146a1bdeb1",
+      "rec_08a882f15d4246deb1ec915a76d85a60",
+      "rec_671e5a4d039c4fdbb981a9a34910ff97"
+    ],
+    "catalog_snapshot_only": true,
+    "automatic_acquisition": false,
+    "acoustic_identification": false,
+    "app_import_verified": false,
+    "device_export_verified": false,
+    "hardware_verified": false,
+    "verification_limits": {
+      "max_bytes_per_refresh": 1073741824,
+      "max_seconds_per_refresh": 30,
+      "max_candidates_per_item": 20
+    },
+    "source": null,
+    "mixesdb": null,
+    "hidden_tracks": null,
+    "crate": {
+      "collection_id": "collection_b07b08e3b2ab4db9a140a037e3683ed4",
+      "name": "Ben UFO / Boiler Room London",
+      "created_at": "2026-11-03T06:47:18.805602+00:00",
+      "tracks": 3
+    },
+    "items": [
+      {
+        "item_id": "requested_ce330c728fb34b708f448c44a8e6592c",
+        "position": 1,
+        "input": {
+          "kind": "unknown",
+          "artist": null,
+          "title": null,
+          "version": "",
+          "label": "ID - ID",
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:18.754279+00:00",
+        "state": "unknown"
+      },
+      {
+        "item_id": "requested_0b9aaa89948745ec9a9bbbb3f5de6999",
+        "position": 2,
+        "input": {
+          "kind": "unknown",
+          "artist": null,
+          "title": null,
+          "version": "",
+          "label": "ID - ID",
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:18.754300+00:00",
+        "state": "unknown"
+      },
+      {
+        "item_id": "requested_c0c9262290014092b2a4a2e1dd7550aa",
+        "position": 3,
+        "input": {
+          "kind": "named",
+          "artist": "Chez Damier",
+          "title": "Help Myself (Reconstructed by Carl Craig)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_08a882f15d4246deb1ec915a76d85a60",
+            "asset_revision_id": "rev_6a19d001e648414d96f7e0ff036efc8f",
+            "artist": "Chez Damier",
+            "title": "Help Myself (Reconstructed by Carl Craig)",
+            "version": "",
+            "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-03.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_08a882f15d4246deb1ec915a76d85a60",
+          "asset_revision_id": "rev_6a19d001e648414d96f7e0ff036efc8f",
+          "artist": "Chez Damier",
+          "title": "Help Myself (Reconstructed by Carl Craig)",
+          "version": "",
+          "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-03.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:18.754319+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:18.754319+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_2abe39f28df14743a461fc253142b936",
+        "position": 4,
+        "input": {
+          "kind": "named",
+          "artist": "Portable",
+          "title": "Don't Give Up (Cassy Remix)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_78debabde53247e4bd3b9744bc6444c2",
+            "asset_revision_id": "rev_2e22c97680c64984b78256a5eda343af",
+            "artist": "Portable",
+            "title": "Don't Give Up",
+            "version": "",
+            "sha256": "76ae2a1d130abad09ba1abf43b90f2627a4ef710e9757ffb1aa813d8a34def82",
+            "locations_truncated": false,
+            "identity_match": "different_version",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:18.757211+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_a0eb3f585ae745b592199585accf3c61",
+        "position": 5,
+        "input": {
+          "kind": "named",
+          "artist": "Lowtec",
+          "title": "Use Me",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_017bd62c1dd74db69e0354146a1bdeb1",
+            "asset_revision_id": "rev_80e34cc9e1b04d58a39de80ba2201a74",
+            "artist": "Lowtec",
+            "title": "Use Me",
+            "version": "",
+            "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-05.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_017bd62c1dd74db69e0354146a1bdeb1",
+          "asset_revision_id": "rev_80e34cc9e1b04d58a39de80ba2201a74",
+          "artist": "Lowtec",
+          "title": "Use Me",
+          "version": "",
+          "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-05.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:18.758909+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:18.758909+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_8c104264d4d842b69b9c4d013290a3f2",
+        "position": 6,
+        "input": {
+          "kind": "named",
+          "artist": "A Made Up Sound",
+          "title": "Demons",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:18.760558+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_858993c107f94425b8332e38f56af17b",
+        "position": 7,
+        "input": {
+          "kind": "named",
+          "artist": "elGato",
+          "title": "Blue",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_671e5a4d039c4fdbb981a9a34910ff97",
+            "asset_revision_id": "rev_8212457bd93b4b2697a7b05a33b8bb22",
+            "artist": "elGato",
+            "title": "Blue",
+            "version": "",
+            "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-07.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_671e5a4d039c4fdbb981a9a34910ff97",
+          "asset_revision_id": "rev_8212457bd93b4b2697a7b05a33b8bb22",
+          "artist": "elGato",
+          "title": "Blue",
+          "version": "",
+          "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-07.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:18.761695+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:18.761695+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_5a0de17581fb4729868923266c3cd154",
+        "position": 8,
+        "input": {
+          "kind": "named",
+          "artist": "Mood II Swing",
+          "title": "Move Me (Alternative Mix)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:18.763014+00:00",
+        "state": "missing"
+      }
+    ],
+    "offset": 0,
+    "limit": 100,
+    "next_offset": null
+  },
+  "/collections/collection_b07b08e3b2ab4db9a140a037e3683ed4": {
+    "collection_id": "collection_b07b08e3b2ab4db9a140a037e3683ed4",
+    "name": "Ben UFO / Boiler Room London",
+    "revision": 1,
+    "tracks": [
+      {
+        "recording_id": "rec_08a882f15d4246deb1ec915a76d85a60",
+        "asset_revision_id": "rev_6a19d001e648414d96f7e0ff036efc8f",
+        "artist": "Chez Damier",
+        "title": "Help Myself (Reconstructed by Carl Craig)",
+        "version": "",
+        "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+        "properties": {
+          "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+          "size_bytes": 353962,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Chez Damier",
+          "title": "Help Myself (Reconstructed by Carl Craig)",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_017bd62c1dd74db69e0354146a1bdeb1",
+        "asset_revision_id": "rev_80e34cc9e1b04d58a39de80ba2201a74",
+        "artist": "Lowtec",
+        "title": "Use Me",
+        "version": "",
+        "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+        "properties": {
+          "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+          "size_bytes": 353922,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Lowtec",
+          "title": "Use Me",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-05.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f66b4c2ee8ad1f95d457f548472ff8cf4a68a5aa260261084705627633e906bb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-05.wav"
+        },
+        "path": "/demo/demo-05.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-05.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_671e5a4d039c4fdbb981a9a34910ff97",
+        "asset_revision_id": "rev_8212457bd93b4b2697a7b05a33b8bb22",
+        "artist": "elGato",
+        "title": "Blue",
+        "version": "",
+        "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+        "properties": {
+          "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+          "size_bytes": 353920,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "elGato",
+          "title": "Blue",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-07.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "6d2eba390af0daf099c30550ce7344dde35b1af8a2ac19227c4f4f122418a0cb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-07.wav"
+        },
+        "path": "/demo/demo-07.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-07.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "app_state": "not_tracked_here",
+    "device_state": "not_tracked_here",
+    "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
+    "track_count": 3,
+    "next_cursor": null
+  },
+  "/collections/collection_b07b08e3b2ab4db9a140a037e3683ed4/workflow": {
+    "track_count": 3,
+    "local_files": 3,
+    "with_bpm_and_key": 2,
+    "import_recorded": false,
+    "usb_verified_at_last_check": false,
+    "usb_checked_at": null,
+    "usb_device": null,
+    "hardware_playback_verified": false,
+    "desktop_supported": true,
+    "action": null,
+    "previous_action_is_stale": false
+  },
+  "/requests/request_724ec0dd443844eda5e00cf12a981714": {
+    "request_id": "request_724ec0dd443844eda5e00cf12a981714",
+    "revision": 1,
+    "name": "Four Tet / Lollapalooza 2024",
+    "created_at": "2026-11-03T06:47:19.723039+00:00",
+    "updated_at": "2026-11-03T06:47:19.723041+00:00",
+    "total_items": 8,
+    "counts": {
+      "satisfied": 4,
+      "missing": 4,
+      "ambiguous": 0,
+      "unknown": 0,
+      "unavailable": 0,
+      "source_selected": 0
+    },
+    "unresolved_items": 4,
+    "unique_satisfied_recording_ids": [
+      "rec_1cf5046755484294a78db80ec346c6dc",
+      "rec_8e7b9c7642994d3f974fc6e8c6aea649",
+      "rec_cad61a826fec436497430f84b97de2a7",
+      "rec_eea51ad3cdc0432eae6ba2a9774ba91a"
+    ],
+    "catalog_snapshot_only": true,
+    "automatic_acquisition": false,
+    "acoustic_identification": false,
+    "app_import_verified": false,
+    "device_export_verified": false,
+    "hardware_verified": false,
+    "verification_limits": {
+      "max_bytes_per_refresh": 1073741824,
+      "max_seconds_per_refresh": 30,
+      "max_candidates_per_item": 20
+    },
+    "source": null,
+    "mixesdb": null,
+    "hidden_tracks": null,
+    "crate": {
+      "collection_id": "collection_5356ed2eac8d4027b4c0b5406a1842c6",
+      "name": "Four Tet / Lollapalooza 2024",
+      "created_at": "2026-11-03T06:47:19.769390+00:00",
+      "tracks": 4
+    },
+    "items": [
+      {
+        "item_id": "requested_ac10c4cf358448a3bd9c909cbc019f8a",
+        "position": 1,
+        "input": {
+          "kind": "named",
+          "artist": "Four Tet",
+          "title": "Gliding Through Everything",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_cad61a826fec436497430f84b97de2a7",
+            "asset_revision_id": "rev_fb18ad30ac3d4ea98e00f1002bfcf34e",
+            "artist": "Four Tet",
+            "title": "Gliding Through Everything",
+            "version": "",
+            "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-01.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_cad61a826fec436497430f84b97de2a7",
+          "asset_revision_id": "rev_fb18ad30ac3d4ea98e00f1002bfcf34e",
+          "artist": "Four Tet",
+          "title": "Gliding Through Everything",
+          "version": "",
+          "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-01.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:19.709366+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:19.709366+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_388dc1a2b66642e08cf183bb52699360",
+        "position": 2,
+        "input": {
+          "kind": "named",
+          "artist": "Joy Orbison",
+          "title": "Flight FM",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_1cf5046755484294a78db80ec346c6dc",
+            "asset_revision_id": "rev_a1da11cea527415fa9d697b5834bb88e",
+            "artist": "Joy Orbison",
+            "title": "Flight FM",
+            "version": "",
+            "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-02.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_1cf5046755484294a78db80ec346c6dc",
+          "asset_revision_id": "rev_a1da11cea527415fa9d697b5834bb88e",
+          "artist": "Joy Orbison",
+          "title": "Flight FM",
+          "version": "",
+          "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-02.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:19.712644+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:19.712644+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_39f4243d4d0b4e9b9e4ee0b016909989",
+        "position": 3,
+        "input": {
+          "kind": "named",
+          "artist": "4B & Viperactive",
+          "title": "Throw It Back",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_eea51ad3cdc0432eae6ba2a9774ba91a",
+            "asset_revision_id": "rev_1689d987a61245c28c213ff511303f7f",
+            "artist": "4B & Viperactive",
+            "title": "Throw It Back",
+            "version": "",
+            "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-03.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_eea51ad3cdc0432eae6ba2a9774ba91a",
+          "asset_revision_id": "rev_1689d987a61245c28c213ff511303f7f",
+          "artist": "4B & Viperactive",
+          "title": "Throw It Back",
+          "version": "",
+          "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-03.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:19.714101+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:19.714101+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_984d1e696b334ffea48c5eb0f0b293a3",
+        "position": 4,
+        "input": {
+          "kind": "named",
+          "artist": "Billie Eilish",
+          "title": "LUNCH (Phrva Flip)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_8e7b9c7642994d3f974fc6e8c6aea649",
+            "asset_revision_id": "rev_4290fe92cd9943ef91d4c4016162f2fd",
+            "artist": "Billie Eilish",
+            "title": "LUNCH (Phrva Flip)",
+            "version": "",
+            "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-04.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_8e7b9c7642994d3f974fc6e8c6aea649",
+          "asset_revision_id": "rev_4290fe92cd9943ef91d4c4016162f2fd",
+          "artist": "Billie Eilish",
+          "title": "LUNCH (Phrva Flip)",
+          "version": "",
+          "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-04.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:19.716024+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:19.716024+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_9f2a7fae9e684399a8de6732daf3c463",
+        "position": 5,
+        "input": {
+          "kind": "named",
+          "artist": "Borne & Alexis B",
+          "title": "Hush",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:19.717349+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_855a0720c03f49f19ae4800cec1c15a1",
+        "position": 6,
+        "input": {
+          "kind": "named",
+          "artist": "Oski & Hydraulix",
+          "title": "HAWT",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:19.718853+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_cf496127adef44b6990529e8e3c3e544",
+        "position": 7,
+        "input": {
+          "kind": "named",
+          "artist": "Coki",
+          "title": "Goblin (Hamdi Edit)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_0e0a3f9b90814d628198bef671eb1db6",
+            "asset_revision_id": "rev_5d7edd65ee704abf9d8721ebd6143664",
+            "artist": "Coki",
+            "title": "Goblin",
+            "version": "",
+            "sha256": "e8a5f254ea53142a562cd7d341422fadbf4b83421293dabddeca3d765c78daf1",
+            "locations_truncated": false,
+            "identity_match": "different_version",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:19.719942+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_6b56fd0ba639476281a6a2099839e64b",
+        "position": 8,
+        "input": {
+          "kind": "named",
+          "artist": "G Jones",
+          "title": "In Your Head (RL Grime Edit)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_33bcee7db79a4ff28cad96381a273257",
+            "asset_revision_id": "rev_854fa46411364d4bb64918979a9b3043",
+            "artist": "G Jones",
+            "title": "In Your Head",
+            "version": "",
+            "sha256": "82a0964a3cc0e7d681d0dd15baea63cf6ec05c374c25cabb557d10c49f03ca16",
+            "locations_truncated": false,
+            "identity_match": "different_version",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:19.721581+00:00",
+        "state": "missing"
+      }
+    ],
+    "offset": 0,
+    "limit": 100,
+    "next_offset": null
+  },
+  "/collections/collection_5356ed2eac8d4027b4c0b5406a1842c6": {
+    "collection_id": "collection_5356ed2eac8d4027b4c0b5406a1842c6",
+    "name": "Four Tet / Lollapalooza 2024",
+    "revision": 1,
+    "tracks": [
+      {
+        "recording_id": "rec_cad61a826fec436497430f84b97de2a7",
+        "asset_revision_id": "rev_fb18ad30ac3d4ea98e00f1002bfcf34e",
+        "artist": "Four Tet",
+        "title": "Gliding Through Everything",
+        "version": "",
+        "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+        "properties": {
+          "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+          "size_bytes": 353944,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Four Tet",
+          "title": "Gliding Through Everything",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 130.0,
+          "key": "11A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_1cf5046755484294a78db80ec346c6dc",
+        "asset_revision_id": "rev_a1da11cea527415fa9d697b5834bb88e",
+        "artist": "Joy Orbison",
+        "title": "Flight FM",
+        "version": "",
+        "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+        "properties": {
+          "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Joy Orbison",
+          "title": "Flight FM",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-02.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f4bb8dc44612bcc0a7182b61db2b8a71b45b523ee17fed398d219b43131f15cd",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-02.wav"
+        },
+        "path": "/demo/demo-02.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-02.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_eea51ad3cdc0432eae6ba2a9774ba91a",
+        "asset_revision_id": "rev_1689d987a61245c28c213ff511303f7f",
+        "artist": "4B & Viperactive",
+        "title": "Throw It Back",
+        "version": "",
+        "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+        "properties": {
+          "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+          "size_bytes": 353940,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "4B & Viperactive",
+          "title": "Throw It Back",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_8e7b9c7642994d3f974fc6e8c6aea649",
+        "asset_revision_id": "rev_4290fe92cd9943ef91d4c4016162f2fd",
+        "artist": "Billie Eilish",
+        "title": "LUNCH (Phrva Flip)",
+        "version": "",
+        "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+        "properties": {
+          "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+          "size_bytes": 353942,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Billie Eilish",
+          "title": "LUNCH (Phrva Flip)",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "app_state": "not_tracked_here",
+    "device_state": "not_tracked_here",
+    "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
+    "track_count": 4,
+    "next_cursor": null
+  },
+  "/collections/collection_5356ed2eac8d4027b4c0b5406a1842c6/workflow": {
+    "track_count": 4,
+    "local_files": 4,
+    "with_bpm_and_key": 3,
+    "import_recorded": false,
+    "usb_verified_at_last_check": false,
+    "usb_checked_at": null,
+    "usb_device": null,
+    "hardware_playback_verified": false,
+    "desktop_supported": true,
+    "action": null,
+    "previous_action_is_stale": false
+  },
+  "/requests/request_9c6f4b54af5948dfbd61a2f19946d9e2": {
+    "request_id": "request_9c6f4b54af5948dfbd61a2f19946d9e2",
+    "revision": 1,
+    "name": "Floating Points / NTS 10 February 2025",
+    "created_at": "2026-11-03T06:47:20.660707+00:00",
+    "updated_at": "2026-11-03T06:47:20.660710+00:00",
+    "total_items": 8,
+    "counts": {
+      "satisfied": 4,
+      "missing": 4,
+      "ambiguous": 0,
+      "unknown": 0,
+      "unavailable": 0,
+      "source_selected": 0
+    },
+    "unresolved_items": 4,
+    "unique_satisfied_recording_ids": [
+      "rec_6718cb6720924c50af1c2900f18b0647",
+      "rec_a142c79e2c1a43a5b040c996eb1c39bd",
+      "rec_d7427337e7544c64918429bc3f86eddf",
+      "rec_ea05d891a3794cd1a62b4addac528520"
+    ],
+    "catalog_snapshot_only": true,
+    "automatic_acquisition": false,
+    "acoustic_identification": false,
+    "app_import_verified": false,
+    "device_export_verified": false,
+    "hardware_verified": false,
+    "verification_limits": {
+      "max_bytes_per_refresh": 1073741824,
+      "max_seconds_per_refresh": 30,
+      "max_candidates_per_item": 20
+    },
+    "source": null,
+    "mixesdb": null,
+    "hidden_tracks": null,
+    "crate": {
+      "collection_id": "collection_2409d5f6ff7d4dc68537166806252174",
+      "name": "Floating Points / NTS 10 February 2025",
+      "created_at": "2026-11-03T06:47:20.703245+00:00",
+      "tracks": 4
+    },
+    "items": [
+      {
+        "item_id": "requested_938049f43d6c419cba48bd444c0d54d5",
+        "position": 1,
+        "input": {
+          "kind": "named",
+          "artist": "Jessica Ekomane",
+          "title": "Manifolds",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_a142c79e2c1a43a5b040c996eb1c39bd",
+            "asset_revision_id": "rev_1130baaaff454958aab8976d0b96d6a7",
+            "artist": "Jessica Ekomane",
+            "title": "Manifolds",
+            "version": "",
+            "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-01.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_a142c79e2c1a43a5b040c996eb1c39bd",
+          "asset_revision_id": "rev_1130baaaff454958aab8976d0b96d6a7",
+          "artist": "Jessica Ekomane",
+          "title": "Manifolds",
+          "version": "",
+          "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-01.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:20.646991+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:20.646991+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_035dccdcc367419fb86df22eebdac9f5",
+        "position": 2,
+        "input": {
+          "kind": "named",
+          "artist": "Klute",
+          "title": "Survival",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:20.650466+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_3d2becff7f69470b9c9dc5884b0665e0",
+        "position": 3,
+        "input": {
+          "kind": "named",
+          "artist": "Alaska",
+          "title": "Believe In Me",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_ea05d891a3794cd1a62b4addac528520",
+            "asset_revision_id": "rev_f274f9c53ff949bd866db66b44f5abce",
+            "artist": "Alaska",
+            "title": "Believe In Me",
+            "version": "",
+            "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-03.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_ea05d891a3794cd1a62b4addac528520",
+          "asset_revision_id": "rev_f274f9c53ff949bd866db66b44f5abce",
+          "artist": "Alaska",
+          "title": "Believe In Me",
+          "version": "",
+          "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-03.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:20.653037+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:20.653037+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_3911e6f9f48f40a2ba540c1e7cbe235d",
+        "position": 4,
+        "input": {
+          "kind": "named",
+          "artist": "Human Being",
+          "title": "The Box Opened",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_d7427337e7544c64918429bc3f86eddf",
+            "asset_revision_id": "rev_b09d706783ce49b1be107e44a390cf9f",
+            "artist": "Human Being",
+            "title": "The Box Opened",
+            "version": "",
+            "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-04.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_d7427337e7544c64918429bc3f86eddf",
+          "asset_revision_id": "rev_b09d706783ce49b1be107e44a390cf9f",
+          "artist": "Human Being",
+          "title": "The Box Opened",
+          "version": "",
+          "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-04.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:20.654654+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:20.654654+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_be61eab9f47441bcbcd38201ea04d18e",
+        "position": 5,
+        "input": {
+          "kind": "named",
+          "artist": "Source Direct",
+          "title": "Secret Liaisons",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:20.656076+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_b091035da8304fb68fe7db05ad68a77a",
+        "position": 6,
+        "input": {
+          "kind": "named",
+          "artist": "Sade",
+          "title": "Cherish The Day (Pal Joey Remix)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_f68e2dac3e184ded8b269325d0c17092",
+            "asset_revision_id": "rev_8fb30a4d8849445ea2b452ca86682574",
+            "artist": "Sade",
+            "title": "Cherish The Day",
+            "version": "",
+            "sha256": "add8380d39f87bc5a9185c1bb78bcb3e211dadb60cb27542146bf2e980995d0f",
+            "locations_truncated": false,
+            "identity_match": "different_version",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:20.657072+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_4f7332268e954ac89681118c390ad743",
+        "position": 7,
+        "input": {
+          "kind": "named",
+          "artist": "Robert Hood",
+          "title": "Museum",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_6718cb6720924c50af1c2900f18b0647",
+            "asset_revision_id": "rev_07412671cdc743d2a12575978dac7fc9",
+            "artist": "Robert Hood",
+            "title": "Museum",
+            "version": "",
+            "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-07.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_6718cb6720924c50af1c2900f18b0647",
+          "asset_revision_id": "rev_07412671cdc743d2a12575978dac7fc9",
+          "artist": "Robert Hood",
+          "title": "Museum",
+          "version": "",
+          "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-07.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:20.658280+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:20.658280+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_1a57e2cc7c894da3b5fe8174c132b457",
+        "position": 8,
+        "input": {
+          "kind": "named",
+          "artist": "Minnie Riperton",
+          "title": "Memory Lane",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:20.659407+00:00",
+        "state": "missing"
+      }
+    ],
+    "offset": 0,
+    "limit": 100,
+    "next_offset": null
+  },
+  "/collections/collection_2409d5f6ff7d4dc68537166806252174": {
+    "collection_id": "collection_2409d5f6ff7d4dc68537166806252174",
+    "name": "Floating Points / NTS 10 February 2025",
+    "revision": 1,
+    "tracks": [
+      {
+        "recording_id": "rec_a142c79e2c1a43a5b040c996eb1c39bd",
+        "asset_revision_id": "rev_1130baaaff454958aab8976d0b96d6a7",
+        "artist": "Jessica Ekomane",
+        "title": "Manifolds",
+        "version": "",
+        "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+        "properties": {
+          "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+          "size_bytes": 353934,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Jessica Ekomane",
+          "title": "Manifolds",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_ea05d891a3794cd1a62b4addac528520",
+        "asset_revision_id": "rev_f274f9c53ff949bd866db66b44f5abce",
+        "artist": "Alaska",
+        "title": "Believe In Me",
+        "version": "",
+        "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+        "properties": {
+          "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Alaska",
+          "title": "Believe In Me",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_d7427337e7544c64918429bc3f86eddf",
+        "asset_revision_id": "rev_b09d706783ce49b1be107e44a390cf9f",
+        "artist": "Human Being",
+        "title": "The Box Opened",
+        "version": "",
+        "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+        "properties": {
+          "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+          "size_bytes": 353936,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Human Being",
+          "title": "The Box Opened",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_6718cb6720924c50af1c2900f18b0647",
+        "asset_revision_id": "rev_07412671cdc743d2a12575978dac7fc9",
+        "artist": "Robert Hood",
+        "title": "Museum",
+        "version": "",
+        "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+        "properties": {
+          "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+          "size_bytes": 353928,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Robert Hood",
+          "title": "Museum",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-07.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "6d2eba390af0daf099c30550ce7344dde35b1af8a2ac19227c4f4f122418a0cb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-07.wav"
+        },
+        "path": "/demo/demo-07.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-07.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "app_state": "not_tracked_here",
+    "device_state": "not_tracked_here",
+    "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
+    "track_count": 4,
+    "next_cursor": null
+  },
+  "/collections/collection_2409d5f6ff7d4dc68537166806252174/workflow": {
+    "track_count": 4,
+    "local_files": 4,
+    "with_bpm_and_key": 3,
+    "import_recorded": false,
+    "usb_verified_at_last_check": false,
+    "usb_checked_at": null,
+    "usb_device": null,
+    "hardware_playback_verified": false,
+    "desktop_supported": true,
+    "action": null,
+    "previous_action_is_stale": false
+  },
+  "/requests/request_c5e238332f1b4d8dbec7b6a206184e48": {
+    "request_id": "request_c5e238332f1b4d8dbec7b6a206184e48",
+    "revision": 1,
+    "name": "Skrillex / QUEST FOR FIRE Basement Set",
+    "created_at": "2026-11-03T06:47:21.650721+00:00",
+    "updated_at": "2026-11-03T06:47:21.650724+00:00",
+    "total_items": 8,
+    "counts": {
+      "satisfied": 5,
+      "missing": 3,
+      "ambiguous": 0,
+      "unknown": 0,
+      "unavailable": 0,
+      "source_selected": 0
+    },
+    "unresolved_items": 3,
+    "unique_satisfied_recording_ids": [
+      "rec_65d7bd47a03349249cefd0104844ace6",
+      "rec_ab105de5188d4e9eb15e7090e047d7ce",
+      "rec_b2aab92eeed7424abcdd48e14a40f286",
+      "rec_daee2caa3e71457da6bb5f830d1196a9",
+      "rec_ffa52b801f7440a098c7ff5a6a635a18"
+    ],
+    "catalog_snapshot_only": true,
+    "automatic_acquisition": false,
+    "acoustic_identification": false,
+    "app_import_verified": false,
+    "device_export_verified": false,
+    "hardware_verified": false,
+    "verification_limits": {
+      "max_bytes_per_refresh": 1073741824,
+      "max_seconds_per_refresh": 30,
+      "max_candidates_per_item": 20
+    },
+    "source": null,
+    "mixesdb": null,
+    "hidden_tracks": null,
+    "crate": {
+      "collection_id": "collection_9e7e72f463c442018ad0ab64a7035f70",
+      "name": "Skrillex / QUEST FOR FIRE Basement Set",
+      "created_at": "2026-11-03T06:47:21.694923+00:00",
+      "tracks": 5
+    },
+    "items": [
+      {
+        "item_id": "requested_bc43f9fa543b4c45b197fb9d94182599",
+        "position": 1,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Nai Barghouti",
+          "title": "Xena",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_ab105de5188d4e9eb15e7090e047d7ce",
+            "asset_revision_id": "rev_4b28fdf3a5be4e8ca89061a6ea63455f",
+            "artist": "Skrillex & Nai Barghouti",
+            "title": "Xena",
+            "version": "",
+            "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-01.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_ab105de5188d4e9eb15e7090e047d7ce",
+          "asset_revision_id": "rev_4b28fdf3a5be4e8ca89061a6ea63455f",
+          "artist": "Skrillex & Nai Barghouti",
+          "title": "Xena",
+          "version": "",
+          "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-01.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:21.634898+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:21.634898+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_acfab834f62d4ec19ca869ecabbe6e01",
+        "position": 2,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Aluna & Kito",
+          "title": "Inhale Exhale",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:21.638348+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_7aaf0fc0f4ab424981c31c365b70b50d",
+        "position": 3,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Eli Keszler",
+          "title": "A Street I Know",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_65d7bd47a03349249cefd0104844ace6",
+            "asset_revision_id": "rev_6126749592fc461da8305e17f4c2cb23",
+            "artist": "Skrillex & Eli Keszler",
+            "title": "A Street I Know",
+            "version": "",
+            "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-03.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_65d7bd47a03349249cefd0104844ace6",
+          "asset_revision_id": "rev_6126749592fc461da8305e17f4c2cb23",
+          "artist": "Skrillex & Eli Keszler",
+          "title": "A Street I Know",
+          "version": "",
+          "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-03.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:21.641193+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:21.641193+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_8030942ec02c491993790b140500cd1f",
+        "position": 4,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Joker & Sleepnet",
+          "title": "Tears",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_ffa52b801f7440a098c7ff5a6a635a18",
+            "asset_revision_id": "rev_03cbf8f75a324115ab8c304a36374f81",
+            "artist": "Skrillex & Joker & Sleepnet",
+            "title": "Tears",
+            "version": "",
+            "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-04.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_ffa52b801f7440a098c7ff5a6a635a18",
+          "asset_revision_id": "rev_03cbf8f75a324115ab8c304a36374f81",
+          "artist": "Skrillex & Joker & Sleepnet",
+          "title": "Tears",
+          "version": "",
+          "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-04.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:21.642574+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:21.642574+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_08128b33d3ab48548e11eb8650858b9b",
+        "position": 5,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Starrah",
+          "title": "Good Space",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_daee2caa3e71457da6bb5f830d1196a9",
+            "asset_revision_id": "rev_ca78d7b502a34911ae497c7a361aad8d",
+            "artist": "Skrillex & Starrah",
+            "title": "Good Space",
+            "version": "",
+            "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-05.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_daee2caa3e71457da6bb5f830d1196a9",
+          "asset_revision_id": "rev_ca78d7b502a34911ae497c7a361aad8d",
+          "artist": "Skrillex & Starrah",
+          "title": "Good Space",
+          "version": "",
+          "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-05.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:21.643869+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:21.643869+00:00",
+        "state": "satisfied"
+      },
+      {
+        "item_id": "requested_3f8e90905a1f475491a9000158b9e9ed",
+        "position": 6,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Noisia & Josh Pan & Dylan Brady",
+          "title": "Supersonic (My Existence) (VIP)",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_68b28d68a2a14dbb899342dd9d3dffb0",
+            "asset_revision_id": "rev_2edd8df8d1024438a25964cbb2e749ef",
+            "artist": "Skrillex & Noisia & Josh Pan & Dylan Brady",
+            "title": "Supersonic (My Existence)",
+            "version": "",
+            "sha256": "1e7db30db28976ae92c0b8fa92ad4b30891a652afac475aaba0a33028e9fabbe",
+            "locations_truncated": false,
+            "identity_match": "different_labels",
+            "availability": "not_checked",
+            "path": null
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:21.645179+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_eb4f5f046e424518b6fc778d59f1dd26",
+        "position": 7,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Starrah & Four Tet",
+          "title": "Butterflies",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [],
+        "candidates_truncated": false,
+        "accepted": null,
+        "refreshed_at": "2026-11-03T06:47:21.647797+00:00",
+        "state": "missing"
+      },
+      {
+        "item_id": "requested_d2751abb47c247eeb122f4cd0e165c47",
+        "position": 8,
+        "input": {
+          "kind": "named",
+          "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+          "title": "Ratata",
+          "version": "",
+          "label": null,
+          "timestamp": null,
+          "source_url": null,
+          "notes": "",
+          "confidence": null
+        },
+        "duplicate_of": null,
+        "resolution": null,
+        "source_selection": null,
+        "candidates": [
+          {
+            "recording_id": "rec_b2aab92eeed7424abcdd48e14a40f286",
+            "asset_revision_id": "rev_1a81237542044424aca351b5f777a9cd",
+            "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+            "title": "Ratata",
+            "version": "",
+            "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+            "locations_truncated": false,
+            "identity_match": "exact_labels",
+            "availability": "verified",
+            "path": "/demo/demo-08.wav"
+          }
+        ],
+        "candidates_truncated": false,
+        "accepted": {
+          "recording_id": "rec_b2aab92eeed7424abcdd48e14a40f286",
+          "asset_revision_id": "rev_1a81237542044424aca351b5f777a9cd",
+          "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+          "title": "Ratata",
+          "version": "",
+          "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+          "locations_truncated": false,
+          "identity_match": "exact_labels",
+          "availability": "verified",
+          "path": "/demo/demo-08.wav",
+          "basis": "exact_catalog_labels",
+          "verified_at": "2026-11-03T06:47:21.649035+00:00",
+          "scope": "catalog_labels_and_local_sha256; not_acoustic_or_playback_verification"
+        },
+        "refreshed_at": "2026-11-03T06:47:21.649035+00:00",
+        "state": "satisfied"
+      }
+    ],
+    "offset": 0,
+    "limit": 100,
+    "next_offset": null
+  },
+  "/collections/collection_9e7e72f463c442018ad0ab64a7035f70": {
+    "collection_id": "collection_9e7e72f463c442018ad0ab64a7035f70",
+    "name": "Skrillex / QUEST FOR FIRE Basement Set",
+    "revision": 1,
+    "tracks": [
+      {
+        "recording_id": "rec_ab105de5188d4e9eb15e7090e047d7ce",
+        "asset_revision_id": "rev_4b28fdf3a5be4e8ca89061a6ea63455f",
+        "artist": "Skrillex & Nai Barghouti",
+        "title": "Xena",
+        "version": "",
+        "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+        "properties": {
+          "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+          "size_bytes": 353938,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Nai Barghouti",
+          "title": "Xena",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 130.0,
+          "key": "11A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_65d7bd47a03349249cefd0104844ace6",
+        "asset_revision_id": "rev_6126749592fc461da8305e17f4c2cb23",
+        "artist": "Skrillex & Eli Keszler",
+        "title": "A Street I Know",
+        "version": "",
+        "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+        "properties": {
+          "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+          "size_bytes": 353948,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Eli Keszler",
+          "title": "A Street I Know",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_ffa52b801f7440a098c7ff5a6a635a18",
+        "asset_revision_id": "rev_03cbf8f75a324115ab8c304a36374f81",
+        "artist": "Skrillex & Joker & Sleepnet",
+        "title": "Tears",
+        "version": "",
+        "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+        "properties": {
+          "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+          "size_bytes": 353942,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Joker & Sleepnet",
+          "title": "Tears",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_daee2caa3e71457da6bb5f830d1196a9",
+        "asset_revision_id": "rev_ca78d7b502a34911ae497c7a361aad8d",
+        "artist": "Skrillex & Starrah",
+        "title": "Good Space",
+        "version": "",
+        "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+        "properties": {
+          "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+          "size_bytes": 353938,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Starrah",
+          "title": "Good Space",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-05.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f66b4c2ee8ad1f95d457f548472ff8cf4a68a5aa260261084705627633e906bb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-05.wav"
+        },
+        "path": "/demo/demo-05.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-05.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_b2aab92eeed7424abcdd48e14a40f286",
+        "asset_revision_id": "rev_1a81237542044424aca351b5f777a9cd",
+        "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+        "title": "Ratata",
+        "version": "",
+        "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+        "properties": {
+          "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+          "size_bytes": 353952,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+          "title": "Ratata",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-08.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "a6d7c9f157c4091f645fb2f12ee25cd47aeb405c467e98c0686cdc007c8b483e",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-08.wav"
+        },
+        "path": "/demo/demo-08.wav",
+        "managed": false,
+        "location_availability": "not_checked",
+        "last_known_path": "/demo/demo-08.wav",
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "app_state": "not_tracked_here",
+    "device_state": "not_tracked_here",
+    "native_state_scope": "collection_membership_does_not_track_native_apps_or_devices",
+    "track_count": 5,
+    "next_cursor": null
+  },
+  "/collections/collection_9e7e72f463c442018ad0ab64a7035f70/workflow": {
+    "track_count": 5,
+    "local_files": 5,
+    "with_bpm_and_key": 4,
+    "import_recorded": false,
+    "usb_verified_at_last_check": false,
+    "usb_checked_at": null,
+    "usb_device": null,
+    "hardware_playback_verified": false,
+    "desktop_supported": true,
+    "action": null,
+    "previous_action_is_stale": false
+  },
+  "/requests": {
+    "requests": [
+      {
+        "request_id": "request_db35a700d0a1417993a2a99689ff919c",
+        "name": "Avalon Emerson / 9000Streams",
+        "created_at": "2026-11-03T06:47:17.821781+00:00",
+        "revision": 1,
+        "updated_at": "2026-11-03T06:47:17.821783+00:00",
+        "total_items": 8,
+        "counts": {
+          "owned": 4,
+          "missing": 2,
+          "other_mix": 1,
+          "ids": 1,
+          "to_check": 0,
+          "maybe": 0
+        }
+      },
+      {
+        "request_id": "request_a7020bcbf173494cae3a8ba42824a486",
+        "name": "Ben UFO / Boiler Room London",
+        "created_at": "2026-11-03T06:47:18.764434+00:00",
+        "revision": 1,
+        "updated_at": "2026-11-03T06:47:18.764437+00:00",
+        "total_items": 8,
+        "counts": {
+          "owned": 3,
+          "missing": 2,
+          "other_mix": 1,
+          "ids": 2,
+          "to_check": 0,
+          "maybe": 0
+        }
+      },
+      {
+        "request_id": "request_724ec0dd443844eda5e00cf12a981714",
+        "name": "Four Tet / Lollapalooza 2024",
+        "created_at": "2026-11-03T06:47:19.723039+00:00",
+        "revision": 1,
+        "updated_at": "2026-11-03T06:47:19.723041+00:00",
+        "total_items": 8,
+        "counts": {
+          "owned": 4,
+          "missing": 2,
+          "other_mix": 2,
+          "ids": 0,
+          "to_check": 0,
+          "maybe": 0
+        }
+      },
+      {
+        "request_id": "request_9c6f4b54af5948dfbd61a2f19946d9e2",
+        "name": "Floating Points / NTS 10 February 2025",
+        "created_at": "2026-11-03T06:47:20.660707+00:00",
+        "revision": 1,
+        "updated_at": "2026-11-03T06:47:20.660710+00:00",
+        "total_items": 8,
+        "counts": {
+          "owned": 4,
+          "missing": 3,
+          "other_mix": 1,
+          "ids": 0,
+          "to_check": 0,
+          "maybe": 0
+        }
+      },
+      {
+        "request_id": "request_c5e238332f1b4d8dbec7b6a206184e48",
+        "name": "Skrillex / QUEST FOR FIRE Basement Set",
+        "created_at": "2026-11-03T06:47:21.650721+00:00",
+        "revision": 1,
+        "updated_at": "2026-11-03T06:47:21.650724+00:00",
+        "total_items": 8,
+        "counts": {
+          "owned": 5,
+          "missing": 3,
+          "other_mix": 0,
+          "ids": 0,
+          "to_check": 0,
+          "maybe": 0
+        }
+      }
+    ],
+    "total": 5,
+    "next_cursor": null
+  },
+  "/collections": {
+    "collections": [
+      {
+        "collection_id": "collection_6800174adf634e8cb1aa5e21fc14de65",
+        "name": "Avalon Emerson / 9000Streams",
+        "created_at": "2026-11-03T06:47:17.882138+00:00",
+        "revision": 1,
+        "track_count": 4,
+        "app_state": "not_tracked_here",
+        "device_state": "not_tracked_here",
+        "request_id": "request_db35a700d0a1417993a2a99689ff919c"
+      },
+      {
+        "collection_id": "collection_b07b08e3b2ab4db9a140a037e3683ed4",
+        "name": "Ben UFO / Boiler Room London",
+        "created_at": "2026-11-03T06:47:18.805602+00:00",
+        "revision": 1,
+        "track_count": 3,
+        "app_state": "not_tracked_here",
+        "device_state": "not_tracked_here",
+        "request_id": "request_a7020bcbf173494cae3a8ba42824a486"
+      },
+      {
+        "collection_id": "collection_5356ed2eac8d4027b4c0b5406a1842c6",
+        "name": "Four Tet / Lollapalooza 2024",
+        "created_at": "2026-11-03T06:47:19.769390+00:00",
+        "revision": 1,
+        "track_count": 4,
+        "app_state": "not_tracked_here",
+        "device_state": "not_tracked_here",
+        "request_id": "request_724ec0dd443844eda5e00cf12a981714"
+      },
+      {
+        "collection_id": "collection_2409d5f6ff7d4dc68537166806252174",
+        "name": "Floating Points / NTS 10 February 2025",
+        "created_at": "2026-11-03T06:47:20.703245+00:00",
+        "revision": 1,
+        "track_count": 4,
+        "app_state": "not_tracked_here",
+        "device_state": "not_tracked_here",
+        "request_id": "request_9c6f4b54af5948dfbd61a2f19946d9e2"
+      },
+      {
+        "collection_id": "collection_9e7e72f463c442018ad0ab64a7035f70",
+        "name": "Skrillex / QUEST FOR FIRE Basement Set",
+        "created_at": "2026-11-03T06:47:21.694923+00:00",
+        "revision": 1,
+        "track_count": 5,
+        "app_state": "not_tracked_here",
+        "device_state": "not_tracked_here",
+        "request_id": "request_c5e238332f1b4d8dbec7b6a206184e48"
+      }
+    ],
+    "total": 5,
+    "next_cursor": null
+  },
+  "/library": {
+    "tracks": [
+      {
+        "recording_id": "rec_38ca58c398704162b662ed321c31a9e4",
+        "asset_revision_id": "rev_0da1bdc6e58746468b56fda7b07b1c36",
+        "artist": "Avalon Emerson",
+        "title": "Treat Mode",
+        "version": "",
+        "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+        "properties": {
+          "sha256": "84f3d207f752027071ec714670356b257c2a43cfe81d16e3b30e43b0a0ba5d16",
+          "size_bytes": 353934,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Avalon Emerson",
+          "title": "Treat Mode",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-02.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f4bb8dc44612bcc0a7182b61db2b8a71b45b523ee17fed398d219b43131f15cd",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-02.wav"
+        },
+        "path": "/demo/demo-02.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_364b866de48b4e36899b1684af52bb3d",
+            "path": "/demo/demo-02.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-02.wav",
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_13afde1dc07f4cbf945637048652d078",
+        "asset_revision_id": "rev_10300076164a49a2b84082dae087625f",
+        "artist": "Pleasure Planet",
+        "title": "Go With Madness",
+        "version": "",
+        "sha256": "c9b71c3c5bd785945858b321ad0af438b253c38aa2d640cc8c50181c71fc5690",
+        "properties": {
+          "sha256": "c9b71c3c5bd785945858b321ad0af438b253c38aa2d640cc8c50181c71fc5690",
+          "size_bytes": 353940,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Pleasure Planet",
+          "title": "Go With Madness",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-05.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f66b4c2ee8ad1f95d457f548472ff8cf4a68a5aa260261084705627633e906bb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-05.wav"
+        },
+        "path": "/demo/demo-05.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_fa644ffdc4eb4b73aa10c904c8d008d6",
+            "path": "/demo/demo-05.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-05.wav",
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_610345c6f6f44503a4ff89bb5e592ff2",
+        "asset_revision_id": "rev_bf18a47f9e274293a614be8468804f9f",
+        "artist": "Running Hot",
+        "title": "Song for Bertie",
+        "version": "",
+        "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+        "properties": {
+          "sha256": "39020ab584c280f948c49da55b380153edabd0356077469018b1fdd4b589057e",
+          "size_bytes": 353936,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Running Hot",
+          "title": "Song for Bertie",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_3cfad40c2a634d558d20e9a652f5f321",
+            "path": "/demo/demo-04.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_e67cedd18fb6427a96fad5bd8c143a3a",
+        "asset_revision_id": "rev_1c4b69150d3145298280fee0ee2e1ba7",
+        "artist": "Shanti Celeste",
+        "title": "Ice Cream Dream Boy",
+        "version": "",
+        "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+        "properties": {
+          "sha256": "5ee984833422f750ee022aad57472fbe4d17783b2895f1af9070167836e7f93a",
+          "size_bytes": 353944,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Shanti Celeste",
+          "title": "Ice Cream Dream Boy",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-06.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8870761d276e8e79e9452a6063ef40254f1b5a1504bf253bba501612f7007a00",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-06.wav"
+        },
+        "path": "/demo/demo-06.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_98a77cd8baad4095b947185765de2545",
+            "path": "/demo/demo-06.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-06.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_34e48f88d4424a27b5a1001a44c1dbba",
+        "asset_revision_id": "rev_911b1e6575984b3aab8dd2baefa16ac4",
+        "artist": "Tibi Dabo",
+        "title": "Desert Hike",
+        "version": "",
+        "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+        "properties": {
+          "sha256": "32c4903f016438d773dc12766bf25439da3385b87ad76699ac1674c367fe49f8",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Tibi Dabo",
+          "title": "Desert Hike",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_24f68741ae5f4b258a46ec2b1f06101a",
+            "path": "/demo/demo-01.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_08a882f15d4246deb1ec915a76d85a60",
+        "asset_revision_id": "rev_6a19d001e648414d96f7e0ff036efc8f",
+        "artist": "Chez Damier",
+        "title": "Help Myself (Reconstructed by Carl Craig)",
+        "version": "",
+        "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+        "properties": {
+          "sha256": "26a2fef94c921ab2839cbe625646dfc527959beefdc7e22d8ff783e5efe07846",
+          "size_bytes": 353962,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Chez Damier",
+          "title": "Help Myself (Reconstructed by Carl Craig)",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_3add763e1ba1444c83e7b8276f2e06a9",
+            "path": "/demo/demo-03.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_671e5a4d039c4fdbb981a9a34910ff97",
+        "asset_revision_id": "rev_8212457bd93b4b2697a7b05a33b8bb22",
+        "artist": "elGato",
+        "title": "Blue",
+        "version": "",
+        "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+        "properties": {
+          "sha256": "2fb652e9f1ca6bec09657ddc73ce00d4175cee661db4baeb346168f96305a162",
+          "size_bytes": 353920,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "elGato",
+          "title": "Blue",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-07.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "6d2eba390af0daf099c30550ce7344dde35b1af8a2ac19227c4f4f122418a0cb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-07.wav"
+        },
+        "path": "/demo/demo-07.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_6ec7322154ed4ee9a45f03023a8aedb0",
+            "path": "/demo/demo-07.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-07.wav",
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_017bd62c1dd74db69e0354146a1bdeb1",
+        "asset_revision_id": "rev_80e34cc9e1b04d58a39de80ba2201a74",
+        "artist": "Lowtec",
+        "title": "Use Me",
+        "version": "",
+        "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+        "properties": {
+          "sha256": "9fcb76b20049c3191d2064c9f0814060a5a26c3de390a9596aa4b7e11251f306",
+          "size_bytes": 353922,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Lowtec",
+          "title": "Use Me",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-05.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f66b4c2ee8ad1f95d457f548472ff8cf4a68a5aa260261084705627633e906bb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-05.wav"
+        },
+        "path": "/demo/demo-05.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_47ef96214a394170b38f687818642cea",
+            "path": "/demo/demo-05.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-05.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_78debabde53247e4bd3b9744bc6444c2",
+        "asset_revision_id": "rev_2e22c97680c64984b78256a5eda343af",
+        "artist": "Portable",
+        "title": "Don't Give Up",
+        "version": "",
+        "sha256": "76ae2a1d130abad09ba1abf43b90f2627a4ef710e9757ffb1aa813d8a34def82",
+        "properties": {
+          "sha256": "76ae2a1d130abad09ba1abf43b90f2627a4ef710e9757ffb1aa813d8a34def82",
+          "size_bytes": 353932,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Portable",
+          "title": "Don't Give Up",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_4ff9612a433f4ce79d5863bc23b8dfcd",
+            "path": "/demo/demo-04.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_eea51ad3cdc0432eae6ba2a9774ba91a",
+        "asset_revision_id": "rev_1689d987a61245c28c213ff511303f7f",
+        "artist": "4B & Viperactive",
+        "title": "Throw It Back",
+        "version": "",
+        "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+        "properties": {
+          "sha256": "68f243595e5a094cedb0a45b9e9d1e64bd5d64b32a9d2bc279ec01a03094b502",
+          "size_bytes": 353940,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "4B & Viperactive",
+          "title": "Throw It Back",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_9cbf7c1a20894dacaa195d412577b36b",
+            "path": "/demo/demo-03.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_8e7b9c7642994d3f974fc6e8c6aea649",
+        "asset_revision_id": "rev_4290fe92cd9943ef91d4c4016162f2fd",
+        "artist": "Billie Eilish",
+        "title": "LUNCH (Phrva Flip)",
+        "version": "",
+        "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+        "properties": {
+          "sha256": "6ba934a8cd55ba8e671e70ef0c9fd28ab46c99033f4ed289d87f126ee070b3cf",
+          "size_bytes": 353942,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Billie Eilish",
+          "title": "LUNCH (Phrva Flip)",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_eb9237615ef1445cb6c929c87ce97163",
+            "path": "/demo/demo-04.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_0e0a3f9b90814d628198bef671eb1db6",
+        "asset_revision_id": "rev_5d7edd65ee704abf9d8721ebd6143664",
+        "artist": "Coki",
+        "title": "Goblin",
+        "version": "",
+        "sha256": "e8a5f254ea53142a562cd7d341422fadbf4b83421293dabddeca3d765c78daf1",
+        "properties": {
+          "sha256": "e8a5f254ea53142a562cd7d341422fadbf4b83421293dabddeca3d765c78daf1",
+          "size_bytes": 353920,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Coki",
+          "title": "Goblin",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-07.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "6d2eba390af0daf099c30550ce7344dde35b1af8a2ac19227c4f4f122418a0cb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-07.wav"
+        },
+        "path": "/demo/demo-07.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_1c42d7cfd6074142b84c709786459b48",
+            "path": "/demo/demo-07.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-07.wav",
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_cad61a826fec436497430f84b97de2a7",
+        "asset_revision_id": "rev_fb18ad30ac3d4ea98e00f1002bfcf34e",
+        "artist": "Four Tet",
+        "title": "Gliding Through Everything",
+        "version": "",
+        "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+        "properties": {
+          "sha256": "c10f6a851e20216bb6f35a7ee4ba031cacd0856000fca52ce9d0fcd5b225666c",
+          "size_bytes": 353944,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Four Tet",
+          "title": "Gliding Through Everything",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_9240092210a44cc2932da74e8a8c22bf",
+            "path": "/demo/demo-01.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "dj": {
+          "bpm": 130.0,
+          "key": "11A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_33bcee7db79a4ff28cad96381a273257",
+        "asset_revision_id": "rev_854fa46411364d4bb64918979a9b3043",
+        "artist": "G Jones",
+        "title": "In Your Head",
+        "version": "",
+        "sha256": "82a0964a3cc0e7d681d0dd15baea63cf6ec05c374c25cabb557d10c49f03ca16",
+        "properties": {
+          "sha256": "82a0964a3cc0e7d681d0dd15baea63cf6ec05c374c25cabb557d10c49f03ca16",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "G Jones",
+          "title": "In Your Head",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-08.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "a6d7c9f157c4091f645fb2f12ee25cd47aeb405c467e98c0686cdc007c8b483e",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-08.wav"
+        },
+        "path": "/demo/demo-08.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_7ab770bb294343d59df30c1188954cd1",
+            "path": "/demo/demo-08.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-08.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_1cf5046755484294a78db80ec346c6dc",
+        "asset_revision_id": "rev_a1da11cea527415fa9d697b5834bb88e",
+        "artist": "Joy Orbison",
+        "title": "Flight FM",
+        "version": "",
+        "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+        "properties": {
+          "sha256": "c33b209cf27fd4c58cc8d6d79a0734e0eb12ad6a14f5dedb9fd8e93d9f2d5eb2",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Joy Orbison",
+          "title": "Flight FM",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-02.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f4bb8dc44612bcc0a7182b61db2b8a71b45b523ee17fed398d219b43131f15cd",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-02.wav"
+        },
+        "path": "/demo/demo-02.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_7be45c4f0c2e42b3ae8feab921825ded",
+            "path": "/demo/demo-02.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-02.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_ea05d891a3794cd1a62b4addac528520",
+        "asset_revision_id": "rev_f274f9c53ff949bd866db66b44f5abce",
+        "artist": "Alaska",
+        "title": "Believe In Me",
+        "version": "",
+        "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+        "properties": {
+          "sha256": "ef2c8cde13f267cda97fe115aa93a1a6710eeb08f39d0f018a5e71ae8ddbd1a2",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Alaska",
+          "title": "Believe In Me",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_94a97eccc3ff4ff9a8b986c0f707da14",
+            "path": "/demo/demo-03.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_d7427337e7544c64918429bc3f86eddf",
+        "asset_revision_id": "rev_b09d706783ce49b1be107e44a390cf9f",
+        "artist": "Human Being",
+        "title": "The Box Opened",
+        "version": "",
+        "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+        "properties": {
+          "sha256": "24b32eb59ed943c0a6a1a2a68f299435a44db4a93cc120e84ba466532b8a305d",
+          "size_bytes": 353936,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Human Being",
+          "title": "The Box Opened",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_2e0189b68db14bedb57560641c4fb163",
+            "path": "/demo/demo-04.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_a142c79e2c1a43a5b040c996eb1c39bd",
+        "asset_revision_id": "rev_1130baaaff454958aab8976d0b96d6a7",
+        "artist": "Jessica Ekomane",
+        "title": "Manifolds",
+        "version": "",
+        "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+        "properties": {
+          "sha256": "375dceb98a513625de33a3600efae7013d035802ba2a0917b9c093f46712d023",
+          "size_bytes": 353934,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Jessica Ekomane",
+          "title": "Manifolds",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_da209ce9d03b4167bfaae7d6f3bb7ba7",
+            "path": "/demo/demo-01.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_6718cb6720924c50af1c2900f18b0647",
+        "asset_revision_id": "rev_07412671cdc743d2a12575978dac7fc9",
+        "artist": "Robert Hood",
+        "title": "Museum",
+        "version": "",
+        "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+        "properties": {
+          "sha256": "5aa2221bee1d410fc513648401c72e506d5d1b832743b1ec10065d843cc0f1f2",
+          "size_bytes": 353928,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Robert Hood",
+          "title": "Museum",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-07.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "6d2eba390af0daf099c30550ce7344dde35b1af8a2ac19227c4f4f122418a0cb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-07.wav"
+        },
+        "path": "/demo/demo-07.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_3823f42c46874286a4fab5afc7ea835e",
+            "path": "/demo/demo-07.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-07.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_f68e2dac3e184ded8b269325d0c17092",
+        "asset_revision_id": "rev_8fb30a4d8849445ea2b452ca86682574",
+        "artist": "Sade",
+        "title": "Cherish The Day",
+        "version": "",
+        "sha256": "add8380d39f87bc5a9185c1bb78bcb3e211dadb60cb27542146bf2e980995d0f",
+        "properties": {
+          "sha256": "add8380d39f87bc5a9185c1bb78bcb3e211dadb60cb27542146bf2e980995d0f",
+          "size_bytes": 353930,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Sade",
+          "title": "Cherish The Day",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-06.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8870761d276e8e79e9452a6063ef40254f1b5a1504bf253bba501612f7007a00",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-06.wav"
+        },
+        "path": "/demo/demo-06.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_1f92dfcd24044c00839d67753497a956",
+            "path": "/demo/demo-06.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-06.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_65d7bd47a03349249cefd0104844ace6",
+        "asset_revision_id": "rev_6126749592fc461da8305e17f4c2cb23",
+        "artist": "Skrillex & Eli Keszler",
+        "title": "A Street I Know",
+        "version": "",
+        "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+        "properties": {
+          "sha256": "a878dc454f05c0f5e4c7a623b2b6e24e7fc904dbcef73fe9eb1dabc78c66abde",
+          "size_bytes": 353948,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Eli Keszler",
+          "title": "A Street I Know",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-03.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "65b77b44f1745236ef5ff3645ace5b156e108624b3cf7b9acd746bd20eb87566",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-03.wav"
+        },
+        "path": "/demo/demo-03.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_2a1d10f5812142bfa6f4c43edf42d4dc",
+            "path": "/demo/demo-03.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-03.wav",
+        "dj": {
+          "bpm": 124.0,
+          "key": "8A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_ffa52b801f7440a098c7ff5a6a635a18",
+        "asset_revision_id": "rev_03cbf8f75a324115ab8c304a36374f81",
+        "artist": "Skrillex & Joker & Sleepnet",
+        "title": "Tears",
+        "version": "",
+        "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+        "properties": {
+          "sha256": "5be8a0c352df93dcc768ef9e31b26da3dcf23b3e509e9d7b0fc7834fa254a065",
+          "size_bytes": 353942,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Joker & Sleepnet",
+          "title": "Tears",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-04.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8be464fe2e85313e4961eb03b3d8b20791bec5a02be14c7a23d49e887dc4a08f",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-04.wav"
+        },
+        "path": "/demo/demo-04.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_4193e900e0f64724a63e21156d6a2007",
+            "path": "/demo/demo-04.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-04.wav",
+        "dj": {
+          "bpm": 126.0,
+          "key": "9A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_b2aab92eeed7424abcdd48e14a40f286",
+        "asset_revision_id": "rev_1a81237542044424aca351b5f777a9cd",
+        "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+        "title": "Ratata",
+        "version": "",
+        "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+        "properties": {
+          "sha256": "7ace1d2f683af2c5dfc4f64f84fb3d8bd4f402f63d8b5e41e3179c66b3df06b0",
+          "size_bytes": 353952,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Missy Elliott & Mr. Oizo",
+          "title": "Ratata",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-08.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "a6d7c9f157c4091f645fb2f12ee25cd47aeb405c467e98c0686cdc007c8b483e",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-08.wav"
+        },
+        "path": "/demo/demo-08.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_171b269feaf9464089231acf4e24efe5",
+            "path": "/demo/demo-08.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-08.wav",
+        "dj": {
+          "bpm": 128.0,
+          "key": "10A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_ab105de5188d4e9eb15e7090e047d7ce",
+        "asset_revision_id": "rev_4b28fdf3a5be4e8ca89061a6ea63455f",
+        "artist": "Skrillex & Nai Barghouti",
+        "title": "Xena",
+        "version": "",
+        "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+        "properties": {
+          "sha256": "c4d090060a1bbd0df58b5a655de8c27540e46e47ca6bb097c57c6d2dc1ad9655",
+          "size_bytes": 353938,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Nai Barghouti",
+          "title": "Xena",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-01.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "991390050647d09e478e5770f902ddeeebe5a044eecaebe62b9d28c5f9b60bed",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-01.wav"
+        },
+        "path": "/demo/demo-01.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_da88c317ba3a4ac79c9dc9401749d3af",
+            "path": "/demo/demo-01.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-01.wav",
+        "dj": {
+          "bpm": 130.0,
+          "key": "11A",
+          "bpm_source": "operator",
+          "key_source": "operator",
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_68b28d68a2a14dbb899342dd9d3dffb0",
+        "asset_revision_id": "rev_2edd8df8d1024438a25964cbb2e749ef",
+        "artist": "Skrillex & Noisia & Josh Pan & Dylan Brady",
+        "title": "Supersonic (My Existence)",
+        "version": "",
+        "sha256": "1e7db30db28976ae92c0b8fa92ad4b30891a652afac475aaba0a33028e9fabbe",
+        "properties": {
+          "sha256": "1e7db30db28976ae92c0b8fa92ad4b30891a652afac475aaba0a33028e9fabbe",
+          "size_bytes": 353978,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Noisia & Josh Pan & Dylan Brady",
+          "title": "Supersonic (My Existence)",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-06.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "8870761d276e8e79e9452a6063ef40254f1b5a1504bf253bba501612f7007a00",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-06.wav"
+        },
+        "path": "/demo/demo-06.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_4e8e4ba371ad482e8801e0ec9d0e037d",
+            "path": "/demo/demo-06.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-06.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      },
+      {
+        "recording_id": "rec_daee2caa3e71457da6bb5f830d1196a9",
+        "asset_revision_id": "rev_ca78d7b502a34911ae497c7a361aad8d",
+        "artist": "Skrillex & Starrah",
+        "title": "Good Space",
+        "version": "",
+        "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+        "properties": {
+          "sha256": "e84652ae4c5995b7c61d8f1c156f391a5a597c8c51b677f25052b8259686280e",
+          "size_bytes": 353938,
+          "duration_seconds": 4.0,
+          "codec": "pcm_16",
+          "channels": 1,
+          "sample_rate": 44100,
+          "artist": "Skrillex & Starrah",
+          "title": "Good Space",
+          "bit_depth": 16,
+          "bitrate_bps": 705600,
+          "codec_profile": null,
+          "provenance": {
+            "kind": "user_supplied",
+            "source": "/demo/demo-05.wav"
+          },
+          "audio_payload": {
+            "method": "wav_frames_v1",
+            "sha256": "f66b4c2ee8ad1f95d457f548472ff8cf4a68a5aa260261084705627633e906bb",
+            "sample_width": 2,
+            "sample_rate": 44100,
+            "channels": 1,
+            "frames": 176400
+          },
+          "indexed_path": "/demo/demo-05.wav"
+        },
+        "path": "/demo/demo-05.wav",
+        "managed": false,
+        "identity_evidence": {
+          "method": "embedded_tags",
+          "acoustic_identity_verified": false,
+          "labels_are_identity": true
+        },
+        "locations": [
+          {
+            "location_id": "location_027eafc3642340909e1f77467625fd02",
+            "path": "/demo/demo-05.wav",
+            "managed": false
+          }
+        ],
+        "location_count": 1,
+        "availability": "not_checked",
+        "last_known_path": "/demo/demo-05.wav",
+        "dj": {
+          "bpm": null,
+          "key": null,
+          "bpm_source": null,
+          "key_source": null,
+          "bpm_verified": false,
+          "key_verified": false,
+          "energy": null,
+          "set_role": null
+        }
+      }
+    ],
+    "total": 26,
+    "next_cursor": null
+  }
+}

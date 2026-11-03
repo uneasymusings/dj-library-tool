@@ -229,3 +229,12 @@ An original generated tone passes through the real authenticated API and downloa
 Five actual CLI captures and all ten regenerated media files are checked separately. Saved BPM/key in the demo library are illustrative, and the clips do not prove hardware playback. A local native browser screenshot could not be taken because loopback binding is denied; no visual verification of the new page is claimed. Process-based coordinator and wheel-build checks run in CI because this sandbox also blocks those coordinator sockets and the default package cache.
 
 All six [platform jobs](https://github.com/uneasymusings/dj-library-tool/actions/runs/41569631907) passed at `da0a7237dd0d19207629bb04ab065de93d8e7f83`, the published a21 tag. A separate local virtual environment, reusing existing dependency directories, imported djlib from the installed wheel and replayed the Four Tet workflow against generated tones. This supplements the clean installed-wheel smoke checks in CI.
+
+
+## Light-gray software UI and walkthroughs (0.1.0a22 candidate)
+
+The public GitHub Pages preview uses the production frontend with only automatic startup deferred, plus an explicit read-only data transport. CI checks that the generated frontend matches production; source and generated assets use UTF-8 and consistent LF line endings on all platforms. The fixtures come from five real CLI/API captures against isolated original-tone libraries. Workstation paths are replaced with `/demo/` paths; no audio or credentials are published.
+
+Native-browser checks covered the desktop set, optional Rip panel, optional Shop links and crate views. At 390px width, the Rip controls fit without horizontal overflow. Escape dismisses the action panel. Source-search and rekordbox-import attempts in the public demo returned local-app instructions without performing writes. The crate's primary action follows the unfinished stage (import, analysis, USB), with a focused regression check.
+
+All ten terminal media files and both browser-walkthrough files fully decode. The terminal clips replay two actual commands with readable pauses. The browser clip is a paced sequence of actual screenshots. Example BPM/key values are illustrative; native exports and hardware playback are not claimed.

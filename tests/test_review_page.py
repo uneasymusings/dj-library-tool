@@ -499,3 +499,11 @@ def test_page_shows_a_sets_own_source_spellings_and_mixes_like_the_terminal():
     assert shown[4] is None  # a featured artist is not a mix
     assert shown[5] == ["Bad Love", "Antdot & Maz (BR) Remix"]
     assert shown[6] == [2, 3, 1]
+
+
+def test_crate_primary_action_follows_the_unfinished_stage():
+    assert run_page(
+        "crateNextAction({import_recorded:false,with_bpm_and_key:3,track_count:4})",
+        "crateNextAction({import_recorded:true,with_bpm_and_key:3,track_count:4})",
+        "crateNextAction({import_recorded:true,with_bpm_and_key:4,track_count:4})",
+    ) == ["import", "analysis", "usb"]

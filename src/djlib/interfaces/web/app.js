@@ -378,6 +378,12 @@ function youtubeVideo(value) {
   return /^[\w-]{11}$/.test(id || "") ? `https://www.youtube.com/watch?v=${id}` : null;
 }
 
+function closeTrackActions(except = null) {
+  for (const details of document.querySelectorAll(".track-action[open]")) {
+    if (details !== except) details.open = false;
+  }
+}
+
 // Missing music has two deliberate actions. Opening either never downloads or opens a store.
 function acquireTrack(item, requestId, onDone) {
   const track = item.input || {};
@@ -388,6 +394,13 @@ function acquireTrack(item, requestId, onDone) {
   const download = h("button", { type: "button", class: "small primary", disabled: true }, "Rip MP3");
   const results = h("div", { class: "rip-results" });
   const message = h("div", { role: "status" });
+  for (const details of [rip, shop]) {
+    details.addEventListener("toggle", () => {
+      if (!details.open) return;
+      closeTrackActions(details);
+      details.classList.toggle("opens-up", innerHeight - details.getBoundingClientRect().bottom < 320);
+    });
+  }
   let busy = false;
   const changed = () => { download.disabled = busy || !youtubeVideo(source.value); };
   source.addEventListener("input", changed);
@@ -441,8 +454,12 @@ function acquireTrack(item, requestId, onDone) {
     } catch (error) { message.replaceChildren(errorNotice(error)); }
     finally { busy = false; source.disabled = find.disabled = false; changed(); }
   });
-  rip.append(h("summary", null, "Rip"), h("div", { class: "rip-panel" },
-    h("p", { class: "hint" }, "YouTube → MP3. Choose the exact recording; stream quality varies."),
+  const close = h("button", { type: "button", class: "small", "aria-label": "Close Rip" }, "×");
+  close.addEventListener("click", () => { rip.open = false; rip.querySelector("summary").focus(); });
+  rip.append(h("summary", null, "Rip"), h("div", { class: "rip-panel", role: "group", "aria-label": `Rip ${plainLabel(track)}` },
+    h("div", { class: "rip-heading" }, h("strong", null, "YouTube → MP3"), close),
+    h("p", { class: "rip-caption" }, plainLabel(track)),
+    h("p", { class: "hint" }, "Choose the exact recording; stream quality varies."),
     source, h("div", { class: "rip-buttons" }, find, download), results, message));
   return h("div", { class: "acquire-actions" }, rip, unreleased(track) ? null : shop);
 }
@@ -1012,6 +1029,12 @@ function desktopMessage(action) {
   return event.instruction || action.instruction || event.reason || "Working with rekordbox. Keep your Mac unlocked.";
 }
 
+function crateNextAction(status) {
+  if (!status.import_recorded) return "import";
+  if (status.with_bpm_and_key < status.track_count) return "analysis";
+  return "usb";
+}
+
 async function crateWorkflow(collectionId) {
   const status = await api(`/collections/${encodeURIComponent(collectionId)}/workflow`);
   const active = status.action?.state === "running";
@@ -1027,8 +1050,9 @@ async function crateWorkflow(collectionId) {
     step("Imported in rekordbox", status.import_recorded, status.import_recorded ? "This crate was imported through these controls." : "Import the crate, then let rekordbox finish analyzing it."),
     step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}${status.usb_device ? ` on ${fileTail(status.usb_device)}` : ""}. Check again after changing the stick.` : "Export through rekordbox, then check the files and playlist order on the stick."));
   const buttons = h("div", { class: "workflow-buttons" });
+  const nextAction = crateNextAction(status);
   for (const [action, label] of [["import", "Import in rekordbox"], ["analysis", "Read BPM and key"], ["usb", "Export to USB and check"]]) {
-    const button = h("button", { type: "button", class: action === "usb" ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
+    const button = h("button", { type: "button", class: action === nextAction ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
     button.addEventListener("click", async () => {
       for (const sibling of buttons.querySelectorAll("button")) sibling.disabled = true;
       try {
@@ -1187,9 +1211,10 @@ async function requestDetail(requestId) {
   view.append(message);
 
   // Where the crate goes next, as on the crate's own page.
-  const handoff = (collectionId) => h("div", { class: "handoff" },
+  const handoff = (collectionId) => h("details", { class: "command-fallback" },
+    h("summary", null, "Terminal commands"), h("div", { class: "handoff" },
     h("div", null, h("h2", null, "Put it in rekordbox"), copyable(commandText("rekordbox", "push", shortId(collectionId)))),
-    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", shortId(collectionId)))));
+    h("div", null, h("h2", null, "Or straight onto your USB"), copyable(commandText("rekordbox", "usb", shortId(collectionId))))));
 
   const rows = new Map();
   let filter = "all";
@@ -1225,7 +1250,6 @@ async function requestDetail(requestId) {
     missing.length ? copyLines(`Copy ${number(missing.length)} missing`, missing.map((item) => plainLabel(item.input))) : null));
   const credit = mixesdbCredit(ledger.mixesdb);
   if (credit) view.append(credit);
-  if (current) view.append(handoff(crate.collection_id));
 
   if (!current) {
     action.addEventListener("click", async () => {
@@ -1397,6 +1421,7 @@ async function requestDetail(requestId) {
   }
   render();
   view.append(tableSlot, moreSlot);
+  if (current) view.append(handoff(crate.collection_id));
   view.append(h("p", { class: "foot" },
     "Matched to your files by exact artist, title and mix. Another mix is never swapped in.",
     shazam ? " Newest Shazams first." : null,
@@ -1673,6 +1698,14 @@ async function route({ quiet = false } = {}) {
 
 async function start() {
   readHandoff();
+  document.addEventListener("pointerdown", event => {
+    if (!event.target.closest(".track-action")) closeTrackActions();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const open = document.querySelector(".track-action[open]");
+    if (open) { closeTrackActions(); open.querySelector("summary").focus(); }
+  });
   window.addEventListener("hashchange", () => {
     route();
     window.scrollTo(0, 0);

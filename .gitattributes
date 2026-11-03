@@ -4,7 +4,12 @@
 *.json text eol=lf
 *.yml text eol=lf
 *.toml text eol=lf
+# Public preview asset hashes must match on Windows, macOS and Linux.
+src/djlib/interfaces/web/* text eol=lf
+docs/preview/* text eol=lf
 # sh fails on a script with Windows line endings (the plugin's hook, the installer).
 *.sh text eol=lf
 *.gif binary
 *.png binary
+
+*.jpg binary

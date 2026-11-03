@@ -1,6 +1,6 @@
 {
-  "tool_version": "0.1.0a21",
-  "presentation": "plain terminal replay; no title cards or overlays",
+  "tool_version": "0.1.0a22",
+  "presentation": "light-gray terminal replay; two real commands; no title cards or overlays",
   "library": "original generated tones, selected published metadata labels",
   "saved_bpm_key": "illustrative unverified operator values",
   "live_recognition": false,
@@ -20,25 +20,24 @@
         "maybe": 0
       },
       "commands": [
-        "djlib set avalon-emerson.txt --name 'Avalon Emerson' --no-rekordbox",
-        "djlib rip --help",
+        "djlib set avalon-emerson.txt --name 'Avalon Emerson / 9000Streams' --no-rekordbox",
         "djlib crate last"
       ],
       "movie": {
-        "name": "terminal-demo-avalon-emerson.mp4",
-        "width": 1440,
-        "height": 1000,
-        "duration_seconds": 21.333333,
-        "bytes": 237145,
-        "sha256": "68d67ad3e86359b73a16d09c3abaf1b0937968ff7246c6d666d2c87d752728b6"
+        "name": "gray-demo-avalon-emerson.mp4",
+        "width": 1280,
+        "height": 800,
+        "duration_seconds": 14.966667,
+        "bytes": 139480,
+        "sha256": "a61406ccd6ebcc61592e4edc6897e7fab83e3364113b06543cbe122beede8cc4"
       },
       "gif": {
         "name": "avalon-emerson.gif",
         "width": 1080,
-        "height": 750,
-        "duration_seconds": 22.75,
-        "bytes": 415527,
-        "sha256": "d448605a9bfc6390af7956db3ff8aafd28dde3d5f5c9da292137fee99bfd9413"
+        "height": 676,
+        "duration_seconds": 16.38,
+        "bytes": 318080,
+        "sha256": "8009839b071a7ebade0496ea882c9aeddd1d3ee42c0fe163eb2690067142d5ef"
       }
     },
     {
@@ -53,25 +52,24 @@
         "maybe": 0
       },
       "commands": [
-        "djlib set ben-ufo.txt --name 'Ben UFO' --no-rekordbox",
-        "djlib rip --help",
+        "djlib set ben-ufo.txt --name 'Ben UFO / Boiler Room London' --no-rekordbox",
         "djlib crate last"
       ],
       "movie": {
-        "name": "terminal-demo-ben-ufo.mp4",
-        "width": 1440,
-        "height": 1000,
-        "duration_seconds": 21.233333,
-        "bytes": 217552,
-        "sha256": "43ed6065048e1226e0f1880af22d671906acd0679512cd13ccb29e7561d0bf1e"
+        "name": "gray-demo-ben-ufo.mp4",
+        "width": 1280,
+        "height": 800,
+        "duration_seconds": 14.9,
+        "bytes": 126262,
+        "sha256": "96776ad18fff0228741343eb8833e4fe1d1a5f986be6ff3c7659ed39323aed54"
       },
       "gif": {
         "name": "ben-ufo.gif",
         "width": 1080,
-        "height": 750,
-        "duration_seconds": 22.63,
-        "bytes": 386751,
-        "sha256": "237d1f7fdd7bfd15dda1dd061808a49445ab93a06236eb1c8d8e98561df435b2"
+        "height": 676,
+        "duration_seconds": 16.25,
+        "bytes": 282518,
+        "sha256": "11ae6e7b9b43545d504f845ac373b8db6e5c3c3123ccc81a8e32416d9e5aced1"
       }
     },
     {
@@ -86,25 +84,24 @@
         "maybe": 0
       },
       "commands": [
-        "djlib set four-tet.txt --name 'Four Tet' --no-rekordbox",
-        "djlib rip --help",
+        "djlib set four-tet.txt --name 'Four Tet / Lollapalooza 2024' --no-rekordbox",
         "djlib crate last"
       ],
       "movie": {
-        "name": "terminal-demo-four-tet.mp4",
-        "width": 1440,
-        "height": 1000,
-        "duration_seconds": 21.233333,
-        "bytes": 232438,
-        "sha256": "1680712718f551eb2883850adcdfef7387e0fb826c9289d5bd3e74ea8546f02c"
+        "name": "gray-demo-four-tet.mp4",
+        "width": 1280,
+        "height": 800,
+        "duration_seconds": 14.9,
+        "bytes": 137067,
+        "sha256": "cf55498eafd2e33231382927f22cc49666f4d8ad5f79c72cc423d59389c07485"
       },
       "gif": {
         "name": "four-tet.gif",
         "width": 1080,
-        "height": 750,
-        "duration_seconds": 22.63,
-        "bytes": 429563,
-        "sha256": "28267b89f0d6636c71481620f0fda5935bd063ddc0bbc809b38794b27b602ad7"
+        "height": 676,
+        "duration_seconds": 16.25,
+        "bytes": 311865,
+        "sha256": "33e9a2f24eebf17a0865dc5d8ddacbf6156d415151ed35ef9fa125402dd57964"
       }
     },
     {
@@ -119,25 +116,24 @@
         "maybe": 0
       },
       "commands": [
-        "djlib set floating-points.txt --name 'Floating Points' --no-rekordbox",
-        "djlib rip --help",
+        "djlib set floating-points.txt --name 'Floating Points / NTS 10 February 2025' --no-rekordbox",
         "djlib crate last"
       ],
       "movie": {
-        "name": "terminal-demo-floating-points.mp4",
-        "width": 1440,
-        "height": 1000,
-        "duration_seconds": 21.333333,
-        "bytes": 235273,
-        "sha256": "c0f1cd4a5e8b83f769a4d76a2914a6fe3d8f1ed92eb7c7bda019424c0197db0e"
+        "name": "gray-demo-floating-points.mp4",
+        "width": 1280,
+        "height": 800,
+        "duration_seconds": 15.033333,
+        "bytes": 140818,
+        "sha256": "5091d9817fcc359bea20e1e8dfeacc0f8c988a6af99e499533191fa643b42385"
       },
       "gif": {
         "name": "floating-points.gif",
         "width": 1080,
-        "height": 750,
-        "duration_seconds": 22.75,
-        "bytes": 416101,
-        "sha256": "f66b7b66e359e5228fddc10085067d0d325ab0b957c776f63e421f01e8afae27"
+        "height": 676,
+        "duration_seconds": 16.38,
+        "bytes": 341309,
+        "sha256": "7829d050357d41fb6c319457347d7135b656fa828c182fdc7cff5d47fdf03cec"
       }
     },
     {
@@ -152,26 +148,74 @@
         "maybe": 0
       },
       "commands": [
-        "djlib set skrillex.txt --name Skrillex --no-rekordbox",
-        "djlib rip --help",
+        "djlib set skrillex.txt --name 'Skrillex / QUEST FOR FIRE Basement Set' --no-rekordbox",
         "djlib crate last"
       ],
       "movie": {
-        "name": "terminal-demo-skrillex.mp4",
-        "width": 1440,
-        "height": 1000,
-        "duration_seconds": 21.233333,
-        "bytes": 237011,
-        "sha256": "edcf19828173ffb0f9ab133da70d339025397134ea8be09edee875db839d7bfe"
+        "name": "gray-demo-skrillex.mp4",
+        "width": 1280,
+        "height": 800,
+        "duration_seconds": 14.966667,
+        "bytes": 151122,
+        "sha256": "e1c3cbd8829d74d9f0cd5be267d9811bbdfe38c2a1f487fa05554863fced0eb2"
       },
       "gif": {
         "name": "skrillex.gif",
         "width": 1080,
-        "height": 750,
-        "duration_seconds": 22.63,
-        "bytes": 447576,
-        "sha256": "2a05e968a1911de12d91b56040e0906b65b2152ab03d2ad303876d609ef697b0"
+        "height": 676,
+        "duration_seconds": 16.38,
+        "bytes": 349497,
+        "sha256": "cf825584bd7cf1fcee8fa507064825f24f67e1d3c6f99580fae6a80990fe9408"
       }
+    }
+  ],
+  "browser": {
+    "source_url": "https://uneasymusings.github.io/dj-library-tool/preview/",
+    "capture": "actual browser screenshots of the production frontend with a read-only demo transport",
+    "presentation": "paced sequence of set, optional Rip and crate states; no added frame or title cards",
+    "live_audio_download": false,
+    "native_device_automation": false,
+    "screenshots": [
+      {
+        "name": "review-page-gray-set.jpg",
+        "sha256": "93cf2ced47c5f0d52c7ac70b8bcbf0c7b807c727ef91fcd6e68ab53b66bb1b1a",
+        "bytes": 70261
+      },
+      {
+        "name": "review-page-gray-rip.jpg",
+        "sha256": "a35d2b49ef4e47cd106449b16a8356d775889d2257ee56cff51232a4e16fe7a2",
+        "bytes": 74074
+      },
+      {
+        "name": "review-page-gray-crate.jpg",
+        "sha256": "01e7001395d0e56f56b467b75ad0f07ff28929ab2474a368b0aa0858011e8ea9",
+        "bytes": 86952
+      }
+    ],
+    "movie": {
+      "name": "gray-browser-walkthrough.mp4",
+      "width": 1510,
+      "height": 940,
+      "duration_seconds": 13.0,
+      "sha256": "bdad9b789af1f5d06409e68a3e9e9b4edae18f8b2e9f214aa7fda50dc77b87e1",
+      "bytes": 171402
+    },
+    "gif": {
+      "name": "review-page-gray.gif",
+      "width": 1080,
+      "height": 672,
+      "duration_seconds": 13.0,
+      "sha256": "3fefd298aed095d7e44e165030a38b1d675e7afc7f5a07e9027f193dabf10e92",
+      "bytes": 201854
+    },
+    "decode": "passed for both files"
+  },
+  "additional_stills": [
+    {
+      "name": "terminal-crate-prep-gray.png",
+      "source": "four-tet-prep.png from the actual CLI capture",
+      "sha256": "9a7110671929eef2ba18d6cebe5702880a1afb707476e9a3b046ef224cb3f001",
+      "bytes": 140646
     }
   ]
 }

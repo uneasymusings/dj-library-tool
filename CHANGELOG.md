@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a22
+
+- A light-gray software interface: compact sans-serif controls, inset fields, muted status colours and small instrument readouts. It stays light regardless of OS appearance.
+- A public, read-only GitHub Pages preview uses the actual review-page frontend and generated demo fixtures. Download and device actions explain that they require the local app.
+- The five walkthroughs now focus on two real commands: check a tracklist, then inspect crate preparation. No help-screen detour or presentation framing.
+- Historical Claude coauthor trailers were removed from public branches/tags with backed-up, verified history rewrites. Future attribution remains disabled.
+
 ## 0.1.0a21
 
 - Missing tracks have separate Rip and optional Shop actions. `djlib rip` previews YouTube sources or downloads an explicitly selected video as MP3; completed set downloads recheck ownership. Existing `--fetch` also accepts `--rip`.

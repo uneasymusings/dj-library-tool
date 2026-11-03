@@ -72,8 +72,8 @@ def capture(spec, output, work):
         "DJLIB_CONFIG_DIR": str(folder / "config"),
         "DJLIB_SHAZAM_HOME": str(folder / "no-shazam"),
         "DJLIB_MIXESDB": "off",
-        "TERM": "xterm-256color",
-        "COLUMNS": "108",
+        "TERM": "xterm",
+        "COLUMNS": "92",
         "LINES": "60",
         "FORCE_COLOR": "1",
         "DJLIB_OUTPUT": "pretty",
@@ -144,10 +144,15 @@ def capture(spec, output, work):
                 reply = http.post("/annotations", json=body).json()
                 assert reply["ok"], reply
             run(
-                ["set", tracklist.name, "--name", spec["name"], "--no-rekordbox"],
+                [
+                    "set",
+                    tracklist.name,
+                    "--name",
+                    spec["name"] + " / " + spec["subtitle"].split(" / ")[0],
+                    "--no-rekordbox",
+                ],
                 "CHECK THE TRACKLIST",
             )
-            run(["rip", "--help"], "RIP IS OPTIONAL")
             run(["crate", "last"], "PREP YOUR CRATE")
             summary = http.get("/requests", params={"limit": 1}).json()["result"]["requests"][0]
             collection = http.get("/collections", params={"limit": 1}).json()["result"][
@@ -158,14 +163,31 @@ def capture(spec, output, work):
             assert not prep["import_recorded"] and not prep["usb_verified_at_last_check"]
             assert prep["track_count"] == sum(t[2] == "owned" for t in spec["tracks"])
             assert summary["counts"]["ids"] == sum(t[2] == "id" for t in spec["tracks"])
+            request_id = summary["request_id"]
+            collection_id = collection["collection_id"]
+            preview = {}
+            for endpoint in (
+                "/requests",
+                f"/requests/{request_id}",
+                "/collections",
+                f"/collections/{collection_id}",
+                f"/collections/{collection_id}/workflow",
+                "/library",
+                "/capabilities",
+            ):
+                response = http.get(endpoint, params={"limit": 100}).json()
+                assert response["ok"], response
+                preview[endpoint] = response["result"]
+
     # Movies replay the captured stdout; the raw capture stays outside the repository.
     result = {
         **spec,
         "version": __version__,
-        "columns": 108,
+        "columns": 92,
         "stages": stages,
         "counts": summary.get("counts"),
         "prep": prep,
+        "preview": preview,
         "disclosure": (
             "Replay of actual CLI output / demo library / illustrative saved BPM-key / "
             "no live recognition or USB export"
