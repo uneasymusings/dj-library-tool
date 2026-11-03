@@ -20,36 +20,36 @@ from rich.text import Text
 from djlib.interfaces.terminal import THEME
 
 ROOT = Path(__file__).parent
-WIDTH, HEIGHT = 1440, 1000
+WIDTH, HEIGHT = 1280, 800
 SVG_THEME = TerminalTheme(
-    (17, 20, 27),
-    (226, 229, 235),
+    (208, 208, 206),
+    (43, 43, 41),
     [
-        (17, 20, 27),
-        (235, 105, 112),
-        (126, 204, 153),
-        (245, 183, 73),
-        (119, 159, 222),
-        (182, 147, 220),
-        (114, 195, 202),
-        (226, 229, 235),
+        (43, 43, 41),
+        (139, 57, 46),
+        (49, 93, 55),
+        (119, 85, 29),
+        (53, 91, 107),
+        (99, 69, 99),
+        (44, 92, 94),
+        (90, 90, 86),
     ],
     [
-        (111, 121, 139),
-        (246, 133, 140),
-        (153, 222, 171),
-        (255, 205, 105),
-        (149, 184, 239),
-        (204, 173, 240),
-        (144, 216, 222),
-        (255, 255, 255),
+        (90, 90, 86),
+        (139, 57, 46),
+        (49, 93, 55),
+        (119, 85, 29),
+        (53, 91, 107),
+        (99, 69, 99),
+        (44, 92, 94),
+        (43, 43, 41),
     ],
 )
-SVG_CODE = """<svg xmlns="http://www.w3.org/2000/svg" width="{terminal_width}"
+SVG_CODE = """<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="{terminal_width}"
 height="{terminal_height}" viewBox="0 0 {terminal_width} {terminal_height}">
 <style>.{unique_id}-matrix {{font-family:'JetBrains Mono',monospace;font-size:20px;
 font-variant-ligatures:none;white-space:pre;}} {styles}</style>
-<defs>{lines}</defs><g class="{unique_id}-matrix" fill="#e2e5eb">{backgrounds}{matrix}</g></svg>"""
+<defs>{lines}</defs><g class="{unique_id}-matrix" fill="#2b2b29">{backgrounds}{matrix}</g></svg>"""
 
 
 def terminal_image(value, columns=108):
@@ -85,14 +85,14 @@ def board(capture, command="", output=""):
     values = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
         f'viewBox="0 0 {WIDTH} {HEIGHT}">',
-        '<rect width="100%" height="100%" fill="#11141b"/>',
+        '<rect width="100%" height="100%" fill="#d0d0ce"/>',
     ]
     prompt, pw, ph = terminal_image("$ " + command, capture["columns"])
     values.append(image_tag(prompt, 24, 20, pw, ph))
     if output:
         svg, sw, sh = terminal_image(output, capture["columns"])
-        scale = min(1.0, (WIDTH - 48) / sw, (HEIGHT - 100) / sh)
-        values.append(image_tag(svg, 24, 82, sw * scale, sh * scale))
+        scale = min(1.0, (WIDTH - 48) / sw, (HEIGHT - max(100, ph + 54)) / sh)
+        values.append(image_tag(svg, 24, max(72, ph + 28), sw * scale, sh * scale))
     values.append("</svg>")
     return "".join(values)
 
@@ -128,10 +128,10 @@ def render(capture, output, env, poster_only=False):
                 add(board(capture, command, "\n".join(lines[:count])), 0.16, "reveal")
         # Camera cuts preserve complete lines. The source capture is retained for auditing.
         first = "\n".join(lines[:34])
-        poster = add(board(capture, command, first), 6.5, "result")
-        (
-            output / f"{name}-{'prep' if stage == 2 else 'poster' if stage == 0 else 'shop'}.png"
-        ).write_bytes(poster.read_bytes())
+        poster = add(board(capture, command, first), 6.0 if stage == 0 else 7.5, "result")
+        (output / f"{name}-{'poster' if stage == 0 else 'prep'}.png").write_bytes(
+            poster.read_bytes()
+        )
         if len(lines) > 34:
             add(board(capture, command, "\n".join(lines[-34:])), 3.0, "continue")
     if poster_only:
@@ -142,7 +142,7 @@ def render(capture, output, env, poster_only=False):
         + f"file '{sequence[-1][0].as_posix()}'\n",
         encoding="utf-8",
     )
-    movie = output / f"terminal-demo-{name}.mp4"
+    movie = output / f"gray-demo-{name}.mp4"
     subprocess.run(
         [
             "ffmpeg",

@@ -4,6 +4,8 @@
 
 **Paste a set link, get every track. See what you own. Play it from your USB.**
 
+[Try the review-page demo](https://uneasymusings.github.io/dj-library-tool/preview/) · [Install the local tool](#install)
+
 ## From tracklist to crate
 
 Follow **Avalon Emerson, Ben UFO, Four Tet, Floating Points, and Skrillex** through the actual terminal: **check the set → choose Rip or Shop → prep the crate**. Real CLI output, edited for pacing, with a generated demo library and illustrative saved BPM/key. [About these examples](docs/images/demo/README.md).
@@ -132,7 +134,7 @@ Already have djlib? Add the Claude Code plugin with `/plugin install djlib --mar
 
 With the plugin, just ask: “What's in this set and which tracks do I own? `https://soundcloud.com/…`”
 
-> **Alpha (0.1.0a21).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
+> **Alpha (0.1.0a22).** Shazam is used unofficially: an hour-long set usually takes 5–10 minutes, up to half an hour when Shazam is busy. djlib checks the stick, not the player, so test it on a CDJ before a gig. [Limits](docs/QUICKSTART.md#limits).
 
 ## Docs
 

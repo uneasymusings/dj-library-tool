@@ -1,5 +1,11 @@
 # Implementation status
 
+## 0.1.0a22 candidate
+
+The review page now uses a light-gray software palette, compact sans-serif controls and muted instrument readouts. The public GitHub Pages preview is built from the production frontend with a read-only transport and original-tone example data. The five terminal walkthroughs show ownership and crate prep directly. Public browser QA, export validation and the release CI matrix are recorded as they complete.
+
+Historical Claude coauthor trailers have been removed from public writable refs in dj-library-tool, homebrew-trail and trail. Swipesheet was already clean. Backups and before/after ref verification were retained locally; all file trees were unchanged. Automatic attribution is disabled in all four repositories. GitHub controls the refresh of cached contributor displays and retains its own pull-request refs.
+
 ## 0.1.0a21
 
 - Explicit Rip and optional Shop choices in the terminal and review page. Rip previews YouTube sources before an MP3 download; a completed download rechecks the saved set.
