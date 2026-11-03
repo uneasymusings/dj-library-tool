@@ -8,47 +8,44 @@
 
 ## From tracklist to crate
 
-Follow **Avalon Emerson, Ben UFO, Four Tet, Floating Points, and Skrillex** through the actual terminal: **check the set → choose Rip or Shop → prep the crate**. Real CLI output, edited for pacing, with a generated demo library and illustrative saved BPM/key. [About these examples](docs/images/demo/README.md).
+Follow **Avalon Emerson, Ben UFO, Four Tet, Floating Points, and Skrillex** through the actual terminal: **check the set → inspect the crate**. Real CLI output, edited for pacing, with a generated demo library and illustrative saved BPM/key. [About these examples](docs/images/demo/README.md).
 
 <p align="center">
-  <a href="https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-avalon-emerson.mp4"><img src="docs/images/demo/avalon-emerson.gif" width="100%" alt="Avalon Emerson walkthrough: check an eight-track selection, distinguish owned records and another mix, find missing tracks, then inspect crate prep."></a>
+  <a href="https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-avalon-emerson.mp4"><img src="docs/images/demo/avalon-emerson.gif" width="100%" alt="Avalon Emerson walkthrough: check an eight-track selection, distinguish owned records and another mix, find missing tracks, then inspect crate prep."></a>
 </p>
 
-**Avalon Emerson / 9000Streams.** Exact mixes, missing records, and a crate with a clear next step. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-avalon-emerson.mp4) · [Still image](docs/images/demo/avalon-emerson-poster.png) · [Set source](https://www.youtube.com/watch?v=zn-Mpr9CPkc)
+**Avalon Emerson / 9000Streams.** Exact mixes, missing records, and a crate with a clear next step. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-avalon-emerson.mp4) · [Still image](docs/images/demo/avalon-emerson-poster.png) · [Set source](https://www.youtube.com/watch?v=zn-Mpr9CPkc) · [Open this set in the demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_db35a700d0a1417993a2a99689ff919c)
 
 <details>
 <summary><b>Ben UFO</b> — an ID stays an ID; another mix stays out</summary>
 <br>
 <img src="docs/images/demo/ben-ufo.gif" width="100%" alt="Ben UFO walkthrough: two unknown IDs remain unnamed, the Cassy remix stays distinct from the original, and only exact owned tracks enter the crate.">
 
-Selected tracks from **Boiler Room London, 21 September 2010**. The demo leaves the two IDs unnamed and keeps the wrong mix out of the crate. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-ben-ufo.mp4) · [Still image](docs/images/demo/ben-ufo-poster.png) · [Published tracklist](https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423)
+Selected tracks from **Boiler Room London, 21 September 2010**. The demo leaves the two IDs unnamed and keeps the wrong mix out of the crate. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-ben-ufo.mp4) · [Still image](docs/images/demo/ben-ufo-poster.png) · [Published tracklist](https://music.apple.com/us/album/boiler-room-ben-ufo-in-london-sep-21-2010-dj-mix/1549936423) · [Open this set in the demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_a7020bcbf173494cae3a8ba42824a486)
 </details>
-
 <details>
 <summary><b>Four Tet</b> — a festival tracklist becomes a practical crate</summary>
 <br>
 <img src="docs/images/demo/four-tet.gif" width="100%" alt="Four Tet walkthrough: selected Lollapalooza tracks checked against a demo library, with two alternate mixes excluded and a prep view for the exact matches.">
 
-Selected tracks from **Lollapalooza 2024**. The original recordings of “Goblin” and “In Your Head” do not substitute for the requested edits. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-four-tet.mp4) · [Still image](docs/images/demo/four-tet-poster.png) · [Set source](https://www.youtube.com/watch?v=C2f_OA2Ce14)
+Selected tracks from **Lollapalooza 2024**. The original recordings of “Goblin” and “In Your Head” do not substitute for the requested edits. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-four-tet.mp4) · [Still image](docs/images/demo/four-tet-poster.png) · [Set source](https://www.youtube.com/watch?v=C2f_OA2Ce14) · [Open this set in the demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_724ec0dd443844eda5e00cf12a981714)
 </details>
-
 <details>
 <summary><b>Floating Points</b> — radio discoveries, missing records, saved BPM/key</summary>
 <br>
-<img src="docs/images/demo/floating-points.gif" width="100%" alt="Floating Points walkthrough: selected NTS tracks become an ownership check, optional Rip help, and a crate with explicit saved-analysis gaps.">
+<img src="docs/images/demo/floating-points.gif" width="100%" alt="Floating Points walkthrough: selected NTS tracks become an ownership check and a crate with explicit saved-analysis gaps.">
 
-Selected tracks from **NTS, 10 February 2025**, supplied as a copied text file. The clip shows optional Rip commands and saved-analysis gaps; it does not imply direct NTS-link import. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-floating-points.mp4) · [Still image](docs/images/demo/floating-points-poster.png) · [Published tracklist](https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025)
+Selected tracks from **NTS, 10 February 2025**, supplied as a copied text file. The clip shows ownership and saved-analysis gaps; it does not imply direct NTS-link import. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-floating-points.mp4) · [Still image](docs/images/demo/floating-points-poster.png) · [Published tracklist](https://www.nts.live/shows/floating-points/episodes/floating-points-10th-february-2025) · [Open this set in the demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_9c6f4b54af5948dfbd61a2f19946d9e2)
 </details>
-
 <details>
 <summary><b>Skrillex</b> — prep the exact recordings you own</summary>
 <br>
 <img src="docs/images/demo/skrillex.gif" width="100%" alt="Skrillex walkthrough: a selection from the official Quest For Fire Basement Set, with five exact demo-library matches and the unavailable VIP excluded.">
 
-Selected chapters from **QUEST FOR FIRE Basement Set**. Five exact matches enter this demo crate; the unavailable VIP is not replaced with another recording. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a21/terminal-demo-skrillex.mp4) · [Still image](docs/images/demo/skrillex-poster.png) · [Official set and chapters](https://www.youtube.com/watch?v=hb0XLX0b4Y4)
+Selected chapters from **QUEST FOR FIRE Basement Set**. Five exact matches enter this demo crate; the unavailable VIP is not replaced with another recording. [Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-demo-skrillex.mp4) · [Still image](docs/images/demo/skrillex-poster.png) · [Official set and chapters](https://www.youtube.com/watch?v=hb0XLX0b4Y4) · [Open this set in the demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_c5e238332f1b4d8dbec7b6a206184e48)
 </details>
 
-No title cards or presentation frame: just commands and terminal output. The middle command shows Rip help; these clips do not download commercial recordings.
+Two real commands in a light-gray terminal: check the copied tracklist, then inspect crate prep. Rip and Shop are optional next steps. No title cards, help-screen detour, source-audio download or device export.
 
 [How these previews were made](docs/images/demo/README.md) · [Reproduce them](scripts/showcase/README.md)
 
@@ -57,8 +54,7 @@ For rekordbox DJs. Give djlib a YouTube or SoundCloud set and it finds every tra
 The previews use these commands with a copied tracklist:
 
 ```bash
-djlib set avalon-emerson.txt --name 'Avalon Emerson' --no-rekordbox
-djlib rip --help                         # optional YouTube → MP3
+djlib set avalon-emerson.txt --name 'Avalon Emerson / 9000Streams' --no-rekordbox
 djlib crate last
 ```
 
@@ -104,7 +100,20 @@ Use **Import playlist or tracklist** to choose a Spotify playlist CSV or paste a
 
 Open a crate to see its local files, saved BPM/key coverage, native import and last USB check. On macOS, **Import in rekordbox**, **Read BPM and key** and **Export to USB and check** run from the page. The USB step asks you to click the named playlist in rekordbox once. Keep the Mac unlocked, let analysis finish, and check playback on your player before a gig.
 
-![djlib's review page: a Four Tet set with times, how sure each line is, what you own, and store searches for what's missing](docs/images/review-page-set.png)
+[![Four Tet in the actual light-gray review page: owned tracks, exact-mix distinctions, optional Rip/Shop controls and a four-track crate](docs/images/review-page-gray-set.jpg)](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_724ec0dd443844eda5e00cf12a981714)
+
+[Explore this set in the live demo](https://uneasymusings.github.io/dj-library-tool/preview/#/sets/request_724ec0dd443844eda5e00cf12a981714). It uses the same frontend as `djlib ui`, with a generated library and illustrative BPM/key. Downloads and device actions require the local app.
+
+<details>
+<summary>Browser walkthrough: set → optional Rip → crate prep</summary>
+
+![Three actual browser captures: the Four Tet set, the optional Rip panel and crate preparation](docs/images/review-page-gray.gif)
+
+[Watch MP4](https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/gray-browser-walkthrough.mp4) · [Crate-prep still](docs/images/review-page-gray-crate.jpg) · [Rip-panel still](docs/images/review-page-gray-rip.jpg)
+
+A paced sequence of actual browser screenshots from the public demo. No download, import or device export occurs.
+
+</details>
 
 ### In your terminal
 
