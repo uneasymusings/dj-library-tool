@@ -370,6 +370,83 @@ function storeLinksNode(item) {
   return h("span", { class: "buy" }, links.flatMap((link, index) => (index ? [h("span", { "aria-hidden": "true" }, " · "), link] : [link])));
 }
 
+function youtubeVideo(value) {
+  const url = parsedHttps(value);
+  if (!url || url.username || url.password || (url.port && url.port !== "443")) return null;
+  const id = url.hostname === "youtu.be" ? url.pathname.slice(1)
+    : YOUTUBE_HOSTS.has(url.hostname) && url.pathname === "/watch" ? url.searchParams.get("v") : null;
+  return /^[\w-]{11}$/.test(id || "") ? `https://www.youtube.com/watch?v=${id}` : null;
+}
+
+// Missing music has two deliberate actions. Opening either never downloads or opens a store.
+function acquireTrack(item, requestId, onDone) {
+  const track = item.input || {};
+  const shop = h("details", { class: "track-action" }, h("summary", null, "Shop"), storeLinksNode(item));
+  const rip = h("details", { class: "track-action rip-action" });
+  const source = h("input", { type: "url", placeholder: "Paste a YouTube video URL", "aria-label": `YouTube URL for ${plainLabel(track)}` });
+  const find = h("button", { type: "button", class: "small" }, "Find on YouTube");
+  const download = h("button", { type: "button", class: "small primary", disabled: true }, "Rip MP3");
+  const results = h("div", { class: "rip-results" });
+  const message = h("div", { role: "status" });
+  let busy = false;
+  const changed = () => { download.disabled = busy || !youtubeVideo(source.value); };
+  source.addEventListener("input", changed);
+  find.addEventListener("click", async () => {
+    find.disabled = true;
+    results.replaceChildren(h("p", { class: "hint" }, "Searching YouTube…"));
+    try {
+      const found = await api("/sources/search", { method: "POST", body: {
+        artist: track.artist, title: track.title, version: track.version || "",
+      } });
+      const candidates = (found.candidates || []).filter((candidate) => candidate.provider === "youtube" && youtubeVideo(candidate.url));
+      results.replaceChildren(h("p", { class: "hint" }, candidates.length
+        ? "Check the upload and exact mix, then select a source."
+        : "No playable YouTube matches. You can paste a video URL above."),
+      ...candidates.slice(0, 3).map((candidate) => {
+        const pick = h("button", { type: "button", class: "small" }, "Use this source");
+        pick.addEventListener("click", () => {
+          source.value = youtubeVideo(candidate.url);
+          changed();
+          message.replaceChildren(h("p", { class: "hint" }, `Selected: ${candidate.title}. Click Rip MP3 to download.`));
+        });
+        return h("div", { class: "rip-candidate" }, h("a", {
+          href: youtubeVideo(candidate.url), target: "_blank", rel: "noopener noreferrer",
+        }, candidate.title), h("p", { class: "hint" }, candidate.uploader || "YouTube"), pick);
+      }));
+    } catch (error) { results.replaceChildren(errorNotice(error)); }
+    finally { find.disabled = busy; }
+  });
+  download.addEventListener("click", async () => {
+    const url = youtubeVideo(source.value);
+    if (busy || !url) return;
+    busy = true;
+    source.disabled = find.disabled = download.disabled = true;
+    message.replaceChildren(h("p", { class: "hint" }, "Ripping MP3 into your library…"));
+    try {
+      let job = await api("/downloads", { method: "POST", body: {
+        name: `${plainLabel(track)} — rip`.slice(0, 300),
+        idempotency_key: `rip:${requestId}:${item.item_id}:${new URL(url).searchParams.get("v")}`,
+        tracks: [{ url, artist: track.artist, title: track.title, version: track.version || "" }],
+      } });
+      job = await waitForJob(job);
+      if (job.state !== "completed" || !(job.counts?.succeeded > 0)) {
+        message.replaceChildren(notice("warn", "The rip did not finish. Open the job for details."),
+          h("a", { href: `#/jobs/${encodeURIComponent(job.job_id)}` }, "Open job"));
+        return;
+      }
+      // Read the current revision: downloads can take long enough for another client to edit.
+      const current = await api(`/requests/${encodeURIComponent(requestId)}`, { params: { limit: 1 } });
+      await api(`/requests/${encodeURIComponent(requestId)}/refresh`, { method: "POST", body: { revision: current.revision } });
+      await onDone();
+    } catch (error) { message.replaceChildren(errorNotice(error)); }
+    finally { busy = false; source.disabled = find.disabled = false; changed(); }
+  });
+  rip.append(h("summary", null, "Rip"), h("div", { class: "rip-panel" },
+    h("p", { class: "hint" }, "YouTube → MP3. Choose the exact recording; stream quality varies."),
+    source, h("div", { class: "rip-buttons" }, find, download), results, message));
+  return h("div", { class: "acquire-actions" }, rip, unreleased(track) ? null : shop);
+}
+
 // -- status vocabulary (mirrors the terminal) -------------------------------------------------
 
 function jobBadge(job) {
@@ -1145,7 +1222,7 @@ async function requestDetail(requestId) {
   const missing = items.filter((item) => ownKind(item) === "missing" && !unreleased(item.input));
   view.append(h("div", { class: "set-tally" },
     h("p", { class: "tally big" }, tally(counts)),
-    missing.length ? copyLines(`Copy ${number(missing.length)} to buy`, missing.map((item) => plainLabel(item.input))) : null));
+    missing.length ? copyLines(`Copy ${number(missing.length)} missing`, missing.map((item) => plainLabel(item.input))) : null));
   const credit = mixesdbCredit(ledger.mixesdb);
   if (credit) view.append(credit);
   if (current) view.append(handoff(crate.collection_id));
@@ -1254,7 +1331,7 @@ async function requestDetail(requestId) {
       ];
     }
     if (kind === "other") {
-      return [pill("other", "≈", "Other mix"), h("div", { class: "own-note" }, `You own ${otherMixes(item).join(", ")}`)];
+      return [pill("other", "≈", "Other mix"), h("div", { class: "own-note" }, `You own ${otherMixes(item).join(", ")}`), acquireTrack(item, requestId, route)];
     }
     if (item.state === "source_selected") {
       return [pill("info", "◐", "Source picked"), h("div", { class: "own-note path" }, item.source_selection?.source_url || "")];
@@ -1262,7 +1339,7 @@ async function requestDetail(requestId) {
     return [
       pill("bad", "✗", "Missing"),
       // On a phone the store links go on the line under the track.
-      unreleased(item.input) ? h("div", { class: "own-note" }, "Not in stores yet") : storeLinksNode(item),
+      acquireTrack(item, requestId, route),
     ];
   };
 

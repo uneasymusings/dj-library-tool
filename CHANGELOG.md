@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a21
+
+- Missing tracks have separate Rip and optional Shop actions. `djlib rip` previews YouTube sources or downloads an explicitly selected video as MP3; completed set downloads recheck ownership. Existing `--fetch` also accepts `--rip`.
+- The review page uses Lattice-inspired paper/ink colours, sparse blue accents, square rules and mono labels.
+- Five GitHub previews now show the actual terminal without title cards or presentation framing.
+- Disable future Claude commit/PR attribution in the project settings.
+
 ## 0.1.0a20
 
 - **Studio-style terminal screens.** Status, library and crates share a quiet amber identity. Crate prep shows whole-crate AUDIO and BPM + KEY meters, import history, last USB evidence and an explicit Needs attention block. The first next action follows missing files, import, analysis and export in order. Active actions point back to their progress instead of offering duplicates.

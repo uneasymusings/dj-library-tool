@@ -487,16 +487,17 @@ def register_commands(app, client, emit, handled, panel=None):
             ),
         )
 
+    @app.command("shop", rich_help_panel=panel)
     @requests.command("report")
     @handled
     def request_report(
         ctx: typer.Context,
-        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)],
+        request_id: Annotated[str, typer.Argument(metavar="SET", help=request_help)] = "last",
         revision: int | None = typer.Option(None, min=1, help=revision_help, hidden=True),
     ):
-        """Your shopping list: the missing songs, with Beatport, Bandcamp and Traxsource links.
+        """Shop for the missing tracks (optional).
 
-        Also saved as a text file in "Shopping lists" in djlib's folder.
+        Beatport, Bandcamp and Traxsource links, also saved in djlib's "Shopping lists" folder.
         """
         local = client(ctx)
         request_id = resolve(local, "request", request_id)
