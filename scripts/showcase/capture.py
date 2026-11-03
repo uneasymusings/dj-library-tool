@@ -147,7 +147,7 @@ def capture(spec, output, work):
                 ["set", tracklist.name, "--name", spec["name"], "--no-rekordbox"],
                 "CHECK THE TRACKLIST",
             )
-            run(["requests", "report", "last"], "FIND THE MISSING MIXES")
+            run(["rip", "--help"], "RIP IS OPTIONAL")
             run(["crate", "last"], "PREP YOUR CRATE")
             summary = http.get("/requests", params={"limit": 1}).json()["result"]["requests"][0]
             collection = http.get("/collections", params={"limit": 1}).json()["result"][

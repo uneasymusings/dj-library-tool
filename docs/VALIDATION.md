@@ -220,3 +220,10 @@ Once the user supplies the exact mounted volume and player/controller model:
 5. Record each native/device/hardware observation and perform fresh device verification before departure. `delivery get` reports historical evidence and lightweight current-device checks; it does not rehash the audio. A capacity check, M3U/XML generation, native-library filename, or file copy cannot substitute for native and hardware evidence.
 
 After the small gate passes, try a small owned-music collection before scaling its delivery. Soulseek, complete discographies, complete set timelines (set identification, since 0.1.0a15, names what it can and leaves the rest as IDs), inferred musical categorization, and unattended app/USB automation are subsequent milestones in [the plan](../PLAN.md). Explicit catalog annotation and filtering are narrower a3 capabilities, not those automatic analyses.
+
+
+## Terminal-first Rip workflow (0.1.0a21 candidate)
+
+An original generated tone passes through the real authenticated API and download worker. Preview submits no download; explicit confirmation downloads once and rechecks the saved set. UI interaction checks require a valid selected YouTube URL and a separate Rip MP3 click, preserve exact mix metadata, then refresh with the current set revision. Shop remains collapsed until selected. No external source audio was downloaded for these checks.
+
+Five actual CLI captures and all ten regenerated media files are checked separately. Saved BPM/key in the demo library are illustrative, and the clips do not prove hardware playback. A local native browser screenshot could not be taken because loopback binding is denied; no visual verification of the new page is claimed. Process-based coordinator and wheel-build checks run in CI because this sandbox also blocks those coordinator sockets and the default package cache.

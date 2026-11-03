@@ -199,10 +199,11 @@ def test_the_whole_set_reads_in_set_order_at_any_width(width, capsys):
     assert "You own another mix of 1 song; djlib only counts the exact mix." in out
     assert "Exact artist/title/version" not in out and "window" not in out
     steps = [" ".join(line.split()[1:]) for line in out.split("Next\n", 1)[1].splitlines()]
-    assert steps[:3] == [
+    assert steps[:4] == [
         f"Put it in rekordbox djlib rekordbox push {SHORT_COLLECTION}",
         f"Or straight onto your USB djlib rekordbox usb {SHORT_COLLECTION}",
-        f"Your shopping list (9) djlib requests report {SHORT_REQUEST}",
+        f"Rip missing tracks as MP3 (9) djlib rip {SHORT_REQUEST}",
+        f"Shop instead (optional) djlib shop {SHORT_REQUEST}",
     ]
 
 
@@ -332,9 +333,9 @@ def test_a_shazam_history_lists_only_what_you_dont_own(capsys):
     out = shown("set", result, 100, capsys)
     # Counts read with thousands separators, as the Shazam lines beside them do.
     assert "25 of 1,000 owned · 975 missing" in out
-    assert "Not owned yet (975 of 1,000)" in out and "Your shopping list (975)" in out
+    assert "Not owned yet (975 of 1,000)" in out and "Rip missing tracks as MP3 (975)" in out
     assert len([line for line in out.splitlines() if "✗ missing" in line]) == 25
-    assert f"… and 950 more: djlib requests report {SHORT_REQUEST}" in out
+    assert f"… and 950 more: djlib requests get {SHORT_REQUEST}" in out
     assert "Time" not in out and "Sure" not in out  # Shazams have neither
     assert len(result["tracks"]) == 1000  # the JSON keeps every one
 
@@ -548,7 +549,7 @@ def test_requests_get_marks_another_mix_and_ids_in_dj_words(capsys):
     poison = next(line for line in out.splitlines() if "Poison" in line)
     assert "≈ other mix" in poison and "you own: Radio Edit" in poison
     assert "ID - ID" not in out and "unknown ID" not in out
-    assert f"Your shopping list djlib requests report {SHORT_REQUEST}" in " ".join(out.split())
+    assert f"Shop instead (optional) djlib shop {SHORT_REQUEST}" in " ".join(out.split())
 
 
 # -- the shopping list -----------------------------------------------------------------------------

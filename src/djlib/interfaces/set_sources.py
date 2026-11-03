@@ -232,7 +232,9 @@ def label(item: dict) -> str:
 SEARCHES_AT_ONCE = 4
 
 
-def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
+def plan_fetch(
+    local, items: list[dict], *, youtube_only: bool = False
+) -> tuple[list[dict], list[dict]]:
     """Missing named songs → (confident downloads, songs that need a person's pick).
 
     Songs are searched a few at a time; results keep the set's order. Each download carries
@@ -263,6 +265,10 @@ def plan_fetch(local, items: list[dict]) -> tuple[list[dict], list[dict]]:
             undecided.append({**song, "reason": found.code, "options": []})
             continue
         candidates = found.get("candidates") or []
+        if youtube_only:
+            candidates = [
+                candidate for candidate in candidates if candidate.get("provider") == "youtube"
+            ]
         best = candidates[0] if candidates else None
         # Uploads that no longer play (removed, region-locked, DRM), so a person can see why
         # e.g. the artist's own upload wasn't used.

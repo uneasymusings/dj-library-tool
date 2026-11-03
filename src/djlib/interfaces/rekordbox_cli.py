@@ -757,6 +757,7 @@ def register_rekordbox(app, client, emit, handled, panel=None, start_panel=None)
         fetch: bool = typer.Option(
             False,
             "--fetch",
+            "--rip",
             help="Download clear matches for missing songs as MP3 (asks first).",
         ),
         yes: bool = typer.Option(False, "--yes", "-y", help="With --fetch: don't ask first."),

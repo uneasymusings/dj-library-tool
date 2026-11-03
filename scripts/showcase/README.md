@@ -14,7 +14,7 @@ python scripts/showcase/capture.py --output dist/showcase/captures --work /tmp/d
 
 Choose a new, empty work location. The script refuses an existing artist folder instead of overwriting a library. The public CLI goes through the real authenticated FastAPI application and worker using an in-process HTTP transport. Matching, requests, collection jobs and terminal views are unchanged. No local socket, web source, source audio, Shazam service, native app, real music library or USB is accessed. User configuration is isolated and restored after capture. `--only ben-ufo` records one DJ.
 
-The captured commands are `set FILE --name NAME --no-rekordbox`, `requests report last`, and `crate last`. Every command must exit successfully. Captures stay in the chosen output folder; do not commit catalog databases, generated tones, config files or personal transcripts.
+The captured commands are `set FILE --name NAME --no-rekordbox`, `rip --help`, and `crate last`. Every command must exit successfully. Captures stay in the chosen output folder; do not commit catalog databases, generated tones, config files or personal transcripts.
 
 ## Render
 
@@ -24,8 +24,8 @@ Requires `ffmpeg`, `ffprobe` and `rsvg-convert` on PATH. JetBrains Mono Regular/
 python scripts/showcase/render.py --captures dist/showcase/captures --output dist/showcase/rendered
 ```
 
-`--only ben-ufo --poster-only` quickly renders stills for review. Full rendering creates 1440×1120 H.264 MP4s, looping 1080×840 GIFs, PNG stills and editable SVG frames. Commands are replayed with typing and output reveal; pauses are for readability and do not represent application runtime. Cuts hold up to 28 complete output lines, continuing to the ending when needed. Shopping cuts hold the results before saved-file paths and shell-open hints; original captures retain the complete output.
+`--only ben-ufo --poster-only` quickly renders stills for review. Full rendering creates 1440×1000 H.264 MP4s, looping 1080×750 GIFs, PNG stills and editable SVG frames. Commands and captured stdout fill the terminal viewport, with typing and output reveal. There are no title cards, chapter bars, branding panels or overlays. Pauses aid readability and do not represent application runtime. Cuts preserve complete lines. Rip help demonstrates the optional command without searching for or downloading commercial audio.
 
-Review the result and prep PNGs, decode every movie/GIF, check dimensions/duration and verify the displayed demo counts against the captures. Copy GIFs and posters into `docs/images/demo/`. Upload `demo-*.mp4` and `SHOWCASE-SHA256SUMS` to the existing release used by the captures, then check the public download hashes. Do not replace the package assets or their `SHA256SUMS`.
+Review the result and prep PNGs, decode every movie/GIF, check dimensions/duration and verify the displayed demo counts against the captures. Copy GIFs and posters into `docs/images/demo/`. Upload `terminal-demo-*.mp4` and `TERMINAL-SHA256SUMS` to the existing release used by the captures, then check the public download hashes. Do not replace the package assets or their `SHA256SUMS`.
 
-These generators are development tools. The CLI/MCP runtime and package version are unchanged by a media refresh.
+These generators are development tools; the source version is recorded in each capture.
