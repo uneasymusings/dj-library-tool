@@ -1029,6 +1029,12 @@ function desktopMessage(action) {
   return event.instruction || action.instruction || event.reason || "Working with rekordbox. Keep your Mac unlocked.";
 }
 
+function crateNextAction(status) {
+  if (!status.import_recorded) return "import";
+  if (status.with_bpm_and_key < status.track_count) return "analysis";
+  return "usb";
+}
+
 async function crateWorkflow(collectionId) {
   const status = await api(`/collections/${encodeURIComponent(collectionId)}/workflow`);
   const active = status.action?.state === "running";
@@ -1044,8 +1050,9 @@ async function crateWorkflow(collectionId) {
     step("Imported in rekordbox", status.import_recorded, status.import_recorded ? "This crate was imported through these controls." : "Import the crate, then let rekordbox finish analyzing it."),
     step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}${status.usb_device ? ` on ${fileTail(status.usb_device)}` : ""}. Check again after changing the stick.` : "Export through rekordbox, then check the files and playlist order on the stick."));
   const buttons = h("div", { class: "workflow-buttons" });
+  const nextAction = crateNextAction(status);
   for (const [action, label] of [["import", "Import in rekordbox"], ["analysis", "Read BPM and key"], ["usb", "Export to USB and check"]]) {
-    const button = h("button", { type: "button", class: action === "usb" ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
+    const button = h("button", { type: "button", class: action === nextAction ? "primary" : "", disabled: active || !status.desktop_supported || status.local_files !== total }, label);
     button.addEventListener("click", async () => {
       for (const sibling of buttons.querySelectorAll("button")) sibling.disabled = true;
       try {
