@@ -31,6 +31,13 @@
   const originalErrorNotice = errorNotice;
   errorNotice = error => error.code === "DEMO_READ_ONLY"
     ? notice("info", error.message) : originalErrorNotice(error);
+  // A first visit starts on one short example; deep links and the Sets tab still work.
+  const examples = catalog["/requests"]?.requests || [];
+  const example = examples.find(row => row.name === "Four Tet / Lollapalooza 2024") || examples[0];
+  if ((!location.hash || location.hash === "#/") && example) {
+    history.replaceState(null, "", location.pathname + location.search +
+      `#/sets/${encodeURIComponent(example.request_id)}`);
+  }
   await start();
 })().catch(error => {
   document.getElementById("view").textContent = "The demo could not load. Please reload the page.";

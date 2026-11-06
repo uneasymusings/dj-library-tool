@@ -1,20 +1,28 @@
 # Install
 
-**Easiest:** paste this to Claude Code or Codex: “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”.
-
 **Terminal (Mac or Linux):**
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 ```
 
-It installs uv if needed, the newest djlib with Shazam listening and downloads, FFmpeg through Homebrew, and the djlib plugin for Claude Code and Codex if you have them. Then it asks where your music is (drag the folder in, or press Enter for `~/Music`), indexes it in place and runs `djlib doctor`. Nothing is moved, renamed or retagged. Run it again any time to update.
+It installs uv if needed and the newest djlib with Shazam listening and downloads. With Homebrew, it also installs missing FFmpeg and a supported YouTube helper; it reuses a supported Node or Deno already on your PATH. It adds the djlib plugin for Claude Code and Codex if you have them. Then it asks where your music is (drag the folder in, or press Enter for `~/Music`), indexes it in place and runs `djlib doctor`. Nothing is moved, renamed or retagged. Run it again any time to update.
+
+When it finishes, run:
+
+```bash
+djlib ui
+```
+
+Choose **Import playlist or tracklist**, paste tracks or choose a CSV, then **Preview selection** and **Check against my music**. Open the set and build its crate. The first music scan takes about 4 minutes per 1,000 tracks; later scans reuse unchanged files. If you skipped the folder question, run `djlib init ~/Music` and `djlib scan` first.
+
+Homebrew is optional. Without it, install the audio helpers using the instructions below; the setup check prints what is missing. An AI assistant is optional too: [assistant setup](../SETUP.md).
 
 Options go before `sh`, for example `curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | DJLIB_PLUGIN=0 sh`:
 
 - `DJLIB_MUSIC=FOLDER`: index this folder without asking (`DJLIB_MUSIC=` skips it).
 - `DJLIB_PLUGIN=0`: don't add the plugin.
-- `DJLIB_VERSION=0.1.0a22`: install this release.
+- `DJLIB_VERSION=0.1.0a23`: install this release.
 
 djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checking sets, crates and downloads also work on Linux and Windows. Releases are on the [releases page](https://github.com/uneasymusings/dj-library-tool/releases).
 
@@ -24,7 +32,7 @@ djlib needs Python 3.12, which uv brings. Driving rekordbox needs a Mac; checkin
 2. **djlib**, with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
    ```bash
-   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a22/dj_library_tool-0.1.0a22-py3-none-any.whl'
+   uv tool install --python 3.12 'dj-library-tool[download,recognize] @ https://github.com/uneasymusings/dj-library-tool/releases/download/v0.1.0a23/dj_library_tool-0.1.0a23-py3-none-any.whl'
    djlib init ~/Music    # Windows: djlib init "$env:USERPROFILE\Music"
    djlib scan
    djlib doctor

@@ -4,13 +4,15 @@ From a set link or your Shazams to a USB stick, on one page. Every command here 
 
 ## 1. Install
 
-Paste this to Claude Code or Codex: “Set up djlib for me by following <https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/SETUP.md>”. Or in Terminal (Mac or Linux):
+In Terminal (Mac or Linux):
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
 ```
 
 It asks where your music is (drag the folder in) and indexes it. Nothing is moved, renamed or retagged. Skipped that? Run `djlib init ~/Music && djlib scan`. Music on another drive? `djlib init '/Volumes/DJ Drive/Music'` adds it; then `djlib scan`. Windows: [Install](INSTALL.md).
+
+For a first look, run `djlib ui`. Choose **Import playlist or tracklist**, paste your tracks, **Preview selection**, then **Check against my music**. Open the set and build its crate. You can also use an [AI assistant](../SETUP.md); it is optional.
 
 ## 2. Every track in a set
 

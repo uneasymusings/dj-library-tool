@@ -1,9 +1,9 @@
 #!/bin/sh
 # djlib installer: curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
-# Installs uv if needed, the newest djlib release, FFmpeg through Homebrew when available and
+# Installs uv if needed, the newest djlib release, audio helpers through Homebrew when available and
 # the djlib plugin for Claude Code and Codex when they are installed. In a terminal it then
 # offers to index your music. Safe to run again: it updates whatever is already there.
-#   DJLIB_VERSION=0.1.0a17  pin a release
+#   DJLIB_VERSION=0.1.0a23  pin a release
 #   DJLIB_PLUGIN=0          don't add the Claude Code / Codex plugin
 #   DJLIB_MUSIC=~/Music     index this folder without asking (DJLIB_MUSIC= skips it)
 set -eu
@@ -47,6 +47,16 @@ if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; 
 fi
 
 djlib="$(command -v djlib || echo "$HOME/.local/bin/djlib")"
+
+# Use djlib's bounded version checks: an old Node or Deno on PATH is not enough.
+if ! "$djlib" --json doctor 2>/dev/null | grep -Eq '"youtube_runtime_ready"[[:space:]]*:[[:space:]]*true'; then
+  if command -v brew >/dev/null 2>&1; then
+    say "Installing the YouTube helper (Deno)…"
+    brew install deno
+  else
+    note "For YouTube audio, install Deno: https://docs.deno.com/runtime/getting_started/installation/"
+  fi
+fi
 
 # The plugin gives Claude Code and Codex djlib's tools and the skill that teaches the workflow.
 plugins=""
@@ -99,7 +109,7 @@ folder_answer() {
 
 # Index the user's music once: only when nothing is set up yet, and only after asking (or
 # with DJLIB_MUSIC). Assistants running this skip it and ask the user themselves.
-unset_up() { "$djlib" status 2>/dev/null | grep -q '"WORKSPACE_REQUIRED"'; }
+unset_up() { "$djlib" --json status 2>/dev/null | grep -q '"WORKSPACE_REQUIRED"'; }
 music=""
 if unset_up; then
   if [ -n "${DJLIB_MUSIC+set}" ]; then
@@ -123,25 +133,20 @@ if [ -n "$music" ]; then
   fi
 fi
 
-say "Done. Checking your setup:"
+say "Checking your setup:"
 "$djlib" doctor || true
 echo
-if [ -n "$plugins" ]; then
-  say "djlib is in$plugins: restart it, then ask for example:"
-  note "\"What's in this set and which tracks do I own? https://soundcloud.com/…\""
-fi
 if unset_up; then
   say "First tell djlib where your music is:"
   note "djlib init ~/Music && djlib scan"
-  say "Then try one of these:"
-else
-  say "Try one of these:"
 fi
-note "djlib set 'https://youtu.be/…' --no-rekordbox   which tracks you own"
-note "djlib shazam status                              your Shazams"
-note "djlib set paste                                  a tracklist you copied"
-note "Leave out --no-rekordbox for a rekordbox playlist; add --usb for your stick."
-note "Put links in single quotes."
+say "Next, open your library:"
+note "djlib ui"
+note "Choose Import playlist or tracklist, preview the songs, then Check against my music."
+note "Terminal walkthrough: https://github.com/$repo#from-tracklist-to-crate"
+if [ -n "$plugins" ]; then
+  note "Also added to$plugins. Restart your assistant to load the plugin."
+fi
 if [ "$(uname -s)" = "Darwin" ]; then
   echo "rekordbox and USB steps need your terminal (and Claude Code or Codex)"
   echo "allowed under System Settings → Privacy & Security → Accessibility."
