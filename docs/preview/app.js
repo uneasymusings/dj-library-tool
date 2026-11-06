@@ -243,7 +243,7 @@ function commandText(...parts) {
   const quote = (value) => (/^[\w@%+=:,./~-]+$/.test(value) ? value : `'${value.replace(/'/g, `'"'"'`)}'`);
   const words = ["djlib"];
   if (state.workspace) words.push("--workspace", state.workspace);
-  return words.concat(parts.map((part) => quote(String(part)))).join(" ");
+  return words.concat(parts).map((part) => quote(String(part))).join(" ");
 }
 
 // The 8-character handle the terminal prints and accepts, as terminal.short_id makes it.
@@ -1048,7 +1048,11 @@ async function crateWorkflow(collectionId) {
     step("Local audio", total > 0 && status.local_files === total, `${status.local_files} of ${total} files available on this computer. Export checks their bytes again.`),
     step("BPM and key", total > 0 && status.with_bpm_and_key === total, `${status.with_bpm_and_key} of ${total} tracks have saved BPM and key. Beatgrids are managed in rekordbox.`),
     step("Imported in rekordbox", status.import_recorded, status.import_recorded ? "This crate was imported through these controls." : "Import the crate, then let rekordbox finish analyzing it."),
-    step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}${status.usb_device ? ` on ${fileTail(status.usb_device)}` : ""}. Check again after changing the stick.` : "Export through rekordbox, then check the files and playlist order on the stick."));
+    step("USB files checked", status.usb_verified_at_last_check, status.usb_verified_at_last_check ? [
+      `Playlist order and audio bytes matched${status.usb_checked_at ? ` (${ago(status.usb_checked_at)})` : ""}`,
+      status.usb_device ? [" on ", fileTail(status.usb_device)] : null,
+      ". Check again after changing the stick.",
+    ] : "Export through rekordbox, then check the files and playlist order on the stick."));
   const buttons = h("div", { class: "workflow-buttons" });
   const nextAction = crateNextAction(status);
   for (const [action, label] of [["import", "Import in rekordbox"], ["analysis", "Read BPM and key"], ["usb", "Export to USB and check"]]) {

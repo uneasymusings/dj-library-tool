@@ -15,9 +15,15 @@
     }
     const reply = structuredClone(catalog[path]);
     if (path === "/library" && params.query) {
-      const query = String(params.query).toLowerCase();
-      reply.tracks = reply.tracks.filter(track =>
-        [track.artist, track.title, track.version].join(" ").toLowerCase().includes(query));
+      // Match the local catalog's word search across artist, title and mix.
+      const letters = {"ø":"o", "æ":"ae", "œ":"oe", "đ":"d", "ł":"l", "ð":"d", "ß":"ss"};
+      const fold = value => String(value || "").toLowerCase().normalize("NFKD")
+        .replace(/\p{M}/gu, "").replace(/[øæœđłðß]/g, letter => letters[letter]);
+      const terms = fold(params.query).trim().split(/\s+/).filter(Boolean).slice(0, 12);
+      reply.tracks = reply.tracks.filter(track => {
+        const fields = [track.artist, track.title, track.version].map(fold);
+        return terms.every(term => fields.some(field => field.includes(term)));
+      });
       reply.total = reply.tracks.length;
     }
     return reply;
