@@ -1,8 +1,14 @@
 # Implementation status
 
-## 0.1.0a22 candidate
+## 0.1.0a23
 
-The review page now uses a light-gray software palette, compact sans-serif controls and muted instrument readouts. The public GitHub Pages preview is built from the production frontend with a read-only transport and original-tone example data. The five terminal walkthroughs show ownership and crate prep directly. Public browser QA, export validation and the release CI matrix are recorded as they complete.
+The portfolio front page leads with one short terminal walkthrough and one install path. The remaining DJ examples live in the linked gallery. The public demo opens directly on the Four Tet set, preserves deep links, and keeps writes disabled. Installation reuses supported YouTube helpers, adds missing Deno through Homebrew, detects setup through JSON and ends with `djlib ui`.
+
+This release packages the post-a22 fixes for copied workspace paths, USB drive labels, demo word search and release drafting. Local validation passed 85 focused checks plus lint, formatting, preview sync and documentation links. The installed a23 wheel replayed two real Four Tet CLI commands using generated audio. Final platform CI and public-download results are linked from the [release notes](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a23). Current browser automation is unavailable; GitHub Markdown rendering and automated interaction checks cover this presentation pass. No new native app, provider or player observations are claimed.
+
+## 0.1.0a22
+
+The review page now uses a light-gray software palette, compact sans-serif controls and muted instrument readouts. The public GitHub Pages preview is built from the production frontend with a read-only transport and original-tone example data. The five terminal walkthroughs show ownership and crate prep directly. Desktop and 390px public browser checks, twelve media decodes, six-platform CI and public package checks passed before publication. The clips use generated original tones and illustrative saved BPM/key; they do not demonstrate live downloads or native device export.
 
 Historical Claude coauthor trailers have been removed from public writable refs in dj-library-tool, homebrew-trail and trail. Swipesheet was already clean. Backups and before/after ref verification were retained locally; all file trees were unchanged. Automatic attribution is disabled in all four repositories. GitHub controls the refresh of cached contributor displays and retains its own pull-request refs.
 

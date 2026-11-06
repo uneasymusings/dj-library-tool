@@ -1,5 +1,22 @@
 # Validation and first-use checklist
 
+Observations below are grouped by release. Historical provider, app and hardware results are not evidence for a newer build.
+
+## 0.1.0a23 portfolio and installation checks
+
+- **Local:** 85 focused review-page, Rip, playlist, installer, preview, packaging and upgrade checks passed. Lint, formatting, frontend sync, documentation links and gallery paths passed.
+- **Installer:** complete shell runs used isolated offline package-manager stand-ins. They covered missing audio/YouTube helpers, reuse of supported helpers, music paths with spaces, no Homebrew, and the final `djlib ui` handoff. They did not change the workstation's package managers or host settings.
+- **Installed wheel:** version 0.1.0a23 imported from a separate environment outside the checkout; the Four Tet capture completed two CLI commands and a four-track crate using generated original tones.
+- **Presentation:** GitHub's Markdown API rendered one inline walkthrough, the install command and first-use steps. Automated demo checks cover the default Four Tet entry, preserved deep links, word search and rejected writes. Browser automation was unavailable for a fresh visual pass; the older screenshots below remain dated observations.
+- **Release checks:** the [a23 release notes](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a23) link the final six-platform CI run and public package verification.
+- **Limits:** this work does not establish live provider reliability, native app import/analysis, device export or physical CDJ/XDJ playback for this build.
+
+## 0.1.0a22 public presentation baseline
+
+The light-gray frontend, optional Rip/Shop panels and five terminal walkthroughs were published with [a22](https://github.com/uneasymusings/dj-library-tool/releases/tag/v0.1.0a22). Actual public-browser checks covered desktop and 390px layouts, panel dismissal and read-only actions. All twelve GIF/MP4 exports decoded, all six CI jobs passed, and the public release downloads matched their checksums. These are UI, synthetic-library and package observations; hardware playback was not tested.
+
+## Historical a6 validation summary
+
 This document separates repeatable engine checks from actual host, provider, app and hardware observations. Updated 2026-10-05 UTC for **0.1.0a6**. The public a6 release, six-job tag matrix, anonymous installation and installed a3-to-a6 demo-copy compatibility checks passed. Unpublished a4/a5 and published a3/a2 observations below are historical evidence, not new-version validation.
 
 ## a6 public release validation

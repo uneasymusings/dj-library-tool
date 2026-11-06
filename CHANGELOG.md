@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0a23
+
+- Simplify the README to one terminal walkthrough, one install path and the first-use steps; keep all five DJ examples in the gallery.
+- Open the read-only public demo directly on the Four Tet example while preserving deep links.
+- Reuse supported YouTube helpers, install missing Deno through Homebrew and finish setup with `djlib ui`.
+- Preserve workspace paths in copied commands, render USB drive labels correctly and search demo artist/title/mix words independently.
+- Preserve existing releases when tag drafting runs again. Refresh the status and validation summaries so historical observations are clearly dated.
+
+
 ## 0.1.0a22
 
 - A light-gray software interface: compact sans-serif controls, inset fields, muted status colours and small instrument readouts. It stays light regardless of OS appearance.
