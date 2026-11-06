@@ -38,6 +38,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; keeping its assets and publication state."
+            exit 0
+          fi
           release_version="${RELEASE_TAG#v}"
           gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --generate-notes --title "DJ Library Tool $RELEASE_TAG" \
             "dist/dj_library_tool-${release_version}-py3-none-any.whl" \

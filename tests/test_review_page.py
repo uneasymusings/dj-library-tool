@@ -2,6 +2,7 @@
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import zipfile
@@ -157,6 +158,19 @@ def run_page(*expressions):
 
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+
+
+@needs_node
+@pytest.mark.parametrize(
+    "workspace",
+    [None, "/Users/dj/My Music", "/Volumes/DJ's USB/catalog", "/tmp/$music;`catalog`"],
+)
+def test_copied_commands_preserve_the_workspace_as_one_shell_argument(workspace):
+    command = run_page(
+        f'(state.workspace = {json.dumps(workspace)}, commandText("rekordbox", "push", "12345678"))'
+    )[0]
+    prefix = ["djlib", "--workspace", workspace] if workspace else ["djlib"]
+    assert shlex.split(command) == prefix + ["rekordbox", "push", "12345678"]
 
 
 @needs_node
@@ -501,6 +515,7 @@ def test_page_shows_a_sets_own_source_spellings_and_mixes_like_the_terminal():
     assert shown[6] == [2, 3, 1]
 
 
+@needs_node
 def test_crate_primary_action_follows_the_unfinished_stage():
     assert run_page(
         "crateNextAction({import_recorded:false,with_bpm_and_key:3,track_count:4})",

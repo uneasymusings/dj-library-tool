@@ -37,6 +37,18 @@ vm.runInContext(`
     await form.handlers.submit({preventDefault(){}});
     await save.handlers.click();
     if (calls[2].body.latest !== 100 || location.hash !== "#/sets/request_test") throw Error("Imported the wrong selection");
+    // Completed USB checks must render the drive as a DOM node, not coerce it to text.
+    api = async () => ({track_count:4, local_files:4, with_bpm_and_key:4,
+      import_recorded:true, usb_verified_at_last_check:true,
+      usb_device:"/Volumes/DJ USB", desktop_supported:true});
+    const crate = await crateWorkflow("collection_test");
+    const textOf = node => node instanceof Node ? node.children.map(textOf).join("") : String(node);
+    const usb = crate.querySelectorAll("li").find(node => textOf(node).includes("USB files checked"));
+    if (!textOf(usb).includes(" on Volumes/DJ USB. Check again") || textOf(usb).includes("[object")) {
+      throw Error("USB check did not display its drive name");
+    }
+    const drive = usb.querySelectorAll("span").find(node => node.attributes.title === "/Volumes/DJ USB");
+    if (!drive) throw Error("USB drive lost its full path tooltip");
     return "passed";
   })();
 `, context);
