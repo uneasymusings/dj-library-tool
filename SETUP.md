@@ -14,7 +14,7 @@ The rest of this page is for the assistant. It takes a few minutes, most of it i
    curl -LsSf https://raw.githubusercontent.com/uneasymusings/dj-library-tool/main/install.sh | sh
    ```
 
-   It installs uv if needed, the newest djlib (with Shazam listening and downloads), FFmpeg through Homebrew, and the djlib plugin for Claude Code and Codex when they're installed. Running it again updates everything. On Windows, follow [installation](docs/INSTALL.md) instead. If `djlib` isn't found afterwards, use `~/.local/bin/djlib`.
+   It installs uv if needed, the newest djlib (with Shazam listening and downloads), missing FFmpeg and YouTube helpers through Homebrew, and the djlib plugin for Claude Code and Codex when they're installed. It reuses a supported Node or Deno already on PATH. Running it again updates everything. On Windows, follow [installation](docs/INSTALL.md) instead. If `djlib` isn't found afterwards, use `~/.local/bin/djlib`.
 
 2. **Index their music.** Ask where their music is (usually `~/Music`; several folders and external drives are fine). Run `djlib init FOLDER` with each folder, quoted (`djlib init ~/Music '/Volumes/DJ Drive/Music'`), then `djlib scan` in the background. Scanning reads files in place and never moves, renames or retags them; a first scan takes about 4 minutes per 1,000 tracks. `djlib status` shows the count.
 

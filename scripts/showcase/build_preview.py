@@ -45,6 +45,13 @@ ADAPTER = r""""use strict";
   const originalErrorNotice = errorNotice;
   errorNotice = error => error.code === "DEMO_READ_ONLY"
     ? notice("info", error.message) : originalErrorNotice(error);
+  // A first visit starts on one short example; deep links and the Sets tab still work.
+  const examples = catalog["/requests"]?.requests || [];
+  const example = examples.find(row => row.name === "Four Tet / Lollapalooza 2024") || examples[0];
+  if ((!location.hash || location.hash === "#/") && example) {
+    history.replaceState(null, "", location.pathname + location.search +
+      `#/sets/${encodeURIComponent(example.request_id)}`);
+  }
   await start();
 })().catch(error => {
   document.getElementById("view").textContent = "The demo could not load. Please reload the page.";
@@ -65,8 +72,10 @@ def frontend():
     page = page.replace("<title>djlib</title>", "<title>djlib / public demo</title>")
     page = page.replace(
         '<main id="view"',
-        '<aside class="demo-notice">PUBLIC DEMO · generated library · '
-        "illustrative BPM/key · downloads and device actions require the local app</aside>\n"
+        '<aside class="demo-notice">DEMO · Sample library and example BPM/key. '
+        'Check the tracklist, then Open crate. <a href="https://github.com/'
+        'uneasymusings/dj-library-tool#install" target="_blank" rel="noopener noreferrer">'
+        "Install to use your music.</a></aside>\n"
         '<main id="view"',
     )
     page = page.replace(
